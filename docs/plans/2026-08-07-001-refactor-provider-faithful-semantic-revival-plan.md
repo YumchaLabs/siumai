@@ -208,9 +208,9 @@ compatibility engine.
 - **AE9 (R10):** Anthropic request options cannot construct response-only assigned service-tier
   values. Automatic cache control, speed, inference geography, task budget, context management,
   container/skills, and MCP servers have typed provider-owned entry points.
-- **AE10 (R10, R12):** Gemini Interactions uses stable `v1`, encodes `response_modalities`, and no
-  longer sends the retired beta `response_format` shape. GenerateContent is an explicit legacy mode,
-  not the hidden default.
+- **AE10 (R10, R12):** Gemini Interactions selects stable `v1` explicitly, encodes the current
+  polymorphic `response_format` contract, and never sends deprecated `outputs` or
+  `response_mime_type` fields. GenerateContent is an explicit legacy mode, not the hidden default.
 - **AE11 (R10, R17):** Current Alibaba Qwen requests use the verified token-limit field; DeepSeek
   strict tools or prefix completion reject the stable endpoint and require explicit beta mode; ARK
   Remote MCP sends its required beta header.
@@ -587,8 +587,9 @@ sequenceDiagram
   - `https://platform.claude.com/docs/en/api/messages/create`
   - `https://platform.claude.com/docs/en/build-with-claude/prompt-caching`
   - current service-tier, fast-mode, task-budget, MCP, Files, Batches, Token Counting, and Skills docs
-- Gemini official documentation, verified 2026-08-07:
-  - current Interactions, GenerateContent, embeddings, Files, TTS, Veo, and Live API documentation
+- Gemini official documentation, verified 2026-08-08:
+  - current Interactions overview, migration guide, stable-v1 reference/OpenAPI, GenerateContent,
+    embeddings, Files, TTS, Veo, and Live API documentation
 - xAI and Groq official documentation, verified 2026-08-07:
   - `https://docs.x.ai/developers/tools/files`
   - current xAI image, video, speech, transcription, realtime, and batch references
@@ -990,8 +991,9 @@ sequenceDiagram
   - Replace `GoogleImageProvider` and all compatibility aliases with `GeminiProvider`. The provider
     owns credentials, endpoint policy, model advice, options, family factories, native resources,
     and support claims.
-  - Correct the existing image slice to stable `v1` Interactions and GA field names before adding
-    other families.
+  - Correct the existing image slice to stable `v1` Interactions and the current polymorphic
+    `response_format` contract before adding other families. Reject deprecated `outputs` and
+    `response_mime_type` fields at the typed boundary.
   - Add Interactions `LanguageModel` as the primary current mode with explicit storage policy; keep
     GenerateContent as an explicit legacy-but-supported mode for capabilities not yet available in
     Interactions.
@@ -1005,8 +1007,8 @@ sequenceDiagram
   - Merge per-family registration bindings through existing `ProviderRegistration` behavior; do not
     change Registry architecture.
 - **Test scenarios:**
-  - Stable Interactions direct and SSE fixtures use `v1`, current response modalities, canonical
-    terminal settlement, and no retired beta fields.
+  - Stable Interactions direct and SSE fixtures use `v1`, current `response_format` variants,
+    canonical terminal settlement, and no deprecated `outputs` or `response_mime_type` fields.
   - GenerateContent is selected only through an explicit API mode and carries an upstream Legacy
     claim.
   - Language, embedding, image, and speech each have one representative portable fixture; Files and
