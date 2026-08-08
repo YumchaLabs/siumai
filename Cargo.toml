@@ -17,6 +17,7 @@ members = [
     "siumai-protocol-openai",
     "siumai-provider-anthropic",
     "siumai-protocol-anthropic",
+    "siumai-protocol-gemini",
     "siumai-provider-gemini",
     "siumai-provider-google-vertex",
     "siumai-provider-groq",
@@ -85,6 +86,7 @@ infer = "0.19"
 siumai-core = { version = "0.11.0-beta.9", path = "siumai-core", default-features = false }
 siumai-anthropic-compatible = { version = "0.11.0-beta.9", path = "siumai-anthropic-compatible", default-features = false }
 siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "siumai-protocol-anthropic", default-features = false }
+siumai-protocol-gemini = { version = "0.11.0-beta.9", path = "siumai-protocol-gemini", default-features = false }
 siumai-protocol-openai = { version = "0.11.0-beta.9", path = "siumai-protocol-openai", default-features = false }
 siumai-transport = { version = "0.11.0-beta.9", path = "siumai-transport", default-features = false }
 siumai-runtime = { version = "0.11.0-beta.9", path = "siumai-runtime", default-features = false }

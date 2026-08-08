@@ -2,43 +2,44 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use base64::Engine as _;
 use http::header::{ACCEPT, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
-    ImageRequest, ImageResponse, MediaData, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
-    ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, ResourceKind, ResponseDiagnostics, ResponseMetadata, SensitiveResponse,
-    SupportState, Usage, Warning, WarningKind,
+    CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
+    ImageResponse, Model, ModelAdvisory, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
+    ModelPolicy, ModelPolicyDecision, ProviderOptionContext, ProviderOptionError,
+    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
+    ResponseDiagnostics, SensitiveResponse, SupportState, Warning, WarningKind,
+};
+use siumai_protocol_gemini::interactions::{
+    ImageAspectRatio as ProtocolImageAspectRatio, ImageMimeType as ProtocolImageMimeType,
+    ImageResponseFormat, ImageSize as ProtocolImageSize, STABLE_V1_CREATE_TARGET,
+    decode_image_response, encode_image_request,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders,
     TransportResponse,
 };
 
-use super::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_PRO_IMAGE};
-use super::options::{GoogleImageAspectRatio, GoogleImageOptions, GoogleImageSize};
-use super::provider::ProviderRuntime;
+use crate::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_PRO_IMAGE};
+use crate::options::{GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize};
+use crate::provider::ProviderRuntime;
 
 const MAX_IMAGES_PER_CALL: u32 = 1;
-const DEFAULT_MEDIA_TYPE: &str = "image/png";
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
 
 /// Lightweight Gemini image handle sharing one configured Google runtime.
 #[derive(Clone)]
-pub struct GoogleImageModel {
+pub struct GeminiImageModel {
     runtime: Arc<ProviderRuntime>,
     descriptor: ModelDescriptor,
 }
 
-impl GoogleImageModel {
+impl GeminiImageModel {
     pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
         let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Image);
+            ModelDescriptor::from_scope(runtime.image_scope.clone(), model, ModelFamily::Image);
         Self {
             runtime,
             descriptor,
@@ -48,23 +49,23 @@ impl GoogleImageModel {
     fn policy(&self) -> Result<(ModelPolicyDecision, Vec<Warning>), Error> {
         let decision = self
             .runtime
-            .policy
+            .image_policy
             .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.runtime.scope.clone(),
+                self.runtime.image_scope.clone(),
                 self.model_id().clone(),
                 ModelOperation::GenerateImage,
             ));
         if let SupportState::Unsupported { .. } = decision.state() {
             return Err(self.contextualize(Error::new(
                 ErrorKind::Unsupported,
-                "model policy rejected the Google Interactions image operation",
+                "model policy rejected the Gemini Interactions image operation",
             )));
         }
         let warnings = decision.advisories().iter().map(advisory_warning).collect();
         Ok((decision, warnings))
     }
 
-    fn options(&self, call: &CallOptions) -> Result<GoogleImageOptions, Error> {
+    fn options(&self, call: &CallOptions) -> Result<GeminiImageOptions, Error> {
         let layers = call
             .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
             .map_err(option_error)?;
@@ -75,8 +76,8 @@ impl GoogleImageModel {
                     ModelFamily::Image,
                     self.descriptor.scope().api_mode(),
                 ),
-                &GoogleImageOptionMerger {
-                    defaults: self.runtime.default_options.clone(),
+                &GeminiImageOptionMerger {
+                    defaults: self.runtime.image_defaults.clone(),
                 },
             )
             .map_err(option_error)
@@ -85,31 +86,33 @@ impl GoogleImageModel {
     fn plan(
         &self,
         request: &ImageRequest,
-        options: GoogleImageOptions,
+        options: GeminiImageOptions,
     ) -> Result<RequestPlan, Error> {
         if request.size().is_some() {
             return Err(Error::new(
                 ErrorKind::Unsupported,
-                "Google Interactions image models use typed image-size tiers instead of portable pixel dimensions",
+                "Gemini Interactions image models use typed image-size tiers instead of portable pixel dimensions",
             ));
         }
         validate_model_options(self.model_id(), &options)?;
-        let body = InteractionRequest {
-            model: self.model_id().as_str(),
-            input: request.prompt(),
-            response_format: [InteractionImageFormat {
-                kind: "image",
-                mime_type: requested_media_type(request.format())?,
-                aspect_ratio: options.aspect_ratio.map(GoogleImageAspectRatio::as_wire),
-                image_size: options.image_size.map(GoogleImageSize::as_wire),
-            }],
-        };
+        let mut response_format = ImageResponseFormat::new();
+        if let Some(mime_type) = requested_media_type(request.format())? {
+            response_format = response_format.with_mime_type(mime_type);
+        }
+        if let Some(aspect_ratio) = options.aspect_ratio {
+            response_format =
+                response_format.with_aspect_ratio(protocol_aspect_ratio(aspect_ratio));
+        }
+        if let Some(image_size) = options.image_size {
+            response_format = response_format.with_image_size(protocol_image_size(image_size));
+        }
+        let body = encode_image_request(self.model_id(), request.prompt(), &response_format)?;
         let headers = RequestHeaders::new()
             .try_insert(ACCEPT, HeaderValue::from_static("application/json"))
             .map_err(request_build_error)?;
         RequestPlan::new(
             Method::POST,
-            RequestTarget::new("interactions").map_err(request_build_error)?,
+            RequestTarget::new(STABLE_V1_CREATE_TARGET).map_err(request_build_error)?,
         )
         .with_headers(headers)
         .with_body(RequestBody::json(&body).map_err(request_build_error)?)
@@ -127,23 +130,23 @@ impl GoogleImageModel {
     }
 }
 
-impl std::fmt::Debug for GoogleImageModel {
+impl std::fmt::Debug for GeminiImageModel {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("GoogleImageModel")
+            .debug_struct("GeminiImageModel")
             .field("descriptor", &self.descriptor)
             .finish()
     }
 }
 
-impl Model for GoogleImageModel {
+impl Model for GeminiImageModel {
     fn descriptor(&self) -> &ModelDescriptor {
         &self.descriptor
     }
 }
 
 #[async_trait]
-impl ImageModel for GoogleImageModel {
+impl ImageModel for GeminiImageModel {
     fn limits(&self) -> ImageLimits {
         ImageLimits {
             max_outputs_per_call: Some(MAX_IMAGES_PER_CALL),
@@ -174,256 +177,24 @@ impl ImageModel for GoogleImageModel {
         if !response.status().is_success() {
             return Err(self.contextualize(provider_status_error(response)));
         }
-        decode_response(self.model_id(), &request, response, warnings)
-            .map_err(|error| self.contextualize(error))
+        let (_, headers, body) = response.into_parts();
+        let request_id = response_request_id(&headers);
+        let decoded =
+            decode_image_response(&body, self.model_id(), request_id.as_deref(), warnings)
+                .map_err(|error| self.contextualize(error))?;
+        decoded
+            .validate(&request)
+            .map_err(|error| self.contextualize(error))?;
+        Ok(decoded)
     }
 }
 
-#[derive(Serialize)]
-struct InteractionRequest<'a> {
-    model: &'a str,
-    input: &'a str,
-    response_format: [InteractionImageFormat<'a>; 1],
-}
-
-#[derive(Serialize)]
-struct InteractionImageFormat<'a> {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mime_type: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    aspect_ratio: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    image_size: Option<&'static str>,
-}
-
-#[derive(Deserialize)]
-struct InteractionResponse {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    model: Option<String>,
-    status: String,
-    #[serde(default)]
-    steps: Vec<InteractionStep>,
-    #[serde(default)]
-    usage: Option<InteractionUsage>,
-    #[serde(default)]
-    service_tier: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct InteractionStep {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    content: Vec<InteractionContent>,
-}
-
-#[derive(Deserialize)]
-struct InteractionContent {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    data: Option<String>,
-    #[serde(default)]
-    mime_type: Option<String>,
-    #[serde(default)]
-    uri: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct InteractionUsage {
-    #[serde(default)]
-    total_input_tokens: Option<u64>,
-    #[serde(default)]
-    total_output_tokens: Option<u64>,
-    #[serde(default)]
-    total_thought_tokens: Option<u64>,
-    #[serde(default)]
-    total_cached_tokens: Option<u64>,
-    #[serde(default)]
-    total_tool_use_tokens: Option<u64>,
-    #[serde(default)]
-    total_tokens: Option<u64>,
-    #[serde(default)]
-    input_tokens_by_modality: Option<Value>,
-    #[serde(default)]
-    output_tokens_by_modality: Option<Value>,
-    #[serde(default)]
-    cached_tokens_by_modality: Option<Value>,
-    #[serde(default)]
-    tool_use_tokens_by_modality: Option<Value>,
-}
-
-fn decode_response(
-    requested_model: &ModelId,
-    request: &ImageRequest,
-    response: TransportResponse,
-    mut warnings: Vec<Warning>,
-) -> Result<ImageResponse, Error> {
-    let (_, headers, body) = response.into_parts();
-    let request_id = response_request_id(&headers);
-    let decoded: InteractionResponse = serde_json::from_slice(&body).map_err(|source| {
-        let truncated = body.len() > ERROR_CAPTURE_BYTES;
-        let captured = body[..body.len().min(ERROR_CAPTURE_BYTES)].to_vec();
-        Error::new(
-            ErrorKind::Protocol,
-            "Google returned malformed Interactions JSON",
-        )
-        .with_source(source)
-        .with_diagnostics(ResponseDiagnostics::default().with_body_truncated(truncated))
-        .with_sensitive_response(SensitiveResponse::new(BTreeMap::new(), captured))
-    })?;
-    validate_terminal_status(&decoded.status)?;
-
-    let mut images = Vec::new();
-    for content in decoded
-        .steps
-        .into_iter()
-        .filter(|step| step.kind == "model_output")
-        .flat_map(|step| step.content)
-        .filter(|content| content.kind == "image")
-    {
-        images.push(decode_image(content)?);
-    }
-
-    let mut provider = BTreeMap::new();
-    if images.len() > 1 {
-        provider.insert(
-            "google.image_block_count".to_string(),
-            Value::from(images.len() as u64),
-        );
-        warnings.push(Warning::provider(
-            "multiple_image_outputs",
-            "Google returned multiple image blocks; the final block was selected",
-        ));
-        let final_image = images.pop().expect("image collection is non-empty");
-        images.clear();
-        images.push(final_image);
-    }
-    provider.insert("google.status".to_string(), Value::from(decoded.status));
-    if let Some(service_tier) = decoded.service_tier {
-        provider.insert("google.service_tier".to_string(), Value::from(service_tier));
-    }
-    let model = match decoded.model {
-        Some(model) => Some(ModelId::new(model).map_err(|source| {
-            Error::protocol_violation("Google returned an invalid model identifier")
-                .with_source(source)
-        })?),
-        None => Some(requested_model.clone()),
-    };
-    let response = ImageResponse {
-        images,
-        metadata: ResponseMetadata {
-            response_id: decoded.id,
-            request_id,
-            model,
-        },
-        usage: decode_usage(decoded.usage),
-        warnings,
-        provider,
-    };
-    response.validate(request)?;
-    Ok(response)
-}
-
-fn decode_image(content: InteractionContent) -> Result<ImageArtifact, Error> {
-    let media_type = content
-        .mime_type
-        .unwrap_or_else(|| DEFAULT_MEDIA_TYPE.to_string());
-    if !media_type.starts_with("image/") {
-        return Err(Error::protocol_violation(
-            "Google returned a non-image media type in an image block",
-        ));
-    }
-    let data = match (content.data, content.uri) {
-        (Some(encoded), _) => MediaData::Bytes(
-            base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|source| {
-                    Error::protocol_violation(
-                        "Google returned invalid base64 data in an image block",
-                    )
-                    .with_source(source)
-                })?
-                .into(),
-        ),
-        (None, Some(uri)) if !uri.trim().is_empty() => MediaData::Url(uri),
-        _ => {
-            return Err(Error::protocol_violation(
-                "Google returned an image block without data or URI",
-            ));
-        }
-    };
-    Ok(ImageArtifact {
-        media_type,
-        data,
-        revised_prompt: None,
-    })
-}
-
-fn decode_usage(wire: Option<InteractionUsage>) -> Usage {
-    let Some(wire) = wire else {
-        return Usage::default();
-    };
-    let mut usage = Usage::default()
-        .with_input_tokens(wire.total_input_tokens)
-        .with_output_tokens(wire.total_output_tokens)
-        .with_total_tokens(wire.total_tokens)
-        .with_reasoning_tokens(wire.total_thought_tokens)
-        .with_cache_read_tokens(wire.total_cached_tokens)
-        .with_orchestration_tokens(wire.total_tool_use_tokens);
-    for (name, value) in [
-        (
-            "google.input_tokens_by_modality",
-            wire.input_tokens_by_modality,
-        ),
-        (
-            "google.output_tokens_by_modality",
-            wire.output_tokens_by_modality,
-        ),
-        (
-            "google.cached_tokens_by_modality",
-            wire.cached_tokens_by_modality,
-        ),
-        (
-            "google.tool_use_tokens_by_modality",
-            wire.tool_use_tokens_by_modality,
-        ),
-    ] {
-        if let Some(value) = value {
-            usage = usage.with_provider_value(name, value);
-        }
-    }
-    usage
-}
-
-fn validate_terminal_status(status: &str) -> Result<(), Error> {
-    match status {
-        "completed" => Ok(()),
-        "cancelled" => Err(Error::cancelled("Google cancelled the image interaction")),
-        "incomplete" => Err(Error::partial_result(ResourceKind::ImageOutputs, 1, 0)),
-        "failed" => Err(Error::new(
-            ErrorKind::Provider,
-            "Google reported a failed image interaction",
-        )),
-        "in_progress" | "requires_action" => Err(Error::protocol_violation(
-            "Google returned a non-terminal image interaction",
-        )),
-        _ => Err(Error::protocol_violation(
-            "Google returned an unknown interaction status",
-        )),
-    }
-}
-
-fn validate_model_options(model: &ModelId, options: &GoogleImageOptions) -> Result<(), Error> {
+fn validate_model_options(model: &ModelId, options: &GeminiImageOptions) -> Result<(), Error> {
     let model = model.as_str();
     if model == GEMINI_3_1_FLASH_LITE_IMAGE {
         if options
             .image_size
-            .is_some_and(|size| size != GoogleImageSize::OneK)
+            .is_some_and(|size| size != GeminiImageSize::OneK)
         {
             return Err(Error::new(
                 ErrorKind::Unsupported,
@@ -432,7 +203,7 @@ fn validate_model_options(model: &ModelId, options: &GoogleImageOptions) -> Resu
         }
         if options
             .aspect_ratio
-            .is_some_and(GoogleImageAspectRatio::is_extended)
+            .is_some_and(GeminiImageAspectRatio::is_extended)
         {
             return Err(Error::new(
                 ErrorKind::Unsupported,
@@ -441,7 +212,7 @@ fn validate_model_options(model: &ModelId, options: &GoogleImageOptions) -> Resu
         }
     }
     if model == GEMINI_3_PRO_IMAGE {
-        if options.image_size == Some(GoogleImageSize::Pixels512) {
+        if options.image_size == Some(GeminiImageSize::Pixels512) {
             return Err(Error::new(
                 ErrorKind::Unsupported,
                 "Gemini 3 Pro Image does not support the 512 image-size tier",
@@ -449,7 +220,7 @@ fn validate_model_options(model: &ModelId, options: &GoogleImageOptions) -> Resu
         }
         if options
             .aspect_ratio
-            .is_some_and(GoogleImageAspectRatio::is_extended)
+            .is_some_and(GeminiImageAspectRatio::is_extended)
         {
             return Err(Error::new(
                 ErrorKind::Unsupported,
@@ -463,24 +234,55 @@ fn validate_model_options(model: &ModelId, options: &GoogleImageOptions) -> Resu
     Ok(())
 }
 
-fn requested_media_type(format: Option<&str>) -> Result<Option<&'static str>, Error> {
+fn requested_media_type(format: Option<&str>) -> Result<Option<ProtocolImageMimeType>, Error> {
     match format.map(str::to_ascii_lowercase).as_deref() {
         None => Ok(None),
-        Some("png" | "image/png") => Ok(Some("image/png")),
-        Some("jpg" | "jpeg" | "image/jpeg") => Ok(Some("image/jpeg")),
+        Some("jpg" | "jpeg" | "image/jpeg") => Ok(Some(ProtocolImageMimeType::Jpeg)),
         Some(_) => Err(Error::new(
             ErrorKind::Unsupported,
-            "Google Interactions image models support PNG or JPEG output",
+            "stable-v1 Gemini Interactions accepts only explicit JPEG image output",
         )),
     }
 }
 
-struct GoogleImageOptionMerger {
-    defaults: GoogleImageOptions,
+fn protocol_aspect_ratio(value: GeminiImageAspectRatio) -> ProtocolImageAspectRatio {
+    match value {
+        GeminiImageAspectRatio::Square => ProtocolImageAspectRatio::Square,
+        GeminiImageAspectRatio::PortraitOneFour => ProtocolImageAspectRatio::PortraitOneFour,
+        GeminiImageAspectRatio::PortraitOneEight => ProtocolImageAspectRatio::PortraitOneEight,
+        GeminiImageAspectRatio::PortraitTwoThree => ProtocolImageAspectRatio::PortraitTwoThree,
+        GeminiImageAspectRatio::LandscapeThreeTwo => ProtocolImageAspectRatio::LandscapeThreeTwo,
+        GeminiImageAspectRatio::PortraitThreeFour => ProtocolImageAspectRatio::PortraitThreeFour,
+        GeminiImageAspectRatio::LandscapeFourOne => ProtocolImageAspectRatio::LandscapeFourOne,
+        GeminiImageAspectRatio::LandscapeFourThree => ProtocolImageAspectRatio::LandscapeFourThree,
+        GeminiImageAspectRatio::PortraitFourFive => ProtocolImageAspectRatio::PortraitFourFive,
+        GeminiImageAspectRatio::LandscapeFiveFour => ProtocolImageAspectRatio::LandscapeFiveFour,
+        GeminiImageAspectRatio::LandscapeEightOne => ProtocolImageAspectRatio::LandscapeEightOne,
+        GeminiImageAspectRatio::PortraitNineSixteen => {
+            ProtocolImageAspectRatio::PortraitNineSixteen
+        }
+        GeminiImageAspectRatio::LandscapeSixteenNine => {
+            ProtocolImageAspectRatio::LandscapeSixteenNine
+        }
+        GeminiImageAspectRatio::Ultrawide => ProtocolImageAspectRatio::Ultrawide,
+    }
 }
 
-impl ProviderOptionMerger for GoogleImageOptionMerger {
-    type Output = GoogleImageOptions;
+fn protocol_image_size(value: GeminiImageSize) -> ProtocolImageSize {
+    match value {
+        GeminiImageSize::Pixels512 => ProtocolImageSize::Pixels512,
+        GeminiImageSize::OneK => ProtocolImageSize::OneK,
+        GeminiImageSize::TwoK => ProtocolImageSize::TwoK,
+        GeminiImageSize::FourK => ProtocolImageSize::FourK,
+    }
+}
+
+struct GeminiImageOptionMerger {
+    defaults: GeminiImageOptions,
+}
+
+impl ProviderOptionMerger for GeminiImageOptionMerger {
+    type Output = GeminiImageOptions;
 
     fn validate_layer(
         &self,
@@ -505,11 +307,11 @@ impl ProviderOptionMerger for GoogleImageOptionMerger {
     }
 }
 
-fn decode_options(options: &ProviderOptions) -> Result<GoogleImageOptions, ProviderOptionError> {
+fn decode_options(options: &ProviderOptions) -> Result<GeminiImageOptions, ProviderOptionError> {
     serde_json::from_value(Value::Object(options.value().clone())).map_err(|_| {
         ProviderOptionError::Rejected {
             path: "google".to_string(),
-            reason: "options do not match the Google Interactions image schema".to_string(),
+            reason: "options do not match the Gemini Interactions image schema".to_string(),
         }
     })
 }
@@ -518,27 +320,27 @@ fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
     match advisory {
         ModelAdvisory::UnknownModel => Warning::new(
             WarningKind::UnknownModel,
-            "model is absent from the current Google image advisory catalog",
+            "model is absent from the current Gemini image advisory catalog",
         ),
         ModelAdvisory::Deprecated { .. } => Warning::new(
             WarningKind::DeprecatedModel,
-            "Google image model is deprecated",
+            "Gemini image model is deprecated",
         ),
         ModelAdvisory::Retired { .. } => {
-            Warning::new(WarningKind::RetiredModel, "Google image model is retired")
+            Warning::new(WarningKind::RetiredModel, "Gemini image model is retired")
         }
         ModelAdvisory::RollingAlias => Warning::new(
             WarningKind::RollingModelAlias,
-            "Google image model ID is a rolling alias",
+            "Gemini image model ID is a rolling alias",
         ),
-        _ => Warning::provider("model_advisory", "Google returned a model advisory"),
+        _ => Warning::provider("model_advisory", "Gemini returned a model advisory"),
     }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {
     Error::new(
         ErrorKind::InvalidInput,
-        "provider options are invalid for Google Interactions image generation",
+        "provider options are invalid for Gemini Interactions image generation",
     )
     .with_source(source)
 }
@@ -546,7 +348,7 @@ fn option_error(source: ProviderOptionError) -> Error {
 fn request_build_error(source: siumai_transport::RequestBuildError) -> Error {
     Error::new(
         ErrorKind::InvalidInput,
-        "Google Interactions request violates the transport contract",
+        "Gemini Interactions request violates the transport contract",
     )
     .with_source(source)
 }
@@ -563,7 +365,7 @@ fn provider_status_error(response: TransportResponse) -> Error {
     let raw_headers = response_headers(&headers);
     let truncated = body.len() > ERROR_CAPTURE_BYTES;
     let captured = body[..body.len().min(ERROR_CAPTURE_BYTES)].to_vec();
-    Error::new(kind, "Google rejected the Interactions image request")
+    Error::new(kind, "Gemini rejected the Interactions image request")
         .with_diagnostics(
             ResponseDiagnostics::default()
                 .with_status(status.as_u16())
@@ -602,19 +404,22 @@ mod tests {
 
     use base64::Engine as _;
     use siumai_core::{
-        ApiStability, Cancellation, ErrorDetail, ImageModel, Model, ModelId, ProviderOptions,
-        ResourceKind, UsageValue, VerifiedFidelity,
+        ApiStability, Cancellation, ErrorDetail, ImageModel, MediaData, Model, ModelId,
+        ProviderOptions, ReplayDomain, ReplayDomainId, ResourceKind, UsageValue, VerifiedFidelity,
     };
     use siumai_transport::EndpointConfig;
 
     use super::*;
-    use crate::{GoogleCredential, GoogleImageProvider};
+    use crate::{GeminiCredential, GeminiProvider};
 
     const MODEL: &str = GEMINI_3_1_FLASH_IMAGE;
 
-    fn provider(base_url: String) -> GoogleImageProvider {
-        GoogleImageProvider::builder(GoogleCredential::api_key("test-key"))
+    fn provider(base_url: String) -> GeminiProvider {
+        GeminiProvider::builder(GeminiCredential::api_key("test-key"))
             .with_endpoint(EndpointConfig::local_explicit(base_url).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("gemini-test-endpoint").unwrap(),
+            ))
             .build()
             .unwrap()
     }
@@ -649,10 +454,10 @@ mod tests {
     #[tokio::test]
     async fn invalid_configuration_and_portable_mismatches_fail_before_transport() {
         assert!(matches!(
-            GoogleImageProvider::builder(GoogleCredential::api_key("bad\nkey")).build(),
-            Err(crate::GoogleImageConfigError::InvalidCredential)
+            GeminiProvider::builder(GeminiCredential::api_key("bad\nkey")).build(),
+            Err(crate::GeminiConfigError::InvalidCredential)
         ));
-        let provider = provider("http://127.0.0.1:9/v1beta".to_string());
+        let provider = provider("http://127.0.0.1:9".to_string());
         let model = provider.image(MODEL).unwrap();
 
         let count_error = model
@@ -696,17 +501,17 @@ mod tests {
         }
 
         let future = provider.image("future-google-image-model").unwrap();
-        assert_eq!(future.descriptor().api_mode(), Some("interactions-image"));
+        assert_eq!(future.descriptor().api_mode(), Some("interactions"));
         assert_eq!(
             future
                 .plan(
                     &ImageRequest::new("mountains").unwrap(),
-                    GoogleImageOptions::default(),
+                    GeminiImageOptions::default(),
                 )
                 .unwrap()
                 .target()
                 .as_str(),
-            "interactions"
+            "v1/interactions"
         );
     }
 
@@ -714,7 +519,7 @@ mod tests {
     async fn direct_and_registration_paths_share_the_interactions_contract() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/v1beta/interactions")
+            .mock("POST", "/v1/interactions")
             .match_header("x-goog-api-key", "test-key")
             .match_header("accept", "application/json")
             .match_body(mockito::Matcher::AllOf(vec![
@@ -732,15 +537,15 @@ mod tests {
             .expect(2)
             .create_async()
             .await;
-        let provider = provider(format!("{}/v1beta", server.url()));
+        let provider = provider(server.url());
         let request = ImageRequest::new("mountains")
             .unwrap()
             .with_format("jpeg")
             .unwrap();
         let typed = ProviderOptions::typed(
-            &GoogleImageOptions::new()
-                .with_aspect_ratio(GoogleImageAspectRatio::LandscapeSixteenNine)
-                .with_image_size(GoogleImageSize::TwoK),
+            &GeminiImageOptions::new()
+                .with_aspect_ratio(GeminiImageAspectRatio::LandscapeSixteenNine)
+                .with_image_size(GeminiImageSize::TwoK),
         )
         .unwrap();
         let call = CallOptions::default().with_provider_options(typed);
@@ -773,17 +578,23 @@ mod tests {
 
     #[test]
     fn profiles_distinguish_official_evidence_from_custom_compatibility() {
-        let current = super::super::GoogleImageProfile::current().unwrap();
+        let current = crate::GeminiProfile::current(ReplayDomain::official(
+            ReplayDomainId::new("google-gemini-api").unwrap(),
+        ))
+        .unwrap();
         let claims = current.provider_profile().verified_claims().unwrap();
         assert_eq!(claims.len(), 1);
         assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
-        assert_eq!(claims[0].stability(), ApiStability::Experimental);
+        assert_eq!(claims[0].stability(), ApiStability::Stable);
         assert_eq!(
             current.provider_profile().catalog().unwrap().iter().count(),
             3
         );
 
-        let custom = super::super::GoogleImageProfile::custom().unwrap();
+        let custom = crate::GeminiProfile::custom(ReplayDomain::custom(
+            ReplayDomainId::new("gemini-test-endpoint").unwrap(),
+        ))
+        .unwrap();
         assert!(custom.provider_profile().verified_claims().is_none());
         assert_eq!(custom.provider_profile().generic_claims().unwrap().len(), 1);
     }
@@ -792,7 +603,7 @@ mod tests {
     async fn uri_output_and_unknown_usage_remain_representable() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/v1beta/interactions")
+            .mock("POST", "/v1/interactions")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -813,7 +624,7 @@ mod tests {
             .expect(1)
             .create_async()
             .await;
-        let response = provider(format!("{}/v1beta", server.url()))
+        let response = provider(server.url())
             .image(MODEL)
             .unwrap()
             .generate_image(
@@ -832,10 +643,10 @@ mod tests {
 
     #[tokio::test]
     async fn model_specific_options_and_cancellation_are_checked_locally() {
-        let provider = provider("http://127.0.0.1:9/v1beta".to_string());
+        let provider = provider("http://127.0.0.1:9".to_string());
         let lite = provider.image(GEMINI_3_1_FLASH_LITE_IMAGE).unwrap();
         let options = ProviderOptions::typed(
-            &GoogleImageOptions::new().with_image_size(GoogleImageSize::FourK),
+            &GeminiImageOptions::new().with_image_size(GeminiImageSize::FourK),
         )
         .unwrap();
         assert_eq!(
@@ -870,14 +681,14 @@ mod tests {
     async fn provider_errors_are_sanitized_and_never_replayed() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/v1beta/interactions")
+            .mock("POST", "/v1/interactions")
             .with_status(500)
             .with_header("x-request-id", "canary-header-secret")
             .with_body("canary-body-secret")
             .expect(1)
             .create_async()
             .await;
-        let error = provider(format!("{}/v1beta", server.url()))
+        let error = provider(server.url())
             .image(MODEL)
             .unwrap()
             .generate_image(
@@ -899,7 +710,7 @@ mod tests {
 
     #[test]
     fn default_timeout_builder_remains_network_free() {
-        let provider = GoogleImageProvider::builder(GoogleCredential::unauthenticated())
+        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
             .with_call_timeout(Duration::from_secs(3))
             .build()
             .unwrap();
@@ -908,6 +719,6 @@ mod tests {
             .provider_profile()
             .verified_claims()
             .unwrap()[0];
-        assert_eq!(claim.scope().api_mode().as_str(), "interactions-image");
+        assert_eq!(claim.scope().api_mode().as_str(), "interactions");
     }
 }

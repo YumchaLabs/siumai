@@ -121,7 +121,7 @@ impl ProviderRegistrationSource for siumai_openai_compatible::OpenAiCompatiblePr
 }
 
 #[cfg(feature = "google")]
-impl ProviderRegistrationSource for siumai_provider_gemini::GoogleImageProvider {
+impl ProviderRegistrationSource for siumai_provider_gemini::GeminiProvider {
     fn provider_registration(&self) -> Result<ProviderRegistration, RegisterProviderError> {
         Ok(self.registration())
     }

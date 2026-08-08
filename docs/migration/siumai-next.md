@@ -365,9 +365,9 @@ or a temporary hidden feature:
 
 - Azure OpenAI, Amazon Bedrock, AI Gateway, Ollama, and Together AI are no longer in the workspace,
   facade, or release feature graph. They can return only as clean provider implementations.
-- `google` now means the experimental configured Gemini Interactions image provider only. The
-  deprecated Imagen `:predict` path and legacy Gemini language, Live, files, generated-content
-  clients, and broad Vertex media surfaces are gone.
+- `google` now owns a product-level `GeminiProvider`; it no longer exposes an image-shaped provider
+  identity. The current portable slice is stable-v1 Interactions image generation. The deprecated
+  Imagen `:predict` path and the old broad Gemini/Vertex clients remain removed.
 - Anthropic Messages on Vertex is available separately through the
   `google-vertex-anthropic` feature and `providers::google_vertex_anthropic`. Its project and
   location inputs are technical addressing data, not availability metadata.
@@ -394,6 +394,24 @@ traits, provider capability switches, provider-specific feature flags in core, c
 builders, completion aliases, and duplicate request/response type systems do not have replacement
 aliases. Migrate directly to configured providers, family models, typed options, and typed
 annotations.
+
+The Gemini image migration is intentionally alias-free:
+
+| Removed | Replacement |
+|---|---|
+| `GoogleImageProvider` | `GeminiProvider` |
+| `GoogleImageProviderBuilder` | `GeminiProviderBuilder` |
+| `GoogleCredential` | `GeminiCredential` |
+| `GoogleImageModel` | `GeminiImageModel` |
+| `GoogleImageOptions` | `GeminiImageOptions` |
+| `GoogleImageAspectRatio` | `GeminiImageAspectRatio` |
+| `GoogleImageSize` | `GeminiImageSize` |
+| `current_models()` | `current_image_models()` |
+
+Gemini Interactions wire types now belong to `siumai-protocol-gemini`. Requests use the stable
+`v1/interactions` target and the current polymorphic `response_format` object. Caller-controlled
+Gemini endpoints require an explicit custom `ReplayDomain` and cannot inherit Google's verified
+support evidence.
 
 The former Google `gcp` credential helper is also removed. Supply a short-lived access token with
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token

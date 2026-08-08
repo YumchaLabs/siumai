@@ -11,6 +11,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Added explicit `google-vertex-anthropic` facade and Registry integration without an SDK-owned region or model-availability catalog.
 - Added dated native support profiles for Cohere v2 embedding/rerank and Deepgram prerecorded transcription, including current Embed v4, Rerank v4/v3, and Nova-3/Nova-2 model hints.
 - Added provider-owned support manifests for composite portable and native surfaces, including an exact Groq transcription claim and a dated facade support matrix.
+- Added `siumai-protocol-gemini` as the wire owner for stable-v1 Gemini Interactions.
 
 ### Changed
 
@@ -21,6 +22,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Made `ModelOperation` determine its model family, hid shared `Arc` storage from public scope accessors and policy contexts, added family projection for combined registrations, and made facade provider registration return a typed error for native-resource-only configurations.
 - Reworked Alibaba construction around caller-supplied workspace/family endpoints and named legacy Singapore opt-ins instead of SDK-maintained regions or a separate DashScope provider identity.
 - Reduced CI and local automation to focused Python orchestration, repository schema checks, one fast package lane, and one serial workspace/all-features release lane.
+- Replaced the image-shaped `GoogleImage*` public surface with product-level `Gemini*` types, moved
+  Interactions image encoding and decoding into the protocol crate, and made caller-controlled
+  endpoints require a custom replay audience.
 
 ### Removed
 

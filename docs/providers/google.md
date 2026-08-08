@@ -1,26 +1,25 @@
-# Google Image Provider Support
+# Google Gemini Provider Support
 
 - Provider identity: `google`
 - Technical platform: `gemini-api`
-- API mode: `interactions-image`
-- Evidence verified: 2026-08-06
-- Public stability: experimental
+- Current portable family: Image
+- Protocol / API mode: `gemini-interactions` / `interactions`
+- API version: stable `v1`
+- Evidence verified: 2026-08-08
+- Public stability: stable
 - Facade feature: `google`
-- Owning crate: `siumai-provider-gemini`
+- Provider crate: `siumai-provider-gemini`
+- Protocol crate: `siumai-protocol-gemini`
 
-This provider is intentionally narrower than the Gemini product. It implements image generation
-through the beta Interactions API and does not claim Gemini language, Live, files, or Vertex media
-support.
-
-## Construction and model access
-
-`GoogleImageProvider` is long-lived, model-independent, synchronously configured, and network-free:
+`GeminiProvider` is the long-lived product owner. Public types use Gemini product terminology;
+`google` remains the provider identity, facade feature, and typed provider-options namespace.
+The configured provider is model-independent, synchronously constructed, and network-free.
 
 ```rust,no_run
-use siumai::providers::google::{GoogleCredential, GoogleImageProvider};
 use siumai::providers::google::models::GEMINI_3_1_FLASH_IMAGE;
+use siumai::providers::google::{GeminiCredential, GeminiProvider};
 
-let provider = GoogleImageProvider::builder(GoogleCredential::api_key(
+let provider = GeminiProvider::builder(GeminiCredential::api_key(
     std::env::var("GEMINI_API_KEY")?,
 ))
 .build()?;
@@ -33,44 +32,57 @@ Known model constants are dated hints, not an allowlist. Unknown future model ID
 constructible with protocol-baseline behavior; Siumai does not infer model-specific controls from
 their names.
 
-## Image contract
+## Stable Interactions image contract
 
-The provider implements the shared `ImageModel` family with one requested output per call. Portable
-PNG and JPEG format requests map to the Interactions image response format. Arbitrary pixel
-dimensions are rejected because the remote API uses named resolution tiers instead.
+The current portable surface implements one `ImageModel` output per call through
+`POST /v1/interactions`. `siumai-protocol-gemini` owns the wire schema, request encoding, terminal
+status classification, image decoding, usage mapping, and response bounds. The provider crate owns
+credentials, endpoint provenance, transport, model advisories, typed options, and support evidence.
 
-Google-specific controls remain typed provider options:
+Requests encode the current polymorphic `response_format` object. They never send deprecated
+`outputs` or `response_mime_type` fields, and they do not substitute GenerateContent's
+`response_modalities` field into Interactions.
 
-- `GoogleImageAspectRatio` selects the documented aspect-ratio values;
-- `GoogleImageSize` selects `512`, `1K`, `2K`, or `4K` where the chosen model supports it;
-- `GoogleImageOptions` carries those values through the `google` namespace and
-  `interactions-image` API mode.
+Provider-owned controls remain typed:
 
-The provider validates documented differences for the current Flash, Flash Lite, and Pro image
-models before dispatch. Future IDs accept only protocol-safe baseline behavior without a named
-capability claim.
+- `GeminiImageAspectRatio` selects documented aspect ratios;
+- `GeminiImageSize` selects `512`, `1K`, `2K`, or `4K` where the selected model supports it;
+- `GeminiImageOptions` carries those values through the `google` namespace and `interactions` API
+  mode.
 
-## Deliberate exclusions
+Stable-v1 Interactions currently exposes JPEG as the explicit image MIME selection. An omitted
+portable format leaves MIME selection to the service. Explicit PNG and other unsupported formats
+fail before transport. Responses retain any bounded `image/*` MIME type returned by the service and
+support both inline base64 and URI delivery.
 
-The former Imagen `models/*:predict` implementation is removed. Google marks the Imagen 4 models
-on that API as deprecated and scheduled to stop functioning on 2026-08-17. Siumai does not keep a
-compatibility alias for an endpoint at end of life.
+## Endpoint ownership and replay
 
-This crate also does not expose Gemini language generation, multimodal conversation, Live,
-long-running media jobs, files, or a general Interactions client. Those capabilities may return only
-as independently designed provider-owned APIs with focused evidence and lifecycle contracts.
+Only the provider-owned default endpoint receives verified Google Gemini evidence and the official
+replay audience. Any endpoint supplied through `with_endpoint` or `with_base_url` is
+caller-controlled even if its transport policy is labeled official. It must use an explicit custom
+`ReplayDomain` and exposes only generic compatibility evidence.
+
+This boundary does not model regions, commercial availability, routing, pricing, quota, or account
+selection. Those remain host-application concerns.
+
+## Current exclusions
+
+The currently published portable slice is image generation. Language, embedding, buffered speech,
+Files, Veo jobs, stored/background Interactions, and Live sessions are not claimed by this document
+until their provider-owned implementations and deterministic fixtures land.
+
+The former Imagen `models/*:predict` compatibility implementation remains deleted. Siumai does not
+retain aliases for retired product paths.
 
 ## Evidence
 
-All named support was checked against official Google documentation on 2026-08-06. The local Vercel
-AI SDK checkout is secondary design and fixture evidence only.
-
 | Scope | Official source |
 |---|---|
-| Image generation, current models, formats, aspect ratios, and resolution tiers | [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation) |
-| Interactions request, response, status, step, image block, and usage schema | [Interactions API](https://ai.google.dev/api/interactions-api) |
-| Imagen 4 deprecation and migration guidance | [Migrate from Imagen to Gemini native image generation](https://ai.google.dev/gemini-api/docs/imagen-to-gemini) |
+| Stable Interactions request, response, status, step, usage, and response-format schema | [Interactions v1 API reference](https://ai.google.dev/api/interactions-api) |
+| Current response-format migration and deprecated fields | [Interactions migration guide](https://ai.google.dev/gemini-api/docs/interactions-breaking-changes-may-2026) |
+| Image models, formats, aspect ratios, and resolution tiers | [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation) |
 
-Offline tests cover typed options, model-specific validation, direct and Registry-erased execution,
-request encoding, base64 and URI response decoding, usage preservation, cancellation, replay
-safety, and sanitized diagnostics. They do not perform live, credentialed, or billable calls.
+Offline tests cover stable-v1 encoding, typed options, model-specific validation, direct and
+Registry-erased execution, inline and URI response decoding, usage preservation, terminal status,
+resource bounds, cancellation, endpoint provenance, replay-audience isolation, and sanitized
+diagnostics. They do not perform live, credentialed, or billable calls.

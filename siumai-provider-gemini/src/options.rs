@@ -3,7 +3,8 @@ use siumai_core::{ModelFamily, TypedProviderOptions};
 
 /// Aspect ratios accepted by current Gemini image models through Interactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GoogleImageAspectRatio {
+#[non_exhaustive]
+pub enum GeminiImageAspectRatio {
     #[serde(rename = "1:1")]
     Square,
     #[serde(rename = "1:4")]
@@ -34,26 +35,7 @@ pub enum GoogleImageAspectRatio {
     Ultrawide,
 }
 
-impl GoogleImageAspectRatio {
-    pub(crate) const fn as_wire(self) -> &'static str {
-        match self {
-            Self::Square => "1:1",
-            Self::PortraitOneFour => "1:4",
-            Self::PortraitOneEight => "1:8",
-            Self::PortraitTwoThree => "2:3",
-            Self::LandscapeThreeTwo => "3:2",
-            Self::PortraitThreeFour => "3:4",
-            Self::LandscapeFourOne => "4:1",
-            Self::LandscapeFourThree => "4:3",
-            Self::PortraitFourFive => "4:5",
-            Self::LandscapeFiveFour => "5:4",
-            Self::LandscapeEightOne => "8:1",
-            Self::PortraitNineSixteen => "9:16",
-            Self::LandscapeSixteenNine => "16:9",
-            Self::Ultrawide => "21:9",
-        }
-    }
-
+impl GeminiImageAspectRatio {
     pub(crate) const fn is_extended(self) -> bool {
         matches!(
             self,
@@ -67,7 +49,8 @@ impl GoogleImageAspectRatio {
 
 /// Output resolution tiers accepted by current Gemini image models.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GoogleImageSize {
+#[non_exhaustive]
+pub enum GeminiImageSize {
     #[serde(rename = "512")]
     Pixels512,
     #[serde(rename = "1K")]
@@ -78,28 +61,17 @@ pub enum GoogleImageSize {
     FourK,
 }
 
-impl GoogleImageSize {
-    pub(crate) const fn as_wire(self) -> &'static str {
-        match self {
-            Self::Pixels512 => "512",
-            Self::OneK => "1K",
-            Self::TwoK => "2K",
-            Self::FourK => "4K",
-        }
-    }
-}
-
 /// Provider-owned options for Gemini image generation through Interactions.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GoogleImageOptions {
+pub struct GeminiImageOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<GoogleImageAspectRatio>,
+    pub aspect_ratio: Option<GeminiImageAspectRatio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_size: Option<GoogleImageSize>,
+    pub image_size: Option<GeminiImageSize>,
 }
 
-impl GoogleImageOptions {
+impl GeminiImageOptions {
     pub const fn new() -> Self {
         Self {
             aspect_ratio: None,
@@ -107,19 +79,19 @@ impl GoogleImageOptions {
         }
     }
 
-    pub const fn with_aspect_ratio(mut self, aspect_ratio: GoogleImageAspectRatio) -> Self {
+    pub const fn with_aspect_ratio(mut self, aspect_ratio: GeminiImageAspectRatio) -> Self {
         self.aspect_ratio = Some(aspect_ratio);
         self
     }
 
-    pub const fn with_image_size(mut self, image_size: GoogleImageSize) -> Self {
+    pub const fn with_image_size(mut self, image_size: GeminiImageSize) -> Self {
         self.image_size = Some(image_size);
         self
     }
 }
 
-impl TypedProviderOptions for GoogleImageOptions {
+impl TypedProviderOptions for GeminiImageOptions {
     const NAMESPACE: &'static str = "google";
     const MODEL_FAMILY: ModelFamily = ModelFamily::Image;
-    const API_MODE: Option<&'static str> = Some("interactions-image");
+    const API_MODE: Option<&'static str> = Some("interactions");
 }

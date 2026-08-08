@@ -1,0 +1,27 @@
+[package]
+name = "siumai-protocol-gemini"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Google Gemini wire codecs for siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-protocol-gemini"
+readme = "../README.md"
+keywords = ["llm", "ai", "gemini", "google", "protocol"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+default = []

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the image-shaped `GoogleImage*` public API with product-level `Gemini*` types without
+  compatibility aliases.
+- Moved stable-v1 Interactions image wire mapping into `siumai-protocol-gemini` and made endpoint
+  provenance independent from caller-supplied transport policy labels.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gemini-v0.11.0-beta.8...siumai-provider-gemini-v0.11.0-beta.9) - 2026-05-27
 
 ### Fixed
