@@ -2296,9 +2296,11 @@ dependencies = [
 name = "siumai-provider-gemini"
 version = "0.11.0-beta.9"
 dependencies = [
+ "async-stream",
  "async-trait",
  "base64",
  "chrono",
+ "futures",
  "http",
  "mockito",
  "secrecy",

@@ -61,7 +61,7 @@ of compiled public scope, not a promise that every account can use every model o
 | `openai` | Native Chat Completions, Responses, and Responses resources | Legacy universal client and unrelated media/resource APIs |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
-| `google` | Stable-v1 native image generation through Gemini Interactions | Gemini language, embedding, speech, Files, Veo, Live, and broad Vertex support not yet implemented |
+| `google` | Stable-v1 native language and image generation through Gemini Interactions | GenerateContent mode, embedding, speech, Files, Veo, Live, and broad Vertex support not yet implemented |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions and Responses dialects, native embeddings, and experimental Wan video jobs | A separate DashScope provider identity or business-region routing |
 | `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options and dated model advisories | Kimi resources or API modes not implemented by the branded provider |
@@ -88,6 +88,7 @@ names the exact execution surface; it is not provider-wide identity.
 | `openai` / OpenAI | `openai` / `openai-api` | Language | `openai.responses` / `responses` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
 | `openai` / OpenAI | `openai` / `openai-api` | Language | `openai` / `chat-completions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Language | `anthropic-messages` / `messages` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages | 2026-08-06 |
+| `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/api/interactions-api | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Image | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-08 |
 | `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-06 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |

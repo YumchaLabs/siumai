@@ -6,10 +6,10 @@ use async_trait::async_trait;
 use http::header::{HeaderName, HeaderValue};
 use secrecy::{ExposeSecret, SecretString};
 use siumai_core::{
-    Error as CoreError, ErrorKind, ImageModel, ImageModelProvider, InvalidId, ModelId,
-    ModelLookupError, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    Provider, ProviderOptionError, ProviderOptions, ProviderRegistration, ProviderScope,
-    ReplayDomain, ReplayDomainId, UnsupportedReason,
+    Error as CoreError, ErrorKind, ImageModel, ImageModelProvider, InvalidId, LanguageModel,
+    LanguageModelProvider, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
+    ModelPolicyContext, ModelPolicyDecision, Provider, ProviderOptionError, ProviderOptions,
+    ProviderRegistration, ProviderScope, ReplayDomain, ReplayDomainId, UnsupportedReason,
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
@@ -18,8 +18,9 @@ use siumai_transport::{
 use thiserror::Error;
 
 use crate::image::GeminiImageModel;
-use crate::models::is_current;
-use crate::options::GeminiImageOptions;
+use crate::language::GeminiLanguageModel;
+use crate::models::{is_current_image, is_current_interactions};
+use crate::options::{GeminiImageOptions, GeminiInteractionsOptions};
 use crate::profile::{API_MODE_ID, GeminiProfile, GeminiProfileError, PROTOCOL_ID, PROVIDER_ID};
 
 const OFFICIAL_BASE_URL: &str = "https://generativelanguage.googleapis.com";
@@ -127,15 +128,42 @@ impl GeminiProvider {
         Ok(self.create_image_model(model))
     }
 
+    /// Create the primary stable-v1 Interactions language model handle.
+    pub fn language(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<GeminiLanguageModel, ModelLookupError> {
+        self.interactions(model)
+    }
+
+    /// Create an explicit stable-v1 Interactions language model handle.
+    pub fn interactions(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<GeminiLanguageModel, ModelLookupError> {
+        let model = ModelId::new(model.into())?;
+        Ok(self.create_language_model(model))
+    }
+
     pub fn registration(&self) -> ProviderRegistration {
-        let provider = self.clone();
-        ProviderRegistration::from_image(
+        let language_provider = self.clone();
+        let image_provider = self.clone();
+        ProviderRegistration::from_language(
+            self.runtime.interactions_scope.clone(),
+            self.runtime.interactions_policy.clone(),
+            Arc::new(move |model| {
+                Ok(Arc::new(language_provider.create_language_model(model))
+                    as Arc<dyn LanguageModel>)
+            }),
+        )
+        .merge(ProviderRegistration::from_image(
             self.runtime.image_scope.clone(),
             self.runtime.image_policy.clone(),
             Arc::new(move |model| {
-                Ok(Arc::new(provider.create_image_model(model)) as Arc<dyn ImageModel>)
+                Ok(Arc::new(image_provider.create_image_model(model)) as Arc<dyn ImageModel>)
             }),
-        )
+        ))
+        .expect("Gemini family registrations share one canonical provider")
     }
 
     pub fn profile(&self) -> &GeminiProfile {
@@ -145,11 +173,23 @@ impl GeminiProvider {
     fn create_image_model(&self, model: ModelId) -> GeminiImageModel {
         GeminiImageModel::new(self.runtime.clone(), model)
     }
+
+    fn create_language_model(&self, model: ModelId) -> GeminiLanguageModel {
+        GeminiLanguageModel::new(self.runtime.clone(), model)
+    }
 }
 
 impl Provider for GeminiProvider {
     fn provider_id(&self) -> &siumai_core::ProviderId {
-        self.runtime.image_scope.provider_id()
+        self.runtime.interactions_scope.provider_id()
+    }
+}
+
+impl LanguageModelProvider for GeminiProvider {
+    type Model = GeminiLanguageModel;
+
+    fn language_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_language_model(model))
     }
 }
 
@@ -165,7 +205,8 @@ impl fmt::Debug for GeminiProvider {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GeminiProvider")
-            .field("scope", &self.runtime.image_scope)
+            .field("interactions_scope", &self.runtime.interactions_scope)
+            .field("image_scope", &self.runtime.image_scope)
             .field("transport", &"shared")
             .finish()
     }
@@ -182,6 +223,7 @@ pub struct GeminiProviderBuilder {
     connect_timeout: Option<Duration>,
     call_timeout: Option<Duration>,
     read_timeout: Option<Duration>,
+    interactions_defaults: GeminiInteractionsOptions,
     image_defaults: GeminiImageOptions,
 }
 
@@ -199,6 +241,7 @@ impl GeminiProviderBuilder {
             connect_timeout: None,
             call_timeout: None,
             read_timeout: None,
+            interactions_defaults: GeminiInteractionsOptions::default(),
             image_defaults: GeminiImageOptions::default(),
         }
     }
@@ -256,9 +299,15 @@ impl GeminiProviderBuilder {
         self
     }
 
+    pub fn with_interactions_defaults(mut self, defaults: GeminiInteractionsOptions) -> Self {
+        self.interactions_defaults = defaults;
+        self
+    }
+
     /// Validate static settings and create exactly one shared transport runtime.
     pub fn build(self) -> Result<GeminiProvider, GeminiConfigError> {
         self.credential.validate()?;
+        ProviderOptions::typed(&self.interactions_defaults)?;
         ProviderOptions::typed(&self.image_defaults)?;
         let endpoint = self.endpoint?;
         let verified_endpoint = self.provider_selected_endpoint;
@@ -275,6 +324,7 @@ impl GeminiProviderBuilder {
         } else {
             GeminiProfile::custom(replay_domain)?
         };
+        let limits = self.limits.clone();
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
             .with_limits(self.limits)
@@ -290,9 +340,13 @@ impl GeminiProviderBuilder {
         }
         Ok(GeminiProvider {
             runtime: Arc::new(ProviderRuntime {
+                interactions_scope: profile.interactions_scope(),
                 image_scope: profile.image_scope(),
                 transport: transport.build()?,
+                limits,
+                interactions_policy: Arc::new(GeminiInteractionsPolicy { verified_endpoint }),
                 image_policy: Arc::new(GeminiImagePolicy { verified_endpoint }),
+                interactions_defaults: self.interactions_defaults,
                 image_defaults: self.image_defaults,
             }),
             profile,
@@ -307,7 +361,7 @@ pub enum GeminiConfigError {
     InvalidCredential,
     #[error("invalid Gemini profile: {0}")]
     Profile(#[from] GeminiProfileError),
-    #[error("invalid Gemini image options: {0}")]
+    #[error("invalid Gemini provider options: {0}")]
     Options(#[from] ProviderOptionError),
     #[error("invalid Gemini endpoint: {0}")]
     Endpoint(#[from] EndpointError),
@@ -322,9 +376,13 @@ pub enum GeminiConfigError {
 }
 
 pub(crate) struct ProviderRuntime {
+    pub(crate) interactions_scope: Arc<ProviderScope>,
     pub(crate) image_scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
+    pub(crate) limits: TransportLimits,
+    pub(crate) interactions_policy: Arc<GeminiInteractionsPolicy>,
     pub(crate) image_policy: Arc<GeminiImagePolicy>,
+    pub(crate) interactions_defaults: GeminiInteractionsOptions,
     pub(crate) image_defaults: GeminiImageOptions,
 }
 
@@ -332,8 +390,11 @@ impl fmt::Debug for ProviderRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ProviderRuntime")
+            .field("interactions_scope", &self.interactions_scope)
             .field("image_scope", &self.image_scope)
             .field("transport", &"shared")
+            .field("limits", &self.limits)
+            .field("interactions_defaults", &self.interactions_defaults)
             .field("image_defaults", &self.image_defaults)
             .finish()
     }
@@ -341,6 +402,32 @@ impl fmt::Debug for ProviderRuntime {
 
 pub(crate) struct GeminiImagePolicy {
     verified_endpoint: bool,
+}
+
+pub(crate) struct GeminiInteractionsPolicy {
+    verified_endpoint: bool,
+}
+
+impl ModelPolicy for GeminiInteractionsPolicy {
+    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
+        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
+            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
+            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
+        if !matches_scope {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
+        }
+        if !matches!(
+            context.operation(),
+            ModelOperation::Generate | ModelOperation::Stream
+        ) {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
+        }
+        if self.verified_endpoint && is_current_interactions(context.model().as_str()) {
+            ModelPolicyDecision::supported()
+        } else {
+            ModelPolicyDecision::unknown_model()
+        }
+    }
 }
 
 impl ModelPolicy for GeminiImagePolicy {
@@ -354,7 +441,7 @@ impl ModelPolicy for GeminiImagePolicy {
         if context.operation() != ModelOperation::GenerateImage {
             return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
         }
-        if self.verified_endpoint && is_current(context.model().as_str()) {
+        if self.verified_endpoint && is_current_image(context.model().as_str()) {
             ModelPolicyDecision::supported()
         } else {
             ModelPolicyDecision::unknown_model()

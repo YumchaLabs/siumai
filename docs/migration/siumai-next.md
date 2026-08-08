@@ -366,8 +366,8 @@ or a temporary hidden feature:
 - Azure OpenAI, Amazon Bedrock, AI Gateway, Ollama, and Together AI are no longer in the workspace,
   facade, or release feature graph. They can return only as clean provider implementations.
 - `google` now owns a product-level `GeminiProvider`; it no longer exposes an image-shaped provider
-  identity. The current portable slice is stable-v1 Interactions image generation. The deprecated
-  Imagen `:predict` path and the old broad Gemini/Vertex clients remain removed.
+  identity. The current portable slices are stable-v1 Interactions language and image generation.
+  The deprecated Imagen `:predict` path and the old broad Gemini/Vertex clients remain removed.
 - Anthropic Messages on Vertex is available separately through the
   `google-vertex-anthropic` feature and `providers::google_vertex_anthropic`. Its project and
   location inputs are technical addressing data, not availability metadata.
@@ -412,6 +412,11 @@ Gemini Interactions wire types now belong to `siumai-protocol-gemini`. Requests 
 `v1/interactions` target and the current polymorphic `response_format` object. Caller-controlled
 Gemini endpoints require an explicit custom `ReplayDomain` and cannot inherit Google's verified
 support evidence.
+
+`GeminiProvider::language(model)` now selects stable-v1 Interactions and is equivalent to the
+explicit `GeminiProvider::interactions(model)` entry point. Language-specific controls use
+`GeminiInteractionsOptions`; storage is disabled unless explicitly enabled. The provider
+registration now binds both the portable Language and Image families.
 
 The former Google `gcp` credential helper is also removed. Supply a short-lived access token with
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token

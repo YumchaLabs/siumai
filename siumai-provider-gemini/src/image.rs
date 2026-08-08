@@ -1,33 +1,29 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use http::header::{ACCEPT, HeaderName, HeaderValue};
-use http::{Method, StatusCode};
+use http::Method;
+use http::header::{ACCEPT, HeaderValue};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
     ImageResponse, Model, ModelAdvisory, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
     ModelPolicy, ModelPolicyDecision, ProviderOptionContext, ProviderOptionError,
     ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
-    ResponseDiagnostics, SensitiveResponse, SupportState, Warning, WarningKind,
+    SupportState, Warning, WarningKind,
 };
 use siumai_protocol_gemini::interactions::{
     ImageAspectRatio as ProtocolImageAspectRatio, ImageMimeType as ProtocolImageMimeType,
     ImageResponseFormat, ImageSize as ProtocolImageSize, STABLE_V1_CREATE_TARGET,
     decode_image_response, encode_image_request,
 };
-use siumai_transport::{
-    ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders,
-    TransportResponse,
-};
+use siumai_transport::{ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget};
 
+use crate::http::{response_error, response_request_id};
 use crate::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_PRO_IMAGE};
 use crate::options::{GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize};
 use crate::provider::ProviderRuntime;
 
 const MAX_IMAGES_PER_CALL: u32 = 1;
-const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
 
 /// Lightweight Gemini image handle sharing one configured Google runtime.
 #[derive(Clone)]
@@ -175,7 +171,10 @@ impl ImageModel for GeminiImageModel {
             .await
             .map_err(|error| self.contextualize(error))?;
         if !response.status().is_success() {
-            return Err(self.contextualize(provider_status_error(response)));
+            return Err(self.contextualize(response_error(
+                response,
+                "Gemini rejected the Interactions image request",
+            )));
         }
         let (_, headers, body) = response.into_parts();
         let request_id = response_request_id(&headers);
@@ -353,51 +352,6 @@ fn request_build_error(source: siumai_transport::RequestBuildError) -> Error {
     .with_source(source)
 }
 
-fn provider_status_error(response: TransportResponse) -> Error {
-    let (status, headers, body) = response.into_parts();
-    let kind = match status {
-        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => ErrorKind::InvalidInput,
-        StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
-        StatusCode::FORBIDDEN => ErrorKind::Authorization,
-        StatusCode::TOO_MANY_REQUESTS => ErrorKind::RateLimited,
-        _ => ErrorKind::Provider,
-    };
-    let raw_headers = response_headers(&headers);
-    let truncated = body.len() > ERROR_CAPTURE_BYTES;
-    let captured = body[..body.len().min(ERROR_CAPTURE_BYTES)].to_vec();
-    Error::new(kind, "Gemini rejected the Interactions image request")
-        .with_diagnostics(
-            ResponseDiagnostics::default()
-                .with_status(status.as_u16())
-                .with_body_truncated(truncated),
-        )
-        .with_sensitive_response(SensitiveResponse::new(raw_headers, captured))
-}
-
-fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
-    ["x-request-id", "x-goog-request-id"]
-        .into_iter()
-        .find_map(|name| {
-            headers
-                .get(&HeaderName::from_static(name))
-                .and_then(|value| value.to_str().ok())
-                .map(ToOwned::to_owned)
-        })
-}
-
-fn response_headers(headers: &ResponseHeaders) -> BTreeMap<String, String> {
-    headers
-        .expose()
-        .iter()
-        .filter_map(|(name, value)| {
-            value
-                .to_str()
-                .ok()
-                .map(|value| (name.to_string(), value.to_string()))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -405,7 +359,8 @@ mod tests {
     use base64::Engine as _;
     use siumai_core::{
         ApiStability, Cancellation, ErrorDetail, ImageModel, MediaData, Model, ModelId,
-        ProviderOptions, ReplayDomain, ReplayDomainId, ResourceKind, UsageValue, VerifiedFidelity,
+        ProviderOptions, ReplayDomain, ReplayDomainId, ResourceKind, ResponseDiagnostics,
+        UsageValue, VerifiedFidelity,
     };
     use siumai_transport::EndpointConfig;
 
@@ -583,12 +538,20 @@ mod tests {
         ))
         .unwrap();
         let claims = current.provider_profile().verified_claims().unwrap();
-        assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
-        assert_eq!(claims[0].stability(), ApiStability::Stable);
+        assert_eq!(claims.len(), 2);
+        assert!(
+            claims
+                .iter()
+                .all(|claim| claim.fidelity() == VerifiedFidelity::Native)
+        );
+        assert!(
+            claims
+                .iter()
+                .all(|claim| claim.stability() == ApiStability::Stable)
+        );
         assert_eq!(
             current.provider_profile().catalog().unwrap().iter().count(),
-            3
+            6
         );
 
         let custom = crate::GeminiProfile::custom(ReplayDomain::custom(
@@ -596,7 +559,7 @@ mod tests {
         ))
         .unwrap();
         assert!(custom.provider_profile().verified_claims().is_none());
-        assert_eq!(custom.provider_profile().generic_claims().unwrap().len(), 1);
+        assert_eq!(custom.provider_profile().generic_claims().unwrap().len(), 2);
     }
 
     #[tokio::test]

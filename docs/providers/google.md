@@ -2,7 +2,7 @@
 
 - Provider identity: `google`
 - Technical platform: `gemini-api`
-- Current portable family: Image
+- Current portable families: Language and Image
 - Protocol / API mode: `gemini-interactions` / `interactions`
 - API version: stable `v1`
 - Evidence verified: 2026-08-08
@@ -16,21 +16,48 @@
 The configured provider is model-independent, synchronously constructed, and network-free.
 
 ```rust,no_run
-use siumai::providers::google::models::GEMINI_3_1_FLASH_IMAGE;
+use siumai::providers::google::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_6_FLASH};
 use siumai::providers::google::{GeminiCredential, GeminiProvider};
 
 let provider = GeminiProvider::builder(GeminiCredential::api_key(
     std::env::var("GEMINI_API_KEY")?,
 ))
 .build()?;
-let model = provider.image(GEMINI_3_1_FLASH_IMAGE)?;
-# let _ = model;
+let language = provider.language(GEMINI_3_6_FLASH)?;
+let image = provider.image(GEMINI_3_1_FLASH_IMAGE)?;
+# let _ = (language, image);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Known model constants are dated hints, not an allowlist. Unknown future model IDs remain
 constructible with protocol-baseline behavior; Siumai does not infer model-specific controls from
 their names.
+
+## Stable Interactions language contract
+
+`provider.language(model)` and the explicit `provider.interactions(model)` entry point both create
+the stable-v1 Interactions `LanguageModel`. Direct and streaming calls use `POST /v1/interactions`,
+normalize caller-executed function arguments to one checked JSON object, preserve provider-native
+thought and function-call replay as bounded opaque items, and require every established stream to
+settle exactly once.
+
+`GeminiLanguageModel::generate_native` retains the complete direct Interactions resource alongside
+its canonical projection. The portable `LanguageModel::generate` path returns that same canonical
+projection, while unknown output content needed for replay remains available as bounded
+provider-native content.
+
+The portable language projection supports role-safe text and media input, assistant replay, local
+function tools, structured response formats, stop sequences, output-token limits, seeds, usage,
+reasoning summaries, and provider metadata. Provider-owned controls remain typed through
+`GeminiInteractionsOptions`:
+
+- `GeminiInteractionStorage` makes storage opt-in; `store: false` is the default;
+- `GeminiThinkingLevel` selects the stable Interactions thinking levels;
+- `GeminiThinkingSummaries` controls provider thought summaries.
+
+Stable Interactions does not currently expose portable temperature or top-p fields in its v1
+schema, so explicit portable values fail before transport instead of being silently discarded.
+Unknown or provider-only output steps remain available through bounded provider-native replay data.
 
 ## Stable Interactions image contract
 
@@ -67,9 +94,10 @@ selection. Those remain host-application concerns.
 
 ## Current exclusions
 
-The currently published portable slice is image generation. Language, embedding, buffered speech,
-Files, Veo jobs, stored/background Interactions, and Live sessions are not claimed by this document
-until their provider-owned implementations and deterministic fixtures land.
+The currently published portable slices are Interactions language and image generation.
+GenerateContent mode, embedding, buffered speech, Files, Veo jobs, stored/background Interactions,
+and Live sessions are not claimed by this document until their provider-owned implementations and
+deterministic fixtures land.
 
 The former Imagen `models/*:predict` compatibility implementation remains deleted. Siumai does not
 retain aliases for retired product paths.
@@ -82,7 +110,8 @@ retain aliases for retired product paths.
 | Current response-format migration and deprecated fields | [Interactions migration guide](https://ai.google.dev/gemini-api/docs/interactions-breaking-changes-may-2026) |
 | Image models, formats, aspect ratios, and resolution tiers | [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation) |
 
-Offline tests cover stable-v1 encoding, typed options, model-specific validation, direct and
-Registry-erased execution, inline and URI response decoding, usage preservation, terminal status,
-resource bounds, cancellation, endpoint provenance, replay-audience isolation, and sanitized
-diagnostics. They do not perform live, credentialed, or billable calls.
+Offline tests cover stable-v1 language and image encoding, typed options, model-specific
+validation, direct and streaming language settlement, Registry-erased execution, canonical tool
+arguments, native replay parity, inline and URI media decoding, usage preservation, terminal
+status, resource bounds, cancellation, endpoint provenance, replay-audience isolation, and
+sanitized diagnostics. They do not perform live, credentialed, or billable calls.

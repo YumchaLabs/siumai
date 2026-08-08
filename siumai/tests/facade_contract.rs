@@ -339,23 +339,31 @@ fn facade_registration_sources_cover_all_six_stable_families() {
 
 #[cfg(feature = "google")]
 #[test]
-fn facade_exposes_the_current_google_interactions_image_slice() {
-    use siumai::core::{ApiStability, Model, ProviderOptions, VerifiedFidelity};
-    use siumai::providers::google::models::{GEMINI_3_1_FLASH_IMAGE, current_image_models};
+fn facade_exposes_the_current_google_interactions_language_and_image_slices() {
+    use siumai::core::{ApiStability, Model, ModelFamily, ProviderOptions, VerifiedFidelity};
+    use siumai::providers::google::models::{
+        GEMINI_3_1_FLASH_IMAGE, GEMINI_3_6_FLASH, current_image_models, current_interactions_models,
+    };
     use siumai::providers::google::options::{
-        GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize,
+        GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize, GeminiInteractionsOptions,
+        GeminiThinkingLevel,
     };
     use siumai::providers::google::{GeminiCredential, GeminiProvider};
 
     let provider = GeminiProvider::builder(GeminiCredential::api_key("test-key"))
         .build()
         .unwrap();
-    let claim = &provider
-        .profile()
-        .provider_profile()
-        .verified_claims()
-        .unwrap()[0];
-    assert_eq!(claim.scope().api_mode().as_str(), "interactions");
+    let registration = provider.registration();
+    assert!(registration.supports_family(ModelFamily::Language));
+    assert!(registration.supports_family(ModelFamily::Image));
+    assert_eq!(
+        provider
+            .language(GEMINI_3_6_FLASH)
+            .unwrap()
+            .model_id()
+            .as_str(),
+        GEMINI_3_6_FLASH
+    );
     assert_eq!(
         provider
             .image(GEMINI_3_1_FLASH_IMAGE)
@@ -364,23 +372,43 @@ fn facade_exposes_the_current_google_interactions_image_slice() {
             .as_str(),
         GEMINI_3_1_FLASH_IMAGE
     );
+    assert_eq!(current_interactions_models().len(), 3);
     assert_eq!(current_image_models().len(), 3);
 
-    let options = ProviderOptions::typed(
+    let image_options = ProviderOptions::typed(
         &GeminiImageOptions::new()
             .with_aspect_ratio(GeminiImageAspectRatio::LandscapeSixteenNine)
             .with_image_size(GeminiImageSize::TwoK),
     )
     .unwrap();
-    assert_eq!(options.namespace().as_str(), "google");
+    assert_eq!(image_options.namespace().as_str(), "google");
+    let language_options = ProviderOptions::typed(
+        &GeminiInteractionsOptions::new().with_thinking_level(GeminiThinkingLevel::High),
+    )
+    .unwrap();
+    assert_eq!(language_options.namespace().as_str(), "google");
 
     let claims = provider
         .profile()
         .provider_profile()
         .verified_claims()
         .unwrap();
-    assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
-    assert_eq!(claims[0].stability(), ApiStability::Stable);
+    assert_eq!(claims.len(), 2);
+    assert!(
+        claims
+            .iter()
+            .all(|claim| claim.scope().api_mode().as_str() == "interactions")
+    );
+    assert!(
+        claims
+            .iter()
+            .all(|claim| claim.fidelity() == VerifiedFidelity::Native)
+    );
+    assert!(
+        claims
+            .iter()
+            .all(|claim| claim.stability() == ApiStability::Stable)
+    );
 }
 
 #[cfg(all(feature = "registry", feature = "deepseek"))]

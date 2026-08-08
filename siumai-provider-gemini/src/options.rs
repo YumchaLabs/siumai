@@ -1,6 +1,81 @@
 use serde::{Deserialize, Serialize};
 use siumai_core::{ModelFamily, TypedProviderOptions};
 
+/// Whether one Gemini Interactions call may be stored by the provider.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GeminiInteractionStorage {
+    /// Send `store: false`; this is Siumai's privacy-preserving default.
+    #[default]
+    Disabled,
+    /// Send `store: true`; retrieval and background lifecycle APIs remain provider-owned.
+    Enabled,
+}
+
+/// Thinking depth accepted by stable Gemini Interactions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GeminiThinkingLevel {
+    Minimal,
+    Low,
+    Medium,
+    High,
+}
+
+/// Whether Gemini should include provider thought summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GeminiThinkingSummaries {
+    Auto,
+    None,
+}
+
+/// Provider-owned options for stable Gemini Interactions language calls.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GeminiInteractionsOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<GeminiInteractionStorage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<GeminiThinkingLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_summaries: Option<GeminiThinkingSummaries>,
+}
+
+impl GeminiInteractionsOptions {
+    pub const fn new() -> Self {
+        Self {
+            storage: None,
+            thinking_level: None,
+            thinking_summaries: None,
+        }
+    }
+
+    pub const fn with_storage(mut self, storage: GeminiInteractionStorage) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    pub const fn with_thinking_level(mut self, level: GeminiThinkingLevel) -> Self {
+        self.thinking_level = Some(level);
+        self
+    }
+
+    pub const fn with_thinking_summaries(mut self, summaries: GeminiThinkingSummaries) -> Self {
+        self.thinking_summaries = Some(summaries);
+        self
+    }
+}
+
+impl TypedProviderOptions for GeminiInteractionsOptions {
+    const NAMESPACE: &'static str = "google";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some("interactions");
+}
+
 /// Aspect ratios accepted by current Gemini image models through Interactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]

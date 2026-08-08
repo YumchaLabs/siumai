@@ -22,6 +22,8 @@ siumai-protocol-gemini = { workspace = true, default-features = false }
 siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
+async-stream.workspace = true
+futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 http.workspace = true

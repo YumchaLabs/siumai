@@ -10,20 +10,22 @@ use siumai_core::{
 };
 use thiserror::Error;
 
-use crate::models::current_image_models;
+use crate::models::{current_image_models, current_interactions_models};
 
 pub const PROVIDER_ID: &str = "google";
 pub const PLATFORM_ID: &str = "gemini-api";
 pub const PROTOCOL_ID: &str = "gemini-interactions";
 pub const API_MODE_ID: &str = "interactions";
-pub const OFFICIAL_SOURCE: &str = "https://ai.google.dev/gemini-api/docs/image-generation";
+pub const INTERACTIONS_SOURCE: &str = "https://ai.google.dev/api/interactions-api";
+pub const IMAGE_SOURCE: &str = "https://ai.google.dev/gemini-api/docs/image-generation";
 pub const VERIFIED_ON: &str = "2026-08-08";
 
 /// Evidence-backed product profile for the configured Gemini API endpoint.
 #[derive(Debug, Clone)]
 pub struct GeminiProfile {
     profile: Arc<ProviderProfile>,
-    scope: Arc<ProviderScope>,
+    interactions_scope: Arc<ProviderScope>,
+    image_scope: Arc<ProviderScope>,
 }
 
 impl GeminiProfile {
@@ -32,7 +34,14 @@ impl GeminiProfile {
         let platform = PlatformId::new(PLATFORM_ID)?;
         let protocol = ProtocolId::new(PROTOCOL_ID)?;
         let api_mode = ApiModeId::new(API_MODE_ID)?;
-        let support_scope = SupportScope::new(
+        let language_scope = SupportScope::new(
+            provider.clone(),
+            platform.clone(),
+            ModelFamily::Language,
+            protocol.clone(),
+            api_mode.clone(),
+        );
+        let image_support_scope = SupportScope::new(
             provider.clone(),
             platform.clone(),
             ModelFamily::Image,
@@ -43,32 +52,57 @@ impl GeminiProfile {
             NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
                 .map_err(|_| GeminiProfileError::InvalidVerificationDate)?,
         );
-        let evidence = VerificationEvidence::new(
-            OfficialSource::new(OFFICIAL_SOURCE)?,
+        let language_evidence = VerificationEvidence::new(
+            OfficialSource::new(INTERACTIONS_SOURCE)?,
+            verified_at,
+            ProtocolContractId::new("gemini-interactions-v1-language-2026-08")?,
+        );
+        let image_evidence = VerificationEvidence::new(
+            OfficialSource::new(IMAGE_SOURCE)?,
             verified_at,
             ProtocolContractId::new("gemini-interactions-v1-image-2026-08")?,
         );
-        let catalog = ModelCatalog::new(current_image_models().into_iter().map(|model| {
-            ModelProfile::new(
-                ModelId::new(model).expect("Google model IDs are static"),
-                support_scope.clone(),
-                [ModelOperation::GenerateImage],
-                ModelLifecycle::Active,
-                evidence.clone(),
-            )
-            .expect("Google image model profiles declare one operation")
-        }))?;
-        let profile = ProviderProfile::verified(
-            ProfileId::new(PROVIDER_ID)?,
-            vec![VerifiedSupportClaim::new(
-                support_scope,
+        let claims = vec![
+            VerifiedSupportClaim::new(
+                language_scope.clone(),
                 VerifiedFidelity::Native,
                 ApiStability::Stable,
-                evidence,
-            )],
-            catalog,
+                language_evidence.clone(),
+            ),
+            VerifiedSupportClaim::new(
+                image_support_scope.clone(),
+                VerifiedFidelity::Native,
+                ApiStability::Stable,
+                image_evidence.clone(),
+            ),
+        ];
+        let mut models = Vec::new();
+        models.extend(current_interactions_models().into_iter().map(|model| {
+            ModelProfile::new(
+                ModelId::new(model).expect("Google model IDs are static"),
+                language_scope.clone(),
+                [ModelOperation::Generate, ModelOperation::Stream],
+                ModelLifecycle::Active,
+                language_evidence.clone(),
+            )
+            .expect("Gemini language model profiles declare two operations")
+        }));
+        models.extend(current_image_models().into_iter().map(|model| {
+            ModelProfile::new(
+                ModelId::new(model).expect("Google model IDs are static"),
+                image_support_scope.clone(),
+                [ModelOperation::GenerateImage],
+                ModelLifecycle::Active,
+                image_evidence.clone(),
+            )
+            .expect("Gemini image model profiles declare one operation")
+        }));
+        let profile = ProviderProfile::verified(
+            ProfileId::new(PROVIDER_ID)?,
+            claims,
+            ModelCatalog::new(models)?,
         )?;
-        let scope = Arc::new(
+        let execution_scope = Arc::new(
             ProviderScope::new(provider)
                 .with_platform(platform)
                 .with_protocol(protocol)
@@ -77,7 +111,8 @@ impl GeminiProfile {
         );
         Ok(Self {
             profile: Arc::new(profile),
-            scope,
+            interactions_scope: execution_scope.clone(),
+            image_scope: execution_scope,
         })
     }
 
@@ -86,18 +121,24 @@ impl GeminiProfile {
         let platform = PlatformId::new("custom-gemini-api")?;
         let protocol = ProtocolId::new(PROTOCOL_ID)?;
         let api_mode = ApiModeId::new(API_MODE_ID)?;
-        let support_scope = SupportScope::new(
-            provider.clone(),
-            platform.clone(),
-            ModelFamily::Image,
-            protocol.clone(),
-            api_mode.clone(),
-        );
-        let profile = ProviderProfile::generic(
-            ProfileId::new("google-custom-gemini")?,
-            GenericSupportClaim::new(support_scope, ApiStability::Stable),
-        );
-        let scope = Arc::new(
+        let claims = [ModelFamily::Language, ModelFamily::Image]
+            .into_iter()
+            .map(|family| {
+                GenericSupportClaim::new(
+                    SupportScope::new(
+                        provider.clone(),
+                        platform.clone(),
+                        family,
+                        protocol.clone(),
+                        api_mode.clone(),
+                    ),
+                    ApiStability::Stable,
+                )
+            })
+            .collect();
+        let profile =
+            ProviderProfile::generic_many(ProfileId::new("google-custom-gemini")?, claims)?;
+        let execution_scope = Arc::new(
             ProviderScope::new(provider)
                 .with_platform(platform)
                 .with_protocol(protocol)
@@ -106,7 +147,8 @@ impl GeminiProfile {
         );
         Ok(Self {
             profile: Arc::new(profile),
-            scope,
+            interactions_scope: execution_scope.clone(),
+            image_scope: execution_scope,
         })
     }
 
@@ -114,20 +156,24 @@ impl GeminiProfile {
         &self.profile
     }
 
+    pub(crate) fn interactions_scope(&self) -> Arc<ProviderScope> {
+        self.interactions_scope.clone()
+    }
+
     pub(crate) fn image_scope(&self) -> Arc<ProviderScope> {
-        self.scope.clone()
+        self.image_scope.clone()
     }
 }
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum GeminiProfileError {
-    #[error("invalid Google image profile identifier: {0}")]
+    #[error("invalid Gemini profile identifier: {0}")]
     Identifier(#[from] siumai_core::InvalidId),
-    #[error("invalid Google image support profile: {0}")]
+    #[error("invalid Gemini support profile: {0}")]
     Profile(#[from] ProfileError),
-    #[error("invalid Google image model catalog: {0}")]
+    #[error("invalid Gemini model catalog: {0}")]
     Catalog(#[from] siumai_core::CatalogError),
-    #[error("Google image verification date is invalid")]
+    #[error("Gemini verification date is invalid")]
     InvalidVerificationDate,
 }

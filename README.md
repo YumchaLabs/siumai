@@ -45,7 +45,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `openai` | Chat Completions, Responses, and Responses resources |
 | `openai-realtime` | Experimental OpenAI Realtime support |
 | `anthropic` | Messages and Anthropic-native resources |
-| `google` | Stable-v1 Gemini Interactions image generation |
+| `google` | Stable-v1 Gemini Interactions language and image generation |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, embeddings, and experimental Wan video |
 | `moonshotai` | Moonshot AI's Kimi Chat Completions product surface |
@@ -180,7 +180,7 @@ it for addressing or signing. That input is not an SDK-maintained availability c
 - [Registry contract](docs/architecture/registry.md)
 - [Transport contract](docs/architecture/transport-contract.md)
 - [Provider support policy](docs/providers/support-policy.md)
-- [Google image support evidence](docs/providers/google.md)
+- [Google Gemini support evidence](docs/providers/google.md)
 - [Contributing](CONTRIBUTING.md)
 - [Documentation index](docs/README.md)
 
