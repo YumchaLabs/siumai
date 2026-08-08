@@ -339,14 +339,17 @@ fn facade_registration_sources_cover_all_six_stable_families() {
 
 #[cfg(feature = "google")]
 #[test]
-fn facade_exposes_the_current_google_interactions_language_and_image_slices() {
+fn facade_exposes_the_current_google_multi_family_and_native_slices() {
     use siumai::core::{ApiStability, Model, ModelFamily, ProviderOptions, VerifiedFidelity};
     use siumai::providers::google::models::{
-        GEMINI_3_1_FLASH_IMAGE, GEMINI_3_6_FLASH, current_image_models, current_interactions_models,
+        GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_3_6_FLASH,
+        GEMINI_EMBEDDING_001, current_image_models, current_interactions_models,
     };
     use siumai::providers::google::options::{
-        GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize, GeminiInteractionsOptions,
-        GeminiThinkingLevel,
+        GeminiEmbeddingOptions, GeminiEmbeddingTaskType, GeminiGenerateContentOptions,
+        GeminiGenerateContentServiceTier, GeminiGenerateContentThinking,
+        GeminiGenerateContentThinkingLevel, GeminiImageAspectRatio, GeminiImageOptions,
+        GeminiImageSize, GeminiInteractionsOptions, GeminiSpeechOptions, GeminiThinkingLevel,
     };
     use siumai::providers::google::{GeminiCredential, GeminiProvider};
 
@@ -355,7 +358,9 @@ fn facade_exposes_the_current_google_interactions_language_and_image_slices() {
         .unwrap();
     let registration = provider.registration();
     assert!(registration.supports_family(ModelFamily::Language));
+    assert!(registration.supports_family(ModelFamily::Embedding));
     assert!(registration.supports_family(ModelFamily::Image));
+    assert!(registration.supports_family(ModelFamily::Speech));
     assert_eq!(
         provider
             .language(GEMINI_3_6_FLASH)
@@ -372,6 +377,33 @@ fn facade_exposes_the_current_google_interactions_language_and_image_slices() {
             .as_str(),
         GEMINI_3_1_FLASH_IMAGE
     );
+    assert_eq!(
+        provider
+            .embedding(GEMINI_EMBEDDING_001)
+            .unwrap()
+            .model_id()
+            .as_str(),
+        GEMINI_EMBEDDING_001
+    );
+    assert_eq!(
+        provider
+            .speech(GEMINI_3_1_FLASH_TTS_PREVIEW)
+            .unwrap()
+            .model_id()
+            .as_str(),
+        GEMINI_3_1_FLASH_TTS_PREVIEW
+    );
+    assert_eq!(
+        provider
+            .generate_content(GEMINI_3_6_FLASH)
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("generate-content")
+    );
+    let _veo = provider.veo();
+    let generate_content_registration = provider.generate_content_registration();
+    assert!(generate_content_registration.supports_family(ModelFamily::Language));
     assert_eq!(current_interactions_models().len(), 3);
     assert_eq!(current_image_models().len(), 3);
 
@@ -387,27 +419,70 @@ fn facade_exposes_the_current_google_interactions_language_and_image_slices() {
     )
     .unwrap();
     assert_eq!(language_options.namespace().as_str(), "google");
+    let speech_options =
+        ProviderOptions::typed(&GeminiSpeechOptions::new().with_voice("Kore").unwrap()).unwrap();
+    assert_eq!(speech_options.namespace().as_str(), "google");
+    let embedding_options = ProviderOptions::typed(
+        &GeminiEmbeddingOptions::new().with_task_type(GeminiEmbeddingTaskType::RetrievalDocument),
+    )
+    .unwrap();
+    assert_eq!(embedding_options.namespace().as_str(), "google");
+    let generate_content_options = ProviderOptions::typed(
+        &GeminiGenerateContentOptions::new()
+            .with_service_tier(GeminiGenerateContentServiceTier::Standard)
+            .with_thinking(
+                GeminiGenerateContentThinking::new()
+                    .with_level(GeminiGenerateContentThinkingLevel::High),
+            ),
+    )
+    .unwrap();
+    assert_eq!(generate_content_options.namespace().as_str(), "google");
 
     let claims = provider
         .profile()
         .provider_profile()
         .verified_claims()
         .unwrap();
-    assert_eq!(claims.len(), 2);
-    assert!(
-        claims
-            .iter()
-            .all(|claim| claim.scope().api_mode().as_str() == "interactions")
-    );
+    assert_eq!(claims.len(), 5);
+    assert!(claims.iter().any(|claim| {
+        claim.scope().api_mode().as_str() == "generate-content"
+            && claim.evidence().upstream().support_status()
+                == Some(siumai::core::UpstreamSupportStatus::Legacy)
+    }));
     assert!(
         claims
             .iter()
             .all(|claim| claim.fidelity() == VerifiedFidelity::Native)
     );
+    assert!(claims.iter().any(|claim| {
+        claim.scope().api_mode().as_str() == "interactions-speech"
+            && claim.stability() == ApiStability::Experimental
+    }));
     assert!(
         claims
             .iter()
+            .filter(|claim| claim.scope().api_mode().as_str() != "interactions-speech")
             .all(|claim| claim.stability() == ApiStability::Stable)
+    );
+    assert_eq!(provider.support_manifest().native_claims().len(), 2);
+    assert!(
+        provider
+            .support_manifest()
+            .native_claims()
+            .iter()
+            .any(|claim| {
+                claim.scope().binding().surface_id().map(|id| id.as_str()) == Some("files-metadata")
+            })
+    );
+    assert!(
+        provider
+            .support_manifest()
+            .native_claims()
+            .iter()
+            .any(|claim| {
+                claim.scope().binding().surface_id().map(|id| id.as_str())
+                    == Some("veo-predict-long-running")
+            })
     );
 }
 

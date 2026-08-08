@@ -255,15 +255,18 @@ impl LanguageModel for GeminiLanguageModel {
     }
 }
 
-fn decode_sse_stream(
+pub(crate) fn decode_sse_stream<D>(
     cancellation: siumai_core::Cancellation,
     body: TransportByteStream,
     limits: siumai_transport::TransportLimits,
-    mut protocol: InteractionsStreamDecoder,
+    mut protocol: D,
     headers: siumai_transport::ResponseHeaders,
     warnings: Vec<Warning>,
     context: ErrorContext,
-) -> LanguageStream {
+) -> LanguageStream
+where
+    D: LanguageStreamDecoder<ProtocolFrame = str> + Send + 'static,
+{
     established_stream(cancellation, move |_| {
         async_stream::try_stream! {
             let mut body = body;
@@ -307,7 +310,7 @@ fn decode_sse_stream(
     })
 }
 
-fn with_response_context(
+pub(crate) fn with_response_context(
     response: LanguageResponse,
     headers: &siumai_transport::ResponseHeaders,
     warnings: &[Warning],

@@ -416,7 +416,23 @@ support evidence.
 `GeminiProvider::language(model)` now selects stable-v1 Interactions and is equivalent to the
 explicit `GeminiProvider::interactions(model)` entry point. Language-specific controls use
 `GeminiInteractionsOptions`; storage is disabled unless explicitly enabled. The provider
-registration now binds both the portable Language and Image families.
+registration now binds the portable Language, Embedding, Image, and Speech families.
+
+Stable-v1 Generate Content remains available only through the explicit
+`GeminiProvider::generate_content(model)` handle or `generate_content_registration()`. It does not
+replace the primary Interactions route. Google currently labels this product path Legacy even
+though the stable-v1 REST operations remain published; Siumai records those lifecycle facts
+separately.
+
+Additional product-level entry points are now provider-owned:
+
+- `embedding(model)` implements the stable-v1 text embedding subset;
+- `speech(model)` implements buffered Interactions TTS and requires an explicit voice;
+- `files()` implements stable-v1 metadata get/list/delete, without upload or GCS registration;
+- `veo()` implements typed Veo submit/status without hidden polling or automatic download.
+
+Veo remains a provider-native job API. The removed generic `VideoJobModel` and `MediaJob<Value>`
+types are not reintroduced.
 
 The former Google `gcp` credential helper is also removed. Supply a short-lived access token with
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token

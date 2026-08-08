@@ -210,8 +210,9 @@ compatibility engine.
   container/skills, and MCP servers have typed provider-owned entry points.
 - **AE10 (R10, R12):** Gemini Interactions selects stable `v1` explicitly, encodes the current
   polymorphic `response_format` contract, and never sends deprecated `outputs` or
-  `response_mime_type` fields. GenerateContent remains an explicit stable secondary mode, not the
-  hidden default and not an invented upstream legacy claim.
+  `response_mime_type` fields. GenerateContent remains an explicit stable-`v1` secondary mode, not
+  the hidden default; its support evidence records Google's current Legacy product posture
+  independently from protocol maturity.
 - **AE11 (R10, R17):** Current Alibaba Qwen requests use the verified token-limit field; DeepSeek
   strict tools or prefix completion reject the stable endpoint and require explicit beta mode; ARK
   Remote MCP sends its required beta header.
@@ -996,9 +997,9 @@ sequenceDiagram
     `response_format` contract before adding other families. Reject deprecated `outputs` and
     `response_mime_type` fields at the typed boundary.
   - Add Interactions `LanguageModel` as the primary current mode with explicit storage policy; keep
-    GenerateContent as an explicit stable secondary mode for capabilities not yet available in
-    Interactions. Do not label it upstream Legacy while Google's stable `v1` discovery continues to
-    publish the operation.
+    GenerateContent as an explicit stable-`v1` secondary mode for compatibility. Record Google's
+    current Legacy product posture without conflating it with Siumai public stability or removing
+    the still-published stable REST operation.
   - Complete checkpoint A after U0/U2: protocol extraction, `GeminiProvider` rename, stable-v1
     correction, and the existing image regression with no added family.
   - Complete checkpoint B only after U4: add Interactions language, text embedding, buffered speech,
@@ -1018,6 +1019,12 @@ sequenceDiagram
   - Custom endpoints do not inherit Google's official fidelity or model lifecycle.
 - **Verification outcome:** Gemini is a product-level provider with reusable protocol ownership,
   honest API modes, and room to grow without renaming the provider again.
+- **Implementation checkpoint (2026-08-08):** Complete. The primary stable-v1 Interactions
+  language/image modes, explicit stable-v1 Legacy GenerateContent mode, stable-v1 text embedding,
+  v1beta buffered speech, stable-v1 Files metadata get/list/delete, and provider-owned Veo
+  submit/status are implemented through one shared transport runtime. Default registration keeps
+  Interactions as the Language route; GenerateContent uses a separate explicit registration.
+  Deterministic protocol, provider, facade, no-default-feature, and Clippy lanes pass.
 
 ### U7 — Complete the High-Value OpenAI Product Plane
 

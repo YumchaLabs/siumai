@@ -45,7 +45,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `openai` | Chat Completions, Responses, and Responses resources |
 | `openai-realtime` | Experimental OpenAI Realtime support |
 | `anthropic` | Messages and Anthropic-native resources |
-| `google` | Stable-v1 Gemini Interactions language and image generation |
+| `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, embeddings, and experimental Wan video |
 | `moonshotai` | Moonshot AI's Kimi Chat Completions product surface |

@@ -538,20 +538,25 @@ mod tests {
         ))
         .unwrap();
         let claims = current.provider_profile().verified_claims().unwrap();
-        assert_eq!(claims.len(), 2);
+        assert_eq!(claims.len(), 5);
         assert!(
             claims
                 .iter()
                 .all(|claim| claim.fidelity() == VerifiedFidelity::Native)
         );
+        assert!(claims.iter().any(|claim| {
+            claim.scope().api_mode().as_str() == "interactions-speech"
+                && claim.stability() == ApiStability::Experimental
+        }));
         assert!(
             claims
                 .iter()
+                .filter(|claim| claim.scope().api_mode().as_str() != "interactions-speech")
                 .all(|claim| claim.stability() == ApiStability::Stable)
         );
         assert_eq!(
             current.provider_profile().catalog().unwrap().iter().count(),
-            6
+            14
         );
 
         let custom = crate::GeminiProfile::custom(ReplayDomain::custom(
@@ -559,7 +564,7 @@ mod tests {
         ))
         .unwrap();
         assert!(custom.provider_profile().verified_claims().is_none());
-        assert_eq!(custom.provider_profile().generic_claims().unwrap().len(), 2);
+        assert_eq!(custom.provider_profile().generic_claims().unwrap().len(), 5);
     }
 
     #[tokio::test]

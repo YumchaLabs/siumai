@@ -61,7 +61,7 @@ of compiled public scope, not a promise that every account can use every model o
 | `openai` | Native Chat Completions, Responses, and Responses resources | Legacy universal client and unrelated media/resource APIs |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
-| `google` | Stable-v1 native language and image generation through Gemini Interactions | GenerateContent mode, embedding, speech, Files, Veo, Live, and broad Vertex support not yet implemented |
+| `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions and Responses dialects, native embeddings, and experimental Wan video jobs | A separate DashScope provider identity or business-region routing |
 | `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options and dated model advisories | Kimi resources or API modes not implemented by the branded provider |
@@ -90,6 +90,9 @@ names the exact execution surface; it is not provider-wide identity.
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Language | `anthropic-messages` / `messages` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages | 2026-08-06 |
 | `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/api/interactions-api | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Image | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-generate-content` / `generate-content` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/generate-content/text-generation | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Embedding | `gemini-embed-content` / `embed-content-v1` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/embeddings | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Speech | `gemini-interactions` / `interactions-speech` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/speech-generation | 2026-08-08 |
 | `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-06 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses | 2026-08-05 |
@@ -131,6 +134,8 @@ portable model families.
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Job / `message-batches` | `native` | `stable` | https://platform.claude.com/docs/en/api/creating-message-batches | 2026-08-06 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-06 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/api/skills/create-skill | 2026-08-06 |
+| `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-08 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `files` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/file-management-upload | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `images` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-06 |

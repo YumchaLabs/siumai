@@ -31,7 +31,9 @@ tokio.workspace = true
 thiserror.workspace = true
 secrecy.workspace = true
 base64.workspace = true
+bytes.workspace = true
 chrono.workspace = true
+urlencoding.workspace = true
 
 [features]
 default = []
