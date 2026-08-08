@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use siumai_core::{ExecutionOwner, ToolBindingIdentity, ToolCall, ToolSpec};
+use siumai_core::{ToolBindingIdentity, ToolCall, ToolSpec};
 use thiserror::Error;
 
 use super::execution::{
@@ -417,10 +417,7 @@ impl ToolSet {
         &self.inner.fingerprint
     }
 
-    /// Resolve only a local call and freeze the exact selected binding.
-    ///
-    /// Provider-owned calls are rejected before name lookup, preventing a
-    /// provider tool with a colliding name from reaching trusted local code.
+    /// Resolve a validated local call and freeze the exact selected binding.
     pub fn resolve(&self, call: ToolCall) -> Result<ToolExecutionRequest, ToolExecutionError> {
         self.resolve_binding(call, None)
     }
@@ -440,39 +437,22 @@ impl ToolSet {
         call: ToolCall,
         expected: Option<&ToolBindingIdentity>,
     ) -> Result<ToolExecutionRequest, ToolExecutionError> {
-        match &call.owner {
-            ExecutionOwner::Local => {}
-            ExecutionOwner::Provider { provider } => {
-                return Err(ToolExecutionError::ProviderOwnedCall {
-                    call_id: call.id.clone(),
-                    tool: call.name.clone(),
-                    provider: provider.clone(),
-                });
-            }
-            _ => {
-                return Err(ToolExecutionError::UnsupportedExecutionOwner {
-                    call_id: call.id.clone(),
-                    tool: call.name.clone(),
-                });
-            }
-        }
-
         let binding = self
             .inner
             .bindings
-            .get(&call.name)
+            .get(call.name())
             .cloned()
             .ok_or_else(|| ToolExecutionError::UnknownLocalTool {
-                call_id: call.id.clone(),
-                tool: call.name.clone(),
+                call_id: call.id().to_owned(),
+                tool: call.name().to_owned(),
             })?;
 
         if let Some(expected) = expected
             && binding.identity() != expected
         {
             return Err(ToolExecutionError::BindingIdentityMismatch {
-                call_id: call.id.clone(),
-                tool: call.name.clone(),
+                call_id: call.id().to_owned(),
+                tool: call.name().to_owned(),
                 expected: Box::new(expected.clone()),
                 actual: Box::new(binding.identity().clone()),
             });

@@ -24,10 +24,10 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        ContentAnnotationTarget, ContentPart, ExecutionOwner, FinishReason, LanguageRequest,
-        LanguageResponse, Message, MessageAnnotationTarget, MessagePart, MessageRole, Model,
-        ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
-        ProviderProvenance, RouteId, ToolAnnotationTarget, ToolBindingIdentity, ToolCall,
+        ContentAnnotationTarget, ContentPart, FinishReason, LanguageRequest, LanguageResponse,
+        Message, MessageAnnotationTarget, MessagePart, MessageRole, Model, ModelDescriptor,
+        ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance,
+        ReplayDomain, ReplayDomainId, RouteId, ToolAnnotationTarget, ToolBindingIdentity, ToolCall,
         ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
     };
 
@@ -99,12 +99,8 @@ mod tests {
     }
 
     fn tool_call() -> ToolCall {
-        ToolCall {
-            id: "call-1".to_string(),
-            name: "write_record".to_string(),
-            arguments: json!({"password": "tool-secret"}),
-            owner: ExecutionOwner::Local,
-        }
+        ToolCall::local("call-1", "write_record", json!({"password": "tool-secret"}))
+            .expect("valid tool call")
     }
 
     fn binding() -> ToolBindingIdentity {
@@ -198,6 +194,22 @@ mod tests {
 
     fn ready_report() -> RunReport {
         report_with_log(ToolExecutionLog::new())
+    }
+
+    fn report_with_refusal_step() -> RunReport {
+        let mut report = ready_report();
+        let response = LanguageResponse::completed(
+            vec![ContentPart::Refusal {
+                reason: Some("private refusal".to_string()),
+            }],
+            FinishReason::Refusal,
+            Usage::default(),
+        )
+        .unwrap();
+        report
+            .steps_mut()
+            .push(StepRecord::new(0, target(), response, Vec::new()));
+        report
     }
 
     fn snapshot(
@@ -589,6 +601,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn deserialization_rejects_stored_version_four_snapshot() {
+        let snapshot = snapshot(
+            "checkpoint-1",
+            None,
+            report_with_refusal_step(),
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 1,
+                target: target(),
+            },
+        );
+        let mut value = serde_json::to_value(snapshot).unwrap();
+        value["snapshot_version"] = json!(4);
+        value["report"]["steps"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("assistant_history_omissions");
+
+        let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
+        let public = error.to_string();
+        assert!(public.contains("unsupported run snapshot version 4"));
+        assert!(!public.contains("history-secret"));
+        assert!(!public.contains("tool-secret"));
+    }
+
+    #[test]
+    fn deserialization_rejects_forged_assistant_history_omissions() {
+        let snapshot = snapshot(
+            "checkpoint-1",
+            None,
+            report_with_refusal_step(),
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 1,
+                target: target(),
+            },
+        );
+        let mut value = serde_json::to_value(snapshot).unwrap();
+        value["report"]["steps"][0]["assistant_history_omissions"] = json!([]);
+
+        let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid assistant-history omission records")
+        );
+    }
+
     #[tokio::test]
     async fn load_is_a_pure_read() {
         let mut log = prepared_log();
@@ -721,19 +782,20 @@ mod tests {
             ProviderId::new("source-provider").unwrap(),
             ModelId::new("source-model").unwrap(),
         )
-        .with_protocol(ProtocolId::new("source.responses").unwrap());
+        .with_protocol(ProtocolId::new("source.responses").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("snapshot-source").unwrap(),
+        ));
         let destination = ModelTarget::new(
             ProviderId::new("destination-provider").unwrap(),
             ModelId::new("destination-model").unwrap(),
         )
-        .with_protocol(ProtocolId::new("destination.messages").unwrap());
+        .with_protocol(ProtocolId::new("destination.messages").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("snapshot-destination").unwrap(),
+        ));
         let native = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: source.provider().clone(),
-                platform: None,
-                protocol: source.protocol().unwrap().as_str().to_string(),
-                model: source.model().clone(),
-            },
+            ProviderProvenance::from_scope(source.scope(), source.model().clone()).unwrap(),
             "response.output",
             json!({"id": "native-only"}),
         )

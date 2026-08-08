@@ -11,9 +11,9 @@ use siumai_core::{
     ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent, Message, MessagePart,
     MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
     ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId, ProviderOptions, ProviderProfile, StreamTerminal, SupportScope, SupportState,
-    TypedProviderAnnotation, TypedProviderOptions, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedSupportClaim,
+    ProviderId, ProviderOptions, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal,
+    SupportScope, SupportState, TypedProviderAnnotation, TypedProviderOptions, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, CacheControl, CacheTtl, ContentNodeOptions, MessagesAnnotationResolver,
@@ -43,6 +43,7 @@ fn local_profile(server: &MockServer) -> AnthropicCompatibleProfile {
         ProviderId::new(PROVIDER_ID).unwrap(),
         PlatformId::new(PLATFORM_ID).unwrap(),
         format!("{}/v1", server.uri()),
+        ReplayDomainId::new("compatible-test").unwrap(),
         API_VERSION,
     )
     .unwrap()
@@ -91,6 +92,7 @@ fn credentials_and_configured_runtime_debug_are_secret_safe() {
         ProviderId::new(PROVIDER_ID).unwrap(),
         PlatformId::new(PLATFORM_ID).unwrap(),
         "https://compatible.example/v1",
+        ReplayDomainId::new("compatible-debug-test").unwrap(),
         API_VERSION,
     )
     .unwrap();
@@ -867,6 +869,12 @@ fn verified_profile_carries_exact_evidence_and_open_model_policy() {
     .unwrap();
     let profile =
         AnthropicCompatibleProfile::verified(provider_profile, endpoint, API_VERSION).unwrap();
+    assert!(matches!(
+        profile.clone().with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("caller-relay").unwrap(),
+        )),
+        Err(crate::AnthropicCompatibleConfigError::ReplayAudienceMismatch)
+    ));
     let provider = AnthropicCompatibleProvider::builder(
         profile,
         AnthropicCompatibleCredential::api_key("test-key"),
@@ -903,4 +911,24 @@ fn verified_profile_carries_exact_evidence_and_open_model_policy() {
             .value(),
         NaiveDate::from_ymd_opt(2026, 8, 6).unwrap()
     );
+}
+
+#[test]
+fn generic_profile_rejects_official_replay_audience() {
+    let profile = AnthropicCompatibleProfile::public_custom(
+        ProfileId::new("custom-compatible").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "https://relay.example/v1",
+        ReplayDomainId::new("caller-relay").unwrap(),
+        API_VERSION,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        profile.with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("official").unwrap(),
+        )),
+        Err(crate::AnthropicCompatibleConfigError::ReplayAudienceMismatch)
+    ));
 }

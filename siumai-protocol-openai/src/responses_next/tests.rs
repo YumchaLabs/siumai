@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
     LanguageResponseStatus, LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole,
-    ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, StreamTerminal,
-    StructuredOutputSpec, ToolOutcome, ToolResult, ToolSpec, UsageValue,
+    ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
+    StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult, ToolSpec, UsageValue,
 };
 
 use super::*;
@@ -15,6 +15,9 @@ fn scope() -> ProviderScope {
         .with_platform(PlatformId::new("public-api").unwrap())
         .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
         .with_api_mode(ApiModeId::new("responses").unwrap())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("openai-test").unwrap(),
+        ))
 }
 
 fn model() -> ModelId {
@@ -114,6 +117,13 @@ fn fidelity_response() -> Value {
     })
 }
 
+fn opaque_output_part(value: Value) -> ContentPart {
+    let item = serde_json::from_value::<OutputItem>(value).expect("native output item");
+    ContentPart::ProviderOpaque(
+        super::response::opaque_item(&item, &scope(), &model()).expect("opaque output item"),
+    )
+}
+
 #[test]
 fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
     let fixture = fidelity_response();
@@ -152,6 +162,18 @@ fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
         ContentPart::Refusal { reason: Some(reason) }
             if reason == "restricted detail omitted"
     )));
+    let local_calls = decoded
+        .canonical()
+        .content()
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ToolCall(call) => Some(call),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(local_calls.len(), 1);
+    assert_eq!(local_calls[0].id(), "call_inventory");
+    assert_eq!(local_calls[0].name(), "inventory");
 
     let opaque = decoded
         .canonical()
@@ -204,6 +226,19 @@ fn encrypted_reasoning_larger_than_legacy_limit_remains_replayable() {
 }
 
 #[test]
+fn direct_function_input_is_bounded_before_json_normalization() {
+    let mut response = fidelity_response();
+    response["output"][2]["arguments"] = Value::String(format!(
+        "{}{{}}",
+        " ".repeat(siumai_core::DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+    ));
+    let body = serde_json::to_vec(&response).unwrap();
+
+    let error = decode_response(&body, &scope(), &model()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+}
+
+#[test]
 fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
     let decoded = decode_response(
         &serde_json::to_vec(&fidelity_response()).unwrap(),
@@ -212,10 +247,11 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
     )
     .unwrap();
     let user = Message::text(MessageRole::User, "Check inventory");
-    let assistant = Message::new(
-        MessageRole::Assistant,
-        decoded.canonical().content().iter().cloned(),
-    );
+    let projection = decoded.canonical().project_assistant_history();
+    assert_eq!(projection.omissions().len(), 2);
+    let assistant = projection
+        .into_message()
+        .expect("native replay items remain in assistant history");
     let tool = Message::new(
         MessageRole::Tool,
         [ContentPart::ToolResult(ToolResult {
@@ -274,25 +310,218 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
 }
 
 #[test]
-fn opaque_history_cannot_cross_provider_platform_boundaries() {
+fn request_suppresses_only_semantically_equal_native_projection_siblings() {
+    let assistant = Message::new(
+        MessageRole::Assistant,
+        [
+            ContentPart::Text {
+                text: "same answer".to_string(),
+            },
+            opaque_output_part(json!({
+                "id": "msg_equal",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "same answer"}]
+            })),
+            ContentPart::Reasoning {
+                text: "same reasoning".to_string(),
+            },
+            opaque_output_part(json!({
+                "id": "reason_equal",
+                "type": "reasoning",
+                "summary": [{"type": "summary_text", "text": "same reasoning"}],
+                "content": []
+            })),
+            opaque_output_part(json!({
+                "id": "program_parent",
+                "type": "program",
+                "call_id": "call_program",
+                "code": "const result = await tools.lookup({ a: 1, b: 2 });",
+                "fingerprint": "program-fingerprint"
+            })),
+            ContentPart::ToolCall(
+                ToolCall::local("call_equal", "lookup", json!({"a": 1, "b": 2}))
+                    .expect("local tool call"),
+            ),
+            opaque_output_part(json!({
+                "id": "function_equal",
+                "type": "function_call",
+                "call_id": "call_equal",
+                "name": "lookup",
+                "arguments": "{ \"b\": 2, \"a\": 1 }",
+                "caller": {"type": "program", "caller_id": "call_program"}
+            })),
+        ],
+    );
+    let request = LanguageRequest::new(vec![assistant]);
+
+    let body = encode_request(&scope(), &model(), &request, false, &BTreeMap::new()).unwrap();
+    let input = body["input"].as_array().unwrap();
+    assert_eq!(input.len(), 4);
+    assert_eq!(
+        input
+            .iter()
+            .map(|item| item["type"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["message", "reasoning", "program", "function_call"]
+    );
+    assert_eq!(input[3]["caller"]["type"], "program");
+    assert_eq!(input[3]["caller"]["caller_id"], "call_program");
+}
+
+#[test]
+fn request_rejects_message_and_reasoning_projection_mismatches() {
+    let cases = [
+        (
+            ContentPart::Text {
+                text: "portable text".to_string(),
+            },
+            json!({
+                "id": "msg_mismatch",
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "native text"}]
+            }),
+        ),
+        (
+            ContentPart::Reasoning {
+                text: "portable reasoning".to_string(),
+            },
+            json!({
+                "id": "reason_mismatch",
+                "type": "reasoning",
+                "summary": [{"type": "summary_text", "text": "native reasoning"}],
+                "content": []
+            }),
+        ),
+        (
+            ContentPart::Media(MediaPart {
+                media_type: "image/png".to_string(),
+                data: MediaData::Url("https://example.com/portable.png".to_string()),
+                name: None,
+            }),
+            json!({
+                "id": "msg_media_mismatch",
+                "type": "message",
+                "role": "assistant",
+                "content": []
+            }),
+        ),
+    ];
+
+    for (portable, native) in cases {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [portable, opaque_output_part(native)],
+        )]);
+        let error = encode_request(&scope(), &model(), &request, false, &BTreeMap::new())
+            .expect_err("native projection mismatch");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
+}
+
+#[test]
+fn request_rejects_native_function_name_and_argument_mismatches() {
+    let native = opaque_output_part(json!({
+        "id": "function_mismatch",
+        "type": "function_call",
+        "call_id": "call_mismatch",
+        "name": "lookup",
+        "arguments": "{\"value\":1}"
+    }));
+    let portable = [
+        ToolCall::local("call_mismatch", "other_lookup", json!({"value": 1})).unwrap(),
+        ToolCall::local("call_mismatch", "lookup", json!({"value": 2})).unwrap(),
+    ];
+
+    for call in portable {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [ContentPart::ToolCall(call), native.clone()],
+        )]);
+        let error = encode_request(&scope(), &model(), &request, false, &BTreeMap::new())
+            .expect_err("native function mismatch");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
+}
+
+#[test]
+fn request_rejects_program_and_custom_call_id_collisions_with_local_tools() {
+    let native = [
+        json!({
+            "id": "program_collision",
+            "type": "program",
+            "call_id": "call_collision",
+            "code": "return 1;",
+            "fingerprint": "program-fingerprint"
+        }),
+        json!({
+            "id": "custom_collision",
+            "type": "custom_tool_call",
+            "call_id": "call_collision",
+            "name": "custom_lookup",
+            "input": "opaque input"
+        }),
+    ];
+
+    for native in native {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [
+                ContentPart::ToolCall(
+                    ToolCall::local("call_collision", "lookup", json!({"value": 1})).unwrap(),
+                ),
+                opaque_output_part(native),
+            ],
+        )]);
+        let error = encode_request(&scope(), &model(), &request, false, &BTreeMap::new())
+            .expect_err("provider-owned call ID collision");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
+}
+
+#[test]
+fn opaque_history_requires_an_exact_replay_domain() {
     let decoded = decode_response(
         &serde_json::to_vec(&fidelity_response()).unwrap(),
         &scope(),
         &model(),
     )
     .unwrap();
-    let request = LanguageRequest::new(vec![Message::new(
-        MessageRole::Assistant,
-        decoded.canonical().content().iter().cloned(),
-    )]);
+    let assistant = decoded
+        .canonical()
+        .project_assistant_history()
+        .into_message()
+        .expect("native replay content remains");
+    let request = LanguageRequest::new(vec![assistant]);
     let azure_scope = ProviderScope::new(ProviderId::new("openai").unwrap())
         .with_platform(PlatformId::new("azure").unwrap())
         .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
-        .with_api_mode(ApiModeId::new("responses").unwrap());
+        .with_api_mode(ApiModeId::new("responses").unwrap())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("azure-openai-test").unwrap(),
+        ));
+    let custom_scope = ProviderScope::new(ProviderId::new("openai").unwrap())
+        .with_platform(PlatformId::new("public-api").unwrap())
+        .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
+        .with_api_mode(ApiModeId::new("responses").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("openai-test").unwrap(),
+        ));
+    let account_scope = ProviderScope::new(ProviderId::new("openai").unwrap())
+        .with_platform(PlatformId::new("public-api").unwrap())
+        .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
+        .with_api_mode(ApiModeId::new("responses").unwrap())
+        .with_replay_domain(
+            ReplayDomain::official(ReplayDomainId::new("openai-test").unwrap())
+                .with_caller_scope(ReplayDomainId::new("account-b").unwrap()),
+        );
 
-    let error =
-        encode_request(&azure_scope, &model(), &request, false, &BTreeMap::new()).unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    for target in [azure_scope, custom_scope, account_scope] {
+        let error = encode_request(&target, &model(), &request, false, &BTreeMap::new())
+            .expect_err("foreign replay domains must fail before transport");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
 }
 
 #[test]
@@ -605,7 +834,7 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
     assert!(done.iter().any(|event| matches!(
         event,
         LanguageStreamEvent::ToolCall(call)
-            if call.id == "call_stream" && call.arguments == json!({"q": "tea"})
+            if call.id() == "call_stream" && call.arguments() == &json!({"q": "tea"})
     )));
     assert!(done.iter().any(|event| matches!(
         event,
@@ -664,6 +893,189 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
     assert!(decoder.decode("{}").is_err());
     assert!(decoder.finish().unwrap().is_empty());
     assert!(decoder.finish().is_err());
+}
+
+#[test]
+fn provider_owned_custom_tool_stream_stays_out_of_portable_tool_events() {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let added = decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "ctc_1",
+                    "type": "custom_tool_call",
+                    "status": "in_progress",
+                    "call_id": "call_custom",
+                    "name": "sql",
+                    "input": ""
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert!(added.is_empty());
+
+    let delta = decoder
+        .decode(
+            &json!({
+                "type": "response.custom_tool_call_input.delta",
+                "sequence_number": 2,
+                "item_id": "ctc_1",
+                "output_index": 0,
+                "delta": "SELECT 1"
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert!(delta.is_empty());
+    let input_done = decoder
+        .decode(
+            &json!({
+                "type": "response.custom_tool_call_input.done",
+                "sequence_number": 3,
+                "item_id": "ctc_1",
+                "output_index": 0,
+                "input": "SELECT 1"
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert!(input_done.is_empty());
+
+    let item_done = decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 4,
+                "output_index": 0,
+                "item": {
+                    "id": "ctc_1",
+                    "type": "custom_tool_call",
+                    "status": "completed",
+                    "call_id": "call_custom",
+                    "name": "sql",
+                    "input": "SELECT 1"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    assert!(matches!(
+        item_done.as_slice(),
+        [LanguageStreamEvent::ProviderOpaque(item)]
+            if item.item_id() == Some("ctc_1")
+    ));
+}
+
+#[test]
+fn streamed_function_input_is_bounded_before_json_normalization() {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "fc_bounded",
+                    "type": "function_call",
+                    "status": "in_progress",
+                    "call_id": "call_bounded",
+                    "name": "lookup",
+                    "arguments": "{"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let oversized = json!({
+        "type": "response.function_call_arguments.delta",
+        "sequence_number": 2,
+        "item_id": "fc_bounded",
+        "output_index": 0,
+        "delta": " ".repeat(siumai_core::DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+    })
+    .to_string();
+
+    let error = decoder.decode(&oversized).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+}
+
+#[test]
+fn completed_function_input_is_bounded_without_deltas() {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "fc_final_bounded",
+                    "type": "function_call",
+                    "status": "in_progress",
+                    "call_id": "call_final_bounded",
+                    "name": "lookup",
+                    "arguments": ""
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let oversized = json!({
+        "type": "response.output_item.done",
+        "sequence_number": 2,
+        "output_index": 0,
+        "item": {
+            "id": "fc_final_bounded",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_final_bounded",
+            "name": "lookup",
+            "arguments": format!(
+                "{}{{}}",
+                " ".repeat(siumai_core::DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+            )
+        }
+    })
+    .to_string();
+
+    let error = decoder.decode(&oversized).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
 }
 
 #[test]
@@ -870,13 +1282,17 @@ fn incomplete_program_output_is_not_projected_as_success() {
     });
     let decoded =
         decode_response(&serde_json::to_vec(&response).unwrap(), &scope(), &model()).unwrap();
-    assert!(decoded.canonical().content().iter().any(|part| matches!(
-        part,
-        ContentPart::ToolResult(ToolResult {
-            outcome: ToolOutcome::ExecutionFailed { .. },
-            ..
-        })
-    )));
+    assert!(matches!(
+        decoded.native().output.as_slice(),
+        [OutputItem::ProgramOutput(output)] if output.status.as_str() == "incomplete"
+    ));
+    assert!(
+        !decoded
+            .canonical()
+            .content()
+            .iter()
+            .any(|part| matches!(part, ContentPart::ToolResult(_)))
+    );
     assert!(decoded.canonical().content().iter().any(|part| matches!(
         part,
         ContentPart::ProviderOpaque(item) if item.item_id() == Some("cmo_incomplete")

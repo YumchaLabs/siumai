@@ -3,7 +3,7 @@ use std::sync::Arc;
 use http::Method;
 use serde::{Deserialize, Serialize};
 use siumai_core::{CallOptions, Error, ErrorKind, LanguageRequest, ModelId};
-use siumai_protocol_anthropic::messages::encode_request_with_resolver;
+use siumai_protocol_anthropic::messages::encode_request_for_scope_with_resolver;
 use siumai_transport::{ReplaySafety, RequestBody};
 
 use crate::AnthropicMessagesOptions;
@@ -53,7 +53,8 @@ impl AnthropicTokens {
             .with_source(source)
         })?;
         let protocol_options = options.to_protocol(false);
-        let mut body = encode_request_with_resolver(
+        let mut body = encode_request_for_scope_with_resolver(
+            &self.runtime.scope,
             &model,
             &request,
             &protocol_options,

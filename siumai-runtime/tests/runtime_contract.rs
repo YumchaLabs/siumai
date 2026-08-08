@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ExecutionOwner, FinishReason, LanguageModel, LanguageRequest,
+    CallOptions, ContentPart, Error, FinishReason, LanguageModel, LanguageRequest,
     LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
     ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionContext, ProviderOptionError,
     ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RouteId,
@@ -114,12 +114,10 @@ impl LanguageModel for ScriptedModel {
             )
             .map_err(provider_options_error)?;
         LanguageResponse::completed(
-            vec![ContentPart::ToolCall(ToolCall {
-                id: "call-1".to_string(),
-                name: "dangerous".to_string(),
-                arguments: json!({"value": 1}),
-                owner: ExecutionOwner::Local,
-            })],
+            vec![ContentPart::ToolCall(
+                ToolCall::local("call-1", "dangerous", json!({"value": 1}))
+                    .expect("valid tool call"),
+            )],
             FinishReason::ToolCalls,
             Usage::default(),
         )

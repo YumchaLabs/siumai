@@ -15,7 +15,7 @@ use siumai_core::{
     StreamTerminal, SupportState, Warning, WarningKind,
 };
 use siumai_protocol_anthropic::messages::{
-    MessagesStreamDecoder, decode_response, encode_request_with_resolver_and_rules,
+    MessagesStreamDecoder, decode_response, encode_request_for_scope_with_resolver_and_rules,
 };
 use siumai_transport::framing::{SseDecoder, SseFrameError};
 use siumai_transport::{
@@ -149,7 +149,8 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             .prepare(self.model_id(), &request, &mut call_options)
             .map_err(|error| self.contextualize(operation, error))?;
         let protocol_options = call_options.into_protocol(false);
-        let body = encode_request_with_resolver_and_rules(
+        let body = encode_request_for_scope_with_resolver_and_rules(
+            &self.runtime.scope,
             self.model_id(),
             &request,
             &protocol_options,
@@ -194,7 +195,8 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             .prepare(self.model_id(), &request, &mut call_options)
             .map_err(|error| self.contextualize(operation, error))?;
         let protocol_options = call_options.into_protocol(true);
-        let body = encode_request_with_resolver_and_rules(
+        let body = encode_request_for_scope_with_resolver_and_rules(
+            &self.runtime.scope,
             self.model_id(),
             &request,
             &protocol_options,

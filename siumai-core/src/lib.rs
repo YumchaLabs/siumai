@@ -29,13 +29,15 @@ pub use error::{
     SensitiveErrorSource, SensitiveResponse,
 };
 pub use language::{
-    Citation, ContentPart, DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT, DEFAULT_OPAQUE_ITEM_COUNT_LIMIT,
+    AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection, Citation,
+    ContentPart, DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT, DEFAULT_OPAQUE_ITEM_COUNT_LIMIT,
     DEFAULT_OPAQUE_ITEM_LIMIT, FinishReason, GenerationConfig, GenerationConfigError,
     LanguageIncompleteReason, LanguageRequest, LanguageRequestBudget, LanguageRequestError,
     LanguageResponse, LanguageResponseError, LanguageResponseStatus, MediaData, MediaPart, Message,
-    MessagePart, MessageRole, OpaqueProviderBudget, OpaqueProviderItem, OpaqueProviderItemBuilder,
-    OpaqueProviderItemError, PartialStructuredOutput, ProviderItemRelation, ProviderProvenance,
-    StructuredOutputSpec, ToolChoice, Warning, WarningKind,
+    MessagePart, MessageRole, MessageValidationError, OpaqueProviderBudget, OpaqueProviderItem,
+    OpaqueProviderItemBuilder, OpaqueProviderItemError, PartialStructuredOutput,
+    ProviderItemRelation, ProviderProvenance, ProviderProvenanceError, StructuredOutputSpec,
+    ToolChoice, Warning, WarningKind,
 };
 pub use model::{
     EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact,
@@ -62,15 +64,17 @@ pub use provider::{
     ModelAdvisory, ModelFactory, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
     ModelPolicyContext, ModelPolicyDecision, NativeSurfaceId, PlatformId, ProfileId,
     ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, RerankModelProvider, RouteId, SpeechModelProvider,
-    SupportState, TranscriptionModelProvider, UnsupportedReason,
+    ProviderRegistrationError, ProviderScope, ReplayAudience, ReplayDomain, ReplayDomainId,
+    RerankModelProvider, RouteId, SpeechModelProvider, SupportState, TranscriptionModelProvider,
+    UnsupportedReason,
 };
 pub use stream::{
     DecoderLifecycle, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent,
     StreamContractError, StreamLifecycle, StreamTerminal,
 };
 pub use tool::{
-    ExecutionOwner, InvalidToolSpec, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult,
-    ToolSpec, ToolSpecParts,
+    DEFAULT_TOOL_INPUT_BYTE_LIMIT, ExecutionOwner, InvalidToolCall, InvalidToolInput,
+    InvalidToolSpec, ToolBindingIdentity, ToolCall, ToolCallParts, ToolInput, ToolOutcome,
+    ToolResult, ToolSpec, ToolSpecParts,
 };
 pub use usage::{Usage, UsageValue};

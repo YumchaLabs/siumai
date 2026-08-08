@@ -7,12 +7,12 @@ mod providers;
 
 pub use providers::anthropic_vertex;
 pub use providers::anthropic_vertex::{
-    GoogleVertexAnthropicAnnotationResolver, GoogleVertexAnthropicCacheTtl,
-    GoogleVertexAnthropicConfigError, GoogleVertexAnthropicContentCache,
-    GoogleVertexAnthropicEndpointError, GoogleVertexAnthropicLanguageModel,
-    GoogleVertexAnthropicMessageCache, GoogleVertexAnthropicMessagesOptions,
-    GoogleVertexAnthropicProfileError, GoogleVertexAnthropicProvider,
-    GoogleVertexAnthropicProviderBuilder, GoogleVertexAnthropicTool,
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicAnnotationResolver,
+    GoogleVertexAnthropicCacheTtl, GoogleVertexAnthropicConfigError,
+    GoogleVertexAnthropicContentCache, GoogleVertexAnthropicEndpointError,
+    GoogleVertexAnthropicLanguageModel, GoogleVertexAnthropicMessageCache,
+    GoogleVertexAnthropicMessagesOptions, GoogleVertexAnthropicProfileError,
+    GoogleVertexAnthropicProvider, GoogleVertexAnthropicProviderBuilder, GoogleVertexAnthropicTool,
     GoogleVertexAnthropicToolOptions, GoogleVertexAnthropicToolSpecError, GoogleVertexCredential,
     GoogleVertexCredentialError, GoogleVertexTokenSource,
 };

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use siumai_core::{
     ApiModeId, ApiStability, GenericSupportClaim, ModelFamily, PlatformId, ProfileId, ProtocolId,
-    ProviderId, ProviderProfile, ProviderScope, SupportScope,
+    ProviderId, ProviderProfile, ProviderScope, ReplayDomain, ReplayDomainId, SupportScope,
 };
 use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
@@ -140,29 +140,33 @@ impl OpenAiCompatibleProfile {
             endpoint,
             chat_scope.zip(chat_dialect),
             responses_scope,
-        )
+        )?
+        .with_replay_domain(ReplayDomain::official(ReplayDomainId::new("official")?))
     }
 
     pub fn public_custom(
         provider: ProviderId,
         base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
         mode: OpenAiCompatibleApiMode,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
-        Self::generic(provider, base_url, false, mode)
+        Self::generic(provider, base_url, replay_domain, false, mode)
     }
 
     pub fn local_explicit(
         provider: ProviderId,
         base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
         mode: OpenAiCompatibleApiMode,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
-        Self::generic(provider, base_url, true, mode)
+        Self::generic(provider, base_url, replay_domain, true, mode)
     }
 
     #[doc(hidden)]
     pub fn custom_chat(
         provider: ProviderId,
         endpoint: EndpointConfig,
+        replay_domain: ReplayDomain,
         chat_dialect: ChatCompletionsDialect,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
         let platform = PlatformId::new(match endpoint.policy() {
@@ -182,13 +186,15 @@ impl OpenAiCompatibleProfile {
             ProfileId::new(provider.as_str())?,
             GenericSupportClaim::new(chat_scope.clone(), ApiStability::Experimental),
         );
-        Self::from_parts(profile, endpoint, Some((chat_scope, chat_dialect)), None)
+        Self::from_parts(profile, endpoint, Some((chat_scope, chat_dialect)), None)?
+            .with_replay_domain(replay_domain)
     }
 
     #[doc(hidden)]
     pub fn custom_chat_and_responses(
         provider: ProviderId,
         endpoint: EndpointConfig,
+        replay_domain: ReplayDomain,
         chat_dialect: ChatCompletionsDialect,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
         let platform = PlatformId::new(match endpoint.policy() {
@@ -223,12 +229,14 @@ impl OpenAiCompatibleProfile {
             endpoint,
             Some((chat_scope, chat_dialect)),
             Some(responses_scope),
-        )
+        )?
+        .with_replay_domain(replay_domain)
     }
 
     fn generic(
         provider: ProviderId,
         base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
         local: bool,
         mode: OpenAiCompatibleApiMode,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
@@ -249,7 +257,7 @@ impl OpenAiCompatibleProfile {
         } else {
             EndpointConfig::public_custom(base_url)
         }?;
-        match mode {
+        let profile = match mode {
             OpenAiCompatibleApiMode::ChatCompletions => Self::from_parts(
                 profile,
                 endpoint,
@@ -259,7 +267,8 @@ impl OpenAiCompatibleProfile {
             OpenAiCompatibleApiMode::Responses => {
                 Self::from_parts(profile, endpoint, None, Some(support_scope))
             }
-        }
+        }?;
+        profile.with_replay_domain(ReplayDomain::custom(replay_domain))
     }
 
     fn from_parts(
@@ -324,6 +333,49 @@ impl OpenAiCompatibleProfile {
 
     pub fn provider_profile(&self) -> &ProviderProfile {
         &self.profile
+    }
+
+    /// Bind provider-native history to a non-secret configured replay domain.
+    pub fn with_replay_domain(
+        mut self,
+        replay_domain: ReplayDomain,
+    ) -> Result<Self, OpenAiCompatibleConfigError> {
+        let profile_is_verified = self.profile.verified_claims().is_some();
+        if replay_domain.audience().is_official() != profile_is_verified {
+            return Err(OpenAiCompatibleConfigError::ReplayAudienceMismatch);
+        }
+        if let Some(chat) = &mut self.chat {
+            chat.scope = Arc::new(
+                chat.scope
+                    .as_ref()
+                    .clone()
+                    .with_replay_domain(replay_domain.clone()),
+            );
+        }
+        if let Some(responses) = &mut self.responses {
+            responses.scope = Arc::new(
+                responses
+                    .scope
+                    .as_ref()
+                    .clone()
+                    .with_replay_domain(replay_domain),
+            );
+        }
+        self.recommended_scope = match self.recommended_mode {
+            OpenAiCompatibleApiMode::Responses => self
+                .responses
+                .as_ref()
+                .expect("recommended Responses mode exists")
+                .scope
+                .clone(),
+            OpenAiCompatibleApiMode::ChatCompletions => self
+                .chat
+                .as_ref()
+                .expect("recommended Chat mode exists")
+                .scope
+                .clone(),
+        };
+        Ok(self)
     }
 
     pub const fn recommended_mode(&self) -> OpenAiCompatibleApiMode {

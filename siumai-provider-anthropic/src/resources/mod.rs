@@ -12,6 +12,7 @@ mod tokens;
 use std::fmt;
 use std::sync::Arc;
 
+use siumai_core::ProviderScope;
 use siumai_protocol_anthropic::messages::MessagesAnnotationResolver;
 use siumai_transport::ProviderTransport;
 
@@ -30,6 +31,7 @@ pub use skills::{
 pub use tokens::{AnthropicTokenCount, AnthropicTokens};
 
 pub(crate) struct NativeRuntime {
+    pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) api_version: Arc<str>,
     pub(crate) beta_features: Arc<[String]>,

@@ -8,9 +8,10 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderProfile, ProviderRegistration, TypedProviderOptions,
+    CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
+    ProviderOptionError, ProviderProfile, ProviderRegistration, ReplayDomain, ReplayDomainId,
+    TypedProviderOptions,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -25,6 +26,8 @@ use thiserror::Error as ThisError;
 use crate::provider_options::{XaiChatOptions, XaiResponsesOptions};
 
 use super::language::{DEFAULT_BASE_URL, OFFICIAL_ORIGIN, XaiProfileError, profile};
+
+const OFFICIAL_REPLAY_DOMAIN_ID: &str = "xai-public-api";
 
 /// xAI language endpoint selected by a lightweight model handle.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -169,6 +172,8 @@ impl fmt::Debug for XaiProvider {
 pub struct XaiProviderBuilder {
     credential: XaiCredential,
     endpoint: Result<EndpointConfig, EndpointError>,
+    provider_selected_endpoint: bool,
+    replay_domain: Option<ReplayDomain>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -183,6 +188,8 @@ impl XaiProviderBuilder {
         Self {
             credential,
             endpoint: official_endpoint(),
+            provider_selected_endpoint: true,
+            replay_domain: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -193,18 +200,35 @@ impl XaiProviderBuilder {
         }
     }
 
+    /// Replace the default endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint remains caller-controlled even when its transport policy is marked official.
+    /// A matching [`ReplayDomain::custom`] is required before `build`.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(endpoint);
+        self.provider_selected_endpoint = false;
         self
     }
 
     pub fn with_base_url(mut self, base_url: impl AsRef<str>) -> Self {
         self.endpoint = EndpointConfig::public_custom(base_url);
+        self.provider_selected_endpoint = false;
         self
     }
 
     pub fn with_local_base_url(mut self, base_url: impl AsRef<str>) -> Self {
         self.endpoint = EndpointConfig::local_explicit(base_url);
+        self.provider_selected_endpoint = false;
+        self
+    }
+
+    /// Bind provider-native history to a non-secret replay domain.
+    ///
+    /// Caller-controlled endpoints require an explicit custom audience. The provider-selected
+    /// endpoint uses xAI's official audience by default, but callers may add a material account
+    /// boundary with [`ReplayDomain::with_caller_scope`].
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -252,7 +276,10 @@ impl XaiProviderBuilder {
             .map_err(XaiConfigError::DefaultProviderOptions)?;
         self.credential.0.validate_static()?;
 
-        let language_profile = profile(self.endpoint?)?;
+        let endpoint = self.endpoint?;
+        let verified_endpoint = self.provider_selected_endpoint;
+        let replay_domain = replay_domain_for_endpoint(self.replay_domain, verified_endpoint)?;
+        let language_profile = profile(endpoint, replay_domain, verified_endpoint)?;
         let mut builder = OpenAiCompatibleProvider::builder_with_auth(
             language_profile,
             self.credential.0.into_auth(),
@@ -335,6 +362,21 @@ fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(DEFAULT_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn replay_domain_for_endpoint(
+    configured: Option<ReplayDomain>,
+    verified_endpoint: bool,
+) -> Result<ReplayDomain, XaiConfigError> {
+    let replay_domain = match (configured, verified_endpoint) {
+        (Some(replay_domain), _) => replay_domain,
+        (None, true) => ReplayDomain::official(ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN_ID)?),
+        (None, false) => return Err(XaiConfigError::CustomEndpointRequiresReplayDomain),
+    };
+    if replay_domain.audience().is_official() != verified_endpoint {
+        return Err(XaiConfigError::ReplayAudienceMismatch);
+    }
+    Ok(replay_domain)
+}
+
 fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, XaiConfigError> {
     match serde_json::to_value(options)? {
         Value::Object(values) => Ok(values),
@@ -345,6 +387,8 @@ fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, XaiConfigE
 #[derive(Debug, ThisError)]
 #[non_exhaustive]
 pub enum XaiConfigError {
+    #[error("invalid xAI identity: {0}")]
+    Identity(#[from] InvalidId),
     #[error("invalid xAI endpoint: {0}")]
     Endpoint(#[from] EndpointError),
     #[error("invalid xAI language profile: {0}")]
@@ -361,6 +405,10 @@ pub enum XaiConfigError {
     DefaultProviderOptions(ProviderOptionError),
     #[error("xAI profile is missing its required {0:?} language registration")]
     MissingLanguageRegistration(XaiLanguageApi),
+    #[error("a custom xAI endpoint requires an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured xAI endpoint ownership")]
+    ReplayAudienceMismatch,
 }
 
 #[cfg(test)]
@@ -382,6 +430,19 @@ mod tests {
             model.descriptor().api_mode(),
             Some(siumai_protocol_openai::responses_next::API_MODE_ID)
         );
+        let replay_domain = model
+            .descriptor()
+            .replay_domain()
+            .expect("official replay domain");
+        let chat = provider
+            .chat_completions("future-grok-model")
+            .expect("future Chat model remains callable");
+        assert!(replay_domain.audience().is_official());
+        assert_eq!(
+            replay_domain.audience().id().as_str(),
+            OFFICIAL_REPLAY_DOMAIN_ID
+        );
+        assert_eq!(chat.descriptor().replay_domain(), Some(replay_domain));
     }
 
     #[test]
@@ -496,5 +557,103 @@ mod tests {
             .language_model(model)
             .expect("registered Chat Completions");
         assert_eq!(direct.descriptor(), registered.descriptor());
+    }
+
+    #[test]
+    fn custom_endpoint_requires_custom_replay_domain() {
+        let endpoint = EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap();
+        let missing = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            missing,
+            XaiConfigError::CustomEndpointRequiresReplayDomain
+        ));
+
+        let wrong_audience = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(endpoint)
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("xai-public-api").unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            wrong_audience,
+            XaiConfigError::ReplayAudienceMismatch
+        ));
+
+        let provider = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_local_base_url("http://127.0.0.1:9/v1")
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let model = provider.language("future-grok-model").unwrap();
+        let replay_domain = model
+            .descriptor()
+            .replay_domain()
+            .expect("custom replay domain");
+        assert!(!replay_domain.audience().is_official());
+        assert_eq!(replay_domain.audience().id().as_str(), "test-relay");
+    }
+
+    #[test]
+    fn official_endpoint_rejects_custom_replay_audience() {
+        let error = XaiProvider::builder(XaiCredential::api_key("test-key"))
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, XaiConfigError::ReplayAudienceMismatch));
+    }
+
+    #[test]
+    fn caller_supplied_official_policy_does_not_gain_official_identity() {
+        let endpoint = EndpointConfig::official(
+            "https://relay.example/v1",
+            OfficialOrigin::new("https://relay.example").unwrap(),
+        )
+        .unwrap();
+
+        let missing = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            missing,
+            XaiConfigError::CustomEndpointRequiresReplayDomain
+        ));
+
+        let mismatched = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN_ID).unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(mismatched, XaiConfigError::ReplayAudienceMismatch));
+
+        let provider = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(endpoint)
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        assert!(provider.profile().generic_claims().is_some());
+        assert!(provider.profile().verified_claims().is_none());
+        assert!(
+            !provider
+                .language("future-model")
+                .unwrap()
+                .descriptor()
+                .replay_domain()
+                .expect("replay domain")
+                .audience()
+                .is_official()
+        );
     }
 }

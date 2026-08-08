@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, GenerationConfig,
-    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
-    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProviderId,
-    ProviderProvenance, StreamTerminal, StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome,
-    ToolSpec, Usage,
+    CallOptions, ContentPart, Error, ErrorKind, FinishReason, GenerationConfig, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
+    Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
+    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec,
+    ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -50,7 +50,11 @@ impl DeferredModel {
                 ProviderId::new("deferred-test").expect("valid provider"),
                 ModelId::new("deferred-model").expect("valid model"),
                 ModelFamily::Language,
-            ),
+            )
+            .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+            )),
             item,
         })
     }
@@ -282,21 +286,11 @@ fn tool_spec() -> ToolSpec {
 }
 
 fn tool_call() -> ToolCall {
-    ToolCall {
-        id: "call-1".to_string(),
-        name: "write_record".to_string(),
-        arguments: json!({"value": 7}),
-        owner: ExecutionOwner::Local,
-    }
+    ToolCall::local("call-1", "write_record", json!({"value": 7})).expect("valid tool call")
 }
 
 fn second_tool_call() -> ToolCall {
-    ToolCall {
-        id: "call-2".to_string(),
-        name: "write_record_2".to_string(),
-        arguments: json!({"value": 8}),
-        owner: ExecutionOwner::Local,
-    }
+    ToolCall::local("call-2", "write_record_2", json!({"value": 8})).expect("valid tool call")
 }
 
 fn tool_response() -> LanguageResponse {
@@ -645,12 +639,9 @@ async fn dispatching_unapproved_work_preserves_other_pending_approval_budget() {
     let tools = ToolSet::from_bindings([first, second]).expect("unique tools");
     let response = LanguageResponse::completed(
         vec![
-            ContentPart::ToolCall(ToolCall {
-                id: "call-read".to_string(),
-                name: "read_record".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Local,
-            }),
+            ContentPart::ToolCall(
+                ToolCall::local("call-read", "read_record", json!({})).expect("valid tool call"),
+            ),
             ContentPart::ToolCall(tool_call()),
         ],
         FinishReason::ToolCalls,
@@ -844,11 +835,11 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
         .run_id(suspended.snapshot().run_id().clone())
         .lineage_id(suspended.snapshot().lineage_id().clone())
         .checkpoint_id(suspended.snapshot().checkpoint_id().clone())
-        .execution_owner(prepared.call().owner.clone())
+        .execution_owner(prepared.call().owner().clone())
         .binding_identity(prepared.binding().clone())
-        .tool_call_id(&prepared.call().id)
+        .tool_call_id(prepared.call().id())
         .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
-            &prepared.call().arguments,
+            prepared.call().arguments(),
         ))
         .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
         .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
@@ -891,13 +882,18 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
 
 #[tokio::test]
 async fn provider_deferred_without_a_tool_call_is_a_durable_boundary() {
+    let scope = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+    ));
     let item = OpaqueProviderItem::new(
-        ProviderProvenance {
-            provider: ProviderId::new("deferred-test").expect("valid provider"),
-            platform: None,
-            protocol: "native-orchestration".to_string(),
-            model: ModelId::new("deferred-model").expect("valid model"),
-        },
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone())
+            .expect("valid provenance"),
         "provider.deferred",
         json!({"opaque": true}),
     )
@@ -968,11 +964,11 @@ async fn multiple_approvals_are_verified_against_one_checkpoint_batch() {
             .run_id(suspended.snapshot().run_id().clone())
             .lineage_id(suspended.snapshot().lineage_id().clone())
             .checkpoint_id(suspended.snapshot().checkpoint_id().clone())
-            .execution_owner(prepared.call().owner.clone())
+            .execution_owner(prepared.call().owner().clone())
             .binding_identity(prepared.binding().clone())
-            .tool_call_id(&prepared.call().id)
+            .tool_call_id(prepared.call().id())
             .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
-                &prepared.call().arguments,
+                prepared.call().arguments(),
             ))
             .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
             .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
@@ -984,7 +980,7 @@ async fn multiple_approvals_are_verified_against_one_checkpoint_batch() {
             .expect("valid envelope");
         verifier.insert(&envelope, claims);
         approvals.push(DurableApproval::new(
-            prepared.call().id.clone(),
+            prepared.call().id().to_owned(),
             envelope,
             identity.clone(),
         ));

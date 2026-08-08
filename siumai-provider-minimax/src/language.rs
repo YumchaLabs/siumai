@@ -12,8 +12,8 @@ use siumai_core::{
     ApiModeId, ApiStability, CatalogError, ContentPart, Error, ErrorKind, InvalidId,
     LanguageRequest, MessageRole, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
     ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, SupportScope, ToolChoice,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope,
+    ToolChoice, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
@@ -32,7 +32,7 @@ use siumai_protocol_openai::responses_next::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, RequestEncodingOptions,
     ResponsesMediaDialect, encode_request_with_options as encode_responses_request,
 };
-use siumai_transport::{EndpointConfig, EndpointPolicy, RequestHeaders};
+use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
 
 use crate::MinimaxAnnotationResolver;
@@ -56,17 +56,21 @@ const M2_MAX_OUTPUT_TOKENS: u64 = 204_800;
 
 pub(crate) fn messages_profile(
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
 ) -> Result<AnthropicCompatibleProfile, MinimaxLanguageProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let platform = PlatformId::new(PLATFORM_ID)?;
-    let profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
+    let profile = if verified_endpoint {
         verified_messages_profile(provider, platform, endpoint)?
+            .with_replay_domain(replay_domain)?
     } else {
         AnthropicCompatibleProfile::custom(
             ProfileId::new(MESSAGES_PROFILE_ID)?,
             provider,
             platform,
             endpoint,
+            replay_domain,
             COMPATIBLE_API_VERSION,
         )?
     };
@@ -83,6 +87,8 @@ pub(crate) fn messages_profile(
 
 pub(crate) fn openai_profile(
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
 ) -> Result<OpenAiCompatibleProfile, MinimaxLanguageProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let reasoning_content = WireFieldName::new("reasoning_content")?;
@@ -93,10 +99,15 @@ pub(crate) fn openai_profile(
         .with_reasoning_output_field(reasoning_content)
         .with_max_output_tokens_field(MaxOutputTokensField::MaxCompletionTokens)
         .with_stream_usage(true);
-    let profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
-        verified_openai_profile(provider, endpoint, dialect)?
+    let profile = if verified_endpoint {
+        verified_openai_profile(provider, endpoint, dialect)?.with_replay_domain(replay_domain)?
     } else {
-        OpenAiCompatibleProfile::custom_chat_and_responses(provider, endpoint, dialect)?
+        OpenAiCompatibleProfile::custom_chat_and_responses(
+            provider,
+            endpoint,
+            replay_domain,
+            dialect,
+        )?
     };
     Ok(profile
         .with_chat_codec_policy(Arc::new(MinimaxChatPolicy { reasoning_details }))

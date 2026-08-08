@@ -10,7 +10,7 @@ use siumai_core::{
     ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageRequest,
     LanguageResponse, LanguageStreamDecoder, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
     ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, SupportScope,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope,
     TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
     VerifiedSupportClaim,
 };
@@ -27,7 +27,7 @@ use siumai_protocol_openai::responses_next::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesStreamDecoder,
     decode_response as decode_responses_response,
 };
-use siumai_transport::{EndpointConfig, EndpointPolicy, RequestHeaders, ResponseHeaders};
+use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
 use crate::provider_options::{XaiChatOptions, XaiResponsesOptions};
@@ -46,6 +46,8 @@ const XAI_CONVERSATION_ID_HEADER: HeaderName = HeaderName::from_static("x-grok-c
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
 ) -> Result<OpenAiCompatibleProfile, XaiProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let reasoning = WireFieldName::new("reasoning_content")?;
@@ -53,10 +55,15 @@ pub(crate) fn profile(
         .with_reasoning_input_field(reasoning.clone())
         .with_reasoning_output_field(reasoning);
 
-    let profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
-        verified_profile(provider, endpoint, dialect)?
+    let profile = if verified_endpoint {
+        verified_profile(provider, endpoint, replay_domain, dialect)?
     } else {
-        OpenAiCompatibleProfile::custom_chat_and_responses(provider, endpoint, dialect)?
+        OpenAiCompatibleProfile::custom_chat_and_responses(
+            provider,
+            endpoint,
+            replay_domain,
+            dialect,
+        )?
     };
 
     Ok(profile
@@ -67,6 +74,7 @@ pub(crate) fn profile(
 fn verified_profile(
     provider: ProviderId,
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
     dialect: ChatCompletionsDialect,
 ) -> Result<OpenAiCompatibleProfile, XaiProfileError> {
     let platform = PlatformId::new(PLATFORM_ID)?;
@@ -136,11 +144,10 @@ fn verified_profile(
         ],
         catalog,
     )?;
-    Ok(OpenAiCompatibleProfile::verified_chat_and_responses(
-        provider_profile,
-        endpoint,
-        dialect,
-    )?)
+    Ok(
+        OpenAiCompatibleProfile::verified_chat_and_responses(provider_profile, endpoint, dialect)?
+            .with_replay_domain(replay_domain)?,
+    )
 }
 
 fn model_catalog(

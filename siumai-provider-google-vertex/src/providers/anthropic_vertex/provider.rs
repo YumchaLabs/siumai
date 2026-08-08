@@ -10,7 +10,7 @@ use siumai_anthropic_compatible::{
 use siumai_core::{
     CallOptions, Error, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
     LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, TypedProviderOptions,
+    ProviderOptionError, ProviderRegistration, ReplayDomain, TypedProviderOptions,
 };
 use siumai_transport::{AuthApplier, EndpointConfig, RetryPolicy, TransportLimits};
 use thiserror::Error as ThisError;
@@ -105,10 +105,14 @@ enum EndpointSelection {
     Custom(EndpointConfig),
 }
 
+/// Stable official replay audience for Anthropic models served by Vertex AI.
+pub const GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE: &str = "google-vertex-anthropic";
+
 /// Builder for one immutable, network-free Anthropic-on-Vertex runtime.
 pub struct GoogleVertexAnthropicProviderBuilder {
     auth: ConfiguredAuth,
     endpoint: Result<EndpointSelection, GoogleVertexAnthropicEndpointError>,
+    replay_domain: Option<ReplayDomain>,
     defaults: GoogleVertexAnthropicMessagesOptions,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
@@ -144,6 +148,7 @@ impl GoogleVertexAnthropicProviderBuilder {
         Self {
             auth,
             endpoint: official_endpoint(&project, &location).map(EndpointSelection::Official),
+            replay_domain: None,
             defaults: GoogleVertexAnthropicMessagesOptions::default(),
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
@@ -159,6 +164,12 @@ impl GoogleVertexAnthropicProviderBuilder {
     /// a Google credential to a caller-selected audience implicitly.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(EndpointSelection::Custom(endpoint));
+        self
+    }
+
+    /// Bind provider-native history to a non-secret endpoint and caller scope.
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -206,12 +217,27 @@ impl GoogleVertexAnthropicProviderBuilder {
                 (endpoint, false)
             }
         };
+        let replay_domain = match (self.replay_domain, verified_endpoint) {
+            (Some(replay_domain), _) => replay_domain,
+            (None, true) => {
+                return Err(GoogleVertexAnthropicConfigError::OfficialProjectRequiresReplayDomain);
+            }
+            (None, false) => {
+                return Err(GoogleVertexAnthropicConfigError::CustomEndpointRequiresReplayDomain);
+            }
+        };
+        if replay_domain.audience().is_official() != verified_endpoint {
+            return Err(GoogleVertexAnthropicConfigError::ReplayAudienceMismatch);
+        }
+        if verified_endpoint && replay_domain.caller_scope().is_none() {
+            return Err(GoogleVertexAnthropicConfigError::OfficialProjectRequiresCallerScope);
+        }
         let auth = match self.auth {
             ConfiguredAuth::Credential(credential) => credential.into_auth()?,
             ConfiguredAuth::Applied(auth) => auth,
         };
         let resolver = Arc::new(GoogleVertexAnthropicAnnotationResolver);
-        let profile = profile(endpoint, verified_endpoint, resolver)?;
+        let profile = profile(endpoint, verified_endpoint, replay_domain, resolver)?;
         let mut builder = AnthropicCompatibleProvider::builder_with_auth(profile, auth)
             .with_default_options(self.defaults.to_engine())
             .with_limits(self.limits)
@@ -279,6 +305,14 @@ pub enum GoogleVertexAnthropicConfigError {
     Endpoint(#[from] GoogleVertexAnthropicEndpointError),
     #[error("custom Vertex endpoints require an explicit AuthApplier")]
     CustomEndpointRequiresExplicitAuth,
+    #[error("custom Vertex endpoints require an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("official Vertex projects require an explicit non-secret replay domain")]
+    OfficialProjectRequiresReplayDomain,
+    #[error("official Vertex replay domains require a non-secret caller scope")]
+    OfficialProjectRequiresCallerScope,
+    #[error("replay audience does not match the configured Vertex endpoint policy")]
+    ReplayAudienceMismatch,
     #[error("invalid Google Vertex credential: {0}")]
     Credential(#[from] GoogleVertexCredentialError),
     #[error("invalid Google Vertex Anthropic profile: {0}")]

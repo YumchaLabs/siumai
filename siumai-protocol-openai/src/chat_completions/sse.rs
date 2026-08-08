@@ -395,9 +395,9 @@ impl ChatCompletionsSseEncoder {
     }
 
     fn encode_tool_call(&mut self, call: &ToolCall) -> Result<Vec<Bytes>, Error> {
-        ensure_local_owner(&call.owner)?;
-        validate_tool_identity(&call.id, &call.name)?;
-        let final_arguments = serde_json::to_string(&call.arguments).map_err(|source| {
+        ensure_local_owner(call.owner())?;
+        validate_tool_identity(call.id(), call.name())?;
+        let final_arguments = serde_json::to_string(call.arguments()).map_err(|source| {
             Error::new(
                 ErrorKind::Internal,
                 "failed to serialize canonical tool arguments for Chat Completions",
@@ -410,13 +410,13 @@ impl ChatCompletionsSseEncoder {
             ));
         }
 
-        if let Some(state) = self.tool_calls.get(&call.id) {
+        if let Some(state) = self.tool_calls.get(call.id()) {
             if state.completed {
                 return Err(protocol_violation(
                     "Chat Completions encoder received a duplicate completed tool call",
                 ));
             }
-            if state.name != call.name {
+            if state.name != call.name() {
                 return Err(protocol_violation(
                     "Chat Completions tool name changed during streaming",
                 ));
@@ -438,10 +438,10 @@ impl ChatCompletionsSseEncoder {
                 }
 
                 let frame =
-                    self.tool_delta_frame(state.index, &call.id, None, Some(&final_arguments))?;
+                    self.tool_delta_frame(state.index, call.id(), None, Some(&final_arguments))?;
                 let state = self
                     .tool_calls
-                    .get_mut(&call.id)
+                    .get_mut(call.id())
                     .ok_or_else(missing_tool_state)?;
                 state.arguments = final_arguments;
                 state.completed = true;
@@ -457,13 +457,13 @@ impl ChatCompletionsSseEncoder {
                     )
                     .with_source(source)
                 })?;
-            if streamed_arguments != call.arguments {
+            if &streamed_arguments != call.arguments() {
                 return Err(protocol_violation(
                     "streamed Chat Completions tool arguments changed at completion",
                 ));
             }
             self.tool_calls
-                .get_mut(&call.id)
+                .get_mut(call.id())
                 .ok_or_else(missing_tool_state)?
                 .completed = true;
             return Ok(Vec::new());
@@ -483,12 +483,12 @@ impl ChatCompletionsSseEncoder {
         }
 
         let frame =
-            self.tool_delta_frame(index, &call.id, Some(&call.name), Some(&final_arguments))?;
+            self.tool_delta_frame(index, call.id(), Some(call.name()), Some(&final_arguments))?;
         self.tool_calls.insert(
-            call.id.clone(),
+            call.id().to_owned(),
             ToolCallState {
                 index,
-                name: call.name.clone(),
+                name: call.name().to_owned(),
                 arguments: final_arguments,
                 completed: true,
             },
@@ -880,8 +880,9 @@ mod tests {
     use serde_json::json;
     use siumai_core::{
         Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse, LanguageStreamEvent,
-        ModelId, OpaqueProviderItem, ProviderId, ProviderProvenance, SensitiveResponse,
-        StreamTerminal, ToolCall, Usage, UsageValue,
+        ModelId, OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
+        ReplayDomain, ReplayDomainId, SensitiveResponse, StreamTerminal, ToolCall, Usage,
+        UsageValue,
     };
 
     use super::*;
@@ -904,6 +905,10 @@ mod tests {
         LanguageStreamEvent::Terminal(StreamTerminal::Completed {
             response: Box::new(completed_response(finish_reason, usage)),
         })
+    }
+
+    fn local_call(id: impl Into<String>, name: impl Into<String>, arguments: Value) -> ToolCall {
+        ToolCall::local(id, name, arguments).expect("valid local tool call")
     }
 
     fn frame_json(frame: &Bytes) -> Value {
@@ -1113,19 +1118,6 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::Unsupported);
         assert!(!format!("{error:?}").contains("hosted-runtime"));
 
-        let direct_error = encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-provider-direct".to_string(),
-                name: "search".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Provider {
-                    provider: ProviderId::new("hosted-runtime").expect("valid provider ID"),
-                },
-            }))
-            .expect_err("provider-owned completed tool must not become a function call");
-        assert_eq!(direct_error.kind(), ErrorKind::Unsupported);
-        assert!(!format!("{direct_error:?}").contains("hosted-runtime"));
-
         let start = encoder
             .encode(&LanguageStreamEvent::ToolInputStart {
                 id: "call-local".to_string(),
@@ -1158,23 +1150,21 @@ mod tests {
             .expect("encode tool arguments");
         assert!(
             encoder
-                .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                    id: "call-0".to_string(),
-                    name: "lookup".to_string(),
-                    arguments: json!({"city": "Paris"}),
-                    owner: ExecutionOwner::Local,
-                }))
+                .encode(&LanguageStreamEvent::ToolCall(local_call(
+                    "call-0",
+                    "lookup",
+                    json!({"city": "Paris"}),
+                )))
                 .expect("complete tool call")
                 .is_empty()
         );
 
         let duplicate = encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-0".to_string(),
-                name: "lookup".to_string(),
-                arguments: json!({"city": "Paris"}),
-                owner: ExecutionOwner::Local,
-            }))
+            .encode(&LanguageStreamEvent::ToolCall(local_call(
+                "call-0",
+                "lookup",
+                json!({"city": "Paris"}),
+            )))
             .expect_err("duplicate tool completion must fail");
         assert_eq!(duplicate.kind(), ErrorKind::ProtocolViolation);
 
@@ -1196,12 +1186,11 @@ mod tests {
             })
             .expect("encode tool start");
         let name_error = name_encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-0".to_string(),
-                name: "changed".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Local,
-            }))
+            .encode(&LanguageStreamEvent::ToolCall(local_call(
+                "call-0",
+                "changed",
+                json!({}),
+            )))
             .expect_err("changed name must fail");
         assert_eq!(name_error.kind(), ErrorKind::ProtocolViolation);
 
@@ -1221,25 +1210,29 @@ mod tests {
             })
             .expect("encode partial arguments");
         let arguments_error = arguments_encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-0".to_string(),
-                name: "lookup".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Local,
-            }))
+            .encode(&LanguageStreamEvent::ToolCall(local_call(
+                "call-0",
+                "lookup",
+                json!({}),
+            )))
             .expect_err("incomplete arguments must fail");
         assert_eq!(arguments_error.kind(), ErrorKind::ProtocolViolation);
     }
 
     #[test]
     fn private_opaque_provider_payload_is_never_projected() {
+        let scope =
+            ProviderScope::new(ProviderId::new("custom-provider").expect("valid provider ID"))
+                .with_protocol(ProtocolId::new("custom-protocol").expect("valid protocol ID"))
+                .with_replay_domain(ReplayDomain::custom(
+                    ReplayDomainId::new("sse-test").expect("valid replay domain"),
+                ));
         let item = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new("custom-provider").expect("valid provider ID"),
-                platform: None,
-                protocol: "custom-protocol".to_string(),
-                model: ModelId::new("model-test").expect("valid model ID"),
-            },
+            ProviderProvenance::from_scope(
+                &scope,
+                ModelId::new("model-test").expect("valid model ID"),
+            )
+            .expect("valid provenance"),
             "private-state",
             json!({"secret": "PRIVATE_OPAQUE_PAYLOAD"}),
         )
@@ -1321,24 +1314,28 @@ mod tests {
 
         let mut argument_encoder = ChatCompletionsSseEncoder::new();
         argument_encoder.encode(&started()).expect("encode start");
-        let argument_error = argument_encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
+        argument_encoder
+            .encode(&LanguageStreamEvent::ToolInputStart {
                 id: "call-large".to_string(),
                 name: "lookup".to_string(),
-                arguments: Value::String("x".repeat(MAX_TOOL_ARGUMENT_BYTES + 1)),
                 owner: ExecutionOwner::Local,
-            }))
+            })
+            .expect("encode tool start");
+        let argument_error = argument_encoder
+            .encode(&LanguageStreamEvent::ToolInputDelta {
+                id: "call-large".to_string(),
+                delta: "x".repeat(MAX_TOOL_ARGUMENT_BYTES + 1),
+            })
             .expect_err("oversized tool arguments must fail");
         assert_eq!(argument_error.kind(), ErrorKind::ResponseLimit);
 
         argument_encoder.total_tool_argument_bytes = MAX_TOTAL_TOOL_ARGUMENT_BYTES;
         let aggregate_error = argument_encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-aggregate".to_string(),
-                name: "lookup".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Local,
-            }))
+            .encode(&LanguageStreamEvent::ToolCall(local_call(
+                "call-aggregate",
+                "lookup",
+                json!({}),
+            )))
             .expect_err("aggregate tool state over limit must fail");
         assert_eq!(aggregate_error.kind(), ErrorKind::ResponseLimit);
 
@@ -1346,21 +1343,19 @@ mod tests {
         count_encoder.encode(&started()).expect("encode start");
         for index in 0..MAX_TOOL_CALLS {
             count_encoder
-                .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                    id: format!("call-{index}"),
-                    name: "lookup".to_string(),
-                    arguments: json!({}),
-                    owner: ExecutionOwner::Local,
-                }))
+                .encode(&LanguageStreamEvent::ToolCall(local_call(
+                    format!("call-{index}"),
+                    "lookup",
+                    json!({}),
+                )))
                 .expect("tool within count bound");
         }
         let count_error = count_encoder
-            .encode(&LanguageStreamEvent::ToolCall(ToolCall {
-                id: "call-over-limit".to_string(),
-                name: "lookup".to_string(),
-                arguments: json!({}),
-                owner: ExecutionOwner::Local,
-            }))
+            .encode(&LanguageStreamEvent::ToolCall(local_call(
+                "call-over-limit",
+                "lookup",
+                json!({}),
+            )))
             .expect_err("tool count over limit must fail");
         assert_eq!(count_error.kind(), ErrorKind::ResponseLimit);
     }

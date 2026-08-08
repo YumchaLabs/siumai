@@ -1,9 +1,10 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-05
+- Updated: 2026-08-08
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
-  `docs/adr/0013-provider-identity-and-family-registration.md`
+  `docs/adr/0013-provider-identity-and-family-registration.md`,
+  `docs/adr/0014-canonical-language-history-and-replay.md`
 
 ## Product shape
 
@@ -66,11 +67,11 @@ A configured provider owns long-lived shared runtime state: credentials, endpoin
 transport, retry policy, concurrency limits, protocol profiles, and provider resources. Provider
 construction is synchronous and model-independent.
 
-The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, and API mode
-belong to an exact executable `ProviderScope` carried by model descriptors, policy contexts, and
-registrations. Dated portable and native evidence uses `SupportScope` and `NativeSupportScope`
-instead. A composite provider does not invent one provider-wide scope by choosing a preferred mode
-or the first configured family.
+The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, API mode, and
+provider-native replay domain belong to an exact executable `ProviderScope` carried by model
+descriptors, policy contexts, and registrations. Dated portable and native evidence uses
+`SupportScope` and `NativeSupportScope` instead. A composite provider does not invent one
+provider-wide scope by choosing a preferred mode or the first configured family.
 
 Model handles are cheap values containing a model ID plus shared provider runtime. Constructing a
 model does not perform remote discovery or network I/O. Unknown future model IDs remain callable;
@@ -113,6 +114,26 @@ custom base URL may be required inputs to a provider builder. Siumai validates a
 does not choose them, infer account availability, or publish mutable regional inventories as stable
 runtime types.
 
+## Canonical language boundary
+
+Portable language requests use direction-aware role validation. Prefer `Message::system`,
+`Message::developer`, `Message::user`, `Message::assistant`, role-specific part constructors, and
+`Message::tool_result` over unchecked role/content assembly. Provider codecs validate the complete
+`LanguageRequest` before transport, so response-only citations and refusals, misplaced tool results,
+and unsupported request content cannot be silently accepted.
+
+A portable `ToolCall` is always caller-executed and contains one bounded parsed JSON `ToolInput`.
+Encoded function argument text is normalized exactly once by the protocol decoder. Provider-hosted
+programs, custom-text calls, MCP operations, computer actions, and other provider-executed
+operations remain typed native output or bounded provider-opaque replay data; they never enter the
+portable runtime tool loop. A structured local function call issued by a hosted program remains a
+caller-executed call, while native replay metadata preserves its caller linkage.
+
+Generated responses do not become request history through a raw content copy. Use
+`LanguageResponse::project_assistant_history()` to obtain a role-valid assistant message and
+structured omissions for response-only content. Runtime records those omissions in each durable
+step and uses the same projection for ordinary tool loops and structured-output repair.
+
 ## Protocol compatibility
 
 Reuse follows this order:
@@ -134,6 +155,15 @@ EOF, preserve known-zero versus unknown usage, and never infer success from a cl
 Opaque provider items retain provenance for same-protocol continuation. Cross-protocol projection
 may emit only portable content and must reject or report loss instead of silently reinterpreting
 provider-owned data or tool execution.
+
+Replay additionally requires an exact non-secret domain on `ProviderScope`: official versus custom
+audience, plus an optional caller-selected account/workspace/project/deployment label. Provider,
+platform, protocol, API mode, and the whole replay domain must match; missing domains fail closed.
+Registry route and model ID are not replay identities, though a protocol may impose an additional
+model rule. Provider builders supply audited official audiences, while custom endpoints require an
+explicit caller-declared custom audience. URLs, credentials, signed values, raw technical project or
+location strings, and mutable region availability metadata are never inferred into durable replay
+identity.
 
 ## Tool and option boundaries
 

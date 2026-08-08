@@ -21,21 +21,23 @@ pub mod runtime;
 
 pub use siumai_core as core;
 pub use siumai_core::{
+    AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
     CallOptions, Cancellation, Citation, ContentPart, EmbeddingLimits, EmbeddingModel,
     EmbeddingModelProvider, EmbeddingRequest, EmbeddingResponse, Error, ErrorKind, FinishReason,
     GenerationConfig, GenerationConfigError, ImageArtifact, ImageLimits, ImageModel,
-    ImageModelProvider, ImageRequest, ImageResponse, ImageSize, InvalidId, InvalidToolSpec,
-    LanguageIncompleteReason, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageRequestError, LanguageResponse, LanguageResponseError, LanguageResponseStatus,
-    LanguageStream, LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ModelLookupError, OpaqueProviderItem,
-    PartialStructuredOutput, Provider, ProviderId, ProviderOptionError, ProviderOptions,
-    RerankCandidate, RerankLimits, RerankModel, RerankModelProvider, RerankRequest, RerankResponse,
-    RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechModelProvider, SpeechRequest,
-    SpeechResponse, StreamTerminal, StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome,
-    ToolResult, ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
-    TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
-    Usage, UsageValue, Warning, WarningKind,
+    ImageModelProvider, ImageRequest, ImageResponse, ImageSize, InvalidId, InvalidToolCall,
+    InvalidToolInput, InvalidToolSpec, LanguageIncompleteReason, LanguageModel,
+    LanguageModelProvider, LanguageRequest, LanguageRequestError, LanguageResponse,
+    LanguageResponseError, LanguageResponseStatus, LanguageStream, LanguageStreamEvent, MediaData,
+    MediaPart, Message, MessageRole, MessageValidationError, Model, ModelDescriptor, ModelFamily,
+    ModelId, ModelLookupError, OpaqueProviderItem, PartialStructuredOutput, Provider, ProviderId,
+    ProviderOptionError, ProviderOptions, ProviderProvenanceError, ReplayAudience, ReplayDomain,
+    ReplayDomainId, RerankCandidate, RerankLimits, RerankModel, RerankModelProvider, RerankRequest,
+    RerankResponse, RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechModelProvider,
+    SpeechRequest, SpeechResponse, StreamTerminal, StructuredOutputSpec, ToolCall, ToolCallParts,
+    ToolChoice, ToolInput, ToolOutcome, ToolResult, ToolSpec, TranscriptSegment,
+    TranscriptionLimits, TranscriptionModel, TranscriptionModelProvider, TranscriptionRequest,
+    TranscriptionResponse, TypedProviderOptions, Usage, UsageValue, Warning, WarningKind,
 };
 
 #[cfg(feature = "runtime")]

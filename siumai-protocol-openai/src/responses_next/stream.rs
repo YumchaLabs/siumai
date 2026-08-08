@@ -2,21 +2,21 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use siumai_core::{
-    DecoderLifecycle, Error, ErrorKind, ExecutionOwner, LanguageStreamDecoder, LanguageStreamEvent,
-    ModelId, ProviderScope, StreamTerminal, ToolCall,
+    DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal, ToolCall,
 };
 
+use super::OPENAI_RESPONSES_OPAQUE_KIND;
 use super::response::{
     decode_response_wire, decode_usage, failed_response_error, opaque_item, project_citation,
-    project_program_output, protocol_error,
+    protocol_error,
 };
 use super::wire::{
     AnnotationWire, OutputContentPart, OutputItem, ResponseErrorWire, ResponseStatus, ResponseWire,
     StreamEventWire,
 };
-use super::{OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
 
 /// Stateful, native Responses stream decoder.
 ///
@@ -257,10 +257,24 @@ impl ResponsesStreamDecoder {
         let mut events = Vec::new();
         match &item {
             OutputItem::FunctionCall(call) => {
-                self.start_tool_input(item_id, &call.call_id, &call.name, false, &mut events)?;
+                self.start_tool_input(
+                    item_id,
+                    &call.call_id,
+                    &call.name,
+                    &call.arguments,
+                    false,
+                    &mut events,
+                )?;
             }
             OutputItem::CustomToolCall(call) => {
-                self.start_tool_input(item_id, &call.call_id, &call.name, true, &mut events)?;
+                self.start_tool_input(
+                    item_id,
+                    &call.call_id,
+                    &call.name,
+                    &call.input,
+                    true,
+                    &mut events,
+                )?;
             }
             _ => {}
         }
@@ -311,26 +325,9 @@ impl ResponsesStreamDecoder {
                 self.emit_function_call(item_id, call, &mut events)?;
             }
             OutputItem::CustomToolCall(call) => {
-                self.emit_custom_tool_call(item_id, call, &mut events)?;
+                self.validate_custom_tool_call(item_id, call)?;
             }
-            OutputItem::Program(program) => {
-                events.push(LanguageStreamEvent::ToolCall(ToolCall {
-                    id: program.call_id.clone(),
-                    name: "openai.programmatic_tool_calling".to_string(),
-                    arguments: json!({
-                        "code": program.code,
-                        "fingerprint": program.fingerprint,
-                    }),
-                    owner: ExecutionOwner::Provider {
-                        provider: self.scope.provider_id().clone(),
-                    },
-                }));
-            }
-            OutputItem::ProgramOutput(output) => {
-                events.push(LanguageStreamEvent::ToolResult(project_program_output(
-                    output,
-                )));
-            }
+            OutputItem::Program(_) | OutputItem::ProgramOutput(_) => {}
             OutputItem::ProviderTool(_) | OutputItem::Unknown(_) => {}
         }
         events.push(LanguageStreamEvent::ProviderOpaque(opaque_item(
@@ -559,7 +556,10 @@ impl ResponsesStreamDecoder {
                 "OpenAI tool-input event changed its tool kind",
             ));
         }
-        assembly.input.push_str(&delta);
+        append_tool_input(&mut assembly.input, &delta)?;
+        if custom {
+            return Ok(Vec::new());
+        }
         Ok(vec![LanguageStreamEvent::ToolInputDelta {
             id: assembly.call_id.clone(),
             delta,
@@ -574,6 +574,7 @@ impl ResponsesStreamDecoder {
         let item_id = required_str(event, "item_id")?;
         let field = if custom { "input" } else { "arguments" };
         let completed = required_str(event, field)?.to_string();
+        ensure_tool_input_limit(&completed)?;
         let assembly = self.tool_inputs.get_mut(item_id).ok_or_else(|| {
             protocol_error("OpenAI tool-input completion preceded its output item")
         })?;
@@ -592,6 +593,7 @@ impl ResponsesStreamDecoder {
         item_id: &str,
         call_id: &str,
         name: &str,
+        initial_input: &str,
         custom: bool,
         events: &mut Vec<LanguageStreamEvent>,
     ) -> Result<(), Error> {
@@ -600,20 +602,23 @@ impl ResponsesStreamDecoder {
                 "OpenAI tool output item omitted or reused its identity",
             ));
         }
+        ensure_tool_input_limit(initial_input)?;
         self.tool_inputs.insert(
             item_id.to_string(),
             ToolInputAssembly {
                 call_id: call_id.to_string(),
                 name: name.to_string(),
-                input: String::new(),
+                input: initial_input.to_string(),
                 custom,
             },
         );
-        events.push(LanguageStreamEvent::ToolInputStart {
-            id: call_id.to_string(),
-            name: name.to_string(),
-            owner: ExecutionOwner::Local,
-        });
+        if !custom {
+            events.push(LanguageStreamEvent::ToolInputStart {
+                id: call_id.to_string(),
+                name: name.to_string(),
+                owner: ExecutionOwner::Local,
+            });
+        }
         Ok(())
     }
 
@@ -630,6 +635,7 @@ impl ResponsesStreamDecoder {
         if assembly.call_id != call.call_id || assembly.name != call.name {
             return Err(protocol_error("OpenAI function call changed its identity"));
         }
+        ensure_tool_input_limit(&call.arguments)?;
         if !assembly.input.is_empty() && assembly.input != call.arguments {
             return Err(protocol_error(
                 "OpenAI function call arguments disagreed with streamed deltas",
@@ -642,20 +648,23 @@ impl ResponsesStreamDecoder {
             )
             .with_source(source)
         })?;
-        events.push(LanguageStreamEvent::ToolCall(ToolCall {
-            id: call.call_id.clone(),
-            name: call.name.clone(),
-            arguments,
-            owner: ExecutionOwner::Local,
-        }));
+        let call = ToolCall::local(call.call_id.clone(), call.name.clone(), arguments).map_err(
+            |source| {
+                Error::new(
+                    ErrorKind::Protocol,
+                    "OpenAI function call violated the canonical tool contract",
+                )
+                .with_source(source)
+            },
+        )?;
+        events.push(LanguageStreamEvent::ToolCall(call));
         Ok(())
     }
 
-    fn emit_custom_tool_call(
-        &mut self,
+    fn validate_custom_tool_call(
+        &self,
         item_id: &str,
         call: &super::wire::CustomToolCallItemWire,
-        events: &mut Vec<LanguageStreamEvent>,
     ) -> Result<(), Error> {
         let assembly = self.tool_inputs.get(item_id).ok_or_else(|| {
             protocol_error("OpenAI custom tool call completed before it was added")
@@ -668,12 +677,6 @@ impl ResponsesStreamDecoder {
                 "OpenAI custom tool call disagreed with its streamed state",
             ));
         }
-        events.push(LanguageStreamEvent::ToolCall(ToolCall {
-            id: call.call_id.clone(),
-            name: call.name.clone(),
-            arguments: Value::String(call.input.clone()),
-            owner: ExecutionOwner::Local,
-        }));
         Ok(())
     }
 
@@ -807,16 +810,20 @@ impl ResponsesStreamDecoder {
             )
             .with_source(source)
         })?;
+        let model = self
+            .response_model
+            .clone()
+            .unwrap_or_else(|| self.requested_model.clone());
+        let provenance =
+            siumai_core::ProviderProvenance::from_scope(&self.scope, model).map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "OpenAI Responses replay requires an explicit provider replay domain",
+                )
+                .with_source(source)
+            })?;
         let item = siumai_core::OpaqueProviderItem::new(
-            siumai_core::ProviderProvenance {
-                provider: self.scope.provider_id().clone(),
-                platform: self.scope.platform().map(ToString::to_string),
-                protocol: OPENAI_RESPONSES_PROTOCOL.to_string(),
-                model: self
-                    .response_model
-                    .clone()
-                    .unwrap_or_else(|| self.requested_model.clone()),
-            },
+            provenance,
             format!("{OPENAI_RESPONSES_OPAQUE_KIND}.stream_event"),
             data,
         )
@@ -870,6 +877,31 @@ impl ResponsesStreamDecoder {
         }
         Ok(())
     }
+}
+
+fn ensure_tool_input_limit(input: &str) -> Result<(), Error> {
+    if input.len() > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "OpenAI Responses streamed tool input exceeded the byte limit",
+        ));
+    }
+    Ok(())
+}
+
+fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), Error> {
+    if buffer
+        .len()
+        .checked_add(delta.len())
+        .is_none_or(|total| total > DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+    {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "OpenAI Responses streamed tool input exceeded the byte limit",
+        ));
+    }
+    buffer.push_str(delta);
+    Ok(())
 }
 
 impl LanguageStreamDecoder for ResponsesStreamDecoder {

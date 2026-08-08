@@ -180,6 +180,7 @@ mod tests {
 
     use http::StatusCode;
     use serde_json::json;
+    use siumai_core::{ReplayDomain, ReplayDomainId};
     use siumai_transport::{EndpointConfig, RetryPolicy};
     use wiremock::matchers::{body_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -201,6 +202,9 @@ mod tests {
     ) -> OpenAiRealtimeResource {
         let provider = OpenAiProvider::builder(credential)
             .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("realtime-resource-test").unwrap(),
+            ))
             .with_retry_policy(retry_policy(maximum_attempts))
             .build()
             .unwrap();

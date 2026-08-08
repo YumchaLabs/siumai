@@ -8,14 +8,15 @@ use siumai_anthropic_compatible::{MessagesCallOptions, MessagesRequestPolicy};
 use siumai_core::{
     CallOptions, ContentAnnotationTarget, ContentPart, Error, ErrorKind, LanguageModel,
     LanguageRequest, LanguageStreamEvent, MediaData, MediaPart, Message, MessagePart, MessageRole,
-    ModelAdvisory, ModelId, ModelOperation, Provider, StreamTerminal, StructuredOutputSpec,
-    SupportState, ToolSpec, TypedProviderAnnotation, VerifiedFidelity,
+    Model, ModelAdvisory, ModelId, ModelOperation, Provider, ReplayDomain, ReplayDomainId,
+    StreamTerminal, StructuredOutputSpec, SupportState, ToolSpec, TypedProviderAnnotation,
+    VerifiedFidelity,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, MessagesRequestOptions, OutputEffort, ServerFallback, ServerFallbacks,
     ThinkingConfig, encode_request_with_resolver,
 };
-use siumai_transport::{EndpointConfig, NoAuth};
+use siumai_transport::{EndpointConfig, NoAuth, OfficialOrigin};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -30,13 +31,20 @@ use super::models::{
     CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_5_20251101, CLAUDE_OPUS_5, CLAUDE_SONNET_5,
     current_models,
 };
-use super::provider::GoogleVertexAnthropicProvider;
+use super::provider::{GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicProvider};
 use super::request_policy::GoogleVertexAnthropicRequestPolicy;
 
 fn request(text: &str, max_tokens: u64) -> LanguageRequest {
     let mut request = LanguageRequest::new(vec![Message::text(MessageRole::User, text)]);
     request.generation.max_output_tokens = Some(max_tokens);
     request
+}
+
+fn official_replay_domain(caller_scope: &str) -> ReplayDomain {
+    ReplayDomain::official(
+        ReplayDomainId::new(GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE).expect("official audience"),
+    )
+    .with_caller_scope(ReplayDomainId::new(caller_scope).expect("caller scope"))
 }
 
 fn response(model: &str, id: &str, text: &str) -> serde_json::Value {
@@ -76,6 +84,9 @@ fn local_provider(
     .expect("local endpoint");
     GoogleVertexAnthropicProvider::builder_with_auth("test-project", "us-central1", auth)
         .with_endpoint(endpoint)
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("vertex-test-relay").expect("replay domain"),
+        ))
         .build()
         .expect("provider")
 }
@@ -119,6 +130,7 @@ fn provider_identity_catalog_and_custom_profile_are_explicit() {
         "global",
         GoogleVertexCredential::access_token("offline-token"),
     )
+    .with_replay_domain(official_replay_domain("vertex-test-project"))
     .build()
     .expect("network-free provider construction");
     assert_eq!(provider.provider_id().as_str(), "google");
@@ -134,6 +146,21 @@ fn provider_identity_catalog_and_custom_profile_are_explicit() {
     for model in current_models() {
         assert!(provider.language(model).is_ok());
     }
+    let model = provider.language(CLAUDE_SONNET_5).expect("model");
+    let replay_domain = model
+        .descriptor()
+        .scope()
+        .replay_domain()
+        .expect("official replay domain");
+    assert!(replay_domain.audience().is_official());
+    assert_eq!(
+        replay_domain.audience().id().as_str(),
+        GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE
+    );
+    assert_eq!(
+        replay_domain.caller_scope().map(ReplayDomainId::as_str),
+        Some("vertex-test-project")
+    );
     let unknown = ModelId::new("claude-future-2030").expect("model");
     assert!(matches!(
         provider
@@ -168,6 +195,9 @@ fn provider_identity_catalog_and_custom_profile_are_explicit() {
         Arc::new(NoAuth),
     )
     .with_endpoint(endpoint)
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("vertex-test-relay").expect("replay domain"),
+    ))
     .build()
     .expect("custom provider");
     assert!(
@@ -187,10 +217,109 @@ fn provider_identity_catalog_and_custom_profile_are_explicit() {
 }
 
 #[test]
+fn custom_endpoint_replay_domain_is_required_and_must_match_its_audience() {
+    let endpoint =
+        || EndpointConfig::local_explicit("http://127.0.0.1:9/v1/models/").expect("local endpoint");
+    let missing = GoogleVertexAnthropicProvider::builder_with_auth(
+        "test-project",
+        "global",
+        Arc::new(NoAuth),
+    )
+    .with_endpoint(endpoint())
+    .build();
+    assert!(matches!(
+        missing,
+        Err(super::provider::GoogleVertexAnthropicConfigError::CustomEndpointRequiresReplayDomain)
+    ));
+
+    let mismatched = GoogleVertexAnthropicProvider::builder_with_auth(
+        "test-project",
+        "global",
+        Arc::new(NoAuth),
+    )
+    .with_endpoint(endpoint())
+    .with_replay_domain(ReplayDomain::official(
+        ReplayDomainId::new("google-vertex-anthropic").expect("replay domain"),
+    ))
+    .build();
+    assert!(matches!(
+        mismatched,
+        Err(super::provider::GoogleVertexAnthropicConfigError::ReplayAudienceMismatch)
+    ));
+}
+
+#[test]
+fn caller_supplied_official_transport_policy_is_still_a_custom_replay_audience() {
+    let endpoint = EndpointConfig::official(
+        "https://relay.example/v1/models/",
+        OfficialOrigin::new("https://relay.example").unwrap(),
+    )
+    .unwrap();
+    let provider = GoogleVertexAnthropicProvider::builder_with_auth(
+        "test-project",
+        "global",
+        Arc::new(NoAuth),
+    )
+    .with_endpoint(endpoint)
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("vertex-relay").unwrap(),
+    ))
+    .build()
+    .unwrap();
+
+    assert!(
+        provider
+            .profile()
+            .provider_profile()
+            .verified_claims()
+            .is_none()
+    );
+    assert!(
+        !provider
+            .language("claude-future")
+            .unwrap()
+            .descriptor()
+            .replay_domain()
+            .unwrap()
+            .audience()
+            .is_official()
+    );
+}
+
+#[test]
+fn official_project_requires_an_explicit_non_secret_caller_scope() {
+    let missing = GoogleVertexAnthropicProvider::builder(
+        "private-project-name",
+        "global",
+        GoogleVertexCredential::access_token("offline-token"),
+    )
+    .build();
+    assert!(matches!(
+        missing,
+        Err(super::provider::GoogleVertexAnthropicConfigError::OfficialProjectRequiresReplayDomain)
+    ));
+
+    let missing_scope = GoogleVertexAnthropicProvider::builder(
+        "private-project-name",
+        "global",
+        GoogleVertexCredential::access_token("offline-token"),
+    )
+    .with_replay_domain(ReplayDomain::official(
+        ReplayDomainId::new(GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE).unwrap(),
+    ))
+    .build();
+    assert!(matches!(
+        missing_scope,
+        Err(super::provider::GoogleVertexAnthropicConfigError::OfficialProjectRequiresCallerScope)
+    ));
+}
+
+#[test]
 fn credentials_and_model_paths_are_secret_safe_and_fail_closed() {
     let credential = GoogleVertexCredential::access_token("vertex-canary-secret");
     assert!(!format!("{credential:?}").contains("vertex-canary-secret"));
     let provider = GoogleVertexAnthropicProvider::builder("test-project", "global", credential)
+        .with_replay_domain(official_replay_domain("vertex-secret-test"))
         .build()
         .expect("provider");
     assert!(!format!("{provider:?}").contains("vertex-canary-secret"));

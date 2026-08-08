@@ -1014,7 +1014,9 @@ fn safe_response_headers(headers: &ResponseHeaders) -> SafeResponseHeaders {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use siumai_core::{Message, MessageRole, ProviderOptions, ToolSpec};
+    use siumai_core::{
+        Message, MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec,
+    };
     use siumai_transport::EndpointConfig;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1030,6 +1032,9 @@ mod tests {
     fn provider() -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("openai-model-test").unwrap(),
+            ))
             .build()
             .unwrap()
     }
@@ -1041,6 +1046,9 @@ mod tests {
     async fn provider_for(server: &MockServer) -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("openai-model-test").unwrap(),
+            ))
             .build()
             .unwrap()
     }

@@ -196,17 +196,81 @@ canonical_id!(ApiModeId, "API mode");
 canonical_id!(ProfileId, "profile");
 canonical_id!(ProtocolContractId, "protocol contract");
 canonical_id!(NativeSurfaceId, "provider-native surface");
+canonical_id!(ReplayDomainId, "replay domain");
+
+/// Whether replay state belongs to an audited official audience or a caller-declared custom one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ReplayAudience {
+    Official(ReplayDomainId),
+    Custom(ReplayDomainId),
+}
+
+impl ReplayAudience {
+    pub fn id(&self) -> &ReplayDomainId {
+        match self {
+            Self::Official(id) | Self::Custom(id) => id,
+        }
+    }
+
+    pub const fn is_official(&self) -> bool {
+        matches!(self, Self::Official(_))
+    }
+}
+
+/// Non-secret identity that bounds provider-native replay state.
+///
+/// IDs are caller-visible labels, never URLs, credentials, signed values, or
+/// opaque provider payloads. `caller_scope` distinguishes material account,
+/// workspace, project, or deployment boundaries within one audience.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ReplayDomain {
+    audience: ReplayAudience,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    caller_scope: Option<ReplayDomainId>,
+}
+
+impl ReplayDomain {
+    pub fn official(audience: ReplayDomainId) -> Self {
+        Self {
+            audience: ReplayAudience::Official(audience),
+            caller_scope: None,
+        }
+    }
+
+    pub fn custom(audience: ReplayDomainId) -> Self {
+        Self {
+            audience: ReplayAudience::Custom(audience),
+            caller_scope: None,
+        }
+    }
+
+    pub fn with_caller_scope(mut self, caller_scope: ReplayDomainId) -> Self {
+        self.caller_scope = Some(caller_scope);
+        self
+    }
+
+    pub fn audience(&self) -> &ReplayAudience {
+        &self.audience
+    }
+
+    pub fn caller_scope(&self) -> Option<&ReplayDomainId> {
+        self.caller_scope.as_ref()
+    }
+}
 
 /// Exact technical execution scope for a model, registration, or policy context.
 ///
 /// This is not provider-wide identity: one configured provider may expose
 /// multiple platforms, protocols, and API modes across model families.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ProviderScope {
     provider: ProviderId,
     platform: Option<PlatformId>,
     protocol: Option<ProtocolId>,
     api_mode: Option<ApiModeId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_domain: Option<ReplayDomain>,
 }
 
 impl ProviderScope {
@@ -216,6 +280,7 @@ impl ProviderScope {
             platform: None,
             protocol: None,
             api_mode: None,
+            replay_domain: None,
         }
     }
 
@@ -234,6 +299,11 @@ impl ProviderScope {
         self
     }
 
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
+        self
+    }
+
     pub fn provider_id(&self) -> &ProviderId {
         &self.provider
     }
@@ -248,6 +318,23 @@ impl ProviderScope {
 
     pub fn api_mode(&self) -> Option<&ApiModeId> {
         self.api_mode.as_ref()
+    }
+
+    pub fn replay_domain(&self) -> Option<&ReplayDomain> {
+        self.replay_domain.as_ref()
+    }
+
+    /// Return whether both configured execution scopes can replay native state.
+    ///
+    /// Missing replay identity always fails closed. Registry routes and model
+    /// IDs deliberately do not participate in this comparison.
+    pub fn shares_replay_domain(&self, other: &Self) -> bool {
+        self.provider == other.provider
+            && self.platform == other.platform
+            && self.protocol == other.protocol
+            && self.api_mode == other.api_mode
+            && self.replay_domain.is_some()
+            && self.replay_domain == other.replay_domain
     }
 }
 
@@ -1084,6 +1171,42 @@ mod tests {
     fn model_ids_preserve_colons_and_case() {
         let id = ModelId::new("Publisher:Model/V2").unwrap();
         assert_eq!(id.as_str(), "Publisher:Model/V2");
+    }
+
+    #[test]
+    fn replay_domains_fail_closed_and_match_every_material_dimension() {
+        let base = ProviderScope::new(ProviderId::new("openai").unwrap())
+            .with_platform(PlatformId::new("public-api").unwrap())
+            .with_protocol(ProtocolId::new("openai-responses").unwrap())
+            .with_api_mode(ApiModeId::new("responses").unwrap());
+        let official = ReplayDomain::official(ReplayDomainId::new("public-api").unwrap())
+            .with_caller_scope(ReplayDomainId::new("account-a").unwrap());
+        let matching = base.clone().with_replay_domain(official.clone());
+
+        assert!(!base.shares_replay_domain(&base));
+        assert!(matching.shares_replay_domain(&matching));
+        assert!(
+            !matching.shares_replay_domain(&base.clone().with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("public-api").unwrap(),
+            )))
+        );
+        assert!(
+            !matching.shares_replay_domain(
+                &base.clone().with_replay_domain(
+                    ReplayDomain::official(ReplayDomainId::new("public-api").unwrap())
+                        .with_caller_scope(ReplayDomainId::new("account-b").unwrap()),
+                )
+            )
+        );
+        assert!(
+            !matching.shares_replay_domain(
+                &ProviderScope::new(ProviderId::new("openai").unwrap())
+                    .with_platform(PlatformId::new("public-api").unwrap())
+                    .with_protocol(ProtocolId::new("openai-chat-completions").unwrap())
+                    .with_api_mode(ApiModeId::new("responses").unwrap())
+                    .with_replay_domain(official),
+            )
+        );
     }
 
     #[test]

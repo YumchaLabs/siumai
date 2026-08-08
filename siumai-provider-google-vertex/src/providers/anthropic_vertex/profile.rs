@@ -5,8 +5,8 @@ use siumai_anthropic_compatible::{AnthropicCompatibleConfigError, AnthropicCompa
 use siumai_core::{
     ApiModeId, ApiStability, CatalogError, InvalidId, ModelCatalog, ModelFamily, ModelId,
     ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError,
-    ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, SupportScope,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain,
+    SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{API_MODE_ID, MessagesAnnotationResolver, PROTOCOL_ID};
 use siumai_transport::EndpointConfig;
@@ -34,18 +34,20 @@ const VERIFIED_ON: &str = "2026-08-06";
 pub(crate) fn profile(
     endpoint: EndpointConfig,
     verified_endpoint: bool,
+    replay_domain: ReplayDomain,
     resolver: Arc<dyn MessagesAnnotationResolver>,
 ) -> Result<AnthropicCompatibleProfile, GoogleVertexAnthropicProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let platform = PlatformId::new(PLATFORM_ID)?;
     let profile = if verified_endpoint {
-        verified_profile(provider, platform, endpoint)?
+        verified_profile(provider, platform, endpoint)?.with_replay_domain(replay_domain)?
     } else {
         AnthropicCompatibleProfile::custom(
             ProfileId::new(PROFILE_ID)?,
             provider,
             platform,
             endpoint,
+            replay_domain,
             API_VERSION,
         )?
     };

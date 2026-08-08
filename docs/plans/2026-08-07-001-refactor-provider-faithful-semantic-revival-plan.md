@@ -178,7 +178,7 @@ compatibility engine.
 ### Acceptance Examples
 
 - **AE1 (R4, FL1):** OpenAI Chat and Responses object, array, and scalar function arguments produce
-  structured `ToolInput::Json` values in both direct and streaming paths. Malformed or oversized
+  checked structured `ToolInput` values in both direct and streaming paths. Malformed or oversized
   encoded JSON fails before a local tool can execute.
 - **AE2 (R4, FL2):** An OpenAI custom-text or provider-executed tool remains a typed OpenAI native
   output/replay item and never enters the portable JSON-schema tool loop. It cannot be confused with
@@ -200,8 +200,10 @@ compatibility engine.
   provider-native replay remain representable through explicit constructors.
 - **AE7 (R8, R23):** Unsupported prompt content is rejected or handled by an explicitly documented
   provider replay rule. No default request codec branch silently drops content.
-- **AE8 (R10):** OpenAI accepts four explicit prompt-cache breakpoints and rejects five before
-  network submission. `prompt_cache_retention` and breakpoint TTL can be encoded independently.
+- **AE8 (R10):** OpenAI models the GPT-5.6 cache-write budget separately from retained breakpoint
+  history: implicit mode reserves one of four new-write slots, explicit mode can use four, and cache
+  reads can consider the latest 50 markers. `prompt_cache_options.ttl` controls GPT-5.6 breakpoint
+  lifetime independently from the deprecated pre-GPT-5.6 `prompt_cache_retention` policy.
 - **AE9 (R10):** Anthropic request options cannot construct response-only assigned service-tier
   values. Automatic cache control, speed, inference geography, task budget, context management,
   container/skills, and MCP servers have typed provider-owned entry points.
@@ -565,6 +567,7 @@ sequenceDiagram
   - `docs/adr/0011-protocol-projection-ownership.md`
   - `docs/adr/0012-provider-annotations-follow-semantic-nodes.md`
   - `docs/adr/0013-provider-identity-and-family-registration.md`
+  - `docs/adr/0014-canonical-language-history-and-replay.md`
 - Current support evidence: `docs/providers/support-policy.md`.
 - Prior implementation baseline:
   `docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`.
@@ -572,7 +575,9 @@ sequenceDiagram
   Chat/Responses tool loops and Pi as a behavioral control.
 - Local AI SDK reference: `repo-ref/ai` commit `3bc0d4f40d` (2026-08-01).
 - OpenAI official documentation, verified 2026-08-07:
+  - `https://developers.openai.com/api/docs/guides/latest-model`
   - `https://developers.openai.com/api/docs/guides/tools`
+  - `https://developers.openai.com/api/docs/guides/prompt-caching`
   - `https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create`
   - current Responses, Conversations, Files, Vector Stores, audio, image, and embedding references
 - Anthropic official documentation, verified 2026-08-07:
@@ -660,7 +665,7 @@ sequenceDiagram
   - every provider/compatibility codec, facade example, or test that constructs, destructures,
     serializes, or inspects `ToolCall` or `Message`
   - `docs/adr/0012-provider-annotations-follow-semantic-nodes.md`
-  - new `docs/adr/0014-canonical-tool-input-and-history-roles.md`
+  - `docs/adr/0014-canonical-language-history-and-replay.md`
 - **Approach:**
   - Introduce a validated structured-JSON input newtype or `ToolInput::Json` variant for portable
     executable calls. Make invalid `ToolCall` field combinations unconstructable through the public
@@ -813,9 +818,11 @@ sequenceDiagram
   - `siumai-provider-openai/src/configured/responses_resource.rs`
   - new OpenAI native tool/item/event modules under `siumai-provider-openai/src/`
 - **Approach:**
-  - Set explicit OpenAI prompt-cache breakpoints to the official limit of four in every owning
-    validator. Add typed `prompt_cache_retention` independently from breakpoint TTL and correct
-    metadata/safety-identifier validation.
+  - Model OpenAI prompt-cache history and write eligibility separately. Retain a bounded latest-50
+    marker history for reads, budget no more than four new writes per request, reserve one write slot
+    for the implicit latest-message breakpoint, and permit four explicit writes only in explicit
+    mode. Add typed GPT-5.6 `prompt_cache_options.ttl` independently from the deprecated
+    pre-GPT-5.6 `prompt_cache_retention` policy, and correct metadata/safety-identifier validation.
   - Prevent ordinary family `generate`/`stream` calls from injecting lifecycle-only options such as
     background execution; those belong to the explicit Responses resource/native operation.
   - Preserve full Chat direct/stream usage and terminal metadata, including nested cached and
@@ -829,8 +836,10 @@ sequenceDiagram
   - Add Responses input-token counting now; leave Files, Vector Stores, Skills, and Conversations
     lifecycle implementation to U7.
 - **Test scenarios:**
-  - Four cache breakpoints encode; five fail before transport. Retention and TTL encode together
-    without overriding each other.
+  - Explicit mode can select four new writes; implicit mode can select three explicit writes plus
+    its implicit write. Older read-only markers remain encodable up to the bounded 50-marker history,
+    while an actual fifth new write is not selected. GPT-5.6 TTL and legacy retention encode only for
+    their supported model policies and never overwrite one another.
   - A future/private model with explicit maximum reasoning effort retains it on the final wire or
     returns a typed incompatibility error.
   - Ordinary generation rejects lifecycle-only background options before transport.

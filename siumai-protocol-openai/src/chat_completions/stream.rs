@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 use siumai_core::{
-    ContentPart, DecoderLifecycle, Error, ErrorKind, ExecutionOwner, FinishReason,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal, ToolCall,
-    Usage,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
+    FinishReason, LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope,
+    StreamTerminal, ToolCall, Usage,
 };
 
 use super::ChatCompletionsDialect;
@@ -296,7 +296,7 @@ impl ChatCompletionsStreamDecoder {
             merge_identity(&mut tool.name, function.name, "tool function name")?;
             let argument_delta = function.arguments.unwrap_or_default();
             if !argument_delta.is_empty() {
-                tool.arguments.push_str(&argument_delta);
+                append_tool_input(&mut tool.arguments, &argument_delta)?;
             }
             if !tool.start_emitted
                 && let (Some(id), Some(name)) = (&tool.id, &tool.name)
@@ -373,12 +373,13 @@ impl ChatCompletionsStreamDecoder {
                 )
                 .with_source(source)
             })?;
-            let call = ToolCall {
-                id,
-                name,
-                arguments,
-                owner: ExecutionOwner::Local,
-            };
+            let call = ToolCall::local(id, name, arguments).map_err(|source| {
+                Error::new(
+                    ErrorKind::Protocol,
+                    "Chat Completions stream violated the canonical tool contract",
+                )
+                .with_source(source)
+            })?;
             events.push(LanguageStreamEvent::ToolCall(call.clone()));
             completed_tools.insert(*index, call);
         }
@@ -459,6 +460,21 @@ impl LanguageStreamDecoder for ChatCompletionsStreamDecoder {
     }
 }
 
+fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), Error> {
+    if buffer
+        .len()
+        .checked_add(delta.len())
+        .is_none_or(|total| total > DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+    {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "Chat Completions streamed tool arguments exceeded the byte limit",
+        ));
+    }
+    buffer.push_str(delta);
+    Ok(())
+}
+
 fn merge_identity(
     current: &mut Option<String>,
     incoming: Option<String>,
@@ -482,7 +498,9 @@ fn merge_identity(
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{ApiModeId, PlatformId, ProtocolId, ProviderId, UsageValue};
+    use siumai_core::{
+        ApiModeId, PlatformId, ProtocolId, ProviderId, ReplayDomain, ReplayDomainId, UsageValue,
+    };
 
     use super::*;
     use crate::chat_completions::WireFieldName;
@@ -491,7 +509,10 @@ mod tests {
         let scope = ProviderScope::new(ProviderId::new("deepseek").unwrap())
             .with_platform(PlatformId::new("public-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
-            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("deepseek-stream-test").unwrap(),
+            ));
         ChatCompletionsStreamDecoder::new(
             scope,
             ModelId::new("deepseek-chat").unwrap(),
@@ -504,7 +525,10 @@ mod tests {
         let scope = ProviderScope::new(ProviderId::new("minimax").unwrap())
             .with_platform(PlatformId::new("minimax-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
-            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("minimax-test").unwrap(),
+            ));
         let reasoning = WireFieldName::new("reasoning_content").unwrap();
         let dialect = ChatCompletionsDialect::generic()
             .with_reasoning_input_field(reasoning.clone())
@@ -571,6 +595,34 @@ mod tests {
             .unwrap();
         assert!(decoder.decode("[DONE]").is_err());
         assert!(!decoder.terminal_seen());
+    }
+
+    #[test]
+    fn streamed_tool_input_is_bounded_before_json_normalization() {
+        let mut decoder = decoder();
+        decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{"}}]}}]}"#,
+            )
+            .unwrap();
+        let oversized = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "function": {
+                            "arguments": " ".repeat(DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+                        }
+                    }]
+                }
+            }]
+        })
+        .to_string();
+
+        let error = decoder.decode(&oversized).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        assert_eq!(decoder.tools[&0].arguments, "{");
     }
 
     #[test]
@@ -651,7 +703,7 @@ mod tests {
             part,
             ContentPart::ProviderOpaque(item)
                 if item.data()[0]["text"] == "inspect the tool"
-                    && item.provenance().provider.as_str() == "minimax"
+                    && item.provenance().provider().as_str() == "minimax"
         )));
     }
 
@@ -660,7 +712,10 @@ mod tests {
         let scope = ProviderScope::new(ProviderId::new("moonshotai").unwrap())
             .with_platform(PlatformId::new("kimi-public-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
-            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("moonshotai-test").unwrap(),
+            ));
         let mut decoder = ChatCompletionsStreamDecoder::new(
             scope,
             ModelId::new("kimi-k3").unwrap(),
@@ -686,7 +741,10 @@ mod tests {
         let scope = ProviderScope::new(ProviderId::new("moonshotai").unwrap())
             .with_platform(PlatformId::new("kimi-public-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
-            .with_api_mode(ApiModeId::new("chat-completions").unwrap());
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("moonshotai-test").unwrap(),
+            ));
         let frame = r#"{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop","usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cached_tokens":7}}]}"#;
 
         let mut generic = ChatCompletionsStreamDecoder::new(

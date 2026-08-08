@@ -5,13 +5,13 @@ use siumai_anthropic_compatible::{AnthropicCompatibleConfigError, AnthropicCompa
 use siumai_core::{
     ApiModeId, ApiStability, CatalogError, InvalidId, ModelCatalog, ModelFamily, ModelId,
     ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError,
-    ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, SupportScope,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain,
+    SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, MessagesAnnotationResolver, MessagesEncodingRules, PROTOCOL_ID,
 };
-use siumai_transport::{EndpointConfig, EndpointPolicy};
+use siumai_transport::EndpointConfig;
 use thiserror::Error;
 
 use crate::models::{
@@ -36,19 +36,22 @@ const VERIFIED_ON: &str = "2026-08-06";
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
+    provider_verified_endpoint: bool,
+    replay_domain: ReplayDomain,
     resolver: Arc<dyn MessagesAnnotationResolver>,
     beta_features: &[String],
 ) -> Result<AnthropicCompatibleProfile, AnthropicProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let platform = PlatformId::new(PLATFORM_ID)?;
-    let mut profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
-        verified_profile(provider, platform, endpoint)?
+    let mut profile = if provider_verified_endpoint {
+        verified_profile(provider, platform, endpoint)?.with_replay_domain(replay_domain)?
     } else {
         AnthropicCompatibleProfile::custom(
             ProfileId::new(PROFILE_ID)?,
             provider,
             platform,
             endpoint,
+            replay_domain,
             API_VERSION,
         )?
     }

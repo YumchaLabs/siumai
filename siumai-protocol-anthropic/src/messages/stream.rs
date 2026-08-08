@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, DecoderLifecycle, Error, ErrorKind, ExecutionOwner, LanguageStreamDecoder,
-    LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, StreamTerminal,
 };
 
 use super::MessagesCodecError;
@@ -451,6 +451,14 @@ impl ActiveBlock {
                 let id = required_object_string(&object, "id")?.to_string();
                 let name = required_object_string(&object, "name")?.to_string();
                 let initial_input = object.get("input").cloned().unwrap_or(Value::Null);
+                let initial_bytes = serde_json::to_vec(&initial_input)
+                    .map_err(MessagesCodecError::JsonEncode)?
+                    .len();
+                if initial_bytes > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
+                    return Err(MessagesCodecError::ToolInputTooLarge {
+                        maximum: DEFAULT_TOOL_INPUT_BYTE_LIMIT,
+                    });
+                }
                 Ok(Self::ToolUse {
                     object,
                     id,
@@ -557,7 +565,7 @@ impl ActiveBlock {
                 "input_json_delta",
             ) => {
                 let delta = required_object_string(object, "partial_json")?;
-                partial_input.push_str(delta);
+                append_tool_input(partial_input, delta)?;
                 Ok(vec![LanguageStreamEvent::ToolInputDelta {
                     id: id.clone(),
                     delta: delta.to_string(),
@@ -631,6 +639,20 @@ impl ActiveBlock {
         };
         Ok(Value::Object(object))
     }
+}
+
+fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), MessagesCodecError> {
+    if buffer
+        .len()
+        .checked_add(delta.len())
+        .is_none_or(|total| total > DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+    {
+        return Err(MessagesCodecError::ToolInputTooLarge {
+            maximum: DEFAULT_TOOL_INPUT_BYTE_LIMIT,
+        });
+    }
+    buffer.push_str(delta);
+    Ok(())
 }
 
 fn required_field<'a>(

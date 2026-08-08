@@ -1,7 +1,8 @@
 use serde_json::json;
 use siumai_core::{
     ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageStreamDecoder, LanguageStreamEvent,
-    ModelId, ProtocolId, ProviderId, ProviderScope, StreamTerminal, UsageValue,
+    ModelId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, StreamTerminal,
+    UsageValue,
 };
 
 use super::*;
@@ -14,6 +15,9 @@ fn scope() -> ProviderScope {
     ProviderScope::new(ProviderId::new("anthropic").expect("valid provider"))
         .with_protocol(ProtocolId::new(PROTOCOL_ID).expect("valid protocol"))
         .with_api_mode(ApiModeId::new(API_MODE_ID).expect("valid API mode"))
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("anthropic-test").expect("valid replay domain"),
+        ))
 }
 
 #[test]

@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use base64::Engine as _;
 use serde_json::{Map, Value};
 use siumai_core::{
-    Citation, ContentPart, ExecutionOwner, FinishReason, LanguageIncompleteReason,
-    LanguageResponse, LanguageResponseStatus, MediaData, MediaPart, ModelId, OpaqueProviderItem,
-    ProviderProvenance, ProviderScope, ToolCall, Usage, UsageValue,
+    Citation, ContentPart, FinishReason, LanguageIncompleteReason, LanguageResponse,
+    LanguageResponseStatus, MediaData, MediaPart, ModelId, OpaqueProviderItem, ProviderProvenance,
+    ProviderScope, ToolCall, Usage, UsageValue,
 };
 
 use super::wire::{MessageResponseWire, UsageWire};
@@ -154,12 +154,14 @@ pub(crate) fn decode_content_block(
                     .ok_or(MessagesCodecError::ProtocolViolation {
                         reason: "tool_use block omitted its input",
                     })?;
-            Ok(vec![ContentPart::ToolCall(ToolCall {
-                id,
-                name,
-                arguments: input,
-                owner: ExecutionOwner::Local,
-            })])
+            if !input.is_object() {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "tool_use input must be a JSON object",
+                });
+            }
+            Ok(vec![ContentPart::ToolCall(
+                ToolCall::local(id, name, input).map_err(MessagesCodecError::InvalidToolCall)?,
+            )])
         }
         "refusal" => Ok(vec![ContentPart::Refusal {
             reason: object
@@ -300,12 +302,8 @@ fn retain_native_block(
     scope: &ProviderScope,
     model: &ModelId,
 ) -> Result<OpaqueProviderItem, MessagesCodecError> {
-    let provenance = ProviderProvenance {
-        provider: scope.provider_id().clone(),
-        platform: scope.platform().map(ToString::to_string),
-        protocol: PROTOCOL_ID.to_string(),
-        model: model.clone(),
-    };
+    let provenance = ProviderProvenance::from_scope(scope, model.clone())
+        .map_err(MessagesCodecError::InvalidProvenance)?;
     let mut builder =
         OpaqueProviderItem::builder(provenance, OPAQUE_CONTENT_BLOCK_KIND, block.clone());
     if let Some(id) = block.get("id").and_then(Value::as_str) {

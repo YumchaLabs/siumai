@@ -5,10 +5,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::Stream;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
-    Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message, OpaqueProviderItem,
-    ToolCall, ToolOutcome, ToolResult, Usage,
+    AssistantHistoryOmission, Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message,
+    OpaqueProviderItem, ToolCall, ToolOutcome, ToolResult, Usage,
 };
 
 use crate::snapshot::ToolExecutionLog;
@@ -99,12 +99,38 @@ impl ModelTransitionRecord {
 }
 
 /// A completed model step retained in deterministic execution order.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StepRecord {
     index: u32,
     target: ModelTarget,
     response: LanguageResponse,
     tool_results: Vec<ToolResult>,
+    assistant_history_omissions: Vec<AssistantHistoryOmission>,
+}
+
+#[derive(Deserialize)]
+struct StepRecordWire {
+    index: u32,
+    target: ModelTarget,
+    response: LanguageResponse,
+    tool_results: Vec<ToolResult>,
+    assistant_history_omissions: Vec<AssistantHistoryOmission>,
+}
+
+impl<'de> Deserialize<'de> for StepRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = StepRecordWire::deserialize(deserializer)?;
+        let record = Self::new(wire.index, wire.target, wire.response, wire.tool_results);
+        if wire.assistant_history_omissions != record.assistant_history_omissions {
+            return Err(serde::de::Error::custom(
+                "invalid assistant-history omission records",
+            ));
+        }
+        Ok(record)
+    }
 }
 
 impl StepRecord {
@@ -114,11 +140,13 @@ impl StepRecord {
         response: LanguageResponse,
         tool_results: Vec<ToolResult>,
     ) -> Self {
+        let assistant_history_omissions = response.project_assistant_history().omissions().to_vec();
         Self {
             index,
             target,
             response,
             tool_results,
+            assistant_history_omissions,
         }
     }
 
@@ -136,6 +164,10 @@ impl StepRecord {
 
     pub fn tool_results(&self) -> &[ToolResult] {
         &self.tool_results
+    }
+
+    pub fn assistant_history_omissions(&self) -> &[AssistantHistoryOmission] {
+        &self.assistant_history_omissions
     }
 }
 

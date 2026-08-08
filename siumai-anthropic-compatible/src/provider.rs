@@ -192,6 +192,10 @@ impl AnthropicCompatibleProviderBuilder {
 
     /// Validate static configuration and build one shared runtime without network I/O.
     pub fn build(self) -> Result<AnthropicCompatibleProvider, AnthropicCompatibleConfigError> {
+        self.profile
+            .scope()
+            .replay_domain()
+            .ok_or(AnthropicCompatibleConfigError::MissingReplayDomain)?;
         let auth = match self.auth {
             ConfiguredAuth::Credential(credential) => {
                 credential.validate()?;
@@ -294,6 +298,10 @@ pub enum AnthropicCompatibleConfigError {
     DuplicateMessagesClaim,
     #[error("verified profile endpoint must use an exact official-origin policy")]
     VerifiedEndpointMustBeOfficial,
+    #[error("compatible profile requires an explicit non-secret replay domain")]
+    MissingReplayDomain,
+    #[error("replay audience does not match compatible profile ownership")]
+    ReplayAudienceMismatch,
     #[error("support scope is not the Anthropic Messages language mode")]
     IncompatibleSupportScope,
     #[error("provider profile identity does not match its Messages support scope")]

@@ -2,18 +2,15 @@
 //!
 //! A [`LanguageRequest`](siumai_core::LanguageRequest) is intentionally more
 //! expressive than the wire format accepted by any one provider.  In
-//! particular, it may contain provider-native opaque items and provider-owned
-//! tool executions.  This module makes the boundary explicit: a continuation
-//! in the same target/protocol is lossless, while a transition to another
-//! protocol either succeeds with an audit trail or is rejected before any
-//! provider call is made.
+//! particular, it may contain provider-native opaque items. This module makes
+//! the boundary explicit: a continuation in the same replay domain is
+//! lossless, while another transition either succeeds with an audit trail or
+//! is rejected before any provider call is made.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use siumai_core::{
-    ContentPart, ExecutionOwner, LanguageRequest, Message, MessagePart, OpaqueProviderItem,
-};
+use siumai_core::{ContentPart, LanguageRequest, Message, MessagePart, OpaqueProviderItem};
 use thiserror::Error;
 
 use crate::options::ModelTarget;
@@ -57,20 +54,12 @@ pub enum ProjectionSeverity {
 pub enum ProjectionLossReason {
     /// An opaque item belongs to another provider, platform, or protocol.
     ForeignProviderOpaque,
-    /// Response-side provider metadata on a citation was intentionally removed.
-    ProviderMetadataRemoved,
-    /// A provider-owned tool call cannot be replayed by the target protocol.
-    ProviderOwnedToolState,
-    /// A provider-owned tool call has no terminal result yet.
-    UnresolvedProviderToolState,
     /// An approval request is still waiting for an explicit decision.
     PendingApproval,
     /// The provider has deferred work that has not reached a terminal state.
     ProviderDeferred,
     /// A local tool call has not received a terminal result.
     UnresolvedLocalToolState,
-    /// The runtime does not understand the tool execution owner yet.
-    UnknownToolExecutionOwner,
     /// More than one tool call uses the same call identity.
     AmbiguousToolCallIdentity,
     /// A tool result has no call whose execution ownership can be verified.
@@ -222,12 +211,12 @@ impl HistoryProjectionError {
 
 /// Project a request from one model target to another.
 ///
-/// Exact target equality and a matching provider/platform/protocol (including
-/// API mode) are treated as one replay domain. Foreign or unresolved state is
-/// still validated inside that domain. Other transitions keep portable
-/// content, preserve opaque items already native to the target protocol, and
-/// remove source-native state with explicit diagnostics. No response metadata
-/// is converted into request options by this function.
+/// Matching provider/platform/protocol/API mode and an exact non-secret replay
+/// domain are treated as one replay boundary. Foreign or unresolved state is
+/// still validated inside that domain. Other transitions keep portable content,
+/// preserve opaque items already native to the target protocol, and remove
+/// source-native state with explicit diagnostics. No response metadata is
+/// converted into request options by this function.
 pub fn project_history(
     request: LanguageRequest,
     source: &ModelTarget,
@@ -250,7 +239,7 @@ pub fn project_history(
     } = request;
 
     let result_ids = collect_result_ids(&messages);
-    let call_dispositions = collect_call_dispositions(&messages, &result_ids, same_domain, target);
+    let call_dispositions = collect_call_dispositions(&messages, &result_ids, same_domain);
     let mut losses = Vec::new();
     let mut projected_messages = Vec::with_capacity(messages.len());
 
@@ -265,26 +254,18 @@ pub fn project_history(
             match content {
                 portable @ (ContentPart::Text { .. }
                 | ContentPart::Reasoning { .. }
-                | ContentPart::Media(_)
-                | ContentPart::Refusal { .. }) => {
+                | ContentPart::Media(_)) => {
                     projected_content.push(MessagePart::from_parts(portable, content_annotations))
                 }
-                ContentPart::Citation(mut citation) => {
-                    if !same_domain && !citation.provider.is_empty() {
-                        citation.provider.clear();
-                        losses.push(ProjectionLoss::new(
-                            ProjectionLossReason::ProviderMetadataRemoved,
-                            ProjectionSeverity::Advisory,
-                            location,
-                        ));
-                    }
-                    projected_content.push(MessagePart::from_parts(
-                        ContentPart::Citation(citation),
-                        content_annotations,
+                ContentPart::Citation(_) | ContentPart::Refusal { .. } => {
+                    losses.push(ProjectionLoss::new(
+                        ProjectionLossReason::UnsupportedContentPart,
+                        ProjectionSeverity::Required,
+                        location,
                     ));
                 }
                 ContentPart::ProviderOpaque(item) => {
-                    if opaque_matches_target(&item, source, target) {
+                    if opaque_matches_target(&item, target) {
                         projected_content.push(MessagePart::from_parts(
                             ContentPart::ProviderOpaque(item),
                             content_annotations,
@@ -294,7 +275,7 @@ pub fn project_history(
                         losses.push(ProjectionLoss::new(reason, severity, location));
                     }
                 }
-                ContentPart::ToolCall(call) => match call_dispositions.get(&call.id) {
+                ContentPart::ToolCall(call) => match call_dispositions.get(call.id()) {
                     Some(ToolCallDisposition::Portable) => {
                         projected_content.push(MessagePart::from_parts(
                             ContentPart::ToolCall(call),
@@ -304,11 +285,7 @@ pub fn project_history(
                     Some(ToolCallDisposition::Loss { reason, severity }) => {
                         losses.push(ProjectionLoss::new(reason.clone(), *severity, location));
                     }
-                    None => losses.push(ProjectionLoss::new(
-                        ProjectionLossReason::UnknownToolExecutionOwner,
-                        ProjectionSeverity::Blocking,
-                        location,
-                    )),
+                    None => unreachable!("every validated tool call has a disposition"),
                 },
                 ContentPart::ToolResult(result) => match call_dispositions.get(&result.call_id) {
                     Some(ToolCallDisposition::Loss { reason, severity }) => {
@@ -374,37 +351,11 @@ pub fn project_history(
 }
 
 fn same_replay_domain(source: &ModelTarget, target: &ModelTarget) -> bool {
-    if source == target {
-        return true;
-    }
-
-    source.provider() == target.provider()
-        && source.platform() == target.platform()
-        && source.protocol().is_some()
-        && source.protocol() == target.protocol()
-        && source.api_mode() == target.api_mode()
+    source.scope().shares_replay_domain(target.scope())
 }
 
-fn opaque_matches_target(
-    item: &OpaqueProviderItem,
-    source: &ModelTarget,
-    target: &ModelTarget,
-) -> bool {
-    let provenance = item.provenance();
-    let target_protocol_matches = provenance.provider == *target.provider()
-        && provenance.platform.as_deref() == target.platform().map(|platform| platform.as_str())
-        && target
-            .protocol()
-            .is_some_and(|protocol| provenance.protocol == protocol.as_str());
-    let exact_unspecified_target_matches = source == target
-        && target.protocol().is_none()
-        && provenance.provider == *target.provider()
-        && provenance.model == *target.model()
-        && target
-            .platform()
-            .is_none_or(|platform| provenance.platform.as_deref() == Some(platform.as_str()));
-
-    target_protocol_matches || exact_unspecified_target_matches
+fn opaque_matches_target(item: &OpaqueProviderItem, target: &ModelTarget) -> bool {
+    item.provenance().matches_replay_target(target.scope())
 }
 
 fn collect_result_ids(messages: &[Message]) -> BTreeSet<String> {
@@ -431,16 +382,15 @@ fn collect_call_dispositions(
     messages: &[Message],
     result_ids: &BTreeSet<String>,
     same_domain: bool,
-    target: &ModelTarget,
 ) -> BTreeMap<String, ToolCallDisposition> {
     let mut dispositions = BTreeMap::new();
     for part in messages.iter().flat_map(Message::content) {
         let ContentPart::ToolCall(call) = part.content() else {
             continue;
         };
-        if dispositions.contains_key(&call.id) {
+        if dispositions.contains_key(call.id()) {
             dispositions.insert(
-                call.id.clone(),
+                call.id().to_owned(),
                 ToolCallDisposition::Loss {
                     reason: ProjectionLossReason::AmbiguousToolCallIdentity,
                     severity: ProjectionSeverity::Blocking,
@@ -449,34 +399,17 @@ fn collect_call_dispositions(
             continue;
         }
 
-        let disposition = match &call.owner {
-            ExecutionOwner::Local if same_domain => ToolCallDisposition::Portable,
-            ExecutionOwner::Local if result_ids.contains(&call.id) => ToolCallDisposition::Portable,
-            ExecutionOwner::Local => ToolCallDisposition::Loss {
+        let disposition = if same_domain || result_ids.contains(call.id()) {
+            ToolCallDisposition::Portable
+        } else {
+            ToolCallDisposition::Loss {
                 reason: ProjectionLossReason::UnresolvedLocalToolState,
                 severity: ProjectionSeverity::Blocking,
-            },
-            ExecutionOwner::Provider { provider }
-                if same_domain && provider == target.provider() =>
-            {
-                ToolCallDisposition::Portable
             }
-            ExecutionOwner::Provider { .. } if result_ids.contains(&call.id) => {
-                ToolCallDisposition::Loss {
-                    reason: ProjectionLossReason::ProviderOwnedToolState,
-                    severity: ProjectionSeverity::Required,
-                }
-            }
-            ExecutionOwner::Provider { .. } => ToolCallDisposition::Loss {
-                reason: ProjectionLossReason::UnresolvedProviderToolState,
-                severity: ProjectionSeverity::Blocking,
-            },
-            _ => ToolCallDisposition::Loss {
-                reason: ProjectionLossReason::UnknownToolExecutionOwner,
-                severity: ProjectionSeverity::Blocking,
-            },
         };
-        dispositions.entry(call.id.clone()).or_insert(disposition);
+        dispositions
+            .entry(call.id().to_owned())
+            .or_insert(disposition);
     }
     dispositions
 }
@@ -624,9 +557,10 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        Citation, ContentAnnotationTarget, ContentPart, ExecutionOwner, LanguageRequest, Message,
+        Citation, ContentAnnotationTarget, ContentPart, LanguageRequest, Message,
         MessageAnnotationTarget, MessagePart, MessageRole, ModelId, OpaqueProviderItem, ProtocolId,
-        ProviderId, ProviderProvenance, ToolCall, ToolOutcome, ToolResult, TypedProviderAnnotation,
+        ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, ToolCall, ToolOutcome,
+        ToolResult, TypedProviderAnnotation,
     };
 
     use super::*;
@@ -637,6 +571,9 @@ mod tests {
             ModelId::new(model).expect("test model id"),
         )
         .with_protocol(ProtocolId::new(protocol).expect("test protocol id"))
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("runtime-history-test").expect("test replay domain"),
+        ))
     }
 
     fn opaque(
@@ -646,13 +583,10 @@ mod tests {
         kind: &str,
         data: serde_json::Value,
     ) -> OpaqueProviderItem {
+        let source = target(provider, protocol, model);
         OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new(provider).expect("test provider id"),
-                platform: None,
-                protocol: protocol.to_string(),
-                model: ModelId::new(model).expect("test model id"),
-            },
+            ProviderProvenance::from_scope(source.scope(), source.model().clone())
+                .expect("test provenance"),
             kind,
             data,
         )
@@ -773,7 +707,7 @@ mod tests {
     }
 
     #[test]
-    fn best_effort_keeps_portable_content_and_strips_provider_metadata() {
+    fn best_effort_keeps_request_content_and_reports_response_only_content() {
         let source = target("openai", "responses", "gpt-5.6");
         let target = target("anthropic", "messages", "opus-5");
         let mut citation = Citation {
@@ -803,20 +737,14 @@ mod tests {
 
         let projected = project_history(input, &source, &target, ProjectionPolicy::BestEffort)
             .expect("best effort may remove representational loss");
-        assert_eq!(projected.request().messages[0].content().len(), 2);
+        assert_eq!(projected.request().messages[0].content().len(), 1);
         assert!(matches!(
             projected.request().messages[0].content()[0].content(),
             ContentPart::Text { .. }
         ));
-        let ContentPart::Citation(citation) =
-            projected.request().messages[0].content()[1].content()
-        else {
-            panic!("citation should remain portable");
-        };
-        assert!(citation.provider.is_empty());
         assert!(projected.losses().iter().any(|loss| {
-            loss.reason == ProjectionLossReason::ProviderMetadataRemoved
-                && loss.severity == ProjectionSeverity::Advisory
+            loss.reason == ProjectionLossReason::UnsupportedContentPart
+                && loss.severity == ProjectionSeverity::Required
         }));
         assert!(
             projected
@@ -845,12 +773,17 @@ mod tests {
             provider: BTreeMap::new(),
         };
         citation.provider.insert("trace".to_string(), json!(true));
-        let part = MessagePart::new(ContentPart::Citation(citation))
-            .with_provider_annotation(&content_annotation)
-            .expect("valid content annotation");
-        let message = Message::new(MessageRole::Assistant, [part])
-            .with_provider_annotation(&message_annotation)
-            .expect("valid message annotation");
+        let text_part = MessagePart::new(ContentPart::Text {
+            text: "portable".to_string(),
+        })
+        .with_provider_annotation(&content_annotation)
+        .expect("valid content annotation");
+        let message = Message::new(
+            MessageRole::Assistant,
+            [text_part, MessagePart::new(ContentPart::Citation(citation))],
+        )
+        .with_provider_annotation(&message_annotation)
+        .expect("valid message annotation");
 
         let projected = project_history(
             LanguageRequest::new(vec![message]),
@@ -858,7 +791,7 @@ mod tests {
             &target,
             ProjectionPolicy::BestEffort,
         )
-        .expect("advisory citation metadata loss remains projectable");
+        .expect("best effort reports response-only citation loss");
         let projected_message = &projected.request().messages[0];
         assert_eq!(
             projected_message
@@ -874,10 +807,14 @@ mod tests {
                 .expect("content annotation decodes"),
             Some(content_annotation)
         );
-        let ContentPart::Citation(citation) = projected_message.content()[0].content() else {
-            panic!("citation should remain portable");
-        };
-        assert!(citation.provider.is_empty());
+        assert!(matches!(
+            projected_message.content()[0].content(),
+            ContentPart::Text { text } if text == "portable"
+        ));
+        assert!(projected.losses().iter().any(|loss| {
+            loss.reason == ProjectionLossReason::UnsupportedContentPart
+                && loss.severity == ProjectionSeverity::Required
+        }));
     }
 
     #[test]
@@ -932,12 +869,7 @@ mod tests {
     fn unresolved_local_tool_state_is_blocking() {
         let source = target("openai", "responses", "gpt-5.6");
         let target = target("anthropic", "messages", "opus-5");
-        let call = ToolCall {
-            id: "call-1".to_string(),
-            name: "lookup".to_string(),
-            arguments: json!({"q": "rust"}),
-            owner: ExecutionOwner::Local,
-        };
+        let call = ToolCall::local("call-1", "lookup", json!({"q": "rust"})).unwrap();
 
         let error = project_history(
             request(vec![ContentPart::ToolCall(call)]),
@@ -957,12 +889,7 @@ mod tests {
     fn completed_local_tool_call_remains_portable() {
         let source = target("openai", "responses", "gpt-5.6");
         let target = target("anthropic", "messages", "opus-5");
-        let call = ToolCall {
-            id: "call-1".to_string(),
-            name: "lookup".to_string(),
-            arguments: json!({"q": "rust"}),
-            owner: ExecutionOwner::Local,
-        };
+        let call = ToolCall::local("call-1", "lookup", json!({"q": "rust"})).unwrap();
         let result = ToolResult {
             call_id: "call-1".to_string(),
             name: "lookup".to_string(),
@@ -981,43 +908,5 @@ mod tests {
         .expect("completed local tool state is portable");
         assert_eq!(projected.request().messages[0].content().len(), 2);
         assert!(projected.losses().is_empty());
-    }
-
-    #[test]
-    fn provider_owned_tool_state_is_removed_with_diagnostics() {
-        let source = target("openai", "responses", "gpt-5.6");
-        let target = target("anthropic", "messages", "opus-5");
-        let call = ToolCall {
-            id: "call-1".to_string(),
-            name: "web_search".to_string(),
-            arguments: json!({"q": "rust"}),
-            owner: ExecutionOwner::Provider {
-                provider: ProviderId::new("openai").expect("test provider id"),
-            },
-        };
-        let result = ToolResult {
-            call_id: "call-1".to_string(),
-            name: "web_search".to_string(),
-            outcome: ToolOutcome::Success { value: json!("ok") },
-        };
-
-        let projected = project_history(
-            request(vec![
-                ContentPart::ToolCall(call),
-                ContentPart::ToolResult(result),
-            ]),
-            &source,
-            &target,
-            ProjectionPolicy::BestEffort,
-        )
-        .expect("best effort removes completed provider-owned state");
-        assert!(projected.request().messages.is_empty());
-        assert_eq!(projected.losses().len(), 2);
-        assert!(
-            projected
-                .losses()
-                .iter()
-                .all(|loss| loss.reason == ProjectionLossReason::ProviderOwnedToolState)
-        );
     }
 }

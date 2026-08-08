@@ -3,6 +3,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use siumai_core::{
     ContentPart, LanguageRequest, LanguageRequestError, LanguageResponse, Message,
     ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult, Usage, UsageValue,
@@ -16,7 +17,7 @@ use crate::{
 };
 
 /// The only snapshot schema version understood by this release.
-pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 4;
+pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 5;
 
 const MAX_ID_BYTES: usize = 256;
 const MAX_FINGERPRINT_BYTES: usize = 1_024;
@@ -26,7 +27,7 @@ const MAX_REASON_MESSAGE_BYTES: usize = 2_048;
 const MAX_APPROVAL_ID_BYTES: usize = 256;
 const MAX_PROVIDER_STATE_NAMESPACE_BYTES: usize = 256;
 const MAX_CORRELATION_ID_BYTES: usize = 1_024;
-const MAX_TOOL_CALL_ID_BYTES: usize = 1_024;
+const MAX_TOOL_CALL_ID_BYTES: usize = 512;
 
 /// Why a run, lineage, or checkpoint identifier is invalid.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -454,8 +455,8 @@ impl fmt::Debug for PendingApprovalSnapshot {
         formatter
             .debug_struct("PendingApprovalSnapshot")
             .field("approval_id", &self.approval_id)
-            .field("call_id", &self.call.id)
-            .field("tool_name", &self.call.name)
+            .field("call_id", &self.call.id())
+            .field("tool_name", &self.call.name())
             .field("binding", &self.binding.name)
             .field("claim_fingerprint", &"<redacted>")
             .field("expires_at_unix_ms", &self.expires_at_unix_ms)
@@ -558,8 +559,8 @@ impl fmt::Debug for PreparedToolSnapshot {
         formatter
             .debug_struct("PreparedToolSnapshot")
             .field("ordinal", &self.ordinal)
-            .field("call_id", &self.call.id)
-            .field("tool_name", &self.call.name)
+            .field("call_id", &self.call.id())
+            .field("tool_name", &self.call.name())
             .field("binding", &self.binding.name)
             .field("recovery_policy", &self.recovery_policy)
             .field(
@@ -953,7 +954,7 @@ impl ToolExecutionEvent {
 
     pub fn call_id(&self) -> &str {
         match self {
-            Self::Prepared { tool, .. } => &tool.call().id,
+            Self::Prepared { tool, .. } => tool.call().id(),
             Self::Dispatched { call_id, .. }
             | Self::Completed { call_id, .. }
             | Self::Indeterminate { call_id, .. } => call_id,
@@ -1201,7 +1202,7 @@ fn execution_states(
 
         match event {
             ToolExecutionEvent::Prepared { step, tool, .. } => {
-                if tool.binding().name != tool.call().name {
+                if tool.binding().name != tool.call().name() {
                     return Err(ToolExecutionTransitionError::BindingNameMismatch { call_id });
                 }
                 if tool
@@ -1666,8 +1667,14 @@ impl fmt::Debug for RunSnapshot {
 }
 
 #[derive(Deserialize)]
-struct RunSnapshotWire {
+struct RunSnapshotEnvelope {
     snapshot_version: u16,
+    #[serde(flatten)]
+    payload: BTreeMap<String, Value>,
+}
+
+#[derive(Deserialize)]
+struct RunSnapshotPayloadWire {
     checkpoint: SnapshotCheckpoint,
     fingerprints: SnapshotFingerprints,
     continuation: LanguageRequest,
@@ -1681,9 +1688,20 @@ impl<'de> Deserialize<'de> for RunSnapshot {
     where
         D: Deserializer<'de>,
     {
-        let wire = RunSnapshotWire::deserialize(deserializer)?;
+        let envelope = RunSnapshotEnvelope::deserialize(deserializer)?;
+        if envelope.snapshot_version != RUN_SNAPSHOT_SCHEMA_VERSION {
+            return Err(serde::de::Error::custom(
+                RunSnapshotError::UnsupportedVersion {
+                    found: envelope.snapshot_version,
+                    supported: RUN_SNAPSHOT_SCHEMA_VERSION,
+                },
+            ));
+        }
+        let payload = Value::Object(envelope.payload.into_iter().collect());
+        let wire = serde_json::from_value::<RunSnapshotPayloadWire>(payload)
+            .map_err(serde::de::Error::custom)?;
         let snapshot = Self {
-            snapshot_version: wire.snapshot_version,
+            snapshot_version: envelope.snapshot_version,
             checkpoint: wire.checkpoint,
             fingerprints: wire.fingerprints,
             continuation: wire.continuation,
@@ -1722,6 +1740,8 @@ pub enum RunSnapshotError {
     ReportStepIndexOverflow,
     #[error("report step {step} does not match the active model target")]
     ReportStepTargetMismatch { step: u32 },
+    #[error("report step {step} contains invalid assistant-history omission records")]
+    AssistantHistoryOmissionsMismatch { step: u32 },
     #[error("model transitions cannot target the initial model step")]
     ModelTransitionAtInitialStep,
     #[error("model transition step {actual} does not follow step {previous}")]
@@ -1978,6 +1998,11 @@ fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
                 actual: step.index(),
             });
         }
+        if step.assistant_history_omissions()
+            != step.response().project_assistant_history().omissions()
+        {
+            return Err(RunSnapshotError::AssistantHistoryOmissionsMismatch { step: step.index() });
+        }
         expected = expected
             .checked_add(1)
             .ok_or(RunSnapshotError::ReportStepIndexOverflow)?;
@@ -2146,10 +2171,10 @@ fn validate_pending_step(
                 actual: prepared.ordinal(),
             });
         }
-        validate_tool_call_id(&prepared.call().id)?;
-        if !prepared_call_ids.insert(prepared.call().id.as_str()) {
+        validate_tool_call_id(prepared.call().id())?;
+        if !prepared_call_ids.insert(prepared.call().id()) {
             return Err(RunSnapshotError::DuplicatePreparedCall {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
             });
         }
         if response_calls[position] != prepared.call() {
@@ -2157,9 +2182,9 @@ fn validate_pending_step(
                 ordinal: prepared.ordinal(),
             });
         }
-        if prepared.binding().name != prepared.call().name {
+        if prepared.binding().name != prepared.call().name() {
             return Err(RunSnapshotError::PreparedBindingNameMismatch {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
                 binding: prepared.binding().name.clone(),
             });
         }
@@ -2178,16 +2203,16 @@ fn validate_pending_step(
                 else {
                     return None;
                 };
-                (tool.call().id == prepared.call().id).then_some((event_step, tool))
+                (tool.call().id() == prepared.call().id()).then_some((event_step, tool))
             });
         let Some((event_step, event_tool)) = prepared_event else {
             return Err(RunSnapshotError::MissingPreparedEvent {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
             });
         };
         if *event_step != step.index() || event_tool != prepared {
             return Err(RunSnapshotError::PreparedEventMismatch {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
             });
         }
     }
@@ -2216,8 +2241,8 @@ fn validate_pending_step(
             .ok_or(RunSnapshotError::CompletedCallNotPrepared {
                 ordinal: completed.ordinal(),
             })?;
-        if completed.result().call_id != prepared.call().id
-            || completed.result().name != prepared.call().name
+        if completed.result().call_id != prepared.call().id()
+            || completed.result().name != prepared.call().name()
         {
             return Err(RunSnapshotError::CompletedResultMismatch {
                 ordinal: completed.ordinal(),
@@ -2238,19 +2263,19 @@ fn validate_pending_step(
                 else {
                     return None;
                 };
-                (call_id == &prepared.call().id).then_some((attempt, outcome))
+                (call_id == prepared.call().id()).then_some((attempt, outcome))
             });
         if completed_event.is_none_or(|(attempt, outcome)| {
             *attempt != prepared.attempt() || outcome != &completed.result().outcome
         }) {
             return Err(RunSnapshotError::CompletedEventMismatch {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
             });
         }
     }
 
     for prepared in step.prepared() {
-        let actual_status = report.execution_log().status(&prepared.call().id);
+        let actual_status = report.execution_log().status(prepared.call().id());
         let valid = if completed_ordinals.contains(&prepared.ordinal()) {
             actual_status == Some(ToolExecutionStatus::Completed)
         } else {
@@ -2261,7 +2286,7 @@ fn validate_pending_step(
         };
         if !valid {
             return Err(RunSnapshotError::PreparedCallNotReady {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
                 status: actual_status,
             });
         }
@@ -2276,26 +2301,26 @@ fn validate_pending_step(
             MAX_APPROVAL_ID_BYTES,
             false,
         )?;
-        validate_tool_call_id(&approval.call.id)?;
+        validate_tool_call_id(approval.call.id())?;
         if !approval_ids.insert(approval.approval_id.as_str()) {
             return Err(RunSnapshotError::DuplicateApprovalId);
         }
-        if !approval_calls.insert(approval.call.id.as_str()) {
+        if !approval_calls.insert(approval.call.id()) {
             return Err(RunSnapshotError::DuplicateApprovalCall);
         }
         let prepared = step
             .prepared()
             .iter()
-            .find(|prepared| prepared.call().id == approval.call.id);
+            .find(|prepared| prepared.call().id() == approval.call.id());
         if prepared.is_none_or(|prepared| {
             prepared.call() != &approval.call
                 || prepared.binding() != &approval.binding
                 || completed_ordinals.contains(&prepared.ordinal())
-                || report.execution_log().status(&approval.call.id)
+                || report.execution_log().status(approval.call.id())
                     != Some(ToolExecutionStatus::Prepared)
         }) {
             return Err(RunSnapshotError::ApprovalPreparedMismatch {
-                call_id: approval.call.id.clone(),
+                call_id: approval.call.id().to_owned(),
             });
         }
     }
@@ -2605,8 +2630,8 @@ fn validate_reason_code(code: &str) -> Result<(), RunSnapshotError> {
 mod tests {
     use serde_json::json;
     use siumai_core::{
-        ContentPart, ExecutionOwner, FinishReason, LanguageResponse, ModelId, ProviderId, ToolCall,
-        ToolOutcome, ToolResult, Usage,
+        ContentPart, FinishReason, LanguageResponse, ModelId, ProviderId, ToolCall, ToolOutcome,
+        ToolResult, Usage,
     };
 
     use super::*;
@@ -2620,12 +2645,12 @@ mod tests {
     }
 
     fn call(ordinal: u32) -> ToolCall {
-        ToolCall {
-            id: format!("call-{ordinal}"),
-            name: format!("tool-{ordinal}"),
-            arguments: json!({"ordinal": ordinal}),
-            owner: ExecutionOwner::Local,
-        }
+        ToolCall::local(
+            format!("call-{ordinal}"),
+            format!("tool-{ordinal}"),
+            json!({"ordinal": ordinal}),
+        )
+        .expect("valid tool call")
     }
 
     fn prepared(ordinal: u32) -> PreparedToolSnapshot {
@@ -2711,7 +2736,7 @@ mod tests {
             log.append(ToolExecutionEvent::dispatched(
                 sequence,
                 20,
-                &tool.call().id,
+                tool.call().id(),
                 tool.attempt(),
                 None,
             ))
@@ -2719,7 +2744,7 @@ mod tests {
             log.append(ToolExecutionEvent::completed(
                 sequence + 1,
                 30,
-                &tool.call().id,
+                tool.call().id(),
                 tool.attempt(),
                 completed(ordinal).result().outcome.clone(),
             ))

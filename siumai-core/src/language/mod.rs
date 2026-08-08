@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::fmt;
 
 use bytes::Bytes;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -14,7 +15,7 @@ use crate::annotations::{
     TypedProviderAnnotation,
 };
 use crate::error::PublicDiagnosticText;
-use crate::provider::{ModelId, ProviderId};
+use crate::provider::{ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain};
 use crate::tool::{ToolCall, ToolResult, ToolSpec};
 use crate::usage::Usage;
 
@@ -25,24 +26,88 @@ pub const DEFAULT_OPAQUE_ITEM_COUNT_LIMIT: usize = 128;
 /// Default aggregate bound for one request or response's provider-native state.
 pub const DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT: usize = 16 * 1024 * 1024;
 const MAX_OPAQUE_KIND_BYTES: usize = 256;
-const MAX_OPAQUE_PROTOCOL_BYTES: usize = 128;
-const MAX_OPAQUE_PLATFORM_BYTES: usize = 512;
 const MAX_OPAQUE_ITEM_ID_BYTES: usize = 512;
 const MAX_OPAQUE_RELATION_KIND_BYTES: usize = 128;
 const MAX_OPAQUE_RELATION_TARGET_BYTES: usize = 512;
 const MAX_OPAQUE_RELATIONS: usize = 32;
 
 /// Provenance required to replay or project provider-native state safely.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProviderProvenance {
-    pub provider: ProviderId,
-    pub platform: Option<String>,
-    pub protocol: String,
-    pub model: ModelId,
+    #[serde(flatten)]
+    scope: ProviderScope,
+    model: ModelId,
+}
+
+impl ProviderProvenance {
+    pub fn from_scope(
+        scope: &ProviderScope,
+        model: ModelId,
+    ) -> Result<Self, ProviderProvenanceError> {
+        if scope.protocol().is_none() {
+            return Err(ProviderProvenanceError::MissingProtocol);
+        }
+        if scope.replay_domain().is_none() {
+            return Err(ProviderProvenanceError::MissingReplayDomain);
+        }
+        Ok(Self {
+            scope: scope.clone(),
+            model,
+        })
+    }
+
+    pub fn scope(&self) -> &ProviderScope {
+        &self.scope
+    }
+
+    pub fn provider(&self) -> &ProviderId {
+        self.scope.provider_id()
+    }
+
+    pub fn platform(&self) -> Option<&PlatformId> {
+        self.scope.platform()
+    }
+
+    pub fn protocol(&self) -> &ProtocolId {
+        self.scope
+            .protocol()
+            .expect("validated provider provenance always has a protocol")
+    }
+
+    pub fn replay_domain(&self) -> &ReplayDomain {
+        self.scope
+            .replay_domain()
+            .expect("validated provider provenance always has a replay domain")
+    }
+
+    pub fn model(&self) -> &ModelId {
+        &self.model
+    }
+
+    pub fn matches_replay_target(&self, target: &ProviderScope) -> bool {
+        self.scope.shares_replay_domain(target)
+    }
+}
+
+#[derive(Deserialize)]
+struct ProviderProvenanceWire {
+    #[serde(flatten)]
+    scope: ProviderScope,
+    model: ModelId,
+}
+
+impl<'de> Deserialize<'de> for ProviderProvenance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ProviderProvenanceWire::deserialize(deserializer)?;
+        Self::from_scope(&wire.scope, wire.model).map_err(serde::de::Error::custom)
+    }
 }
 
 /// A bounded provider-native item retained without pretending it is portable.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct OpaqueProviderItem {
     provenance: ProviderProvenance,
     kind: String,
@@ -53,6 +118,20 @@ pub struct OpaqueProviderItem {
     data: Value,
     #[serde(skip)]
     encoded_json_bytes: usize,
+}
+
+impl fmt::Debug for OpaqueProviderItem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpaqueProviderItem")
+            .field("provenance", &self.provenance)
+            .field("kind", &self.kind)
+            .field("item_id", &self.item_id)
+            .field("relations", &self.relations)
+            .field("data", &"<redacted>")
+            .field("encoded_json_bytes", &self.encoded_json_bytes)
+            .finish()
+    }
 }
 
 /// One provider-native identity relation retained outside the opaque payload.
@@ -242,13 +321,21 @@ impl Default for LanguageRequestBudget {
     }
 }
 
+/// Invalid provenance for replay-critical provider-native state.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ProviderProvenanceError {
+    #[error("provider provenance requires an exact protocol")]
+    MissingProtocol,
+    #[error("provider provenance requires an explicit non-secret replay domain")]
+    MissingReplayDomain,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum OpaqueProviderItemError {
     #[error("opaque provider item kind must not be empty")]
     EmptyKind,
-    #[error("opaque provider item protocol must not be empty")]
-    EmptyProtocol,
     #[error("opaque provider item {field} exceeds {maximum} bytes")]
     FieldTooLarge { field: &'static str, maximum: usize },
     #[error("opaque provider item {field} must not be empty or contain control characters")]
@@ -266,7 +353,6 @@ pub enum OpaqueProviderItemError {
 }
 
 /// Builder for a bounded provider-native item envelope.
-#[derive(Debug)]
 pub struct OpaqueProviderItemBuilder {
     provenance: ProviderProvenance,
     kind: String,
@@ -274,6 +360,20 @@ pub struct OpaqueProviderItemBuilder {
     relations: Vec<ProviderItemRelation>,
     data: Value,
     maximum_bytes: usize,
+}
+
+impl fmt::Debug for OpaqueProviderItemBuilder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpaqueProviderItemBuilder")
+            .field("provenance", &self.provenance)
+            .field("kind", &self.kind)
+            .field("item_id", &self.item_id)
+            .field("relations", &self.relations)
+            .field("data", &"<redacted>")
+            .field("maximum_bytes", &self.maximum_bytes)
+            .finish()
+    }
 }
 
 impl OpaqueProviderItemBuilder {
@@ -411,17 +511,6 @@ fn build_opaque_provider_item(
         return Err(OpaqueProviderItemError::EmptyKind);
     }
     validate_opaque_field(&kind, "kind", MAX_OPAQUE_KIND_BYTES)?;
-    if provenance.protocol.trim().is_empty() {
-        return Err(OpaqueProviderItemError::EmptyProtocol);
-    }
-    validate_opaque_field(
-        &provenance.protocol,
-        "provenance.protocol",
-        MAX_OPAQUE_PROTOCOL_BYTES,
-    )?;
-    if let Some(platform) = &provenance.platform {
-        validate_opaque_field(platform, "provenance.platform", MAX_OPAQUE_PLATFORM_BYTES)?;
-    }
     if let Some(item_id) = &item_id {
         validate_opaque_field(item_id, "item_id", MAX_OPAQUE_ITEM_ID_BYTES)?;
     }
@@ -622,6 +711,84 @@ impl Message {
         Self::new(role, [MessagePart::text(text)])
     }
 
+    /// Construct a system instruction containing portable text.
+    pub fn system(text: impl Into<String>) -> Self {
+        Self::text(MessageRole::System, text)
+    }
+
+    /// Construct a developer instruction containing portable text.
+    pub fn developer(text: impl Into<String>) -> Self {
+        Self::text(MessageRole::Developer, text)
+    }
+
+    /// Construct a user message containing portable text.
+    pub fn user(text: impl Into<String>) -> Self {
+        Self::text(MessageRole::User, text)
+    }
+
+    /// Construct an assistant message containing portable text.
+    pub fn assistant(text: impl Into<String>) -> Self {
+        Self::text(MessageRole::Assistant, text)
+    }
+
+    /// Construct and validate a user message containing text and/or input media.
+    pub fn user_parts<I, Part>(content: I) -> Result<Self, MessageValidationError>
+    where
+        I: IntoIterator<Item = Part>,
+        Part: Into<MessagePart>,
+    {
+        Self::validated(MessageRole::User, content)
+    }
+
+    /// Construct and validate assistant history or replay content.
+    pub fn assistant_parts<I, Part>(content: I) -> Result<Self, MessageValidationError>
+    where
+        I: IntoIterator<Item = Part>,
+        Part: Into<MessagePart>,
+    {
+        Self::validated(MessageRole::Assistant, content)
+    }
+
+    /// Construct a canonical message for one tool result.
+    pub fn tool_result(result: ToolResult) -> Self {
+        Self::new(MessageRole::Tool, [ContentPart::ToolResult(result)])
+    }
+
+    /// Construct and validate a canonical message for one or more tool results.
+    pub fn tool_results<I>(results: I) -> Result<Self, MessageValidationError>
+    where
+        I: IntoIterator<Item = ToolResult>,
+    {
+        Self::validated(
+            MessageRole::Tool,
+            results.into_iter().map(ContentPart::ToolResult),
+        )
+    }
+
+    fn validated<I, Part>(role: MessageRole, content: I) -> Result<Self, MessageValidationError>
+    where
+        I: IntoIterator<Item = Part>,
+        Part: Into<MessagePart>,
+    {
+        let message = Self::new(role, content);
+        message.validate()?;
+        Ok(message)
+    }
+
+    /// Validate the provider-neutral role/content contract for this message.
+    pub fn validate(&self) -> Result<(), MessageValidationError> {
+        for (content_index, part) in self.content.iter().enumerate() {
+            if !content_allowed_for_role(self.role, part.content()) {
+                return Err(MessageValidationError::ContentNotAllowed {
+                    role: self.role,
+                    content_index,
+                    content_kind: content_kind(part.content()),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub fn role(&self) -> MessageRole {
         self.role
     }
@@ -651,6 +818,100 @@ impl Message {
 
     pub fn into_parts(self) -> (MessageRole, Vec<MessagePart>, MessageAnnotations) {
         (self.role, self.content, self.provider_annotations)
+    }
+}
+
+/// Invalid provider-neutral message role/content combination.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum MessageValidationError {
+    #[error("{content_kind} content at index {content_index} is not allowed for role {role:?}")]
+    ContentNotAllowed {
+        role: MessageRole,
+        content_index: usize,
+        content_kind: &'static str,
+    },
+}
+
+/// Response-only content omitted while projecting an assistant response into history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AssistantHistoryOmissionKind {
+    Citation,
+    Refusal,
+    ToolResult,
+}
+
+/// One observable omission made by assistant-history projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistantHistoryOmission {
+    content_index: usize,
+    kind: AssistantHistoryOmissionKind,
+}
+
+impl AssistantHistoryOmission {
+    pub const fn content_index(self) -> usize {
+        self.content_index
+    }
+
+    pub const fn kind(self) -> AssistantHistoryOmissionKind {
+        self.kind
+    }
+}
+
+/// A role-safe assistant history message and its explicit projection diagnostics.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssistantHistoryProjection {
+    message: Option<Message>,
+    omissions: Vec<AssistantHistoryOmission>,
+}
+
+impl AssistantHistoryProjection {
+    pub fn message(&self) -> Option<&Message> {
+        self.message.as_ref()
+    }
+
+    pub fn omissions(&self) -> &[AssistantHistoryOmission] {
+        &self.omissions
+    }
+
+    pub fn into_parts(self) -> (Option<Message>, Vec<AssistantHistoryOmission>) {
+        (self.message, self.omissions)
+    }
+
+    pub fn into_message(self) -> Option<Message> {
+        self.message
+    }
+}
+
+fn content_allowed_for_role(role: MessageRole, content: &ContentPart) -> bool {
+    match role {
+        MessageRole::System | MessageRole::Developer => {
+            matches!(content, ContentPart::Text { .. })
+        }
+        MessageRole::User => matches!(content, ContentPart::Text { .. } | ContentPart::Media(_)),
+        MessageRole::Assistant => matches!(
+            content,
+            ContentPart::Text { .. }
+                | ContentPart::Reasoning { .. }
+                | ContentPart::Media(_)
+                | ContentPart::ToolCall(_)
+                | ContentPart::ProviderOpaque(_)
+        ),
+        MessageRole::Tool => matches!(content, ContentPart::ToolResult(_)),
+    }
+}
+
+fn content_kind(content: &ContentPart) -> &'static str {
+    match content {
+        ContentPart::Text { .. } => "text",
+        ContentPart::Reasoning { .. } => "reasoning",
+        ContentPart::Media(_) => "media",
+        ContentPart::Citation(_) => "citation",
+        ContentPart::Refusal { .. } => "refusal",
+        ContentPart::ToolCall(_) => "tool call",
+        ContentPart::ToolResult(_) => "tool result",
+        ContentPart::ProviderOpaque(_) => "provider-opaque",
     }
 }
 
@@ -699,6 +960,14 @@ impl LanguageRequest {
         budget: LanguageRequestBudget,
     ) -> Result<(), LanguageRequestError> {
         self.generation.validate()?;
+        for (message_index, message) in self.messages.iter().enumerate() {
+            message
+                .validate()
+                .map_err(|source| LanguageRequestError::InvalidMessage {
+                    message_index,
+                    source,
+                })?;
+        }
         let mut names = BTreeSet::new();
         for tool in &self.tools {
             if !names.insert(tool.name()) {
@@ -757,6 +1026,11 @@ impl LanguageRequest {
 pub enum LanguageRequestError {
     #[error(transparent)]
     Generation(#[from] GenerationConfigError),
+    #[error("message {message_index} violates the canonical role/content contract: {source}")]
+    InvalidMessage {
+        message_index: usize,
+        source: MessageValidationError,
+    },
     #[error("tool `{name}` is defined more than once")]
     DuplicateTool { name: String },
     #[error("tool choice names undefined tool `{name}`")]
@@ -1049,6 +1323,42 @@ impl LanguageResponse {
         &self.provider
     }
 
+    /// Project generated output into canonical assistant history.
+    ///
+    /// Citations and refusals remain available on this response but are not
+    /// request content. The returned diagnostics make those omissions
+    /// observable, while replay-critical provider state remains in the
+    /// projected message as `ProviderOpaque` content.
+    pub fn project_assistant_history(&self) -> AssistantHistoryProjection {
+        let mut content = Vec::with_capacity(self.content.len());
+        let mut omissions = Vec::new();
+
+        for (content_index, part) in self.content.iter().enumerate() {
+            let kind = match part {
+                ContentPart::Citation(_) => Some(AssistantHistoryOmissionKind::Citation),
+                ContentPart::Refusal { .. } => Some(AssistantHistoryOmissionKind::Refusal),
+                ContentPart::ToolResult(_) => Some(AssistantHistoryOmissionKind::ToolResult),
+                ContentPart::Text { .. }
+                | ContentPart::Reasoning { .. }
+                | ContentPart::Media(_)
+                | ContentPart::ToolCall(_)
+                | ContentPart::ProviderOpaque(_) => {
+                    content.push(MessagePart::new(part.clone()));
+                    None
+                }
+            };
+            if let Some(kind) = kind {
+                omissions.push(AssistantHistoryOmission {
+                    content_index,
+                    kind,
+                });
+            }
+        }
+
+        let message = (!content.is_empty()).then(|| Message::new(MessageRole::Assistant, content));
+        AssistantHistoryProjection { message, omissions }
+    }
+
     pub fn validate(&self) -> Result<(), LanguageResponseError> {
         self.validate_with_opaque_budget(OpaqueProviderBudget::default())
     }
@@ -1149,6 +1459,7 @@ mod tests {
         DEFAULT_PROVIDER_ANNOTATION_COLLECTION_BYTE_LIMIT,
         DEFAULT_PROVIDER_ANNOTATION_ENTRY_BYTE_LIMIT, DEFAULT_PROVIDER_ANNOTATION_NAMESPACE_LIMIT,
     };
+    use crate::tool::ToolOutcome;
 
     use super::*;
 
@@ -1179,12 +1490,35 @@ mod tests {
     }
 
     fn provenance() -> ProviderProvenance {
-        ProviderProvenance {
-            provider: ProviderId::new("openai").unwrap(),
-            platform: None,
-            protocol: "responses".to_string(),
-            model: ModelId::new("gpt-future:preview").unwrap(),
-        }
+        let scope = ProviderScope::new(ProviderId::new("openai").unwrap())
+            .with_protocol(ProtocolId::new("responses").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                crate::provider::ReplayDomainId::new("openai-public-api").unwrap(),
+            ));
+        ProviderProvenance::from_scope(&scope, ModelId::new("gpt-future:preview").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn provider_provenance_deserialization_cannot_bypass_replay_requirements() {
+        let missing_protocol = json!({
+            "provider": "openai",
+            "platform": "public-api",
+            "api_mode": "responses",
+            "replay_domain": {
+                "audience": {"Official": "public-api"}
+            },
+            "model": "gpt-5.6"
+        });
+        let missing_domain = json!({
+            "provider": "openai",
+            "platform": "public-api",
+            "protocol": "openai-responses",
+            "api_mode": "responses",
+            "model": "gpt-5.6"
+        });
+
+        assert!(serde_json::from_value::<ProviderProvenance>(missing_protocol).is_err());
+        assert!(serde_json::from_value::<ProviderProvenance>(missing_domain).is_err());
     }
 
     #[test]
@@ -1207,12 +1541,31 @@ mod tests {
         let encoded = serde_json::to_value(&item).unwrap();
         let decoded: OpaqueProviderItem = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded, item);
-        assert_eq!(decoded.provenance().protocol, "responses");
+        assert_eq!(decoded.provenance().protocol().as_str(), "responses");
         assert_eq!(decoded.item_id(), Some("item_1"));
         assert_eq!(decoded.relations()[0].kind(), "call");
         assert_eq!(decoded.relations()[0].target_id(), "call_1");
         assert_eq!(decoded.relations()[1].kind(), "caller");
         assert_eq!(decoded.relations()[1].target_id(), "program_1");
+    }
+
+    #[test]
+    fn opaque_item_debug_redacts_provider_payload() {
+        let builder = OpaqueProviderItem::builder(
+            provenance(),
+            "encrypted_reasoning",
+            json!({"encrypted_content": "provider-secret-canary"}),
+        )
+        .item_id("reasoning-1");
+        let builder_debug = format!("{builder:?}");
+        assert!(!builder_debug.contains("provider-secret-canary"));
+        assert!(builder_debug.contains("<redacted>"));
+
+        let item = builder.build().unwrap();
+        let item_debug = format!("{item:?}");
+        assert!(!item_debug.contains("provider-secret-canary"));
+        assert!(item_debug.contains("<redacted>"));
+        assert!(item_debug.contains("reasoning-1"));
     }
 
     #[test]
@@ -1493,5 +1846,116 @@ mod tests {
                 name: "lookup".to_string()
             })
         );
+    }
+
+    #[test]
+    fn role_safe_message_constructors_follow_the_canonical_matrix() {
+        assert_eq!(Message::system("rules").role(), MessageRole::System);
+        assert_eq!(Message::developer("policy").role(), MessageRole::Developer);
+        assert_eq!(Message::user("question").role(), MessageRole::User);
+        assert_eq!(Message::assistant("answer").role(), MessageRole::Assistant);
+
+        let media = MediaPart {
+            media_type: "image/png".to_string(),
+            data: MediaData::Bytes(Bytes::from_static(b"image")),
+            name: None,
+        };
+        Message::user_parts([ContentPart::Media(media)])
+            .expect("input media is valid user content");
+        Message::assistant_parts([ContentPart::Reasoning {
+            text: "bounded reasoning".to_string(),
+        }])
+        .expect("reasoning is valid assistant content");
+        Message::tool_result(ToolResult {
+            call_id: "call-1".to_string(),
+            name: "lookup".to_string(),
+            outcome: ToolOutcome::Success { value: json!(1) },
+        })
+        .validate()
+        .expect("tool results are valid tool content");
+    }
+
+    #[test]
+    fn request_validation_rejects_invalid_role_content_before_encoding() {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::User,
+            [ContentPart::ToolResult(ToolResult {
+                call_id: "call-1".to_string(),
+                name: "lookup".to_string(),
+                outcome: ToolOutcome::Success { value: json!(1) },
+            })],
+        )]);
+
+        assert!(matches!(
+            request.validate(),
+            Err(LanguageRequestError::InvalidMessage {
+                message_index: 0,
+                source: MessageValidationError::ContentNotAllowed {
+                    role: MessageRole::User,
+                    content_index: 0,
+                    content_kind: "tool result",
+                },
+            })
+        ));
+
+        let response_only = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [ContentPart::Refusal {
+                reason: Some("declined".to_string()),
+            }],
+        )]);
+        assert!(matches!(
+            response_only.validate(),
+            Err(LanguageRequestError::InvalidMessage { .. })
+        ));
+    }
+
+    #[test]
+    fn assistant_history_projection_is_explicit_and_role_safe() {
+        let response = LanguageResponse::completed(
+            vec![
+                ContentPart::Text {
+                    text: "answer".to_string(),
+                },
+                ContentPart::Citation(Citation {
+                    source_id: "source-1".to_string(),
+                    title: None,
+                    url: None,
+                    start: None,
+                    end: None,
+                    provider: BTreeMap::new(),
+                }),
+                ContentPart::Refusal {
+                    reason: Some("detail omitted".to_string()),
+                },
+                ContentPart::ProviderOpaque(
+                    OpaqueProviderItem::new(
+                        provenance(),
+                        "response.output",
+                        json!({"id": "item-1"}),
+                    )
+                    .unwrap(),
+                ),
+            ],
+            FinishReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+
+        let projection = response.project_assistant_history();
+        assert_eq!(
+            projection
+                .omissions()
+                .iter()
+                .map(|omission| omission.kind())
+                .collect::<Vec<_>>(),
+            vec![
+                AssistantHistoryOmissionKind::Citation,
+                AssistantHistoryOmissionKind::Refusal,
+            ]
+        );
+        let message = projection.message().expect("portable history remains");
+        assert_eq!(message.content().len(), 2);
+        message.validate().expect("projected history is role safe");
     }
 }

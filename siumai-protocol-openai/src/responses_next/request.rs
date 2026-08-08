@@ -5,11 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
 use siumai_core::{
-    ContentPart, Error, ErrorKind, LanguageRequest, MediaData, Message, MessageRole, ModelId,
-    OpaqueProviderItem, ProviderScope, StructuredOutputSpec, ToolChoice, ToolOutcome, ToolResult,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorKind, LanguageRequest, MediaData,
+    Message, MessageRole, ModelId, OpaqueProviderItem, ProviderScope, StructuredOutputSpec,
+    ToolChoice, ToolOutcome, ToolResult,
 };
 
-use super::wire::OutputItem;
+use super::wire::{OutputContentPart, OutputItem};
 use super::{API_MODE_ID, OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
 
 /// Internal merge key accepted from provider-owned typed options.
@@ -475,7 +476,7 @@ fn encode_message(
             _ => None,
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let suppression = NativeProjectionSuppression::from_items(&native_items);
+    let suppression = NativeProjectionSuppression::from_message(message, &native_items)?;
 
     for item in native_items {
         input.push(item.to_value().map_err(|source| {
@@ -531,18 +532,16 @@ fn encode_message(
                     "response-only content requires its native OpenAI Responses message item",
                 ));
             }
-            ContentPart::ToolCall(call) if suppression.tool_calls.contains(&call.id) => {}
+            ContentPart::ToolCall(_) if suppression.tool_calls.contains(&content_index) => {}
             ContentPart::ToolCall(call) => input.push(json!({
                 "type": "function_call",
-                "call_id": call.id,
-                "name": call.name,
-                "arguments": serde_json::to_string(&call.arguments).map_err(|source| {
+                "call_id": call.id(),
+                "name": call.name(),
+                "arguments": serde_json::to_string(call.arguments()).map_err(|source| {
                     Error::new(ErrorKind::InvalidInput, "failed to encode tool arguments")
                         .with_source(source)
                 })?,
             })),
-            ContentPart::ToolResult(result)
-                if suppression.tool_results.contains(&result.call_id) => {}
             ContentPart::ToolResult(result) => {
                 input.push(encode_tool_result(result, call_contexts)?);
             }
@@ -570,13 +569,10 @@ fn replayable_item(
     scope: &ProviderScope,
 ) -> Result<OutputItem, Error> {
     let provenance = opaque.provenance();
-    if &provenance.provider != scope.provider_id()
-        || provenance.platform.as_deref() != scope.platform().map(|platform| platform.as_str())
-        || provenance.protocol != OPENAI_RESPONSES_PROTOCOL
-    {
+    if !provenance.matches_replay_target(scope) {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "foreign provider or platform-native history requires explicit projection before OpenAI Responses encoding",
+            "foreign replay-domain history requires explicit projection before OpenAI Responses encoding",
         ));
     }
     if opaque.kind() != OPENAI_RESPONSES_OPAQUE_KIND {
@@ -614,43 +610,178 @@ fn validate_target_scope(scope: &ProviderScope) -> Result<(), Error> {
 struct NativeProjectionSuppression {
     message: bool,
     reasoning: bool,
-    tool_calls: BTreeSet<String>,
-    tool_results: BTreeSet<String>,
+    tool_calls: BTreeSet<usize>,
 }
 
 impl NativeProjectionSuppression {
-    fn from_items(items: &[OutputItem]) -> Self {
-        let mut suppression = Self::default();
-        for item in items {
-            match item {
-                OutputItem::Message(_) => suppression.message = true,
-                OutputItem::Reasoning(_) => suppression.reasoning = true,
-                OutputItem::FunctionCall(call) => {
-                    suppression.tool_calls.insert(call.call_id.clone());
-                }
-                OutputItem::CustomToolCall(call) => {
-                    suppression.tool_calls.insert(call.call_id.clone());
-                }
-                OutputItem::Program(program) => {
-                    suppression.tool_calls.insert(program.call_id.clone());
-                }
-                OutputItem::ProgramOutput(output) => {
-                    suppression.tool_results.insert(output.call_id.clone());
-                }
-                OutputItem::ProviderTool(item) => {
-                    if matches!(
-                        item.kind(),
-                        "function_call_output" | "custom_tool_call_output"
-                    ) && let Some(call_id) = item.call_id()
-                    {
-                        suppression.tool_results.insert(call_id.to_string());
-                    }
-                }
-                OutputItem::Unknown(_) => {}
-            }
-        }
-        suppression
+    fn from_message(message: &Message, items: &[OutputItem]) -> Result<Self, Error> {
+        Ok(Self {
+            message: validate_native_message_projection(message, items)?,
+            reasoning: validate_native_reasoning_projection(message, items)?,
+            tool_calls: matched_native_tool_call_indices(message, items)?,
+        })
     }
+}
+
+fn validate_native_message_projection(
+    message: &Message,
+    items: &[OutputItem],
+) -> Result<bool, Error> {
+    let native_messages = items
+        .iter()
+        .filter_map(|item| match item {
+            OutputItem::Message(message) => Some(message),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if native_messages.is_empty() {
+        return Ok(false);
+    }
+
+    let expected_role = encode_role(message.role())?;
+    if native_messages
+        .iter()
+        .any(|message| message.role != expected_role)
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "portable OpenAI Responses message role disagreed with its native replay item",
+        ));
+    }
+
+    let native_projection = native_messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .filter_map(|part| match part {
+            OutputContentPart::Text(text) => Some(ContentPart::Text {
+                text: text.text.clone(),
+            }),
+            OutputContentPart::Refusal(_) | OutputContentPart::Unknown(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let portable_projection = message
+        .content()
+        .iter()
+        .filter_map(|part| match part.content() {
+            ContentPart::Text { .. } | ContentPart::Media(_) => Some(part.content().clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !portable_projection.is_empty() && portable_projection != native_projection {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "portable OpenAI Responses message content disagreed with its native replay item",
+        ));
+    }
+    Ok(true)
+}
+
+fn validate_native_reasoning_projection(
+    message: &Message,
+    items: &[OutputItem],
+) -> Result<bool, Error> {
+    let native_reasoning = items
+        .iter()
+        .filter_map(|item| match item {
+            OutputItem::Reasoning(reasoning) => Some(reasoning),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if native_reasoning.is_empty() {
+        return Ok(false);
+    }
+
+    let native_projection = native_reasoning
+        .iter()
+        .flat_map(|reasoning| reasoning.summary.iter().chain(reasoning.content.iter()))
+        .map(|part| part.text.as_str())
+        .collect::<Vec<_>>();
+    let portable_projection = message
+        .content()
+        .iter()
+        .filter_map(|part| match part.content() {
+            ContentPart::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !portable_projection.is_empty() && portable_projection != native_projection {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "portable OpenAI Responses reasoning disagreed with its native replay item",
+        ));
+    }
+    Ok(true)
+}
+
+fn matched_native_tool_call_indices(
+    message: &Message,
+    items: &[OutputItem],
+) -> Result<BTreeSet<usize>, Error> {
+    let mut matched = BTreeSet::new();
+    let mut portable_call_counts = BTreeMap::new();
+    for part in message.content() {
+        if let ContentPart::ToolCall(call) = part.content() {
+            *portable_call_counts.entry(call.id()).or_insert(0usize) += 1;
+        }
+    }
+    for (content_index, part) in message.content().iter().enumerate() {
+        let ContentPart::ToolCall(portable) = part.content() else {
+            continue;
+        };
+        let native = items
+            .iter()
+            .filter(|item| match item {
+                OutputItem::FunctionCall(call) => call.call_id == portable.id(),
+                OutputItem::CustomToolCall(call) => call.call_id == portable.id(),
+                OutputItem::Program(program) => program.call_id == portable.id(),
+                _ => false,
+            })
+            .collect::<Vec<_>>();
+        if native.is_empty() {
+            continue;
+        }
+        if native.len() != 1
+            || portable_call_counts
+                .get(portable.id())
+                .copied()
+                .unwrap_or_default()
+                != 1
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "native and portable OpenAI tool calls could not be paired one-to-one",
+            ));
+        }
+
+        let OutputItem::FunctionCall(native) = native[0] else {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "a local OpenAI tool call collided with provider-owned native tool activity",
+            ));
+        };
+        if native.arguments.len() > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "native OpenAI function call arguments exceeded the semantic tool-input limit",
+            ));
+        }
+        let native_arguments =
+            serde_json::from_str::<Value>(&native.arguments).map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "native OpenAI function call arguments were not valid JSON",
+                )
+                .with_source(source)
+            })?;
+        if native.name.as_str() != portable.name() || &native_arguments != portable.arguments() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "portable OpenAI function call disagreed with its native replay item",
+            ));
+        }
+        matched.insert(content_index);
+    }
+    Ok(matched)
 }
 
 fn encode_tool_result(

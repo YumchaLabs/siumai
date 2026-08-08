@@ -434,7 +434,7 @@ mod tests {
 
     use super::*;
     use crate::language::{FinishReason, LanguageIncompleteReason, ProviderProvenance};
-    use crate::provider::ProviderId;
+    use crate::provider::{ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId};
     use crate::tool::ToolOutcome;
 
     #[tokio::test]
@@ -601,13 +601,13 @@ mod tests {
 
     #[tokio::test]
     async fn opaque_events_preserve_provider_provenance() {
+        let scope = ProviderScope::new(ProviderId::new("openai").unwrap())
+            .with_protocol(ProtocolId::new("responses").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("openai-public-api").unwrap(),
+            ));
         let item = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new("openai").unwrap(),
-                platform: None,
-                protocol: "responses".to_string(),
-                model: ModelId::new("future:model").unwrap(),
-            },
+            ProviderProvenance::from_scope(&scope, ModelId::new("future:model").unwrap()).unwrap(),
             "reasoning.encrypted",
             json!({"encrypted_content": "opaque"}),
         )
@@ -626,8 +626,8 @@ mod tests {
         assert!(matches!(
             events.first(),
             Some(LanguageStreamEvent::ProviderOpaque(item))
-                if item.provenance().protocol == "responses"
-                    && item.provenance().model.as_str() == "future:model"
+                if item.provenance().protocol().as_str() == "responses"
+                    && item.provenance().model().as_str() == "future:model"
         ));
     }
 

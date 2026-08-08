@@ -260,6 +260,10 @@ impl OpenAiCompatibleProviderBuilder {
 
     /// Validate static settings and construct one shared provider runtime.
     pub fn build(self) -> Result<OpenAiCompatibleProvider, OpenAiCompatibleConfigError> {
+        self.profile
+            .recommended_scope()
+            .replay_domain()
+            .ok_or(OpenAiCompatibleConfigError::MissingReplayDomain)?;
         let auth = match self.auth {
             CompatibleAuth::Credential(credential) => {
                 credential.validate_static()?;
@@ -531,6 +535,10 @@ pub enum OpenAiCompatibleConfigError {
     SharedEndpointScopeMismatch,
     #[error("verified profile endpoint must use an exact official-origin policy")]
     VerifiedEndpointMustBeOfficial,
+    #[error("compatible profile requires an explicit non-secret replay domain")]
+    MissingReplayDomain,
+    #[error("replay audience does not match compatible profile ownership")]
+    ReplayAudienceMismatch,
     #[error("support scope is not an OpenAI-family Chat or Responses language mode")]
     IncompatibleSupportScope,
     #[error("default options were configured for unavailable mode {0:?}")]
@@ -551,8 +559,9 @@ mod tests {
         ApiModeId, ApiStability, CallOptions, Error, ErrorKind, LanguageModel, LanguageRequest,
         Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
         ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId,
-        ProtocolId, ProviderId, ProviderProfile, SupportScope, SupportState, VerificationDate,
-        VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+        ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId, SupportScope,
+        SupportState, VerificationDate, VerificationEvidence, VerifiedFidelity,
+        VerifiedSupportClaim,
     };
     use siumai_protocol_openai::chat_completions::{
         API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
@@ -690,10 +699,36 @@ mod tests {
     }
 
     #[test]
+    fn profile_kind_constrains_replay_audience() {
+        let verified = dual_mode_profile_with_platforms("public-api", "public-api").unwrap();
+        assert!(matches!(
+            verified.with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("caller-relay").unwrap(),
+            )),
+            Err(OpenAiCompatibleConfigError::ReplayAudienceMismatch)
+        ));
+
+        let generic = OpenAiCompatibleProfile::public_custom(
+            ProviderId::new("custom-test").unwrap(),
+            "https://relay.example/v1",
+            ReplayDomainId::new("caller-relay").unwrap(),
+            OpenAiCompatibleApiMode::Responses,
+        )
+        .unwrap();
+        assert!(matches!(
+            generic.with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("official").unwrap(),
+            )),
+            Err(OpenAiCompatibleConfigError::ReplayAudienceMismatch)
+        ));
+    }
+
+    #[test]
     fn static_validation_rejects_credentials_and_protected_defaults_synchronously() {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),
             "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("local-test").unwrap(),
             OpenAiCompatibleApiMode::ChatCompletions,
         )
         .unwrap();
@@ -762,6 +797,7 @@ mod tests {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),
             "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("local-test").unwrap(),
             OpenAiCompatibleApiMode::ChatCompletions,
         )
         .unwrap();
@@ -1022,6 +1058,7 @@ mod tests {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),
             format!("{}/v1", server.url()),
+            ReplayDomainId::new("local-test").unwrap(),
             OpenAiCompatibleApiMode::ChatCompletions,
         )
         .unwrap();
@@ -1074,6 +1111,7 @@ mod tests {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),
             format!("{}/v1", server.url()),
+            ReplayDomainId::new("local-test").unwrap(),
             OpenAiCompatibleApiMode::ChatCompletions,
         )
         .unwrap();
@@ -1123,6 +1161,7 @@ mod tests {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),
             format!("{}/v1", server.url()),
+            ReplayDomainId::new("local-test").unwrap(),
             OpenAiCompatibleApiMode::ChatCompletions,
         )
         .unwrap();

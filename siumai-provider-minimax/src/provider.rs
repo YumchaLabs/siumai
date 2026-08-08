@@ -14,8 +14,9 @@ use siumai_core::{
     LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
     ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionError,
-    ProviderRegistration, ProviderSupportManifest, SupportManifestError, TypedProviderOptions,
-    VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
+    ProviderRegistration, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
+    SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_openai_compatible::{
     OpenAiCompatibleApiMode, OpenAiCompatibleConfigError, OpenAiCompatibleLanguageModel,
@@ -219,12 +220,31 @@ impl fmt::Debug for MinimaxProvider {
     }
 }
 
+enum EndpointSelection {
+    ProviderOwned(EndpointConfig),
+    CallerControlled(EndpointConfig),
+}
+
+impl EndpointSelection {
+    fn into_parts(self) -> (EndpointConfig, bool) {
+        match self {
+            Self::ProviderOwned(endpoint) => (endpoint, true),
+            Self::CallerControlled(endpoint) => (endpoint, false),
+        }
+    }
+}
+
+/// Stable official replay audience shared by MiniMax language protocols.
+pub const MINIMAX_REPLAY_AUDIENCE: &str = "minimax-public-api";
+
 /// Builder for one immutable MiniMax provider runtime.
 pub struct MinimaxProviderBuilder {
     credential: MinimaxCredential,
-    messages_endpoint: Result<EndpointConfig, EndpointError>,
-    openai_endpoint: Result<EndpointConfig, EndpointError>,
-    resource_endpoint: Result<EndpointConfig, EndpointError>,
+    messages_endpoint: Result<EndpointSelection, EndpointError>,
+    openai_endpoint: Result<EndpointSelection, EndpointError>,
+    resource_endpoint: Result<EndpointSelection, EndpointError>,
+    messages_replay_domain: Option<ReplayDomain>,
+    openai_replay_domain: Option<ReplayDomain>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -239,9 +259,14 @@ impl MinimaxProviderBuilder {
     fn new(credential: MinimaxCredential) -> Self {
         Self {
             credential,
-            messages_endpoint: official_endpoint(MESSAGES_BASE_URL),
-            openai_endpoint: official_endpoint(OPENAI_BASE_URL),
-            resource_endpoint: official_endpoint(RESOURCE_BASE_URL),
+            messages_endpoint: official_endpoint(MESSAGES_BASE_URL)
+                .map(EndpointSelection::ProviderOwned),
+            openai_endpoint: official_endpoint(OPENAI_BASE_URL)
+                .map(EndpointSelection::ProviderOwned),
+            resource_endpoint: official_endpoint(RESOURCE_BASE_URL)
+                .map(EndpointSelection::ProviderOwned),
+            messages_replay_domain: None,
+            openai_replay_domain: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -253,33 +278,72 @@ impl MinimaxProviderBuilder {
         }
     }
 
+    /// Replace the provider-owned Messages endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint remains caller-controlled even when its transport policy is marked official.
+    /// A matching [`ReplayDomain::custom`] is required before `build`.
     pub fn with_messages_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.messages_endpoint = Ok(endpoint);
+        self.messages_endpoint = Ok(EndpointSelection::CallerControlled(endpoint));
         self
     }
 
+    /// Replace the provider-owned OpenAI-compatible endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint remains caller-controlled even when its transport policy is marked official.
+    /// A matching [`ReplayDomain::custom`] is required before `build`.
     pub fn with_openai_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.openai_endpoint = Ok(endpoint);
+        self.openai_endpoint = Ok(EndpointSelection::CallerControlled(endpoint));
         self
     }
 
+    /// Replace the provider-owned native-resource endpoint with a caller-controlled endpoint.
+    ///
+    /// Caller-controlled endpoints never inherit MiniMax native support claims.
     pub fn with_resource_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.resource_endpoint = Ok(endpoint);
+        self.resource_endpoint = Ok(EndpointSelection::CallerControlled(endpoint));
         self
     }
 
     pub fn with_messages_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.messages_endpoint = EndpointConfig::public_custom(base_url);
+        self.messages_endpoint =
+            EndpointConfig::public_custom(base_url).map(EndpointSelection::CallerControlled);
         self
     }
 
     pub fn with_openai_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.openai_endpoint = EndpointConfig::public_custom(base_url);
+        self.openai_endpoint =
+            EndpointConfig::public_custom(base_url).map(EndpointSelection::CallerControlled);
         self
     }
 
     pub fn with_resource_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.resource_endpoint = EndpointConfig::public_custom(base_url);
+        self.resource_endpoint =
+            EndpointConfig::public_custom(base_url).map(EndpointSelection::CallerControlled);
+        self
+    }
+
+    /// Bind Messages history to a non-secret audience and caller scope.
+    pub fn with_messages_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.messages_replay_domain = Some(replay_domain);
+        self
+    }
+
+    /// Bind OpenAI-compatible history to a non-secret audience and caller scope.
+    ///
+    /// Chat Completions and Responses share this endpoint audience while remaining isolated by
+    /// their protocol and API-mode identities.
+    pub fn with_openai_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.openai_replay_domain = Some(replay_domain);
+        self
+    }
+
+    /// Bind both language endpoints to the same non-secret replay domain.
+    ///
+    /// Use the mode-specific methods when Messages and OpenAI-compatible traffic use different
+    /// endpoint audiences.
+    pub fn with_language_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.messages_replay_domain = Some(replay_domain.clone());
+        self.openai_replay_domain = Some(replay_domain);
         self
     }
 
@@ -331,9 +395,21 @@ impl MinimaxProviderBuilder {
         self.chat_defaults.validate()?;
         self.responses_defaults.validate()?;
 
-        let messages_endpoint = self.messages_endpoint?;
-        let openai_endpoint = self.openai_endpoint?;
-        let resource_endpoint = self.resource_endpoint?;
+        let (messages_endpoint, messages_is_verified) = self.messages_endpoint?.into_parts();
+        let (openai_endpoint, openai_is_verified) = self.openai_endpoint?.into_parts();
+        let (resource_endpoint, resource_is_verified) = self.resource_endpoint?.into_parts();
+        let messages_replay_domain = resolve_replay_domain(
+            self.messages_replay_domain,
+            messages_is_verified,
+            MinimaxConfigError::CustomMessagesEndpointRequiresReplayDomain,
+            MinimaxConfigError::MessagesReplayAudienceMismatch,
+        )?;
+        let openai_replay_domain = resolve_replay_domain(
+            self.openai_replay_domain,
+            openai_is_verified,
+            MinimaxConfigError::CustomOpenAiEndpointRequiresReplayDomain,
+            MinimaxConfigError::OpenAiReplayAudienceMismatch,
+        )?;
         if self.credential.is_unauthenticated()
             && [&messages_endpoint, &openai_endpoint, &resource_endpoint]
                 .into_iter()
@@ -342,9 +418,14 @@ impl MinimaxProviderBuilder {
             return Err(MinimaxConfigError::OfficialEndpointRequiresAuthentication);
         }
         let auth = self.credential.into_auth()?;
-        let messages_profile = messages_profile(messages_endpoint)?;
-        let openai_profile = openai_profile(openai_endpoint)?;
-        let native_claims = if matches!(resource_endpoint.policy(), EndpointPolicy::Official(_)) {
+        let messages_profile = messages_profile(
+            messages_endpoint,
+            messages_replay_domain,
+            messages_is_verified,
+        )?;
+        let openai_profile =
+            openai_profile(openai_endpoint, openai_replay_domain, openai_is_verified)?;
+        let native_claims = if resource_is_verified {
             native_support_claims()?
         } else {
             Vec::new()
@@ -491,6 +572,29 @@ fn official_endpoint(base_url: &str) -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(base_url, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn resolve_replay_domain(
+    configured: Option<ReplayDomain>,
+    provider_selected_endpoint: bool,
+    missing: MinimaxConfigError,
+    mismatch: MinimaxConfigError,
+) -> Result<ReplayDomain, MinimaxConfigError> {
+    let replay_domain = match (configured, provider_selected_endpoint) {
+        (Some(replay_domain), _) => replay_domain,
+        (None, true) => ReplayDomain::official(ReplayDomainId::new(MINIMAX_REPLAY_AUDIENCE)?),
+        (None, false) => return Err(missing),
+    };
+    let audience_matches = if provider_selected_endpoint {
+        replay_domain.audience().is_official()
+            && replay_domain.audience().id().as_str() == MINIMAX_REPLAY_AUDIENCE
+    } else {
+        !replay_domain.audience().is_official()
+    };
+    if !audience_matches {
+        return Err(mismatch);
+    }
+    Ok(replay_domain)
+}
+
 fn native_support_claims() -> Result<Vec<VerifiedNativeSupportClaim>, MinimaxConfigError> {
     let provider = siumai_core::ProviderId::new(PROVIDER_ID)?;
     let platform = siumai_core::PlatformId::new("minimax-api")?;
@@ -593,4 +697,16 @@ pub enum MinimaxConfigError {
     MissingResponsesMode,
     #[error("official MiniMax endpoints require authentication")]
     OfficialEndpointRequiresAuthentication,
+    #[error(
+        "a caller-controlled MiniMax Messages endpoint requires an explicit custom replay domain"
+    )]
+    CustomMessagesEndpointRequiresReplayDomain,
+    #[error(
+        "a caller-controlled MiniMax OpenAI endpoint requires an explicit custom replay domain"
+    )]
+    CustomOpenAiEndpointRequiresReplayDomain,
+    #[error("the MiniMax Messages replay audience does not match endpoint ownership")]
+    MessagesReplayAudienceMismatch,
+    #[error("the MiniMax OpenAI replay audience does not match endpoint ownership")]
+    OpenAiReplayAudienceMismatch,
 }

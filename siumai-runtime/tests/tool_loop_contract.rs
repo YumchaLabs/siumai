@@ -8,10 +8,10 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason,
-    LanguageModel, LanguageRequest, LanguageResponse, LanguageResponseStatus, LanguageStream,
-    LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
-    ProviderId, StreamTerminal, ToolCall, ToolOutcome, ToolSpec, Usage, UsageValue,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, FinishReason, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageResponseStatus, LanguageStream, LanguageStreamEvent,
+    Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal,
+    ToolCall, ToolOutcome, ToolSpec, Usage, UsageValue,
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
@@ -159,23 +159,7 @@ fn tool_spec(name: &str) -> ToolSpec {
 }
 
 fn local_call(id: &str, name: &str, arguments: Value) -> ToolCall {
-    ToolCall {
-        id: id.to_string(),
-        name: name.to_string(),
-        arguments,
-        owner: ExecutionOwner::Local,
-    }
-}
-
-fn provider_call(id: &str, name: &str) -> ToolCall {
-    ToolCall {
-        id: id.to_string(),
-        name: name.to_string(),
-        arguments: json!({}),
-        owner: ExecutionOwner::Provider {
-            provider: ProviderId::new("scripted").expect("valid provider"),
-        },
-    }
+    ToolCall::local(id, name, arguments).expect("valid tool call")
 }
 
 fn tool_response(calls: Vec<ToolCall>) -> LanguageResponse {
@@ -1166,53 +1150,6 @@ async fn cancellation_during_approval_policy_is_typed_and_never_dispatches() {
             if reason == "tool loop cancelled during approval decision"
     ));
     assert_eq!(executions.load(Ordering::SeqCst), 0);
-}
-
-#[tokio::test]
-async fn provider_owned_name_collision_suspends_without_local_lookup_or_execution() {
-    let executions = Arc::new(AtomicUsize::new(0));
-    let observed = Arc::clone(&executions);
-    let binding = executable_binding("search", move |_| {
-        let observed = Arc::clone(&observed);
-        boxed_tool_future(async move {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(ToolOutcome::Success { value: Value::Null })
-        })
-    });
-    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
-    let model = ScriptedModel::new([terminal_step(tool_response(vec![provider_call(
-        "provider_1",
-        "search",
-    )]))]);
-    let loop_ = ToolLoop::new(model, tools);
-
-    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
-    assert!(matches!(
-        terminal,
-        RunTerminal::Suspended {
-            reason: SuspensionReason::AwaitingProvider { .. },
-            ..
-        }
-    ));
-    assert_eq!(executions.load(Ordering::SeqCst), 0);
-}
-
-#[tokio::test]
-async fn unresolved_provider_work_preempts_all_local_resolution() {
-    let model = ScriptedModel::new([terminal_step(tool_response(vec![
-        local_call("local_1", "missing-local-binding", json!({})),
-        provider_call("provider_1", "remote-search"),
-    ]))]);
-    let loop_ = ToolLoop::new(model, ToolSet::default());
-
-    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
-    assert!(matches!(
-        terminal,
-        RunTerminal::Suspended {
-            reason: SuspensionReason::AwaitingProvider { ref state_ids },
-            ..
-        } if state_ids.len() == 1 && state_ids[0] == "provider_1"
-    ));
 }
 
 #[tokio::test]

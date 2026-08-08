@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, FinishReason,
     LanguageIncompleteReason, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageResponseStatus, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
     ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal, ToolCall, Usage,
@@ -250,12 +250,9 @@ fn provider_failure_response(tokens: u64) -> LanguageResponse {
 
 fn unexpected_tool_response(tokens: u64) -> LanguageResponse {
     LanguageResponse::completed(
-        vec![ContentPart::ToolCall(ToolCall {
-            id: "call-1".to_string(),
-            name: "lookup".to_string(),
-            arguments: json!({"query": "Ada"}),
-            owner: ExecutionOwner::Local,
-        })],
+        vec![ContentPart::ToolCall(
+            ToolCall::local("call-1", "lookup", json!({"query": "Ada"})).expect("valid tool call"),
+        )],
         FinishReason::ToolCalls,
         usage(tokens),
     )

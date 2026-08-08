@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind, ExecutionOwner,
-    FinishReason, LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent, MediaData,
-    MediaPart, Message, MessageAnnotationTarget, MessageAnnotations, MessagePart, MessageRole,
-    ModelId, ProtocolId, ProviderId, ProviderScope, StreamTerminal, ToolAnnotationTarget,
+    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind, FinishReason,
+    LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent, MediaData, MediaPart, Message,
+    MessageAnnotationTarget, MessageAnnotations, MessagePart, MessageRole, ModelId, ProtocolId,
+    ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, StreamTerminal, ToolAnnotationTarget,
     ToolAnnotations, ToolCall, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
     TypedProviderAnnotation,
 };
@@ -131,6 +131,9 @@ fn scope() -> ProviderScope {
     ProviderScope::new(ProviderId::new("anthropic").unwrap())
         .with_protocol(ProtocolId::new(PROTOCOL_ID).unwrap())
         .with_api_mode(ApiModeId::new(API_MODE_ID).unwrap())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("anthropic-test").unwrap(),
+        ))
 }
 
 fn request(messages: Vec<Message>) -> LanguageRequest {
@@ -176,12 +179,7 @@ fn encodes_function_tools_calls_and_results() {
         json!({"type": "object", "properties": {"sku": {"type": "string"}}}),
     )
     .unwrap();
-    let call = ToolCall {
-        id: "toolu_1".to_string(),
-        name: "lookup".to_string(),
-        arguments: json!({"sku": "A-1"}),
-        owner: ExecutionOwner::Local,
-    };
+    let call = ToolCall::local("toolu_1", "lookup", json!({"sku": "A-1"})).unwrap();
     let result = ToolResult {
         call_id: "toolu_1".to_string(),
         name: "lookup".to_string(),
@@ -425,6 +423,83 @@ fn response_preserves_signed_thinking_as_replayable_opaque_state() {
 }
 
 #[test]
+fn response_rejects_non_object_tool_input_before_execution() {
+    for input in [json!(["value"]), json!("value"), Value::Null] {
+        let body = serde_json::to_vec(&json!({
+            "id": "msg_tool_input",
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "lookup",
+                "input": input
+            }],
+            "model": "claude-fable-5",
+            "stop_reason": "tool_use",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 4, "output_tokens": 2}
+        }))
+        .unwrap();
+
+        assert!(matches!(
+            decode_response(&body, &scope(), &model()),
+            Err(MessagesCodecError::ProtocolViolation {
+                reason: "tool_use input must be a JSON object",
+            })
+        ));
+    }
+}
+
+#[test]
+fn request_rejects_reasoning_that_disagrees_with_native_replay() {
+    let body = serde_json::to_vec(&json!({
+        "id": "msg_thinking",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "inspect", "signature": "signed"},
+            {"type": "text", "text": "done"}
+        ],
+        "model": "claude-fable-5",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {"input_tokens": 4, "output_tokens": 2}
+    }))
+    .unwrap();
+    let response = decode_response(&body, &scope(), &model()).unwrap();
+    let mut history = response
+        .project_assistant_history()
+        .into_parts()
+        .0
+        .expect("response projects assistant history");
+    let reasoning = history
+        .content_mut()
+        .iter_mut()
+        .find(|part| matches!(part.content(), ContentPart::Reasoning { .. }))
+        .expect("projected reasoning");
+    let ContentPart::Reasoning { text } = reasoning.content_mut() else {
+        unreachable!("selected reasoning part")
+    };
+    *text = "different".to_string();
+
+    let error = encode_request_for_scope(
+        &scope(),
+        &model(),
+        &request(vec![history]),
+        &MessagesRequestOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        MessagesCodecError::InvalidOption {
+            field: "messages.reasoning",
+            ..
+        }
+    ));
+}
+
+#[test]
 fn stream_emits_one_terminal_and_rejects_unexpected_eof() {
     let mut decoder = MessagesStreamDecoder::new(scope(), model());
     let frames = [
@@ -486,6 +561,53 @@ fn stream_emits_one_terminal_and_rejects_unexpected_eof() {
         .unwrap();
     let error = incomplete.finish().unwrap_err();
     assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn streamed_tool_input_is_bounded_before_json_normalization() {
+    let mut decoder = MessagesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_bounded",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fable-5",
+                    "usage": {}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_bounded",
+                    "name": "lookup",
+                    "input": {}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let oversized = json!({
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+            "type": "input_json_delta",
+            "partial_json": " ".repeat(siumai_core::DEFAULT_TOOL_INPUT_BYTE_LIMIT + 1)
+        }
+    })
+    .to_string();
+
+    let error = decoder.decode(&oversized).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
 }
 
 #[test]

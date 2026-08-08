@@ -9,8 +9,9 @@ use serde_json::Value;
 use siumai_core::{
     ApiModeId, ApiStability, Error, ErrorKind, InvalidId, LanguageRequest, ModelCatalog,
     ModelFamily, ModelId, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId,
-    ProtocolId, ProviderId, ProviderProfile, ProviderScope, SupportScope, TypedProviderOptions,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ProtocolId, ProviderId, ProviderProfile, ProviderScope, ReplayDomain, SupportScope,
+    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedSupportClaim,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
@@ -43,6 +44,7 @@ pub const VERIFIED_ON: &str = "2026-08-05";
 pub(crate) fn profile(
     endpoint: EndpointConfig,
     verified_endpoint: bool,
+    replay_domain: ReplayDomain,
 ) -> Result<OpenAiCompatibleProfile, AlibabaProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let reasoning = WireFieldName::new("reasoning_content")?;
@@ -103,8 +105,14 @@ pub(crate) fn profile(
             ModelCatalog::default(),
         )?;
         OpenAiCompatibleProfile::verified_chat_and_responses(provider_profile, endpoint, dialect)?
+            .with_replay_domain(replay_domain)?
     } else {
-        OpenAiCompatibleProfile::custom_chat_and_responses(provider, endpoint, dialect)?
+        OpenAiCompatibleProfile::custom_chat_and_responses(
+            provider,
+            endpoint,
+            replay_domain,
+            dialect,
+        )?
     };
 
     Ok(profile

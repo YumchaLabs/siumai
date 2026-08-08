@@ -4,8 +4,9 @@ use chrono::NaiveDate;
 use siumai_core::{
     ApiModeId, ApiStability, GenericSupportClaim, ModelCatalog, ModelFamily, ModelId,
     ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId,
-    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ProviderScope, SupportScope,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ProviderScope, ReplayDomain,
+    ReplayDomainId, SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedSupportClaim,
 };
 use siumai_protocol_openai::chat_completions::PROTOCOL_ID as CHAT_COMPLETIONS_PROTOCOL;
 use siumai_protocol_openai::responses_next::OPENAI_RESPONSES_PROTOCOL;
@@ -95,13 +96,15 @@ impl OpenAiProfile {
             ProviderScope::new(provider.clone())
                 .with_platform(platform.clone())
                 .with_protocol(responses_protocol)
-                .with_api_mode(responses_mode),
+                .with_api_mode(responses_mode)
+                .with_replay_domain(ReplayDomain::official(ReplayDomainId::new("official")?)),
         );
         let chat_completions_provider_scope = Arc::new(
             ProviderScope::new(provider)
                 .with_platform(platform)
                 .with_protocol(chat_completions_protocol)
-                .with_api_mode(chat_mode),
+                .with_api_mode(chat_mode)
+                .with_replay_domain(ReplayDomain::official(ReplayDomainId::new("official")?)),
         );
         Ok(Self {
             profile: Arc::new(profile),
@@ -113,7 +116,7 @@ impl OpenAiProfile {
     }
 
     /// Build an unverified profile for a caller-supplied OpenAI-compatible endpoint.
-    pub fn custom() -> Result<Self, OpenAiConfigError> {
+    pub fn custom(replay_domain: ReplayDomain) -> Result<Self, OpenAiConfigError> {
         let provider = ProviderId::new(PROVIDER_ID)?;
         let platform = PlatformId::new(CUSTOM_PLATFORM_ID)?;
         let responses_protocol = ProtocolId::new(OPENAI_RESPONSES_PROTOCOL)?;
@@ -148,13 +151,15 @@ impl OpenAiProfile {
             ProviderScope::new(provider.clone())
                 .with_platform(platform.clone())
                 .with_protocol(responses_protocol)
-                .with_api_mode(responses_mode),
+                .with_api_mode(responses_mode)
+                .with_replay_domain(replay_domain.clone()),
         );
         let chat_completions_provider_scope = Arc::new(
             ProviderScope::new(provider)
                 .with_platform(platform)
                 .with_protocol(chat_completions_protocol)
-                .with_api_mode(chat_mode),
+                .with_api_mode(chat_mode)
+                .with_replay_domain(replay_domain),
         );
         Ok(Self {
             profile: Arc::new(profile),
@@ -171,6 +176,22 @@ impl OpenAiProfile {
 
     pub(crate) fn profile_arc(&self) -> Arc<ProviderProfile> {
         self.profile.clone()
+    }
+
+    pub(crate) fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.responses_provider_scope = Arc::new(
+            self.responses_provider_scope
+                .as_ref()
+                .clone()
+                .with_replay_domain(replay_domain.clone()),
+        );
+        self.chat_completions_provider_scope = Arc::new(
+            self.chat_completions_provider_scope
+                .as_ref()
+                .clone()
+                .with_replay_domain(replay_domain),
+        );
+        self
     }
 
     pub(crate) fn support_scope(&self, mode: OpenAiApiMode) -> &SupportScope {
@@ -240,7 +261,10 @@ mod tests {
 
     #[test]
     fn custom_profile_has_generic_mode_claims_without_a_catalog() {
-        let profile = OpenAiProfile::custom().unwrap();
+        let profile = OpenAiProfile::custom(ReplayDomain::custom(
+            ReplayDomainId::new("test-relay").unwrap(),
+        ))
+        .unwrap();
 
         assert!(profile.provider_profile().verified_claims().is_none());
         assert_eq!(

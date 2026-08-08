@@ -7,10 +7,11 @@ use futures::StreamExt;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
-    ProviderProvenance, StreamTerminal, ToolCall, ToolOutcome, ToolSpec, Usage,
+    CallOptions, ContentPart, Error, ErrorKind, FinishReason, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
+    ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
+    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, ToolCall, ToolOutcome,
+    ToolSpec, Usage,
 };
 use siumai_runtime::snapshot::SnapshotFingerprint;
 use siumai_runtime::tool::{ApprovalPolicy, ToolBinding, ToolSet};
@@ -41,7 +42,10 @@ impl ScriptedModel {
                 ModelId::new(model).expect("valid model"),
                 ModelFamily::Language,
             )
-            .with_protocol(ProtocolId::new(protocol).expect("valid protocol")),
+            .with_protocol(ProtocolId::new(protocol).expect("valid protocol"))
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("model-switching-test").expect("valid replay domain"),
+            )),
             responses: Mutex::new(responses.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
             generate_calls: AtomicUsize::new(0),
@@ -105,22 +109,22 @@ fn request() -> LanguageRequest {
 }
 
 fn local_call() -> ToolCall {
-    ToolCall {
-        id: "call-1".to_string(),
-        name: "lookup".to_string(),
-        arguments: json!({"query": "rust"}),
-        owner: ExecutionOwner::Local,
-    }
+    ToolCall::local("call-1", "lookup", json!({"query": "rust"})).expect("valid tool call")
 }
 
 fn opaque(provider: &str, protocol: &str, model: &str, kind: &str) -> OpaqueProviderItem {
+    let scope = ModelDescriptor::new(
+        ProviderId::new(provider).expect("valid provider"),
+        ModelId::new(model).expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new(protocol).expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("model-switching-test").expect("valid replay domain"),
+    ));
     OpaqueProviderItem::new(
-        ProviderProvenance {
-            provider: ProviderId::new(provider).expect("valid provider"),
-            platform: None,
-            protocol: protocol.to_string(),
-            model: ModelId::new(model).expect("valid model"),
-        },
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone())
+            .expect("valid provenance"),
         kind,
         json!({"id": "native-state"}),
     )

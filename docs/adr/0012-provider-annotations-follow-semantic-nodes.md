@@ -91,10 +91,11 @@ every enum variant. `MessagePart` is the request/history envelope, with construc
 that keep ordinary text/tool/media usage concise.
 
 `LanguageResponse` remains response-directional and continues to expose bare `ContentPart` values.
-Provider response metadata is not converted into request annotations automatically. A runtime that
-appends portable response content to history wraps it with empty annotations. Provider state that is
-required for continuation—such as reasoning signatures, encrypted content, fallback blocks, or a
-paused provider operation—uses a provenance-bearing `ProviderOpaque` item instead.
+Provider response metadata is not converted into request annotations automatically. A runtime uses
+`LanguageResponse::project_assistant_history()` to obtain role-valid history parts with empty
+annotations and structured omissions for response-only content. Provider state that is required for
+continuation—such as reasoning signatures, encrypted content, fallback blocks, or a paused provider
+operation—uses a provenance-bearing `ProviderOpaque` item instead.
 
 ## Options considered
 
@@ -165,4 +166,5 @@ inert, and the neutral request does not learn provider-specific fields.
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-prompt.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-function-tool.ts`
 - `docs/architecture/public-api.md`
+- `docs/adr/0014-canonical-language-history-and-replay.md`
 - `docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`

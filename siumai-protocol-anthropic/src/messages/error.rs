@@ -1,6 +1,6 @@
 use siumai_core::{
-    Error, ErrorKind, InvalidId, LanguageRequestError, LanguageResponseError,
-    OpaqueProviderItemError, ProviderAnnotationError,
+    Error, ErrorKind, InvalidId, InvalidToolCall, LanguageRequestError, LanguageResponseError,
+    OpaqueProviderItemError, ProviderAnnotationError, ProviderProvenanceError,
 };
 use thiserror::Error;
 
@@ -41,8 +41,14 @@ pub enum MessagesCodecError {
     InvalidCanonicalResponse(#[source] LanguageResponseError),
     #[error("Anthropic Messages native content could not be retained")]
     InvalidOpaqueItem(#[source] OpaqueProviderItemError),
+    #[error("Anthropic Messages replay scope is incomplete")]
+    InvalidProvenance(#[source] ProviderProvenanceError),
     #[error("Anthropic Messages returned an invalid model identifier")]
     InvalidModelId(#[source] InvalidId),
+    #[error("Anthropic Messages returned an invalid canonical tool call")]
+    InvalidToolCall(#[source] InvalidToolCall),
+    #[error("Anthropic Messages streamed tool input exceeded {maximum} bytes")]
+    ToolInputTooLarge { maximum: usize },
     #[error("Anthropic Messages stream ended without message_stop")]
     UnexpectedEof,
 }
@@ -56,13 +62,16 @@ impl MessagesCodecError {
             | Self::InvalidAnnotation { .. }
             | Self::TooManyCacheBreakpoints { .. }
             | Self::InvalidCacheTtlOrder
-            | Self::ConflictingCacheAnnotation => ErrorKind::InvalidInput,
+            | Self::ConflictingCacheAnnotation
+            | Self::InvalidProvenance(_) => ErrorKind::InvalidInput,
             Self::Unsupported { .. } => ErrorKind::Unsupported,
             Self::ProtocolViolation { .. }
             | Self::JsonDecode(_)
             | Self::InvalidCanonicalResponse(_)
             | Self::InvalidOpaqueItem(_)
-            | Self::InvalidModelId(_) => ErrorKind::Protocol,
+            | Self::InvalidModelId(_)
+            | Self::InvalidToolCall(_) => ErrorKind::Protocol,
+            Self::ToolInputTooLarge { .. } => ErrorKind::ResponseLimit,
             Self::JsonEncode(_) => ErrorKind::Internal,
             Self::UnexpectedEof => ErrorKind::UnexpectedEof,
         }
@@ -93,7 +102,16 @@ impl MessagesCodecError {
             Self::InvalidOpaqueItem(_) => {
                 "Anthropic Messages native content could not be retained safely"
             }
+            Self::InvalidProvenance(_) => {
+                "Anthropic Messages replay requires an explicit provider replay domain"
+            }
             Self::InvalidModelId(_) => "provider returned an invalid model identifier",
+            Self::InvalidToolCall(_) => {
+                "provider returned a tool call that violated the canonical contract"
+            }
+            Self::ToolInputTooLarge { .. } => {
+                "Anthropic Messages streamed tool input exceeded the byte limit"
+            }
             Self::UnexpectedEof => "established stream ended without a protocol terminal event",
         }
     }

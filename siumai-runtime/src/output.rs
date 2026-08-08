@@ -13,8 +13,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai_core::{
     CallOptions, ContentPart, FinishReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageResponse, LanguageResponseStatus, Message, MessagePart, MessageRole,
-    PartialStructuredOutput, StructuredOutputSpec,
+    LanguageResponse, LanguageResponseStatus, Message, MessageRole, PartialStructuredOutput,
+    StructuredOutputSpec,
 };
 use thiserror::Error;
 
@@ -583,12 +583,9 @@ impl<T> OutputDescriptor<T> {
         }
 
         if let Some(response) = failure.response()
-            && !response.content().is_empty()
+            && let Some(message) = response.project_assistant_history().into_message()
         {
-            request.messages.push(Message::new(
-                MessageRole::Assistant,
-                response.content().iter().cloned().map(MessagePart::from),
-            ));
+            request.messages.push(message);
         }
         request
             .messages

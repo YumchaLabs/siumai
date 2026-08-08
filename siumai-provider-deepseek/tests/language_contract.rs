@@ -1,24 +1,29 @@
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, CallOptions, ContentPart, ErrorKind, ExecutionOwner, LanguageModel, LanguageRequest,
+    ApiModeId, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
     LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole, Model, ModelFamily,
-    ProviderOptions, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult,
-    ToolSpec, UsageValue, WarningKind,
+    ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec, ToolCall,
+    ToolOutcome, ToolResult, ToolSpec, UsageValue, WarningKind,
 };
 use siumai_provider_deepseek::{
-    DeepSeekChatOptions, DeepSeekCredential, DeepSeekLanguageApi, DeepSeekProvider,
-    DeepSeekReasoningEffort, DeepSeekResponsesOptions,
+    DeepSeekChatOptions, DeepSeekConfigError, DeepSeekCredential, DeepSeekLanguageApi,
+    DeepSeekProvider, DeepSeekReasoningEffort, DeepSeekResponsesOptions,
 };
-use siumai_transport::EndpointConfig;
+use siumai_transport::{EndpointConfig, OfficialOrigin};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+fn test_replay_domain() -> ReplayDomain {
+    ReplayDomain::custom(ReplayDomainId::new("test-endpoint").expect("replay domain"))
+}
 
 fn provider(server: &MockServer) -> DeepSeekProvider {
     DeepSeekProvider::builder(DeepSeekCredential::api_key("test-key"))
         .with_endpoint(
             EndpointConfig::local_explicit(format!("{}/v1", server.uri())).expect("local endpoint"),
         )
+        .with_replay_domain(test_replay_domain())
         .build()
         .expect("provider")
 }
@@ -47,6 +52,7 @@ fn provider_exposes_open_chat_and_responses_model_handles() {
         .with_endpoint(
             EndpointConfig::local_explicit("http://127.0.0.1:9/v1").expect("local endpoint"),
         )
+        .with_replay_domain(test_replay_domain())
         .build()
         .expect("provider");
 
@@ -69,6 +75,82 @@ fn provider_exposes_open_chat_and_responses_model_handles() {
             .api_mode(ModelFamily::Language)
             .map(ApiModeId::as_str),
         Some("responses")
+    );
+}
+
+#[test]
+fn custom_endpoints_require_a_matching_replay_domain() {
+    let missing = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .with_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/v1").expect("local endpoint"),
+        )
+        .build()
+        .expect_err("custom endpoint must require a replay domain");
+    assert!(matches!(
+        missing,
+        DeepSeekConfigError::CustomEndpointRequiresReplayDomain
+    ));
+
+    let mismatched = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .with_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/v1").expect("local endpoint"),
+        )
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("test-endpoint").expect("replay domain"),
+        ))
+        .build()
+        .expect_err("custom endpoint must reject an official replay audience");
+    assert!(matches!(
+        mismatched,
+        DeepSeekConfigError::ReplayAudienceMismatch
+    ));
+}
+
+#[test]
+fn caller_supplied_official_policy_does_not_gain_official_identity() {
+    let endpoint = EndpointConfig::official(
+        "https://relay.example/v1",
+        OfficialOrigin::new("https://relay.example").expect("origin"),
+    )
+    .expect("caller endpoint");
+
+    let missing = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .with_endpoint(endpoint.clone())
+        .build()
+        .expect_err("caller endpoint must require a custom replay domain");
+    assert!(matches!(
+        missing,
+        DeepSeekConfigError::CustomEndpointRequiresReplayDomain
+    ));
+
+    let mismatched = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .with_endpoint(endpoint.clone())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("deepseek-public-api").expect("replay domain"),
+        ))
+        .build()
+        .expect_err("caller endpoint must reject an official replay audience");
+    assert!(matches!(
+        mismatched,
+        DeepSeekConfigError::ReplayAudienceMismatch
+    ));
+
+    let provider = DeepSeekProvider::builder(DeepSeekCredential::unauthenticated())
+        .with_endpoint(endpoint)
+        .with_replay_domain(test_replay_domain())
+        .build()
+        .expect("caller endpoint with custom replay domain");
+    assert!(provider.profile().generic_claims().is_some());
+    assert!(provider.profile().verified_claims().is_none());
+    assert!(
+        !provider
+            .language("future-model")
+            .expect("model")
+            .descriptor()
+            .replay_domain()
+            .expect("replay domain")
+            .audience()
+            .is_official()
     );
 }
 
@@ -112,12 +194,9 @@ async fn chat_replays_all_reasoning_and_preserves_strict_json_cache_usage() {
                     ContentPart::Reasoning {
                         text: "reason one".to_string(),
                     },
-                    ContentPart::ToolCall(ToolCall {
-                        id: "call-1".to_string(),
-                        name: "lookup".to_string(),
-                        arguments: json!({"q": "one"}),
-                        owner: ExecutionOwner::Local,
-                    }),
+                    ContentPart::ToolCall(
+                        ToolCall::local("call-1", "lookup", json!({"q": "one"})).unwrap(),
+                    ),
                 ],
             ),
             Message::new(
@@ -137,12 +216,9 @@ async fn chat_replays_all_reasoning_and_preserves_strict_json_cache_usage() {
                     ContentPart::Reasoning {
                         text: "reason two".to_string(),
                     },
-                    ContentPart::ToolCall(ToolCall {
-                        id: "call-2".to_string(),
-                        name: "lookup".to_string(),
-                        arguments: json!({"q": "two"}),
-                        owner: ExecutionOwner::Local,
-                    }),
+                    ContentPart::ToolCall(
+                        ToolCall::local("call-2", "lookup", json!({"q": "two"})).unwrap(),
+                    ),
                 ],
             ),
             Message::new(

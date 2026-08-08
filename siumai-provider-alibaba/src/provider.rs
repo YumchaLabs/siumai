@@ -13,7 +13,8 @@ use siumai_core::{
     NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
     OfficialSource, PlatformId, ProfileError, ProtocolId, Provider, ProviderId,
     ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
-    SupportManifestError, VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
+    ReplayDomain, ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -42,6 +43,7 @@ use crate::video::{
 
 pub const LEGACY_SINGAPORE_ORIGIN: &str = "https://dashscope-intl.aliyuncs.com";
 const SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+const LEGACY_SINGAPORE_LANGUAGE_REPLAY_DOMAIN: &str = "legacy-singapore-language-api";
 
 /// Explicit caller-owned Model Studio workspace origin.
 ///
@@ -296,11 +298,39 @@ impl fmt::Debug for AlibabaProvider {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndpointSource {
+    ProviderOwned,
+    CallerControlled,
+}
+
+struct ConfiguredEndpoint {
+    endpoint: EndpointConfig,
+    source: EndpointSource,
+}
+
+impl ConfiguredEndpoint {
+    fn provider_owned(endpoint: EndpointConfig) -> Self {
+        Self {
+            endpoint,
+            source: EndpointSource::ProviderOwned,
+        }
+    }
+
+    fn caller_controlled(endpoint: EndpointConfig) -> Self {
+        Self {
+            endpoint,
+            source: EndpointSource::CallerControlled,
+        }
+    }
+}
+
 pub struct AlibabaProviderBuilder {
     credential: AlibabaCredential,
-    language_endpoint: Option<Result<EndpointConfig, EndpointError>>,
-    embedding_endpoint: Option<Result<EndpointConfig, EndpointError>>,
-    video_endpoint: Option<Result<EndpointConfig, EndpointError>>,
+    language_endpoint: Option<Result<ConfiguredEndpoint, EndpointError>>,
+    replay_domain: Option<ReplayDomain>,
+    embedding_endpoint: Option<Result<ConfiguredEndpoint, EndpointError>>,
+    video_endpoint: Option<Result<ConfiguredEndpoint, EndpointError>>,
     video_download_policy: AlibabaVideoDownloadPolicy,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
@@ -317,6 +347,7 @@ impl AlibabaProviderBuilder {
         Self {
             credential,
             language_endpoint: None,
+            replay_domain: None,
             embedding_endpoint: None,
             video_endpoint: None,
             video_download_policy: AlibabaVideoDownloadPolicy::default(),
@@ -331,45 +362,77 @@ impl AlibabaProviderBuilder {
         }
     }
 
+    /// Configure the language endpoint.
+    ///
+    /// Caller-selected endpoints require a matching [`ReplayDomain::custom`] before `build`.
+    /// Endpoint policy and URL spelling never promote this setter to provider-owned support.
     pub fn with_language_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.language_endpoint = Some(Ok(endpoint));
+        self.language_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(endpoint)));
         self
     }
 
+    /// Configure a caller-selected public language endpoint.
+    ///
+    /// Call [`Self::with_replay_domain`] with an explicit custom audience before `build`.
     pub fn with_language_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.language_endpoint = Some(EndpointConfig::public_custom(base_url));
+        self.language_endpoint = Some(
+            EndpointConfig::public_custom(base_url).map(ConfiguredEndpoint::caller_controlled),
+        );
         self
     }
 
+    /// Configure a caller-selected Model Studio workspace language endpoint.
+    ///
+    /// Call [`Self::with_replay_domain`] with a non-secret custom workspace identity before
+    /// `build`. The identity is not derived from the workspace URL.
     pub fn with_language_workspace(mut self, workspace: &AlibabaWorkspaceEndpoint) -> Self {
-        self.language_endpoint = Some(Ok(workspace.language_endpoint()));
+        self.language_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(
+            workspace.language_endpoint(),
+        )));
+        self
+    }
+
+    /// Bind provider-native language history to a caller-declared non-secret replay identity.
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
     /// Opt into the historical shared Singapore language endpoint.
     pub fn with_legacy_singapore_language(mut self) -> Self {
-        self.language_endpoint = Some(legacy_singapore_language_endpoint());
+        self.language_endpoint =
+            Some(legacy_singapore_language_endpoint().map(ConfiguredEndpoint::provider_owned));
         self
     }
 
+    /// Configure a caller-controlled embedding endpoint.
+    ///
+    /// Use [`Self::with_legacy_singapore_embedding`] for provider-owned verified support.
     pub fn with_embedding_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.embedding_endpoint = Some(Ok(endpoint));
+        self.embedding_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(endpoint)));
         self
     }
 
+    /// Configure a caller-controlled public embedding endpoint.
     pub fn with_embedding_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.embedding_endpoint = Some(EndpointConfig::public_custom(base_url));
+        self.embedding_endpoint = Some(
+            EndpointConfig::public_custom(base_url).map(ConfiguredEndpoint::caller_controlled),
+        );
         self
     }
 
+    /// Configure a caller-controlled workspace embedding endpoint.
     pub fn with_embedding_workspace(mut self, workspace: &AlibabaWorkspaceEndpoint) -> Self {
-        self.embedding_endpoint = Some(Ok(workspace.embedding_endpoint()));
+        self.embedding_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(
+            workspace.embedding_endpoint(),
+        )));
         self
     }
 
     /// Opt into the historical shared Singapore native embedding endpoint.
     pub fn with_legacy_singapore_embedding(mut self) -> Self {
-        self.embedding_endpoint = Some(legacy_singapore_embedding_endpoint());
+        self.embedding_endpoint =
+            Some(legacy_singapore_embedding_endpoint().map(ConfiguredEndpoint::provider_owned));
         self
     }
 
@@ -420,6 +483,25 @@ impl AlibabaProviderBuilder {
         if language_endpoint.is_none() && embedding_endpoint.is_none() && video_endpoint.is_none() {
             return Err(AlibabaConfigError::MissingEndpoint);
         }
+        let language_replay_domain = language_endpoint
+            .as_ref()
+            .map(|configured| {
+                let provider_owned = configured.source == EndpointSource::ProviderOwned;
+                let replay_domain = match (self.replay_domain.clone(), provider_owned) {
+                    (Some(replay_domain), _) => replay_domain,
+                    (None, true) => ReplayDomain::official(ReplayDomainId::new(
+                        LEGACY_SINGAPORE_LANGUAGE_REPLAY_DOMAIN,
+                    )?),
+                    (None, false) => {
+                        return Err(AlibabaConfigError::CustomLanguageEndpointRequiresReplayDomain);
+                    }
+                };
+                if replay_domain.audience().is_official() != provider_owned {
+                    return Err(AlibabaConfigError::ReplayAudienceMismatch);
+                }
+                Ok(replay_domain)
+            })
+            .transpose()?;
         let native_transport_settings = NativeTransportSettings {
             limits: self.limits.clone(),
             retry_policy: self.retry_policy,
@@ -430,10 +512,11 @@ impl AlibabaProviderBuilder {
         self.credential.0.validate_static()?;
         let auth = self.credential.0.into_auth();
         let language = language_endpoint
-            .map(|endpoint| {
-                let verified_endpoint =
-                    is_verified_legacy_endpoint(&endpoint, LEGACY_SINGAPORE_LANGUAGE_BASE_URL);
-                let profile = profile(endpoint, verified_endpoint)?;
+            .zip(language_replay_domain)
+            .map(|(configured, replay_domain)| {
+                let verified_endpoint = configured.source == EndpointSource::ProviderOwned;
+                let endpoint = configured.endpoint;
+                let profile = profile(endpoint, verified_endpoint, replay_domain)?;
                 let mut builder =
                     OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
                         .with_limits(self.limits.clone())
@@ -465,9 +548,9 @@ impl AlibabaProviderBuilder {
             })
             .transpose()?;
         let embedding = embedding_endpoint
-            .map(|endpoint| {
-                let verified_endpoint =
-                    is_verified_legacy_endpoint(&endpoint, LEGACY_SINGAPORE_EMBEDDING_BASE_URL);
+            .map(|configured| {
+                let verified_endpoint = configured.source == EndpointSource::ProviderOwned;
+                let endpoint = configured.endpoint;
                 let scope = Arc::new(native_scope(
                     &endpoint,
                     EMBEDDING_PROTOCOL_ID,
@@ -490,9 +573,9 @@ impl AlibabaProviderBuilder {
             })
             .transpose()?;
         let video = video_endpoint
-            .map(|endpoint| {
-                let verified_endpoint =
-                    is_verified_legacy_endpoint(&endpoint, LEGACY_SINGAPORE_VIDEO_BASE_URL);
+            .map(|configured| {
+                let verified_endpoint = configured.source == EndpointSource::ProviderOwned;
+                let endpoint = configured.endpoint;
                 let scope = Arc::new(native_scope(
                     &endpoint,
                     VIDEO_PROTOCOL_ID,
@@ -587,32 +670,41 @@ impl AlibabaVideoProviderExt for AlibabaProvider {
 
 /// Experimental Alibaba video configuration for [`AlibabaProviderBuilder`].
 pub trait AlibabaVideoProviderBuilderExt: Sized {
+    /// Configure a caller-controlled video endpoint.
     fn with_video_endpoint(self, endpoint: EndpointConfig) -> Self;
+    /// Configure a caller-controlled public video endpoint.
     fn with_video_base_url(self, base_url: impl AsRef<str>) -> Self;
+    /// Configure a caller-controlled workspace video endpoint.
     fn with_video_workspace(self, workspace: &AlibabaWorkspaceEndpoint) -> Self;
+    /// Opt into the provider-owned historical Singapore video endpoint.
     fn with_legacy_singapore_video(self) -> Self;
     fn with_video_download_policy(self, policy: AlibabaVideoDownloadPolicy) -> Self;
 }
 
 impl AlibabaVideoProviderBuilderExt for AlibabaProviderBuilder {
     fn with_video_endpoint(mut self, endpoint: EndpointConfig) -> Self {
-        self.video_endpoint = Some(Ok(endpoint));
+        self.video_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(endpoint)));
         self
     }
 
     fn with_video_base_url(mut self, base_url: impl AsRef<str>) -> Self {
-        self.video_endpoint = Some(EndpointConfig::public_custom(base_url));
+        self.video_endpoint = Some(
+            EndpointConfig::public_custom(base_url).map(ConfiguredEndpoint::caller_controlled),
+        );
         self
     }
 
     fn with_video_workspace(mut self, workspace: &AlibabaWorkspaceEndpoint) -> Self {
-        self.video_endpoint = Some(Ok(workspace.video_endpoint()));
+        self.video_endpoint = Some(Ok(ConfiguredEndpoint::caller_controlled(
+            workspace.video_endpoint(),
+        )));
         self
     }
 
     /// Opt into the historical shared Singapore native video endpoint.
     fn with_legacy_singapore_video(mut self) -> Self {
-        self.video_endpoint = Some(legacy_singapore_video_endpoint());
+        self.video_endpoint =
+            Some(legacy_singapore_video_endpoint().map(ConfiguredEndpoint::provider_owned));
         self
     }
 
@@ -690,12 +782,6 @@ fn native_scope(
         .with_platform(PlatformId::new(platform)?)
         .with_protocol(ProtocolId::new(protocol)?)
         .with_api_mode(ApiModeId::new(api_mode)?))
-}
-
-fn is_verified_legacy_endpoint(endpoint: &EndpointConfig, expected_base_url: &str) -> bool {
-    matches!(endpoint.policy(), EndpointPolicy::Official(_))
-        && endpoint.expose_base_url().as_str().trim_end_matches('/')
-            == expected_base_url.trim_end_matches('/')
 }
 
 fn video_support_claim() -> Result<VerifiedNativeSupportClaim, AlibabaConfigError> {
@@ -789,6 +875,10 @@ pub enum AlibabaConfigError {
     Credential(#[from] CredentialSourceError),
     #[error("invalid Alibaba provider configuration: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("a custom Alibaba language endpoint requires an explicit non-secret replay domain")]
+    CustomLanguageEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured Alibaba language endpoint")]
+    ReplayAudienceMismatch,
     #[error("invalid Alibaba transport configuration: {0}")]
     Transport(#[from] TransportConfigError),
     #[error("Alibaba default options could not be serialized: {0}")]

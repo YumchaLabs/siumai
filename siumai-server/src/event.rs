@@ -532,6 +532,7 @@ fn project_step_record(
             "target": record.target(),
             "response": response,
             "tool_results": record.tool_results(),
+            "assistant_history_omissions": record.assistant_history_omissions(),
         }),
         losses,
     ))
@@ -633,11 +634,22 @@ fn public_error(error: &siumai_core::Error) -> Value {
 #[cfg(test)]
 mod tests {
     use siumai_core::{
-        FinishReason, LanguageResponseStatus, ModelId, OpaqueProviderItem, ProviderId,
-        ProviderProvenance,
+        AssistantHistoryOmissionKind, FinishReason, LanguageResponseStatus, ModelId,
+        OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
+        ReplayDomain, ReplayDomainId,
     };
+    use siumai_runtime::ModelTarget;
 
     use super::*;
+
+    fn test_provenance() -> ProviderProvenance {
+        let scope = ProviderScope::new(ProviderId::new("test").unwrap())
+            .with_protocol(ProtocolId::new("test").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("gateway-test").unwrap(),
+            ));
+        ProviderProvenance::from_scope(&scope, ModelId::new("test-model").unwrap()).unwrap()
+    }
 
     #[test]
     fn text_delta_projects_to_stable_typed_json() {
@@ -659,12 +671,7 @@ mod tests {
     #[test]
     fn provider_opaque_response_data_is_reported_and_omitted() {
         let item = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new("test").unwrap(),
-                platform: None,
-                protocol: "test".to_string(),
-                model: ModelId::new("test-model").unwrap(),
-            },
+            test_provenance(),
             "encrypted_state",
             json!({ "secret": "never-export" }),
         )
@@ -688,12 +695,7 @@ mod tests {
     #[test]
     fn strict_loss_policy_rejects_provider_opaque_response_data() {
         let item = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new("test").unwrap(),
-                platform: None,
-                protocol: "test".to_string(),
-                model: ModelId::new("test-model").unwrap(),
-            },
+            test_provenance(),
             "encrypted_state",
             json!({ "secret": true }),
         )
@@ -711,5 +713,38 @@ mod tests {
             GatewayEvent::from_language_response(response, &policy),
             Err(GatewayProjectionError::LossRejected { .. })
         ));
+    }
+
+    #[test]
+    fn step_projection_preserves_assistant_history_omissions() {
+        let response = LanguageResponse::new(
+            LanguageResponseStatus::Completed,
+            vec![ContentPart::Refusal {
+                reason: Some("policy".to_string()),
+            }],
+            FinishReason::Refusal,
+            Usage::default(),
+        )
+        .unwrap();
+        let record = StepRecord::new(
+            0,
+            ModelTarget::new(
+                ProviderId::new("test").unwrap(),
+                ModelId::new("test-model").unwrap(),
+            ),
+            response,
+            Vec::new(),
+        );
+
+        let (projection, losses) = project_step_record(&record, GatewayLossPolicy::Report).unwrap();
+        assert!(losses.is_empty());
+        assert_eq!(
+            projection["assistant_history_omissions"][0]["kind"],
+            serde_json::to_value(AssistantHistoryOmissionKind::Refusal).unwrap()
+        );
+        assert_eq!(
+            projection["assistant_history_omissions"][0]["content_index"],
+            0
+        );
     }
 }

@@ -1,18 +1,18 @@
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
-    MediaData, MediaPart, Message, MessagePart, MessageRole, ModelFamily, Provider,
-    ProviderOptions, ToolSpec,
+    MediaData, MediaPart, Message, MessagePart, MessageRole, Model, ModelFamily, Provider,
+    ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec,
 };
-use siumai_transport::EndpointConfig;
+use siumai_transport::{EndpointConfig, OfficialOrigin};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::{
-    MINIMAX_M2_7, MINIMAX_M3, MinimaxChatCompletionsOptions, MinimaxContentCache,
-    MinimaxCredential, MinimaxLanguageApi, MinimaxMessageCache, MinimaxMessagesOptions,
-    MinimaxProvider, MinimaxReasoningEffort, MinimaxResponsesOptions, MinimaxServiceTier,
-    MinimaxThinking, MinimaxToolCache,
+    MINIMAX_M2_7, MINIMAX_M3, MINIMAX_REPLAY_AUDIENCE, MinimaxChatCompletionsOptions,
+    MinimaxContentCache, MinimaxCredential, MinimaxLanguageApi, MinimaxMessageCache,
+    MinimaxMessagesOptions, MinimaxProvider, MinimaxReasoningEffort, MinimaxResponsesOptions,
+    MinimaxServiceTier, MinimaxThinking, MinimaxToolCache,
 };
 
 fn request(parts: impl IntoIterator<Item = ContentPart>) -> LanguageRequest {
@@ -41,6 +41,9 @@ fn provider(server: &MockServer, credential: MinimaxCredential) -> MinimaxProvid
             EndpointConfig::local_explicit(format!("{}/", server.uri()))
                 .expect("resource endpoint"),
         )
+        .with_language_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("minimax-test-relay").expect("replay domain"),
+        ))
         .build()
         .expect("provider")
 }
@@ -176,6 +179,36 @@ fn provider_identity_modes_and_credentials_are_rust_first() {
             .is_some_and(|surface| surface.as_str() == "video-tasks")
             && claim.stability() == ApiStability::Experimental
     }));
+    let messages = provider.language(MINIMAX_M3).expect("Messages model");
+    let chat = provider
+        .chat_completions(MINIMAX_M3)
+        .expect("Chat Completions model");
+    let messages_domain = messages
+        .descriptor()
+        .scope()
+        .replay_domain()
+        .expect("official Messages replay domain");
+    let chat_domain = chat
+        .descriptor()
+        .scope()
+        .replay_domain()
+        .expect("official OpenAI replay domain");
+    assert!(messages_domain.audience().is_official());
+    assert!(chat_domain.audience().is_official());
+    assert_eq!(
+        messages_domain.audience().id().as_str(),
+        MINIMAX_REPLAY_AUDIENCE
+    );
+    assert_eq!(
+        chat_domain.audience().id().as_str(),
+        MINIMAX_REPLAY_AUDIENCE
+    );
+    assert!(
+        !messages
+            .descriptor()
+            .scope()
+            .shares_replay_domain(chat.descriptor().scope())
+    );
 }
 
 #[tokio::test]
@@ -199,6 +232,121 @@ fn official_endpoints_require_authentication() {
         MinimaxProvider::builder(MinimaxCredential::unauthenticated()).build(),
         Err(crate::MinimaxConfigError::OfficialEndpointRequiresAuthentication)
     ));
+}
+
+#[test]
+fn mixed_official_and_custom_language_endpoints_have_independent_replay_domains() {
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_openai_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/v1/").expect("OpenAI endpoint"),
+        )
+        .with_openai_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("minimax-openai-relay").expect("replay domain"),
+        ))
+        .build()
+        .expect("mixed provider");
+
+    let messages = provider.messages(MINIMAX_M3).expect("Messages model");
+    let chat = provider
+        .chat_completions(MINIMAX_M3)
+        .expect("Chat Completions model");
+    assert!(
+        messages
+            .descriptor()
+            .scope()
+            .replay_domain()
+            .expect("Messages replay domain")
+            .audience()
+            .is_official()
+    );
+    assert!(
+        !chat
+            .descriptor()
+            .scope()
+            .replay_domain()
+            .expect("OpenAI replay domain")
+            .audience()
+            .is_official()
+    );
+    assert_eq!(
+        provider
+            .support_manifest()
+            .profiles()
+            .iter()
+            .filter(|profile| profile.generic_claims().is_some())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn caller_declared_official_endpoints_remain_custom_provider_identity() {
+    let openai_endpoint = || {
+        EndpointConfig::official(
+            "https://relay.example/v1/",
+            OfficialOrigin::new("https://relay.example").expect("relay origin"),
+        )
+        .expect("caller endpoint")
+    };
+
+    let missing = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_openai_endpoint(openai_endpoint())
+        .build();
+    assert!(matches!(
+        missing,
+        Err(crate::MinimaxConfigError::CustomOpenAiEndpointRequiresReplayDomain)
+    ));
+
+    let mismatched = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_openai_endpoint(openai_endpoint())
+        .with_openai_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new(MINIMAX_REPLAY_AUDIENCE).expect("replay domain"),
+        ))
+        .build();
+    assert!(matches!(
+        mismatched,
+        Err(crate::MinimaxConfigError::OpenAiReplayAudienceMismatch)
+    ));
+
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_openai_endpoint(openai_endpoint())
+        .with_openai_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("caller-relay").expect("replay domain"),
+        ))
+        .build()
+        .expect("caller-controlled endpoint");
+    assert!(
+        !provider
+            .chat_completions(MINIMAX_M3)
+            .expect("Chat Completions model")
+            .descriptor()
+            .scope()
+            .replay_domain()
+            .expect("OpenAI replay domain")
+            .audience()
+            .is_official()
+    );
+    assert_eq!(
+        provider
+            .support_manifest()
+            .profiles()
+            .iter()
+            .filter(|profile| profile.generic_claims().is_some())
+            .count(),
+        1
+    );
+
+    let resource_only = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_resource_endpoint(
+            EndpointConfig::official(
+                "https://resources.example/",
+                OfficialOrigin::new("https://resources.example").expect("resource origin"),
+            )
+            .expect("caller resource endpoint"),
+        )
+        .build()
+        .expect("provider with caller resource endpoint");
+    assert!(resource_only.support_manifest().native_claims().is_empty());
 }
 
 #[tokio::test]
@@ -395,8 +543,8 @@ async fn chat_completions_preserves_and_replays_reasoning_details() {
         ContentPart::ProviderOpaque(item)
             if item.kind()
                 == siumai_protocol_openai::chat_completions::REASONING_DETAILS_OPAQUE_KIND
-                && item.provenance().provider.as_str() == "minimax"
-                && item.provenance().platform.as_deref() == Some("local")
+                && item.provenance().provider().as_str() == "minimax"
+                && item.provenance().platform().map(|platform| platform.as_str()) == Some("local")
     )));
 
     let history = LanguageRequest::new(vec![

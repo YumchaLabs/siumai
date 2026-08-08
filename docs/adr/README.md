@@ -19,6 +19,9 @@ superseded by a later accepted decision or current architecture contract.
 - `0013-provider-identity-and-family-registration.md` — The base provider exposes only canonical
   identity. Exact execution scope and policy belong to non-empty per-family registration bindings;
   support profiles and manifests remain separate evidence surfaces.
+- `0014-canonical-language-history-and-replay.md` — Portable tool calls use one checked local JSON
+  input, response-to-history projection is explicit, and provider-native continuation requires an
+  exact non-secret replay domain.
 
 ## Conventions
 

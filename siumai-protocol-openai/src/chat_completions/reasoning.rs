@@ -59,7 +59,7 @@ impl ReasoningDetailsSnapshot {
         model: &ModelId,
     ) -> Result<OpaqueProviderItem, Error> {
         OpaqueProviderItem::with_limit(
-            provenance(scope, model),
+            provenance(scope, model)?,
             REASONING_DETAILS_OPAQUE_KIND,
             self.value,
             MAX_REASONING_DETAILS_BYTES,
@@ -99,16 +99,14 @@ pub(crate) fn replay_reasoning_details(
     Ok(item.data().clone())
 }
 
-fn provenance(scope: &ProviderScope, model: &ModelId) -> ProviderProvenance {
-    ProviderProvenance {
-        provider: scope.provider_id().clone(),
-        platform: scope.platform().map(ToString::to_string),
-        protocol: scope
-            .protocol()
-            .map(ToString::to_string)
-            .unwrap_or_else(|| super::PROTOCOL_ID.to_string()),
-        model: model.clone(),
-    }
+fn provenance(scope: &ProviderScope, model: &ModelId) -> Result<ProviderProvenance, Error> {
+    ProviderProvenance::from_scope(scope, model.clone()).map_err(|source| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "Chat Completions replay requires an explicit provider replay domain",
+        )
+        .with_source(source)
+    })
 }
 
 fn provenance_matches(
@@ -116,11 +114,5 @@ fn provenance_matches(
     scope: &ProviderScope,
     model: &ModelId,
 ) -> bool {
-    provenance.provider == *scope.provider_id()
-        && provenance.platform.as_deref() == scope.platform().map(|value| value.as_str())
-        && provenance.protocol
-            == scope
-                .protocol()
-                .map_or(super::PROTOCOL_ID, |value| value.as_str())
-        && provenance.model == *model
+    provenance.matches_replay_target(scope) && provenance.model() == model
 }

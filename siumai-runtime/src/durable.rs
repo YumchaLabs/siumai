@@ -267,11 +267,11 @@ impl<'a> DurableCheckpointPort<'a> {
         approval: PendingApprovalCheckpoint,
     ) -> Result<PendingApprovalSnapshot, DurableRunError> {
         Ok(PendingApprovalSnapshot {
-            approval_id: format!("approval:{}", approval.call().id),
+            approval_id: format!("approval:{}", approval.call().id()),
             call: approval.call().clone(),
             binding: approval.binding().clone(),
             claim_fingerprint: pending_approval_fingerprint_parts(
-                &approval.call().id,
+                approval.call().id(),
                 approval.binding().fingerprint.as_str(),
                 approval.canonical_arguments_digest(),
                 &self.owner.fingerprints,
@@ -581,14 +581,14 @@ impl DurableToolLoop {
             let prepared = pending
                 .prepared()
                 .iter()
-                .find(|prepared| prepared.call().id == *call_id)
+                .find(|prepared| prepared.call().id() == call_id)
                 .ok_or_else(|| DurableRunError::UnexpectedApproval {
                     call_id: call_id.clone(),
                 })?;
             if !pending
                 .pending_approvals()
                 .iter()
-                .any(|pending| pending.call.id == *call_id)
+                .any(|pending| pending.call.id() == call_id)
             {
                 return Err(DurableRunError::UnexpectedApproval {
                     call_id: call_id.clone(),
@@ -690,7 +690,7 @@ impl DurableToolLoop {
         }
 
         for tool in &mut prepared {
-            if !dispatched.contains(&tool.call().id) {
+            if !dispatched.contains(tool.call().id()) {
                 continue;
             }
             let request = self.restore_request(tool)?;
@@ -762,7 +762,7 @@ impl DurableToolLoop {
             || request.idempotency_key() != prepared.stable_idempotency_key()
         {
             return Err(DurableRunError::FrozenRequestMismatch {
-                call_id: prepared.call().id.clone(),
+                call_id: prepared.call().id().to_owned(),
             });
         }
         request.validate()?;

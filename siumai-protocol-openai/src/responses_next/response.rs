@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 use siumai_core::{
-    Citation, ContentPart, Error, ErrorContext, ErrorKind, ExecutionOwner, FinishReason,
-    LanguageIncompleteReason, LanguageResponse, LanguageResponseStatus, ModelId,
-    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall,
-    ToolOutcome, ToolResult, Usage, Warning, WarningKind,
+    Citation, ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorContext, ErrorKind,
+    FinishReason, LanguageIncompleteReason, LanguageResponse, LanguageResponseStatus, ModelId,
+    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall, Usage,
+    Warning, WarningKind,
 };
 
 use super::wire::{
@@ -201,13 +201,24 @@ fn project_item(
                     }),
             );
         }
+        OutputItem::FunctionCall(call) if call.arguments.len() > DEFAULT_TOOL_INPUT_BYTE_LIMIT => {
+            return Err(Error::new(
+                ErrorKind::ResponseLimit,
+                "OpenAI function call arguments exceeded the byte limit",
+            ));
+        }
         OutputItem::FunctionCall(call) => match serde_json::from_str::<Value>(&call.arguments) {
-            Ok(arguments) => content.push(ContentPart::ToolCall(ToolCall {
-                id: call.call_id.clone(),
-                name: call.name.clone(),
-                arguments,
-                owner: ExecutionOwner::Local,
-            })),
+            Ok(arguments) => {
+                let tool_call = ToolCall::local(call.call_id.clone(), call.name.clone(), arguments)
+                    .map_err(|source| {
+                        Error::new(
+                            ErrorKind::Protocol,
+                            "OpenAI function call violated the canonical tool contract",
+                        )
+                        .with_source(source)
+                    })?;
+                content.push(ContentPart::ToolCall(tool_call));
+            }
             Err(source) if matches!(response_status, ResponseStatus::Completed) => {
                 return Err(Error::new(
                     ErrorKind::Protocol,
@@ -217,30 +228,8 @@ fn project_item(
             }
             Err(_) => {}
         },
-        OutputItem::CustomToolCall(call) => {
-            content.push(ContentPart::ToolCall(ToolCall {
-                id: call.call_id.clone(),
-                name: call.name.clone(),
-                arguments: Value::String(call.input.clone()),
-                owner: ExecutionOwner::Local,
-            }));
-        }
-        OutputItem::Program(program) => {
-            content.push(ContentPart::ToolCall(ToolCall {
-                id: program.call_id.clone(),
-                name: "openai.programmatic_tool_calling".to_string(),
-                arguments: json!({
-                    "code": program.code,
-                    "fingerprint": program.fingerprint,
-                }),
-                owner: ExecutionOwner::Provider {
-                    provider: scope.provider_id().clone(),
-                },
-            }));
-        }
-        OutputItem::ProgramOutput(output) => {
-            content.push(ContentPart::ToolResult(project_program_output(output)));
-        }
+        OutputItem::CustomToolCall(_) => {}
+        OutputItem::Program(_) | OutputItem::ProgramOutput(_) => {}
         OutputItem::ProviderTool(_) | OutputItem::Unknown(_) => {}
     }
 
@@ -313,32 +302,6 @@ pub(crate) fn project_citation(
     }
 }
 
-pub(crate) fn project_program_output(output: &super::wire::ProgramOutputItemWire) -> ToolResult {
-    let value = serde_json::from_str(&output.result)
-        .unwrap_or_else(|_| Value::String(output.result.clone()));
-    let outcome = match &output.status {
-        super::wire::ItemStatus::Completed => ToolOutcome::Success {
-            value: json!({
-                "result": value,
-                "status": output.status.as_str(),
-            }),
-        },
-        super::wire::ItemStatus::InProgress
-        | super::wire::ItemStatus::Incomplete
-        | super::wire::ItemStatus::Failed
-        | super::wire::ItemStatus::Other(_) => ToolOutcome::ExecutionFailed {
-            message: "OpenAI programmatic tool execution did not complete".to_string(),
-            retryable: false,
-            details: None,
-        },
-    };
-    ToolResult {
-        call_id: output.call_id.clone(),
-        name: "openai.programmatic_tool_calling".to_string(),
-        outcome,
-    }
-}
-
 pub(crate) fn opaque_item(
     item: &OutputItem,
     scope: &ProviderScope,
@@ -351,16 +314,14 @@ pub(crate) fn opaque_item(
         )
         .with_source(source)
     })?;
-    let mut builder = OpaqueProviderItem::builder(
-        ProviderProvenance {
-            provider: scope.provider_id().clone(),
-            platform: scope.platform().map(ToString::to_string),
-            protocol: OPENAI_RESPONSES_PROTOCOL.to_string(),
-            model: model.clone(),
-        },
-        OPENAI_RESPONSES_OPAQUE_KIND,
-        data,
-    );
+    let provenance = ProviderProvenance::from_scope(scope, model.clone()).map_err(|source| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI Responses replay requires an explicit provider replay domain",
+        )
+        .with_source(source)
+    })?;
+    let mut builder = OpaqueProviderItem::builder(provenance, OPENAI_RESPONSES_OPAQUE_KIND, data);
     if let Some(item_id) = item.id() {
         builder = builder.item_id(item_id);
     }

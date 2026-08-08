@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use siumai_core::{
     ApiModeId, CallOptions, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
-    Model, ModelId, PlatformId, ProtocolId, ProviderId, ProviderOptions, RouteId,
+    Model, ModelId, PlatformId, ProtocolId, ProviderId, ProviderOptions, ProviderScope,
+    ReplayDomain, RouteId,
 };
 use thiserror::Error;
 
@@ -13,10 +14,8 @@ use crate::RunBudget;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModelTarget {
     route: Option<RouteId>,
-    provider: ProviderId,
-    platform: Option<PlatformId>,
-    protocol: Option<ProtocolId>,
-    api_mode: Option<ApiModeId>,
+    #[serde(flatten)]
+    scope: ProviderScope,
     model: ModelId,
 }
 
@@ -25,10 +24,7 @@ impl ModelTarget {
     pub fn new(provider: ProviderId, model: ModelId) -> Self {
         Self {
             route: None,
-            provider,
-            platform: None,
-            protocol: None,
-            api_mode: None,
+            scope: ProviderScope::new(provider),
             model,
         }
     }
@@ -41,10 +37,7 @@ impl ModelTarget {
         let scope = descriptor.scope();
         Self {
             route: model.route_id().cloned(),
-            provider: scope.provider_id().clone(),
-            platform: scope.platform().cloned(),
-            protocol: scope.protocol().cloned(),
-            api_mode: scope.api_mode().cloned(),
+            scope: scope.clone(),
             model: descriptor.model().clone(),
         }
     }
@@ -61,17 +54,22 @@ impl ModelTarget {
     }
 
     pub fn with_platform(mut self, platform: PlatformId) -> Self {
-        self.platform = Some(platform);
+        self.scope = self.scope.with_platform(platform);
         self
     }
 
     pub fn with_protocol(mut self, protocol: ProtocolId) -> Self {
-        self.protocol = Some(protocol);
+        self.scope = self.scope.with_protocol(protocol);
         self
     }
 
     pub fn with_api_mode(mut self, api_mode: ApiModeId) -> Self {
-        self.api_mode = Some(api_mode);
+        self.scope = self.scope.with_api_mode(api_mode);
+        self
+    }
+
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.scope = self.scope.with_replay_domain(replay_domain);
         self
     }
 
@@ -80,19 +78,27 @@ impl ModelTarget {
     }
 
     pub fn provider(&self) -> &ProviderId {
-        &self.provider
+        self.scope.provider_id()
     }
 
     pub fn platform(&self) -> Option<&PlatformId> {
-        self.platform.as_ref()
+        self.scope.platform()
     }
 
     pub fn protocol(&self) -> Option<&ProtocolId> {
-        self.protocol.as_ref()
+        self.scope.protocol()
     }
 
     pub fn api_mode(&self) -> Option<&ApiModeId> {
-        self.api_mode.as_ref()
+        self.scope.api_mode()
+    }
+
+    pub fn replay_domain(&self) -> Option<&ReplayDomain> {
+        self.scope.replay_domain()
+    }
+
+    pub fn scope(&self) -> &ProviderScope {
+        &self.scope
     }
 
     pub fn model(&self) -> &ModelId {

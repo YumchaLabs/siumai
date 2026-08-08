@@ -6,7 +6,7 @@ use http::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{CallOptions, Error, ErrorKind, LanguageRequest, ModelId};
-use siumai_protocol_anthropic::messages::encode_request_with_resolver;
+use siumai_protocol_anthropic::messages::encode_request_for_scope_with_resolver;
 use siumai_transport::{ReplaySafety, RequestBody};
 
 use crate::AnthropicMessagesOptions;
@@ -343,7 +343,8 @@ impl AnthropicMessageBatches {
     fn encode_item(&self, item: AnthropicBatchItem) -> Result<BatchItemWire, Error> {
         item.validate_for_batch()?;
         let protocol_options = item.options.to_protocol(false);
-        let mut params = encode_request_with_resolver(
+        let mut params = encode_request_for_scope_with_resolver(
+            &self.runtime.scope,
             &item.model,
             &item.request,
             &protocol_options,

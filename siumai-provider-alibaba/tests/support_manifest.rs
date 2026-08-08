@@ -1,8 +1,21 @@
-use siumai_core::{ApiStability, ModelFamily, NativeSurfaceKind, VerifiedFidelity};
-use siumai_provider_alibaba::{
-    AlibabaCredential, AlibabaProvider, AlibabaWorkspaceEndpoint, TEXT_EMBEDDING_V3,
-    TEXT_EMBEDDING_V4, experimental::AlibabaVideoProviderBuilderExt,
+use siumai_core::{
+    ApiStability, ModelFamily, NativeSurfaceKind, ReplayDomain, ReplayDomainId, VerifiedFidelity,
 };
+use siumai_provider_alibaba::{
+    AlibabaConfigError, AlibabaCredential, AlibabaProvider, AlibabaWorkspaceEndpoint,
+    LEGACY_SINGAPORE_EMBEDDING_BASE_URL, LEGACY_SINGAPORE_LANGUAGE_BASE_URL,
+    LEGACY_SINGAPORE_ORIGIN, TEXT_EMBEDDING_V3, TEXT_EMBEDDING_V4,
+    experimental::{AlibabaVideoProviderBuilderExt, LEGACY_SINGAPORE_VIDEO_BASE_URL},
+};
+use siumai_transport::{EndpointConfig, OfficialOrigin};
+
+fn caller_declared_legacy_endpoint(base_url: &str) -> EndpointConfig {
+    EndpointConfig::official(
+        base_url,
+        OfficialOrigin::new(LEGACY_SINGAPORE_ORIGIN).unwrap(),
+    )
+    .unwrap()
+}
 
 #[test]
 fn explicit_legacy_endpoints_publish_exact_verified_support_claims() {
@@ -53,6 +66,46 @@ fn explicit_legacy_endpoints_publish_exact_verified_support_claims() {
 }
 
 #[test]
+fn caller_setters_never_promote_exact_legacy_urls_to_provider_owned() {
+    let missing_domain = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_language_endpoint(caller_declared_legacy_endpoint(
+            LEGACY_SINGAPORE_LANGUAGE_BASE_URL,
+        ))
+        .build()
+        .unwrap_err();
+    assert!(matches!(
+        missing_domain,
+        AlibabaConfigError::CustomLanguageEndpointRequiresReplayDomain
+    ));
+
+    let provider = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_language_endpoint(caller_declared_legacy_endpoint(
+            LEGACY_SINGAPORE_LANGUAGE_BASE_URL,
+        ))
+        .with_embedding_endpoint(caller_declared_legacy_endpoint(
+            LEGACY_SINGAPORE_EMBEDDING_BASE_URL,
+        ))
+        .with_video_endpoint(caller_declared_legacy_endpoint(
+            LEGACY_SINGAPORE_VIDEO_BASE_URL,
+        ))
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("caller-declared-legacy").unwrap(),
+        ))
+        .build()
+        .unwrap();
+
+    let manifest = provider.support_manifest();
+    assert_eq!(manifest.profiles().len(), 2);
+    assert!(
+        manifest
+            .profiles()
+            .iter()
+            .all(|profile| profile.generic_claims().is_some())
+    );
+    assert!(manifest.native_claims().is_empty());
+}
+
+#[test]
 fn workspace_endpoints_never_inherit_legacy_official_claims() {
     let workspace = AlibabaWorkspaceEndpoint::public_origin(
         "https://workspace-id.ap-southeast-1.maas.aliyuncs.com",
@@ -62,6 +115,9 @@ fn workspace_endpoints_never_inherit_legacy_official_claims() {
         .with_language_workspace(&workspace)
         .with_embedding_workspace(&workspace)
         .with_video_workspace(&workspace)
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("workspace-test").unwrap(),
+        ))
         .build()
         .unwrap();
 

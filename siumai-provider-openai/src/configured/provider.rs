@@ -12,13 +12,14 @@ use siumai_core::{
     ModelFamily, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionContext,
     ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, ProviderRegistration, ProviderScope, ProviderSupportManifest,
-    SupportManifestError, VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
+    ProviderOptions, ProviderRegistration, ProviderScope, ProviderSupportManifest, ReplayDomain,
+    ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_protocol_openai::responses_next::FunctionToolEncodingOptions;
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, ReplaySafety,
-    RetryPolicy, TransportConfigError, TransportLimits, TransportObserver,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
+    TransportConfigError, TransportLimits, TransportObserver,
 };
 use thiserror::Error;
 
@@ -237,6 +238,7 @@ pub struct OpenAiProviderBuilder {
     credential: OpenAiCredential,
     endpoint: Result<EndpointConfig, EndpointError>,
     custom_endpoint: bool,
+    replay_domain: Option<ReplayDomain>,
     organization: Option<String>,
     project: Option<String>,
     limits: TransportLimits,
@@ -265,6 +267,7 @@ impl OpenAiProviderBuilder {
             credential,
             endpoint,
             custom_endpoint: false,
+            replay_domain: None,
             organization: None,
             project: None,
             limits: TransportLimits::default(),
@@ -286,10 +289,19 @@ impl OpenAiProviderBuilder {
         }
     }
 
-    /// Replace the official endpoint with an explicitly policy-bound endpoint.
+    /// Replace the provider-owned endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint's transport policy does not grant OpenAI support claims or an
+    /// official replay audience. Callers must also select a custom replay domain.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(endpoint);
         self.custom_endpoint = true;
+        self
+    }
+
+    /// Bind provider-native history to a non-secret endpoint and caller scope.
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -383,13 +395,26 @@ impl OpenAiProviderBuilder {
             .validate_values()
             .map_err(OpenAiConfigError::InvalidChatCompletionsDefaults)?;
         let endpoint = self.endpoint?;
-        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
-        let profile = if verified_endpoint {
-            OpenAiProfile::current()?
-        } else {
-            OpenAiProfile::custom()?
+        let provider_verified_endpoint = !self.custom_endpoint;
+        let replay_domain = match (self.replay_domain.clone(), provider_verified_endpoint) {
+            (Some(replay_domain), _) => replay_domain,
+            (None, true) => ReplayDomain::official(ReplayDomainId::new("official")?),
+            (None, false) => return Err(OpenAiConfigError::CustomEndpointRequiresReplayDomain),
         };
-        if verified_endpoint && self.credential.is_unauthenticated() {
+        if replay_domain.audience().is_official() != provider_verified_endpoint {
+            return Err(OpenAiConfigError::ReplayAudienceMismatch);
+        }
+        if (self.organization.is_some() || self.project.is_some())
+            && replay_domain.caller_scope().is_none()
+        {
+            return Err(OpenAiConfigError::AccountScopeRequiresReplayCallerScope);
+        }
+        let profile = if provider_verified_endpoint {
+            OpenAiProfile::current()?.with_replay_domain(replay_domain)
+        } else {
+            OpenAiProfile::custom(replay_domain)?
+        };
+        if provider_verified_endpoint && self.credential.is_unauthenticated() {
             return Err(OpenAiConfigError::OfficialEndpointRequiresAuthentication);
         }
         #[cfg(feature = "openai-realtime")]
@@ -415,7 +440,7 @@ impl OpenAiProviderBuilder {
             .translation_endpoint
             .or_else(|| (!self.custom_endpoint).then(OpenAiRealtimeEndpoint::official));
         let mut native_claims = Vec::new();
-        if verified_endpoint {
+        if provider_verified_endpoint {
             native_claims.push(native_support_claim(
                 "responses-resources",
                 NativeSurfaceKind::Resource,
@@ -511,6 +536,7 @@ impl fmt::Debug for OpenAiProviderBuilder {
             .debug_struct("OpenAiProviderBuilder")
             .field("credential", &self.credential)
             .field("has_custom_endpoint", &self.custom_endpoint)
+            .field("has_replay_domain", &self.replay_domain.is_some())
             .field(
                 "organization",
                 &self.organization.as_ref().map(|_| "[REDACTED]"),
@@ -959,6 +985,12 @@ pub enum OpenAiConfigError {
     InvalidVerificationDate,
     #[error("the official OpenAI endpoint requires authenticated credentials")]
     OfficialEndpointRequiresAuthentication,
+    #[error("a custom OpenAI endpoint requires an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured OpenAI endpoint identity")]
+    ReplayAudienceMismatch,
+    #[error("organization or project configuration requires a non-secret replay caller scope")]
+    AccountScopeRequiresReplayCallerScope,
     #[error("invalid default Responses options: {0}")]
     InvalidResponsesDefaults(ProviderOptionError),
     #[error("invalid default Chat Completions options: {0}")]
@@ -975,6 +1007,9 @@ mod tests {
     fn provider() -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
             .build()
             .unwrap()
     }
@@ -1042,6 +1077,52 @@ mod tests {
     }
 
     #[test]
+    fn caller_supplied_official_policy_remains_a_custom_endpoint() {
+        let endpoint = EndpointConfig::official(
+            "https://relay.example/v1",
+            OfficialOrigin::new("https://relay.example").unwrap(),
+        )
+        .unwrap();
+
+        let missing_domain = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .with_endpoint(endpoint.clone())
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            missing_domain,
+            OpenAiConfigError::CustomEndpointRequiresReplayDomain
+        ));
+
+        let official_domain = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .with_endpoint(endpoint.clone())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("forged-official").unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            official_domain,
+            OpenAiConfigError::ReplayAudienceMismatch
+        ));
+
+        let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .with_endpoint(endpoint)
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("caller-relay").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        assert!(
+            provider
+                .profile()
+                .provider_profile()
+                .verified_claims()
+                .is_none()
+        );
+        assert!(provider.support_manifest().native_claims().is_empty());
+    }
+
+    #[test]
     fn support_manifest_declares_official_resources_and_sessions() {
         let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
             .build()
@@ -1088,6 +1169,10 @@ mod tests {
         let provider = OpenAiProvider::builder(OpenAiCredential::api_key("canary-secret"))
             .with_organization("org-example")
             .with_project("proj-example")
+            .with_replay_domain(
+                ReplayDomain::official(ReplayDomainId::new("official").unwrap())
+                    .with_caller_scope(ReplayDomainId::new("test-account").unwrap()),
+            )
             .build()
             .unwrap();
         let conversation = provider.realtime(OPENAI_REALTIME_MODEL).unwrap();

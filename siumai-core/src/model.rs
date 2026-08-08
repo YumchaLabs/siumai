@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::error::{Error, ErrorKind, ResourceKind};
 use crate::language::{LanguageRequest, LanguageResponse, MediaData, Warning};
 use crate::options::CallOptions;
-use crate::provider::{ModelId, ProviderId, ProviderScope};
+use crate::provider::{ModelId, ProviderId, ProviderScope, ReplayDomain};
 use crate::stream::LanguageStream;
 use crate::usage::Usage;
 
@@ -67,6 +67,16 @@ impl ModelDescriptor {
         self
     }
 
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.scope = Arc::new(
+            self.scope
+                .as_ref()
+                .clone()
+                .with_replay_domain(replay_domain),
+        );
+        self
+    }
+
     pub fn provider(&self) -> &ProviderId {
         self.scope.provider_id()
     }
@@ -100,6 +110,10 @@ impl ModelDescriptor {
         self.scope
             .api_mode()
             .map(crate::provider::ApiModeId::as_str)
+    }
+
+    pub fn replay_domain(&self) -> Option<&ReplayDomain> {
+        self.scope.replay_domain()
     }
 }
 

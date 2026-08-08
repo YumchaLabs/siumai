@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::{Map, Value, json};
-use siumai_core::{ExecutionOwner, ProviderId, ToolCall, ToolOutcome, ToolSpec};
+use siumai_core::{ToolCall, ToolOutcome, ToolSpec};
 use siumai_runtime::tool::{
     ApprovalDecision, ApprovalDecisionError, ApprovalPolicy, ApprovalPolicyFingerprint,
     EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolBinding, ToolBindingConfigError,
@@ -38,12 +38,7 @@ fn successful_binding_with_revision(
 }
 
 fn local_call(name: &str, arguments: Value) -> ToolCall {
-    ToolCall {
-        id: format!("call_{name}"),
-        name: name.to_string(),
-        arguments,
-        owner: ExecutionOwner::Local,
-    }
+    ToolCall::local(format!("call_{name}"), name, arguments).expect("valid tool call")
 }
 
 #[test]
@@ -219,43 +214,6 @@ fn frozen_resolution_rejects_a_replaced_binding() {
 }
 
 #[test]
-fn provider_owned_calls_never_resolve_to_colliding_local_bindings() {
-    let executions = Arc::new(AtomicUsize::new(0));
-    let observed = Arc::clone(&executions);
-    let binding = ToolBinding::from_fn(
-        spec("search", json!({ "type": "object" })),
-        "v1",
-        |_| Ok(()),
-        move |_| {
-            let observed = Arc::clone(&observed);
-            async move {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(ToolOutcome::Success { value: Value::Null })
-            }
-        },
-    )
-    .expect("valid binding revision");
-    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
-    let call = ToolCall {
-        id: "provider_call".to_string(),
-        name: "search".to_string(),
-        arguments: json!({}),
-        owner: ExecutionOwner::Provider {
-            provider: ProviderId::new("openai").expect("valid provider ID"),
-        },
-    };
-
-    let error = tools
-        .resolve(call)
-        .expect_err("provider-owned call must not resolve locally");
-    assert!(matches!(
-        error,
-        ToolExecutionError::ProviderOwnedCall { .. }
-    ));
-    assert_eq!(executions.load(Ordering::SeqCst), 0);
-}
-
-#[test]
 fn argument_validation_is_always_applied_before_authorization() {
     let validations = Arc::new(AtomicUsize::new(0));
     let executions = Arc::new(AtomicUsize::new(0));
@@ -359,7 +317,9 @@ fn concurrency_and_recovery_require_explicit_safe_declarations() {
         .with_concurrency(parallel)
         .with_approval_policy(ApprovalPolicy::NotRequired)
         .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
-        .with_stable_idempotency_key(|call| ToolIdempotencyKey::new(format!("lookup:{}", call.id)));
+        .with_stable_idempotency_key(|call| {
+            ToolIdempotencyKey::new(format!("lookup:{}", call.id()))
+        });
     let binding_without_key = successful_binding("lookup", "no-key")
         .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey);
 
@@ -389,7 +349,7 @@ fn stable_key_seam_changes_identity_and_freezes_executor_contract() {
     let keyed = successful_binding("charge", "keyed")
         .with_recovery_policy(RecoveryPolicy::ReplayWithStableIdempotencyKey)
         .with_stable_idempotency_key(|call| {
-            ToolIdempotencyKey::new(format!("payment:{}", call.id))
+            ToolIdempotencyKey::new(format!("payment:{}", call.id()))
         });
 
     assert_ne!(plain.identity(), keyed.identity());

@@ -15,9 +15,9 @@ use siumai_core::{
     ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
     ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderOptionError, ProviderOptions,
     ProviderProfile, ProviderRegistration, ProviderRegistrationError, ProviderScope,
-    ProviderSupportManifest, SupportManifestError, SupportScope, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedSupportClaim,
+    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError, SupportScope,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -38,6 +38,7 @@ use crate::transcription::{
 };
 
 const OFFICIAL_ORIGIN: &str = "https://api.groq.com";
+const OFFICIAL_REPLAY_DOMAIN_ID: &str = "groq-public-api";
 const TRANSCRIPTION_VERIFIED_ON: &str = "2026-08-06";
 
 /// Explicit Groq authentication configuration.
@@ -248,6 +249,8 @@ impl fmt::Debug for GroqProvider {
 pub struct GroqProviderBuilder {
     credential: GroqCredential,
     endpoint: Result<EndpointConfig, EndpointError>,
+    provider_selected_endpoint: bool,
+    replay_domain: Option<ReplayDomain>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -263,6 +266,8 @@ impl GroqProviderBuilder {
         Self {
             credential,
             endpoint: official_endpoint(),
+            provider_selected_endpoint: true,
+            replay_domain: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -274,13 +279,29 @@ impl GroqProviderBuilder {
         }
     }
 
+    /// Replace the default endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint remains caller-controlled even when its transport policy is marked official.
+    /// A matching [`ReplayDomain::custom`] is required before `build`.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(endpoint);
+        self.provider_selected_endpoint = false;
         self
     }
 
     pub fn with_base_url(mut self, base_url: impl AsRef<str>) -> Self {
         self.endpoint = EndpointConfig::public_custom(base_url);
+        self.provider_selected_endpoint = false;
+        self
+    }
+
+    /// Bind provider-native history to a non-secret replay domain.
+    ///
+    /// Caller-controlled endpoints require an explicit custom audience. The provider-selected
+    /// endpoint uses Groq's official audience by default, but callers may add a material account
+    /// boundary with [`ReplayDomain::with_caller_scope`].
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -331,12 +352,14 @@ impl GroqProviderBuilder {
         self.responses_defaults.validate()?;
         self.transcription_defaults.validate()?;
         let endpoint = self.endpoint?;
-        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let verified_endpoint = self.provider_selected_endpoint;
+        let replay_domain =
+            replay_domain_for_endpoint(self.replay_domain.clone(), verified_endpoint)?;
         if !self.credential.authenticated && verified_endpoint {
             return Err(GroqConfigError::OfficialEndpointRequiresCredential);
         }
         let auth = self.credential.inner.into_auth();
-        let profile = profile(endpoint.clone())?;
+        let profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
         let mut language = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
             .with_limits(self.limits.clone())
             .with_retry_policy(self.retry_policy);
@@ -371,7 +394,11 @@ impl GroqProviderBuilder {
         if let Some(timeout) = self.read_timeout {
             transcription_transport = transcription_transport.with_read_timeout(timeout);
         }
-        let transcription_scope = Arc::new(transcription_scope(&endpoint)?);
+        let transcription_scope = Arc::new(transcription_scope(
+            &endpoint,
+            replay_domain,
+            verified_endpoint,
+        )?);
         let transcription_profile = transcription_profile(&transcription_scope, verified_endpoint)?;
         let transcription_defaults = ProviderOptions::typed(&self.transcription_defaults)?;
         let language = language.build()?;
@@ -424,6 +451,11 @@ impl fmt::Debug for GroqProviderBuilder {
             .debug_struct("GroqProviderBuilder")
             .field("credential", &self.credential)
             .field("endpoint", &self.endpoint)
+            .field(
+                "provider_selected_endpoint",
+                &self.provider_selected_endpoint,
+            )
+            .field("replay_domain", &self.replay_domain)
             .field("limits", &self.limits)
             .field("retry_policy", &self.retry_policy)
             .field("connect_timeout", &self.connect_timeout)
@@ -478,17 +510,38 @@ fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(DEFAULT_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
-fn transcription_scope(endpoint: &EndpointConfig) -> Result<ProviderScope, InvalidId> {
-    let platform = match endpoint.policy() {
-        EndpointPolicy::Official(_) => PLATFORM_ID,
-        EndpointPolicy::PublicCustom => "custom-endpoint",
-        EndpointPolicy::LocalExplicit(_) => "local",
-        _ => "custom-endpoint",
+fn transcription_scope(
+    endpoint: &EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
+) -> Result<ProviderScope, InvalidId> {
+    let platform = match (verified_endpoint, endpoint.policy()) {
+        (true, _) => PLATFORM_ID,
+        (false, EndpointPolicy::Official(_)) => "official-custom-endpoint",
+        (false, EndpointPolicy::PublicCustom) => "custom-endpoint",
+        (false, EndpointPolicy::LocalExplicit(_)) => "local",
+        (false, _) => "custom-endpoint",
     };
     Ok(ProviderScope::new(ProviderId::new(PROVIDER_ID)?)
         .with_platform(PlatformId::new(platform)?)
         .with_protocol(ProtocolId::new(TRANSCRIPTION_PROTOCOL_ID)?)
-        .with_api_mode(ApiModeId::new(TRANSCRIPTION_API_MODE_ID)?))
+        .with_api_mode(ApiModeId::new(TRANSCRIPTION_API_MODE_ID)?)
+        .with_replay_domain(replay_domain))
+}
+
+fn replay_domain_for_endpoint(
+    configured: Option<ReplayDomain>,
+    verified_endpoint: bool,
+) -> Result<ReplayDomain, GroqConfigError> {
+    let replay_domain = match (configured, verified_endpoint) {
+        (Some(replay_domain), _) => replay_domain,
+        (None, true) => ReplayDomain::official(ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN_ID)?),
+        (None, false) => return Err(GroqConfigError::CustomEndpointRequiresReplayDomain),
+    };
+    if replay_domain.audience().is_official() != verified_endpoint {
+        return Err(GroqConfigError::ReplayAudienceMismatch);
+    }
+    Ok(replay_domain)
 }
 
 fn transcription_profile(
@@ -598,6 +651,10 @@ pub enum GroqConfigError {
     IncompleteTranscriptionScope,
     #[error("the official Groq endpoint requires authenticated credentials")]
     OfficialEndpointRequiresCredential,
+    #[error("a custom Groq endpoint requires an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured Groq endpoint ownership")]
+    ReplayAudienceMismatch,
 }
 
 #[cfg(test)]
@@ -611,6 +668,9 @@ mod tests {
         let provider = GroqProvider::builder(GroqCredential::api_key("test-key"))
             .build()
             .unwrap();
+        let official_domain = ReplayDomain::official(
+            ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN_ID).expect("official replay domain"),
+        );
         for index in 0..1_000 {
             let language = provider
                 .language(format!("future-language-{index}"))
@@ -628,6 +688,30 @@ mod tests {
             assert_eq!(responses.provider_id().as_str(), "groq");
             assert_eq!(transcription.provider_id().as_str(), "groq");
         }
+        assert_eq!(
+            provider
+                .language("future-language")
+                .unwrap()
+                .descriptor()
+                .replay_domain(),
+            Some(&official_domain)
+        );
+        assert_eq!(
+            provider
+                .responses("future-responses")
+                .unwrap()
+                .descriptor()
+                .replay_domain(),
+            Some(&official_domain)
+        );
+        assert_eq!(
+            provider
+                .transcription("future-transcription")
+                .unwrap()
+                .descriptor()
+                .replay_domain(),
+            Some(&official_domain)
+        );
         assert_eq!(
             provider
                 .registration()
@@ -711,8 +795,16 @@ mod tests {
     fn custom_endpoint_support_manifest_remains_generic() {
         let provider = GroqProvider::builder(GroqCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
             .build()
             .unwrap();
+        let model = provider.language("future-model").unwrap();
+        let replay_domain = model
+            .descriptor()
+            .replay_domain()
+            .expect("custom replay domain");
 
         assert!(
             provider
@@ -720,6 +812,99 @@ mod tests {
                 .profiles()
                 .iter()
                 .all(|profile| profile.generic_claims().is_some())
+        );
+        assert!(!replay_domain.audience().is_official());
+        assert_eq!(replay_domain.audience().id().as_str(), "test-relay");
+    }
+
+    #[test]
+    fn custom_endpoint_requires_custom_replay_domain() {
+        let endpoint = EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap();
+        let missing = GroqProvider::builder(GroqCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            missing,
+            GroqConfigError::CustomEndpointRequiresReplayDomain
+        ));
+
+        let wrong_audience = GroqProvider::builder(GroqCredential::unauthenticated())
+            .with_endpoint(endpoint)
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("groq-public-api").unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            wrong_audience,
+            GroqConfigError::ReplayAudienceMismatch
+        ));
+    }
+
+    #[test]
+    fn official_endpoint_rejects_custom_replay_audience() {
+        let error = GroqProvider::builder(GroqCredential::api_key("test-key"))
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(error, GroqConfigError::ReplayAudienceMismatch));
+    }
+
+    #[test]
+    fn caller_supplied_official_policy_does_not_gain_official_identity() {
+        let endpoint = EndpointConfig::official(
+            "https://relay.example/v1",
+            OfficialOrigin::new("https://relay.example").unwrap(),
+        )
+        .unwrap();
+
+        let missing = GroqProvider::builder(GroqCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            missing,
+            GroqConfigError::CustomEndpointRequiresReplayDomain
+        ));
+
+        let mismatched = GroqProvider::builder(GroqCredential::unauthenticated())
+            .with_endpoint(endpoint.clone())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN_ID).unwrap(),
+            ))
+            .build()
+            .unwrap_err();
+        assert!(matches!(
+            mismatched,
+            GroqConfigError::ReplayAudienceMismatch
+        ));
+
+        let provider = GroqProvider::builder(GroqCredential::unauthenticated())
+            .with_endpoint(endpoint)
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        assert!(
+            provider
+                .support_manifest()
+                .profiles()
+                .iter()
+                .all(|profile| profile.generic_claims().is_some())
+        );
+        assert!(
+            !provider
+                .language("future-model")
+                .unwrap()
+                .descriptor()
+                .replay_domain()
+                .expect("replay domain")
+                .audience()
+                .is_official()
         );
     }
 }

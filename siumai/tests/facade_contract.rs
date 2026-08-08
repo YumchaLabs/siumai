@@ -549,11 +549,12 @@ fn facade_exposes_anthropic_as_a_curated_provider() {
 #[cfg(all(feature = "registry", feature = "google-vertex-anthropic"))]
 #[test]
 fn facade_exposes_anthropic_on_vertex_as_a_curated_provider() {
-    use siumai::core::{ApiModeId, Model, ProviderOptions};
+    use siumai::core::{ApiModeId, Model, ProviderOptions, ReplayDomain, ReplayDomainId};
     use siumai::providers::google_vertex_anthropic::models::CLAUDE_SONNET_5;
     use siumai::providers::google_vertex_anthropic::options::GoogleVertexAnthropicMessagesOptions;
     use siumai::providers::google_vertex_anthropic::{
-        GoogleVertexAnthropicProvider, GoogleVertexCredential,
+        GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicProvider,
+        GoogleVertexCredential,
     };
     use siumai::registry::ProviderRegistrationSource;
 
@@ -565,6 +566,12 @@ fn facade_exposes_anthropic_on_vertex_as_a_curated_provider() {
         "test-project",
         "us-east5",
         GoogleVertexCredential::access_token("test-token"),
+    )
+    .with_replay_domain(
+        ReplayDomain::official(
+            ReplayDomainId::new(GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE).unwrap(),
+        )
+        .with_caller_scope(ReplayDomainId::new("facade-vertex-test").unwrap()),
     )
     .build()
     .unwrap();
@@ -890,6 +897,7 @@ fn facade_exposes_verified_ark_modes() {
 #[tokio::test]
 async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     use serde_json::{Value, json};
+    use siumai::core::{ReplayDomain, ReplayDomainId};
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai::registry::{Registry, RegistryBuilderExt};
     use siumai_transport::{EndpointConfig, TransportEvent, TransportObserver};
@@ -968,6 +976,9 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     let observer = Arc::new(CountingObserver::default());
     let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
         .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("facade-openai-test").unwrap(),
+        ))
         .with_transport_observer(observer.clone())
         .build()
         .unwrap();

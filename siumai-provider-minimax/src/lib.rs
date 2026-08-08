@@ -28,8 +28,8 @@ pub use options::{
     MinimaxResponsesOptions, MinimaxResponsesReasoning, MinimaxServiceTier, MinimaxThinking,
 };
 pub use provider::{
-    MinimaxConfigError, MinimaxLanguageApi, MinimaxLanguageModel, MinimaxProvider,
-    MinimaxProviderBuilder,
+    MINIMAX_REPLAY_AUDIENCE, MinimaxConfigError, MinimaxLanguageApi, MinimaxLanguageModel,
+    MinimaxProvider, MinimaxProviderBuilder,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

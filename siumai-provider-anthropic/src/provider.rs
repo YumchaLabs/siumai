@@ -13,12 +13,13 @@ use siumai_core::{
     LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
     ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionError,
-    ProviderRegistration, ProviderSupportManifest, SupportManifestError, TypedProviderOptions,
-    VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
+    ProviderRegistration, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
+    SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
-    AuthApplier, EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
-    RetryPolicy, TransportConfigError, TransportLimits,
+    AuthApplier, EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
+    TransportConfigError, TransportLimits,
 };
 use thiserror::Error as ThisError;
 
@@ -132,6 +133,8 @@ enum ConfiguredAuth {
 pub struct AnthropicProviderBuilder {
     auth: ConfiguredAuth,
     endpoint: Result<EndpointConfig, EndpointError>,
+    custom_endpoint: bool,
+    replay_domain: Option<ReplayDomain>,
     defaults: AnthropicMessagesOptions,
     beta_features: Vec<String>,
     limits: TransportLimits,
@@ -154,6 +157,8 @@ impl AnthropicProviderBuilder {
         Self {
             auth,
             endpoint: official_endpoint(),
+            custom_endpoint: false,
+            replay_domain: None,
             defaults: AnthropicMessagesOptions::default(),
             beta_features: Vec::new(),
             limits: TransportLimits::default(),
@@ -164,8 +169,13 @@ impl AnthropicProviderBuilder {
         }
     }
 
+    /// Replace the provider-owned endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint's transport policy does not grant Anthropic support claims or an
+    /// official replay audience. Callers must also select a custom replay domain.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(endpoint);
+        self.custom_endpoint = true;
         self
     }
 
@@ -173,6 +183,13 @@ impl AnthropicProviderBuilder {
     /// claimed for custom endpoints even when they use Anthropic-compatible wire shapes.
     pub fn with_base_url(mut self, base_url: impl AsRef<str>) -> Self {
         self.endpoint = EndpointConfig::public_custom(base_url);
+        self.custom_endpoint = true;
+        self
+    }
+
+    /// Bind provider-native history to a non-secret endpoint and caller scope.
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -215,7 +232,16 @@ impl AnthropicProviderBuilder {
     pub fn build(self) -> Result<AnthropicProvider, AnthropicConfigError> {
         self.defaults.validate()?;
         let endpoint = self.endpoint?;
-        if matches!(endpoint.policy(), EndpointPolicy::Official(_))
+        let provider_verified_endpoint = !self.custom_endpoint;
+        let replay_domain = match (self.replay_domain, provider_verified_endpoint) {
+            (Some(replay_domain), _) => replay_domain,
+            (None, true) => ReplayDomain::official(ReplayDomainId::new("anthropic-public-api")?),
+            (None, false) => return Err(AnthropicConfigError::CustomEndpointRequiresReplayDomain),
+        };
+        if replay_domain.audience().is_official() != provider_verified_endpoint {
+            return Err(AnthropicConfigError::ReplayAudienceMismatch);
+        }
+        if provider_verified_endpoint
             && matches!(
                 &self.auth,
                 ConfiguredAuth::Credential(credential) if credential.is_unauthenticated()
@@ -228,11 +254,18 @@ impl AnthropicProviderBuilder {
             ConfiguredAuth::Applied(auth) => auth,
         };
         let resolver = Arc::new(AnthropicAnnotationResolver);
-        let profile = profile(endpoint.clone(), resolver.clone(), &self.beta_features)?;
+        let profile = profile(
+            endpoint.clone(),
+            provider_verified_endpoint,
+            replay_domain,
+            resolver.clone(),
+            &self.beta_features,
+        )?;
+        let native_scope = Arc::new(profile.scope().clone());
         let support_manifest = Arc::new(ProviderSupportManifest::new(
             siumai_core::ProviderId::new(PROVIDER_ID)?,
             [profile.provider_profile().clone()],
-            if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
+            if provider_verified_endpoint {
                 native_support_claims()?
             } else {
                 Vec::new()
@@ -262,6 +295,7 @@ impl AnthropicProviderBuilder {
         }
         let language = language_builder.build()?;
         let native = Arc::new(NativeRuntime {
+            scope: native_scope,
             transport: resource_builder.build()?,
             api_version: Arc::from(API_VERSION),
             beta_features: self.beta_features.into(),
@@ -377,6 +411,10 @@ pub enum AnthropicConfigError {
     Credential(#[from] AnthropicCredentialError),
     #[error("the official Anthropic endpoint requires an authenticated credential source")]
     OfficialEndpointRequiresAuthentication,
+    #[error("a custom Anthropic endpoint requires an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured Anthropic endpoint identity")]
+    ReplayAudienceMismatch,
     #[error("invalid Anthropic profile: {0}")]
     Profile(#[from] AnthropicProfileError),
     #[error("invalid Anthropic support identity: {0}")]

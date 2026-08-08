@@ -10,8 +10,9 @@ use siumai_core::{
     LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog,
     ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
-    ProviderScope, StreamTerminal, SupportScope, TypedProviderOptions, Usage, UsageValue,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
+    ProviderScope, ReplayDomain, StreamTerminal, SupportScope, TypedProviderOptions, Usage,
+    UsageValue, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    Warning,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -26,7 +27,7 @@ use siumai_protocol_openai::chat_completions::{
 use siumai_protocol_openai::responses_next::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
 };
-use siumai_transport::{EndpointConfig, EndpointPolicy, RequestHeaders, ResponseHeaders};
+use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
 use crate::models::{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, is_known_chat, is_known_responses};
@@ -41,6 +42,8 @@ pub(crate) const VERIFIED_ON: &str = "2026-08-05";
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
 ) -> Result<OpenAiCompatibleProfile, DeepSeekProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let reasoning = WireFieldName::new("reasoning_content")?;
@@ -50,10 +53,15 @@ pub(crate) fn profile(
         .with_reasoning_output_field(reasoning)
         .with_cache_read_tokens_field(cache_read);
 
-    let profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
-        verified_profile(provider, endpoint, dialect)?
+    let profile = if verified_endpoint {
+        verified_profile(provider, endpoint, dialect)?.with_replay_domain(replay_domain)?
     } else {
-        OpenAiCompatibleProfile::custom_chat_and_responses(provider, endpoint, dialect)?
+        OpenAiCompatibleProfile::custom_chat_and_responses(
+            provider,
+            endpoint,
+            replay_domain,
+            dialect,
+        )?
     };
 
     Ok(profile
@@ -660,8 +668,7 @@ fn augment_events(
 mod tests {
     use super::*;
     use siumai_core::{
-        ExecutionOwner, Message, MessageRole, StructuredOutputSpec, ToolCall, ToolOutcome,
-        ToolResult, ToolSpec,
+        Message, MessageRole, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult, ToolSpec,
     };
 
     fn model(value: &str) -> ModelId {
@@ -672,6 +679,9 @@ mod tests {
         ProviderScope::new(ProviderId::new(PROVIDER_ID).expect("provider"))
             .with_protocol(ProtocolId::new(CHAT_PROTOCOL_ID).expect("protocol"))
             .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).expect("api mode"))
+            .with_replay_domain(ReplayDomain::custom(
+                siumai_core::ReplayDomainId::new("test-endpoint").expect("replay domain"),
+            ))
     }
 
     #[test]
@@ -697,12 +707,10 @@ mod tests {
                         ContentPart::Reasoning {
                             text: "reason one".to_string(),
                         },
-                        ContentPart::ToolCall(ToolCall {
-                            id: "call-1".to_string(),
-                            name: "lookup".to_string(),
-                            arguments: serde_json::json!({"q": "one"}),
-                            owner: ExecutionOwner::Local,
-                        }),
+                        ContentPart::ToolCall(
+                            ToolCall::local("call-1", "lookup", serde_json::json!({"q": "one"}))
+                                .unwrap(),
+                        ),
                     ],
                 ),
                 Message::new(
@@ -722,12 +730,10 @@ mod tests {
                         ContentPart::Reasoning {
                             text: "reason two".to_string(),
                         },
-                        ContentPart::ToolCall(ToolCall {
-                            id: "call-2".to_string(),
-                            name: "lookup".to_string(),
-                            arguments: serde_json::json!({"q": "two"}),
-                            owner: ExecutionOwner::Local,
-                        }),
+                        ContentPart::ToolCall(
+                            ToolCall::local("call-2", "lookup", serde_json::json!({"q": "two"}))
+                                .unwrap(),
+                        ),
                     ],
                 ),
             ],
@@ -828,7 +834,12 @@ mod tests {
     #[test]
     fn cache_miss_metadata_and_known_zero_are_preserved() {
         let response = decode_chat_response(
-            &ProviderScope::new(ProviderId::new(PROVIDER_ID).expect("provider")),
+            &ProviderScope::new(ProviderId::new(PROVIDER_ID).expect("provider"))
+                .with_protocol(ProtocolId::new(CHAT_PROTOCOL_ID).expect("protocol"))
+                .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).expect("api mode"))
+                .with_replay_domain(ReplayDomain::custom(
+                    siumai_core::ReplayDomainId::new("test-endpoint").expect("replay domain"),
+                )),
             &model(DEEPSEEK_V4_FLASH),
             br#"{"id":"chat-1","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":0,"reasoning_tokens":0}}"#,
             &ChatCompletionsDialect::generic()

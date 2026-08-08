@@ -32,8 +32,9 @@ pub use models::{
 pub use options::GoogleVertexAnthropicMessagesOptions;
 pub use profile::GoogleVertexAnthropicProfileError;
 pub use provider::{
-    GoogleVertexAnthropicConfigError, GoogleVertexAnthropicLanguageModel,
-    GoogleVertexAnthropicProvider, GoogleVertexAnthropicProviderBuilder,
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicConfigError,
+    GoogleVertexAnthropicLanguageModel, GoogleVertexAnthropicProvider,
+    GoogleVertexAnthropicProviderBuilder,
 };
 pub use siumai_protocol_anthropic::messages::{
     ComputerToolOptions, MessagesMetadata, OutputEffort, TextEditorToolOptions, ThinkingConfig,

@@ -2,7 +2,7 @@ use base64::Engine as _;
 use serde_json::{Map, Value, json};
 use siumai_core::{
     ContentPart, ExecutionOwner, LanguageRequest, MediaData, MediaPart, Message, MessageRole,
-    ModelId, OpaqueProviderItem, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
+    ModelId, OpaqueProviderItem, ProviderScope, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
 };
 
 use super::annotations::{
@@ -14,7 +14,7 @@ use super::options::{
     ThinkingConfig, UserLocation, normalize_field, validate_tool_node_options,
 };
 use super::rules::{CacheControlWireStyle, MessagesEncodingRules, MidConversationSystemEncoding};
-use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND, PROTOCOL_ID};
+use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND};
 
 const MAX_CACHE_BREAKPOINTS: usize = 4;
 
@@ -94,6 +94,23 @@ pub fn encode_request(
     )
 }
 
+/// Encode a request with an exact configured scope for provider-native replay.
+pub fn encode_request_for_scope(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_for_scope_with_resolver_and_rules(
+        scope,
+        model,
+        request,
+        options,
+        &NoMessagesAnnotations,
+        &MessagesEncodingRules::native(),
+    )
+}
+
 /// Encode a request using explicit compatible-dialect rules and no provider annotations.
 pub fn encode_request_with_rules(
     model: &ModelId,
@@ -121,8 +138,49 @@ pub fn encode_request_with_resolver(
     )
 }
 
+/// Encode with exact replay scope after resolving provider-owned annotations.
+pub fn encode_request_for_scope_with_resolver(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_for_scope_with_resolver_and_rules(
+        scope,
+        model,
+        request,
+        options,
+        resolver,
+        &MessagesEncodingRules::native(),
+    )
+}
+
 /// Encode a request with both provider annotations and explicit dialect rules.
 pub fn encode_request_with_resolver_and_rules(
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_with_optional_scope(None, model, request, options, resolver, rules)
+}
+
+/// Encode with both exact replay scope and provider-owned annotation rules.
+pub fn encode_request_for_scope_with_resolver_and_rules(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &MessagesRequestOptions,
+    resolver: &dyn MessagesAnnotationResolver,
+    rules: &MessagesEncodingRules,
+) -> Result<Value, MessagesCodecError> {
+    encode_request_with_optional_scope(Some(scope), model, request, options, resolver, rules)
+}
+
+fn encode_request_with_optional_scope(
+    scope: Option<&ProviderScope>,
     model: &ModelId,
     request: &LanguageRequest,
     options: &MessagesRequestOptions,
@@ -174,6 +232,7 @@ pub fn encode_request_with_resolver_and_rules(
 
     let cache_style = rules.cache_control();
     let (system, messages) = encode_prompt(
+        scope,
         &request.messages,
         resolver,
         cache_style,
@@ -260,6 +319,7 @@ pub fn encode_request_with_resolver_and_rules(
 }
 
 fn encode_prompt(
+    scope: Option<&ProviderScope>,
     messages: &[Message],
     resolver: &dyn MessagesAnnotationResolver,
     cache_style: CacheControlWireStyle,
@@ -299,8 +359,13 @@ fn encode_prompt(
             }
             MessageRole::User | MessageRole::Assistant | MessageRole::Tool => {
                 conversation_started = true;
-                let (role, content) =
-                    encode_conversation_message(message, resolver, cache_style, video_input)?;
+                let (role, content) = encode_conversation_message(
+                    scope,
+                    message,
+                    resolver,
+                    cache_style,
+                    video_input,
+                )?;
                 merge_wire_message(&mut encoded_messages, role, content)?;
             }
             _ => {
@@ -460,6 +525,7 @@ fn validate_tool_change_references(
 }
 
 fn encode_conversation_message(
+    scope: Option<&ProviderScope>,
     message: &Message,
     resolver: &dyn MessagesAnnotationResolver,
     cache_style: CacheControlWireStyle,
@@ -474,13 +540,7 @@ fn encode_conversation_message(
             });
         }
     };
-    let has_native_reasoning = message.content().iter().any(|part| {
-        matches!(
-            part.content(),
-            ContentPart::ProviderOpaque(item)
-                if is_native_reasoning_block(item)
-        )
-    });
+    let suppress_native_reasoning = validate_native_reasoning_projection(message, scope)?;
     let mut blocks = Vec::with_capacity(message.content().len());
     for part in message.content() {
         let content_options = resolver.resolve_content(part.annotations())?;
@@ -493,8 +553,9 @@ fn encode_conversation_message(
         let Some(mut block) = encode_content_part(
             message.role(),
             part.content(),
-            has_native_reasoning,
+            suppress_native_reasoning,
             video_input,
+            scope,
         )?
         else {
             if content_options.cache_control().is_some() {
@@ -531,8 +592,9 @@ fn encode_conversation_message(
 fn encode_content_part(
     role: MessageRole,
     part: &ContentPart,
-    has_native_reasoning: bool,
+    suppress_native_reasoning: bool,
     video_input: bool,
+    scope: Option<&ProviderScope>,
 ) -> Result<Option<Value>, MessagesCodecError> {
     match part {
         ContentPart::Text { text } if role != MessageRole::Tool => {
@@ -548,27 +610,27 @@ fn encode_content_part(
             feature: "media outside a user message",
         }),
         ContentPart::ToolCall(call) if role == MessageRole::Assistant => {
-            if !matches!(&call.owner, ExecutionOwner::Local) {
+            if !matches!(call.owner(), ExecutionOwner::Local) {
                 return Err(MessagesCodecError::Unsupported {
                     feature: "provider-owned tool calls without native Anthropic content",
                 });
             }
-            if call.id.trim().is_empty() || call.name.trim().is_empty() {
+            if call.id().trim().is_empty() || call.name().trim().is_empty() {
                 return Err(MessagesCodecError::InvalidOption {
                     field: "messages.tool_use",
                     reason: "tool call ID and name must not be empty",
                 });
             }
-            if !call.arguments.is_object() {
+            if !call.arguments().is_object() {
                 return Err(MessagesCodecError::Unsupported {
                     feature: "non-object function-tool input",
                 });
             }
             Ok(Some(json!({
                 "type": "tool_use",
-                "id": call.id,
-                "name": call.name,
-                "input": call.arguments,
+                "id": call.id(),
+                "name": call.name(),
+                "input": call.arguments(),
             })))
         }
         ContentPart::ToolCall(_) => Err(MessagesCodecError::Unsupported {
@@ -582,12 +644,12 @@ fn encode_content_part(
         ContentPart::ToolResult(_) => Err(MessagesCodecError::Unsupported {
             feature: "tool results outside user or tool messages",
         }),
-        ContentPart::Reasoning { .. } if has_native_reasoning => Ok(None),
+        ContentPart::Reasoning { .. } if suppress_native_reasoning => Ok(None),
         ContentPart::Reasoning { .. } => Err(MessagesCodecError::Unsupported {
             feature: "reasoning history without its native signed Anthropic block",
         }),
         ContentPart::ProviderOpaque(item) if role == MessageRole::Assistant => {
-            Ok(Some(encode_opaque_item(item)?))
+            Ok(Some(encode_opaque_item(item, scope)?))
         }
         ContentPart::ProviderOpaque(_) => Err(MessagesCodecError::Unsupported {
             feature: "native Anthropic content outside assistant messages",
@@ -602,6 +664,48 @@ fn encode_content_part(
             feature: "this content part",
         }),
     }
+}
+
+fn validate_native_reasoning_projection(
+    message: &Message,
+    scope: Option<&ProviderScope>,
+) -> Result<bool, MessagesCodecError> {
+    let mut has_native_reasoning = false;
+    let mut native_reasoning = Vec::new();
+    let mut portable_reasoning = Vec::new();
+
+    for part in message.content() {
+        match part.content() {
+            ContentPart::Reasoning { text } => portable_reasoning.push(text.as_str()),
+            ContentPart::ProviderOpaque(item) if is_native_reasoning_block(item, scope) => {
+                has_native_reasoning = true;
+                if item.data().get("type").and_then(Value::as_str) == Some("thinking") {
+                    let text = item
+                        .data()
+                        .get("thinking")
+                        .and_then(Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .ok_or(MessagesCodecError::ProtocolViolation {
+                            reason: "native reasoning block omitted required replay state",
+                        })?;
+                    native_reasoning.push(text);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if has_native_reasoning
+        && !portable_reasoning.is_empty()
+        && portable_reasoning != native_reasoning
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.reasoning",
+            reason: "portable reasoning does not match its native signed replay block",
+        });
+    }
+
+    Ok(has_native_reasoning)
 }
 
 fn encode_media(media: &MediaPart, video_input: bool) -> Result<Value, MessagesCodecError> {
@@ -681,8 +785,13 @@ fn encode_tool_result(result: &ToolResult) -> Result<Value, MessagesCodecError> 
     Ok(Value::Object(block))
 }
 
-fn encode_opaque_item(item: &OpaqueProviderItem) -> Result<Value, MessagesCodecError> {
-    if item.provenance().protocol != PROTOCOL_ID || item.kind() != OPAQUE_CONTENT_BLOCK_KIND {
+fn encode_opaque_item(
+    item: &OpaqueProviderItem,
+    scope: Option<&ProviderScope>,
+) -> Result<Value, MessagesCodecError> {
+    if scope.is_none_or(|scope| !item.provenance().matches_replay_target(scope))
+        || item.kind() != OPAQUE_CONTENT_BLOCK_KIND
+    {
         return Err(MessagesCodecError::Unsupported {
             feature: "opaque content from another protocol",
         });
@@ -723,8 +832,8 @@ fn encode_opaque_item(item: &OpaqueProviderItem) -> Result<Value, MessagesCodecE
     Ok(block.clone())
 }
 
-fn is_native_reasoning_block(item: &OpaqueProviderItem) -> bool {
-    item.provenance().protocol == PROTOCOL_ID
+fn is_native_reasoning_block(item: &OpaqueProviderItem, scope: Option<&ProviderScope>) -> bool {
+    scope.is_some_and(|scope| item.provenance().matches_replay_target(scope))
         && item.kind() == OPAQUE_CONTENT_BLOCK_KIND
         && item
             .data()

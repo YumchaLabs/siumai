@@ -1,7 +1,8 @@
 use serde_json::{Value, json};
 use siumai_core::{
     CallOptions, EmbeddingModel, EmbeddingRequest, ErrorKind, Model, ModelFamily, ModelId,
-    ModelLookupError, ModelOperation, ProviderOptions, SupportState, UsageValue, WarningKind,
+    ModelLookupError, ModelOperation, ProviderOptions, ReplayDomain, ReplayDomainId, SupportState,
+    UsageValue, WarningKind,
 };
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaConfigError, AlibabaCredential, AlibabaEmbeddingOptions,
@@ -88,6 +89,9 @@ fn default_registration_keeps_language_and_embedding_bindings_distinct() {
         .with_embedding_endpoint(
             EndpointConfig::local_explicit("http://127.0.0.1:9/api/v1").unwrap(),
         )
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("test-endpoint").unwrap(),
+        ))
         .build()
         .unwrap();
     let registration = provider.registration().expect("default registration");

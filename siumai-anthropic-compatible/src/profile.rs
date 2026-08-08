@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use siumai_core::{
     ApiModeId, ApiStability, Error, GenericSupportClaim, LanguageRequest, ModelFamily, ModelId,
-    PlatformId, ProfileId, ProtocolId, ProviderId, ProviderProfile, ProviderScope, SupportScope,
+    PlatformId, ProfileId, ProtocolId, ProviderId, ProviderProfile, ProviderScope, ReplayDomain,
+    ReplayDomainId, SupportScope,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, MESSAGES_TARGET, MessagesAnnotationResolver, MessagesEncodingRules,
@@ -115,7 +116,8 @@ impl AnthropicCompatibleProfile {
         if matches.next().is_some() {
             return Err(AnthropicCompatibleConfigError::DuplicateMessagesClaim);
         }
-        Self::from_parts(provider_profile, endpoint, support_scope, api_version)
+        Self::from_parts(provider_profile, endpoint, support_scope, api_version)?
+            .with_replay_domain(ReplayDomain::official(ReplayDomainId::new("official")?))
     }
 
     /// Construct the explicit generic custom-compatible escape hatch.
@@ -127,6 +129,7 @@ impl AnthropicCompatibleProfile {
         provider: ProviderId,
         platform: PlatformId,
         endpoint: EndpointConfig,
+        replay_domain: ReplayDomain,
         api_version: impl Into<String>,
     ) -> Result<Self, AnthropicCompatibleConfigError> {
         let support_scope = messages_scope(provider, platform)?;
@@ -134,7 +137,8 @@ impl AnthropicCompatibleProfile {
             profile_id,
             GenericSupportClaim::new(support_scope.clone(), ApiStability::Experimental),
         );
-        Self::from_parts(profile, endpoint, support_scope, api_version)
+        Self::from_parts(profile, endpoint, support_scope, api_version)?
+            .with_replay_domain(replay_domain)
     }
 
     pub fn public_custom(
@@ -142,11 +146,19 @@ impl AnthropicCompatibleProfile {
         provider: ProviderId,
         platform: PlatformId,
         base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
         api_version: impl Into<String>,
     ) -> Result<Self, AnthropicCompatibleConfigError> {
         let endpoint = EndpointConfig::public_custom(base_url)
             .map_err(AnthropicCompatibleConfigError::Endpoint)?;
-        Self::custom(profile_id, provider, platform, endpoint, api_version)
+        Self::custom(
+            profile_id,
+            provider,
+            platform,
+            endpoint,
+            ReplayDomain::custom(replay_domain),
+            api_version,
+        )
     }
 
     pub fn local_explicit(
@@ -154,11 +166,19 @@ impl AnthropicCompatibleProfile {
         provider: ProviderId,
         platform: PlatformId,
         base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
         api_version: impl Into<String>,
     ) -> Result<Self, AnthropicCompatibleConfigError> {
         let endpoint = EndpointConfig::local_explicit(base_url)
             .map_err(AnthropicCompatibleConfigError::Endpoint)?;
-        Self::custom(profile_id, provider, platform, endpoint, api_version)
+        Self::custom(
+            profile_id,
+            provider,
+            platform,
+            endpoint,
+            ReplayDomain::custom(replay_domain),
+            api_version,
+        )
     }
 
     fn from_parts(
@@ -204,6 +224,24 @@ impl AnthropicCompatibleProfile {
     ) -> Result<Self, AnthropicCompatibleConfigError> {
         self.messages_target = RequestTarget::new(target.into())
             .map_err(AnthropicCompatibleConfigError::RequestTarget)?;
+        Ok(self)
+    }
+
+    /// Bind provider-native history to a non-secret configured replay domain.
+    pub fn with_replay_domain(
+        mut self,
+        replay_domain: ReplayDomain,
+    ) -> Result<Self, AnthropicCompatibleConfigError> {
+        let profile_is_verified = self.provider_profile.verified_claims().is_some();
+        if replay_domain.audience().is_official() != profile_is_verified {
+            return Err(AnthropicCompatibleConfigError::ReplayAudienceMismatch);
+        }
+        self.scope = Arc::new(
+            self.scope
+                .as_ref()
+                .clone()
+                .with_replay_domain(replay_domain),
+        );
         Ok(self)
     }
 

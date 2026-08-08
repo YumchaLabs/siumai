@@ -3,12 +3,12 @@ use serde_json::json;
 use siumai_core::{
     ApiStability, CallOptions, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent,
     Message, MessagePart, MessageRole, Model, ModelId, ModelLifecycle, Provider, ProviderOptions,
-    StreamTerminal, ToolSpec,
+    ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
 };
 use siumai_protocol_anthropic::messages::{
     MessagesCodecError, MessagesRequestOptions, encode_request_with_resolver,
 };
-use siumai_transport::EndpointConfig;
+use siumai_transport::{EndpointConfig, OfficialOrigin};
 use wiremock::matchers::{body_json, body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -211,6 +211,9 @@ fn local_provider(server: &MockServer, credential: AnthropicCredential) -> Anthr
             EndpointConfig::local_explicit(format!("{}/v1/", server.uri()))
                 .expect("local endpoint"),
         )
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("anthropic-test-relay").expect("replay domain"),
+        ))
         .build()
         .expect("provider")
 }
@@ -299,6 +302,52 @@ async fn custom_endpoint_does_not_inherit_anthropic_native_claims() {
             .generic_claims()
             .is_some()
     );
+}
+
+#[test]
+fn caller_supplied_official_policy_remains_a_custom_endpoint() {
+    let endpoint = EndpointConfig::official(
+        "https://relay.example/v1/",
+        OfficialOrigin::new("https://relay.example").expect("official origin"),
+    )
+    .expect("policy-bound endpoint");
+
+    let missing_domain = AnthropicProvider::builder(AnthropicCredential::api_key("test-api-key"))
+        .with_endpoint(endpoint.clone())
+        .build()
+        .expect_err("caller endpoint requires a custom replay domain");
+    assert!(matches!(
+        missing_domain,
+        crate::AnthropicConfigError::CustomEndpointRequiresReplayDomain
+    ));
+
+    let official_domain = AnthropicProvider::builder(AnthropicCredential::api_key("test-api-key"))
+        .with_endpoint(endpoint.clone())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("forged-official").expect("replay domain"),
+        ))
+        .build()
+        .expect_err("caller endpoint cannot select an official replay audience");
+    assert!(matches!(
+        official_domain,
+        crate::AnthropicConfigError::ReplayAudienceMismatch
+    ));
+
+    let provider = AnthropicProvider::builder(AnthropicCredential::api_key("test-api-key"))
+        .with_endpoint(endpoint)
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("caller-relay").expect("replay domain"),
+        ))
+        .build()
+        .expect("custom provider");
+    assert!(
+        provider
+            .profile()
+            .provider_profile()
+            .verified_claims()
+            .is_none()
+    );
+    assert!(provider.support_manifest().native_claims().is_empty());
 }
 
 #[test]

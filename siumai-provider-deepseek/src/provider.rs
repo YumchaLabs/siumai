@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, TypedProviderOptions,
+    CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
+    ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId, TypedProviderOptions,
 };
 use siumai_openai_compatible::{
     DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
@@ -23,6 +23,7 @@ use crate::language::{DEFAULT_BASE_URL, DeepSeekProfileError, PROVIDER_ID, profi
 use crate::options::{DeepSeekChatOptions, DeepSeekResponsesOptions};
 
 const OFFICIAL_ORIGIN: &str = "https://api.deepseek.com";
+const OFFICIAL_REPLAY_DOMAIN: &str = "deepseek-public-api";
 
 /// Public DeepSeek language API selection.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -167,6 +168,8 @@ impl fmt::Debug for DeepSeekProvider {
 pub struct DeepSeekProviderBuilder {
     credential: DeepSeekCredential,
     endpoint: Result<EndpointConfig, EndpointError>,
+    provider_selected_endpoint: bool,
+    replay_domain: Option<ReplayDomain>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -181,6 +184,8 @@ impl DeepSeekProviderBuilder {
         Self {
             credential,
             endpoint: official_endpoint(),
+            provider_selected_endpoint: true,
+            replay_domain: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -191,13 +196,28 @@ impl DeepSeekProviderBuilder {
         }
     }
 
+    /// Replace the default endpoint with a caller-controlled endpoint.
+    ///
+    /// The endpoint remains caller-controlled even when its transport policy is marked official.
+    /// A matching [`ReplayDomain::custom`] is required before `build`.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Ok(endpoint);
+        self.provider_selected_endpoint = false;
         self
     }
 
+    /// Replace the default endpoint with a caller-selected public endpoint.
+    ///
+    /// Call [`Self::with_replay_domain`] with an explicit custom audience before `build`.
     pub fn with_base_url(mut self, base_url: impl AsRef<str>) -> Self {
         self.endpoint = EndpointConfig::public_custom(base_url);
+        self.provider_selected_endpoint = false;
+        self
+    }
+
+    /// Bind provider-native history to a caller-declared non-secret replay identity.
+    pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
+        self.replay_domain = Some(replay_domain);
         self
     }
 
@@ -240,7 +260,16 @@ impl DeepSeekProviderBuilder {
         self.chat_defaults.validate()?;
         self.responses_defaults.validate()?;
         let endpoint = self.endpoint?;
-        let profile = profile(endpoint)?;
+        let verified_endpoint = self.provider_selected_endpoint;
+        let replay_domain = match (self.replay_domain, verified_endpoint) {
+            (Some(replay_domain), _) => replay_domain,
+            (None, true) => ReplayDomain::official(ReplayDomainId::new(OFFICIAL_REPLAY_DOMAIN)?),
+            (None, false) => return Err(DeepSeekConfigError::CustomEndpointRequiresReplayDomain),
+        };
+        if replay_domain.audience().is_official() != verified_endpoint {
+            return Err(DeepSeekConfigError::ReplayAudienceMismatch);
+        }
+        let profile = profile(endpoint, replay_domain, verified_endpoint)?;
         let mut builder = OpenAiCompatibleProvider::builder(profile, self.credential.0)
             .with_limits(self.limits)
             .with_retry_policy(self.retry_policy);
@@ -337,6 +366,8 @@ fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, DeepSeekCo
 #[derive(Debug, ThisError)]
 #[non_exhaustive]
 pub enum DeepSeekConfigError {
+    #[error("invalid DeepSeek identity: {0}")]
+    Identity(#[from] InvalidId),
     #[error("invalid DeepSeek endpoint: {0}")]
     Endpoint(#[from] EndpointError),
     #[error("invalid DeepSeek profile: {0}")]
@@ -353,12 +384,16 @@ pub enum DeepSeekConfigError {
     MissingChatMode,
     #[error("DeepSeek profile omitted its required Responses mode")]
     MissingResponsesMode,
+    #[error("a custom DeepSeek endpoint requires an explicit non-secret replay domain")]
+    CustomEndpointRequiresReplayDomain,
+    #[error("replay audience does not match the configured DeepSeek endpoint ownership")]
+    ReplayAudienceMismatch,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai_core::{ApiModeId, ModelFamily, Provider};
+    use siumai_core::{ApiModeId, ModelFamily, Provider, ReplayDomain, ReplayDomainId};
 
     #[test]
     fn credentials_are_redacted() {
@@ -373,6 +408,9 @@ mod tests {
             .with_endpoint(
                 EndpointConfig::local_explicit("http://127.0.0.1:9/v1").expect("local endpoint"),
             )
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-endpoint").expect("replay domain"),
+            ))
             .build()
             .expect("provider");
 

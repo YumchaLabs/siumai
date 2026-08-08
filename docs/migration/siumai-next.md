@@ -102,6 +102,101 @@ let options = CallOptions::default().with_provider_options(minimax);
 Do not move credentials, endpoints, authorization headers, or transport policy into provider
 options. The provider builder owns those settings.
 
+## Canonical messages and tool calls
+
+The portable language boundary now validates request direction and tool execution ownership. Prefer
+role-safe constructors instead of assembling arbitrary role/content pairs:
+
+```rust,no_run
+use serde_json::json;
+use siumai::{ContentPart, Message, ToolCall};
+
+let user = Message::user("Find the current record");
+let assistant = Message::assistant_parts([ContentPart::ToolCall(ToolCall::local(
+    "call_1",
+    "lookup",
+    json!({"id": 42}),
+)?)])?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`ToolCall` fields are private. Use `id()`, `name()`, `input()`, `arguments()`, and `owner()` when
+reading a call. `ToolCall::local` accepts one parsed JSON value and rejects invalid identity or
+oversized input. Provider-hosted programs, custom-text calls, MCP operations, computer actions, and
+other provider-executed operations are provider-native output or `ProviderOpaque` replay items; they
+no longer appear as portable executable tool calls. A structured function call issued by an OpenAI
+hosted program is still caller-executed; Siumai pairs it with native metadata so its `caller` link is
+restored when the tool result is replayed.
+
+`LanguageRequest::validate()` rejects response-only citation/refusal content, misplaced tool
+results, and other invalid role/content combinations before encoding. Code that intentionally
+constructs parts dynamically must handle this typed validation result rather than relying on a
+provider codec to ignore unsupported content.
+
+## Response-to-history projection
+
+Do not copy every `LanguageResponse::content()` part into an assistant request message. Project it
+through the canonical direction boundary:
+
+```rust,ignore
+let projection = response.project_assistant_history();
+for omission in projection.omissions() {
+    record_projection_omission(omission);
+}
+if let Some(assistant) = projection.into_message() {
+    history.push(assistant);
+}
+```
+
+The projection preserves replayable assistant content and reports response-only citations,
+refusals, and tool results as structured omissions. Siumai runtime uses this path automatically and
+stores omissions in each `StepRecord`.
+
+## Provider replay domains
+
+Provider-native items now carry checked provenance tied to a non-secret `ReplayDomain`. Exact
+provider, platform, protocol, API mode, audience, and caller scope must match before opaque history
+can be replayed. Missing identity fails closed.
+
+Official provider endpoints usually supply a stable provider-owned audience. A custom endpoint must
+declare its own caller-owned audience:
+
+```rust,ignore
+use siumai::{ReplayDomain, ReplayDomainId};
+
+let domain = ReplayDomain::custom(ReplayDomainId::new("production-relay")?)
+    .with_caller_scope(ReplayDomainId::new("tenant-a")?);
+let provider = provider_builder
+    .with_endpoint(custom_endpoint)
+    .with_replay_domain(domain)
+    .build()?;
+```
+
+Use stable labels, not URLs, hostnames, API keys, signed values, or private account data. Callers
+that configure multiple accounts, projects, workspaces, or deployments on one official audience
+must give each replay boundary a distinct non-secret caller scope.
+
+Anthropic on Vertex requires this boundary explicitly because the project is material technical
+addressing data but must not be serialized into durable history automatically:
+
+```rust,ignore
+use siumai::providers::google_vertex_anthropic::{
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicProvider,
+};
+use siumai::{ReplayDomain, ReplayDomainId};
+
+let replay = ReplayDomain::official(ReplayDomainId::new(
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE,
+)?)
+.with_caller_scope(ReplayDomainId::new("vertex-project-a")?);
+let provider = GoogleVertexAnthropicProvider::builder(project, location, credential)
+    .with_replay_domain(replay)
+    .build()?;
+```
+
+The caller-supplied label need not equal the raw project ID. It exists only to prevent replay across
+materially different configured audiences.
+
 ## Node-scoped prompt caching
 
 Prompt-cache intent no longer uses numeric message/content selectors or an untyped recursive map.
@@ -255,11 +350,19 @@ The former Google `gcp` credential helper is also removed. Supply a short-lived 
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token
 refresh remains under the application's credential policy.
 
+Runtime durable snapshots now use schema version 5. Earlier development snapshots lack the checked
+execution scope and assistant-history omission records required by this boundary and are not
+migrated automatically. Recreate them from trusted application history instead of synthesizing
+provider provenance.
+
 ## Migration checklist
 
 - Replace `MinimaxConfig` and `MinimaxClient` with `MinimaxCredential` and `MinimaxProvider`.
 - Construct a family model explicitly and keep the configured provider long-lived.
 - Replace compatibility chat request types with `LanguageRequest`, `Message`, and `MessagePart`.
+- Replace direct `ToolCall` field construction with `ToolCall::local` and checked accessors.
+- Use role-safe message constructors and project responses with
+  `LanguageResponse::project_assistant_history()` before appending assistant history.
 - Move provider call controls into the matching typed MiniMax options and `CallOptions`.
 - Move prompt-cache intent onto typed message, content, or tool annotations.
 - Acquire files, image, video, music, and speech APIs from `MinimaxProvider`.
@@ -267,6 +370,9 @@ refresh remains under the application's credential policy.
 - Replace provider-wide `scope()` or `platform()` queries with `provider_id()` or an exact model or
   registration family scope.
 - Keep account, region, availability, pricing, and fallback policy in the host application.
+- Declare an explicit custom replay domain for every custom language endpoint, and separate material
+  accounts, projects, workspaces, or deployments with non-secret caller scopes.
+- Recreate pre-version-5 runtime snapshots from trusted application history.
 - Replace removed provider/features with an explicitly supported slice or a generic compatible
   endpoint only when protocol compatibility is sufficient for the application.
 

@@ -27,8 +27,10 @@ pub use options::{
     WebFetchToolOptions, WebSearchToolOptions,
 };
 pub use request::{
-    anthropic_tool_anchor_schema, encode_request, encode_request_with_resolver,
-    encode_request_with_resolver_and_rules, encode_request_with_rules, is_protected_option_field,
+    anthropic_tool_anchor_schema, encode_request, encode_request_for_scope,
+    encode_request_for_scope_with_resolver, encode_request_for_scope_with_resolver_and_rules,
+    encode_request_with_resolver, encode_request_with_resolver_and_rules,
+    encode_request_with_rules, is_protected_option_field,
 };
 pub use response::decode_response;
 pub use rules::{

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorKind, FinishReason, LanguageResponse,
     LanguageResponseStatus, ModelId, OpaqueProviderItem, ProviderProvenance, ProviderScope,
     ToolCall, Usage, UsageValue,
 };
@@ -185,20 +185,14 @@ fn opaque_content(
     kind: &str,
     value: Value,
 ) -> Result<OpaqueProviderItem, Error> {
-    OpaqueProviderItem::new(
-        ProviderProvenance {
-            provider: scope.provider_id().clone(),
-            platform: scope.platform().map(ToString::to_string),
-            protocol: scope
-                .protocol()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| super::PROTOCOL_ID.to_string()),
-            model: model.clone(),
-        },
-        format!("chat.content.{kind}"),
-        value,
-    )
-    .map_err(|source| {
+    let provenance = ProviderProvenance::from_scope(scope, model.clone()).map_err(|source| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "Chat Completions replay requires an explicit provider replay domain",
+        )
+        .with_source(source)
+    })?;
+    OpaqueProviderItem::new(provenance, format!("chat.content.{kind}"), value).map_err(|source| {
         Error::new(
             ErrorKind::ResponseLimit,
             "provider-native Chat Completions content exceeded its preservation limit",
@@ -213,6 +207,12 @@ pub(crate) fn decode_tool_call(call: ToolCallWire) -> Result<ToolCall, Error> {
             "Chat Completions tool call identity or type was invalid",
         ));
     }
+    if call.function.arguments.len() > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "Chat Completions tool arguments exceeded the byte limit",
+        ));
+    }
     let arguments = serde_json::from_str(&call.function.arguments).map_err(|source| {
         Error::new(
             ErrorKind::Protocol,
@@ -220,11 +220,12 @@ pub(crate) fn decode_tool_call(call: ToolCallWire) -> Result<ToolCall, Error> {
         )
         .with_source(source)
     })?;
-    Ok(ToolCall {
-        id: call.id,
-        name: call.function.name,
-        arguments,
-        owner: ExecutionOwner::Local,
+    ToolCall::local(call.id, call.function.name, arguments).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "Chat Completions tool call violated the canonical tool contract",
+        )
+        .with_source(source)
     })
 }
 
@@ -340,7 +341,7 @@ mod tests {
     use super::*;
     use siumai_core::{
         ApiModeId, LanguageRequest, Message, MessageRole, OpaqueProviderItem, PlatformId,
-        ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
+        ProtocolId, ProviderId, ProviderProvenance, ProviderScope, ReplayDomain, ReplayDomainId,
     };
 
     fn scope() -> ProviderScope {
@@ -348,6 +349,9 @@ mod tests {
             .with_platform(PlatformId::new("public-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
             .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("chat-response-test").unwrap(),
+            ))
     }
 
     fn minimax_scope() -> ProviderScope {
@@ -355,6 +359,9 @@ mod tests {
             .with_platform(PlatformId::new("minimax-api").unwrap())
             .with_protocol(ProtocolId::new("openai").unwrap())
             .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("minimax-test").unwrap(),
+            ))
     }
 
     fn minimax_dialect() -> ChatCompletionsDialect {
@@ -432,7 +439,7 @@ mod tests {
             response
                 .content()
                 .iter()
-                .any(|part| matches!(part, ContentPart::ToolCall(call) if call.name == "lookup"))
+                .any(|part| matches!(part, ContentPart::ToolCall(call) if call.name() == "lookup"))
         );
     }
 
@@ -459,6 +466,35 @@ mod tests {
             )
             .is_err()
         );
+
+        let oversized = serde_json::to_vec(&serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "tool_calls": [{
+                        "id": "call-oversized",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": format!(
+                                "{}{{}}",
+                                " ".repeat(DEFAULT_TOOL_INPUT_BYTE_LIMIT)
+                            )
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }))
+        .unwrap();
+        let error = decode_response(
+            &scope(),
+            &ModelId::new("model").unwrap(),
+            &oversized,
+            &ChatCompletionsDialect::generic(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
     }
 
     #[test]
@@ -497,10 +533,13 @@ mod tests {
             })
             .expect("reasoning details");
         assert_eq!(native.kind(), super::super::REASONING_DETAILS_OPAQUE_KIND);
-        assert_eq!(native.provenance().provider.as_str(), "minimax");
-        assert_eq!(native.provenance().platform.as_deref(), Some("minimax-api"));
-        assert_eq!(native.provenance().protocol, "openai");
-        assert_eq!(native.provenance().model.as_str(), "MiniMax-M3");
+        assert_eq!(native.provenance().provider().as_str(), "minimax");
+        assert_eq!(
+            native.provenance().platform().map(PlatformId::as_str),
+            Some("minimax-api")
+        );
+        assert_eq!(native.provenance().protocol().as_str(), "openai");
+        assert_eq!(native.provenance().model().as_str(), "MiniMax-M3");
         assert_eq!(native.data(), &reasoning_details());
 
         let history = LanguageRequest::new(vec![Message::new(
@@ -525,13 +564,15 @@ mod tests {
             reasoning_details()
         );
 
+        let foreign_scope = ProviderScope::new(ProviderId::new("foreign").unwrap())
+            .with_platform(PlatformId::new("minimax-api").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("minimax-test").unwrap(),
+            ));
         let foreign = OpaqueProviderItem::new(
-            ProviderProvenance {
-                provider: ProviderId::new("foreign").unwrap(),
-                platform: Some("minimax-api".to_string()),
-                protocol: "openai".to_string(),
-                model: model.clone(),
-            },
+            ProviderProvenance::from_scope(&foreign_scope, model.clone()).unwrap(),
             super::super::REASONING_DETAILS_OPAQUE_KIND,
             reasoning_details(),
         )

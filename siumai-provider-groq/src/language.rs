@@ -11,8 +11,9 @@ use siumai_core::{
     LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog, ModelFamily,
     ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
-    ProviderScope, PublicDiagnosticText, StreamTerminal, SupportScope, VerificationDate,
-    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning, WarningKind,
+    ProviderScope, PublicDiagnosticText, ReplayDomain, StreamTerminal, SupportScope,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
+    WarningKind,
 };
 use siumai_openai_compatible::extension::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -28,7 +29,7 @@ use siumai_protocol_openai::responses_next::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesStreamDecoder,
     decode_response as decode_responses_response,
 };
-use siumai_transport::{EndpointConfig, EndpointPolicy, RequestHeaders, ResponseHeaders};
+use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
 use crate::models;
@@ -49,18 +50,20 @@ const STRICT_JSON_SCHEMA_MARKER: &str = "__siumai_groq_strict_json_schema";
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
 ) -> Result<OpenAiCompatibleProfile, GroqProfileError> {
     let provider = ProviderId::new(PROVIDER_ID)?;
     let dialect = groq_dialect()?;
-    let profile = if matches!(endpoint.policy(), EndpointPolicy::Official(_)) {
-        verified_profile(provider, endpoint, dialect)?
-    } else if matches!(
-        endpoint.policy(),
-        EndpointPolicy::PublicCustom | EndpointPolicy::LocalExplicit(_)
-    ) {
-        OpenAiCompatibleProfile::custom_chat_and_responses(provider, endpoint, dialect)?
+    let profile = if verified_endpoint {
+        verified_profile(provider, endpoint, replay_domain, dialect)?
     } else {
-        return Err(GroqProfileError::UnsupportedEndpointPolicy);
+        OpenAiCompatibleProfile::custom_chat_and_responses(
+            provider,
+            endpoint,
+            replay_domain,
+            dialect,
+        )?
     };
     Ok(profile
         .with_chat_codec_policy(Arc::new(GroqChatCodecPolicy))
@@ -70,6 +73,7 @@ pub(crate) fn profile(
 fn verified_profile(
     provider: ProviderId,
     endpoint: EndpointConfig,
+    replay_domain: ReplayDomain,
     dialect: ChatCompletionsDialect,
 ) -> Result<OpenAiCompatibleProfile, GroqProfileError> {
     let platform = PlatformId::new(PLATFORM_ID)?;
@@ -135,11 +139,10 @@ fn verified_profile(
         ],
         catalog,
     )?;
-    Ok(OpenAiCompatibleProfile::verified_chat_and_responses(
-        provider_profile,
-        endpoint,
-        dialect,
-    )?)
+    Ok(
+        OpenAiCompatibleProfile::verified_chat_and_responses(provider_profile, endpoint, dialect)?
+            .with_replay_domain(replay_domain)?,
+    )
 }
 
 fn model_profile(
@@ -243,8 +246,6 @@ pub enum GroqProfileError {
     Compatible(#[from] OpenAiCompatibleConfigError),
     #[error("Groq verification date is invalid")]
     InvalidVerificationDate,
-    #[error("Groq does not support this endpoint policy")]
-    UnsupportedEndpointPolicy,
 }
 
 #[derive(Debug, Default)]
@@ -994,7 +995,9 @@ fn dialect_error(source: DialectError) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{ContentPart, LanguageStreamEvent, Message, MessageRole, ProviderOptions};
+    use siumai_core::{
+        ContentPart, LanguageStreamEvent, Message, MessageRole, ProviderOptions, ReplayDomainId,
+    };
 
     use super::*;
 
@@ -1006,6 +1009,11 @@ mod tests {
         ProviderScope::new(ProviderId::new(PROVIDER_ID).expect("provider"))
             .with_protocol(ProtocolId::new(CHAT_PROTOCOL_ID).expect("protocol"))
             .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).expect("api mode"))
+            .with_replay_domain(test_replay_domain())
+    }
+
+    fn test_replay_domain() -> ReplayDomain {
+        ReplayDomain::official(ReplayDomainId::new("groq-public-api").expect("replay domain"))
     }
 
     #[test]
@@ -1015,7 +1023,7 @@ mod tests {
             siumai_transport::OfficialOrigin::new("https://api.groq.com").unwrap(),
         )
         .unwrap();
-        let profile = profile(endpoint).unwrap();
+        let profile = profile(endpoint, test_replay_domain(), true).unwrap();
         let claims = profile.provider_profile().verified_claims().unwrap();
         assert_eq!(claims.len(), 2);
         let support_scope = claims[0].scope().clone();
@@ -1148,7 +1156,8 @@ mod tests {
         let scope = siumai_core::ProviderScope::new(ProviderId::new(PROVIDER_ID).unwrap())
             .with_platform(PlatformId::new(PLATFORM_ID).unwrap())
             .with_protocol(ProtocolId::new(OPENAI_RESPONSES_PROTOCOL).unwrap())
-            .with_api_mode(ApiModeId::new(RESPONSES_API_MODE_ID).unwrap());
+            .with_api_mode(ApiModeId::new(RESPONSES_API_MODE_ID).unwrap())
+            .with_replay_domain(test_replay_domain());
         let body = serde_json::json!({
             "id": "resp-groq-1",
             "object": "response",
@@ -1232,7 +1241,8 @@ mod tests {
     fn x_groq_usage_and_reasoning_are_preserved() {
         let scope = siumai_core::ProviderScope::new(ProviderId::new(PROVIDER_ID).unwrap())
             .with_protocol(ProtocolId::new(CHAT_PROTOCOL_ID).unwrap())
-            .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).unwrap());
+            .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).unwrap())
+            .with_replay_domain(test_replay_domain());
         let body = serde_json::json!({
             "id": "chatcmpl-groq-1",
             "created": 1_741_392_000,
@@ -1271,7 +1281,8 @@ mod tests {
     fn streamed_x_groq_usage_reaches_usage_and_terminal_metadata() {
         let scope = siumai_core::ProviderScope::new(ProviderId::new(PROVIDER_ID).unwrap())
             .with_protocol(ProtocolId::new(CHAT_PROTOCOL_ID).unwrap())
-            .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).unwrap());
+            .with_api_mode(ApiModeId::new(CHAT_API_MODE_ID).unwrap())
+            .with_replay_domain(test_replay_domain());
         let mut decoder = GroqStreamDecoder {
             inner: ChatCompletionsStreamDecoder::new(
                 scope,

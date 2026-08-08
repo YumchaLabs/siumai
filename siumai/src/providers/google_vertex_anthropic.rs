@@ -1,10 +1,11 @@
 //! Curated Anthropic-on-Vertex provider facade.
 
 pub use siumai_provider_google_vertex::{
-    GoogleVertexAnthropicConfigError, GoogleVertexAnthropicEndpointError,
-    GoogleVertexAnthropicLanguageModel, GoogleVertexAnthropicProfileError,
-    GoogleVertexAnthropicProvider, GoogleVertexAnthropicProviderBuilder, GoogleVertexCredential,
-    GoogleVertexCredentialError, GoogleVertexTokenSource,
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicConfigError,
+    GoogleVertexAnthropicEndpointError, GoogleVertexAnthropicLanguageModel,
+    GoogleVertexAnthropicProfileError, GoogleVertexAnthropicProvider,
+    GoogleVertexAnthropicProviderBuilder, GoogleVertexCredential, GoogleVertexCredentialError,
+    GoogleVertexTokenSource,
 };
 
 pub mod models {

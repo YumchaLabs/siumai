@@ -493,6 +493,7 @@ fn invalid_input(message: &'static str) -> Error {
 mod tests {
     use http::StatusCode;
     use serde_json::json;
+    use siumai_core::{ReplayDomain, ReplayDomainId};
     use siumai_transport::EndpointConfig;
     use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -503,6 +504,9 @@ mod tests {
     async fn resource(server: &MockServer) -> OpenAiResponsesResource {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("responses-resource-test").unwrap(),
+            ))
             .build()
             .unwrap()
             .responses_resource()

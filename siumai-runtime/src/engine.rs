@@ -9,9 +9,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt, stream};
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, Error, ErrorKind, ExecutionOwner, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart,
-    MessageRole, StreamTerminal, ToolCall, ToolOutcome, ToolResult,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart, MessageRole,
+    StreamTerminal, ToolCall, ToolOutcome, ToolResult,
 };
 
 use crate::approval::VerifiedApproval;
@@ -774,7 +774,7 @@ impl StepEngine {
         let approval_calls = step
             .pending_approvals()
             .iter()
-            .map(|approval| approval.call.id.as_str())
+            .map(|approval| approval.call.id())
             .collect::<BTreeSet<_>>();
         let mut pending_approvals = Vec::new();
 
@@ -789,7 +789,7 @@ impl StepEngine {
             if completed.contains(&ordinal) {
                 continue;
             }
-            if self.report.execution_log().status(&prepared.call().id)
+            if self.report.execution_log().status(prepared.call().id())
                 != Some(ToolExecutionStatus::Prepared)
             {
                 return Err(Error::new(
@@ -848,7 +848,7 @@ impl StepEngine {
         &self,
         prepared: &PreparedToolSnapshot,
     ) -> Result<ToolExecutionRequest, EngineResumeError> {
-        let call_id = prepared.call().id.clone();
+        let call_id = prepared.call().id().to_owned();
         let mut request = self
             .tools
             .resolve_frozen(prepared.call().clone(), prepared.binding())
@@ -1103,13 +1103,6 @@ impl StepEngine {
         if matches!(self.phase, EnginePhase::Terminal) {
             return Ok(());
         }
-        provider_states.extend(calls.iter().filter_map(|call| match &call.owner {
-            ExecutionOwner::Provider { .. } if !provider_result_ids.contains(&call.id) => {
-                Some(provider_state_from_call(call))
-            }
-            ExecutionOwner::Local => None,
-            _ => Some(provider_state_from_call(call)),
-        }));
         provider_states.sort_unstable_by(|left, right| left.namespace.cmp(&right.namespace));
         provider_states.dedup_by(|left, right| left.namespace == right.namespace);
         if !provider_states.is_empty() {
@@ -1148,68 +1141,106 @@ impl StepEngine {
         let mut immediate_results = Vec::new();
 
         for (ordinal, call) in calls.into_iter().enumerate() {
-            match &call.owner {
-                ExecutionOwner::Provider { .. } => {}
-                ExecutionOwner::Local => {
-                    let request = match self.tools.resolve(call.clone()) {
-                        Ok(request) => request,
-                        Err(error) => {
-                            self.finish_preparation_failure(response, ordinal, call, error);
-                            return Ok(());
-                        }
-                    };
-                    if let Err(error) = request.validate() {
-                        self.finish_preparation_failure(response, ordinal, call, error);
-                        return Ok(());
-                    }
-                    let argument_bytes = match serde_json::to_vec(request.arguments()) {
-                        Ok(arguments) => arguments.len(),
-                        Err(error) => {
-                            self.finish_step(response, Vec::new());
-                            self.queue_terminal(RunTerminal::Failed {
-                                error: Error::new(
-                                    ErrorKind::Internal,
-                                    "tool arguments could not be serialized for budget accounting",
-                                )
-                                .with_source(error),
-                                report: Box::new(self.report.clone()),
-                            });
-                            return Ok(());
-                        }
-                    };
-                    if let Err(error) = self
-                        .report
-                        .budget_mut()
-                        .charge_tool_call(argument_bytes, &self.budget)
-                    {
-                        self.finish_step(response, Vec::new());
-                        self.queue_terminal(RunTerminal::BudgetExceeded {
-                            error,
+            let request = match self.tools.resolve(call.clone()) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.finish_preparation_failure(response, ordinal, call, error);
+                    return Ok(());
+                }
+            };
+            if let Err(error) = request.validate() {
+                self.finish_preparation_failure(response, ordinal, call, error);
+                return Ok(());
+            }
+            let argument_bytes = match serde_json::to_vec(request.arguments()) {
+                Ok(arguments) => arguments.len(),
+                Err(error) => {
+                    self.finish_step(response, Vec::new());
+                    self.queue_terminal(RunTerminal::Failed {
+                        error: Error::new(
+                            ErrorKind::Internal,
+                            "tool arguments could not be serialized for budget accounting",
+                        )
+                        .with_source(error),
+                        report: Box::new(self.report.clone()),
+                    });
+                    return Ok(());
+                }
+            };
+            if let Err(error) = self
+                .report
+                .budget_mut()
+                .charge_tool_call(argument_bytes, &self.budget)
+            {
+                self.finish_step(response, Vec::new());
+                self.queue_terminal(RunTerminal::BudgetExceeded {
+                    error,
+                    report: Box::new(self.report.clone()),
+                });
+                return Ok(());
+            }
+            let prepared = match self.log_prepared(ordinal, &request) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.finish_step(response, Vec::new());
+                    self.queue_terminal(RunTerminal::Failed {
+                        error,
+                        report: Box::new(self.report.clone()),
+                    });
+                    return Ok(());
+                }
+            };
+            prepared_tools.push(prepared);
+            self.pending.push_back(RunEvent::ToolPrepared {
+                step: self.step,
+                ordinal,
+                call: call.clone(),
+            });
+            let authorized = match request.approval_policy() {
+                ApprovalPolicy::NotRequired => match request.authorize_not_required() {
+                    Ok(authorized) => Some(authorized),
+                    Err(error) => {
+                        self.finish_step(
+                            response,
+                            immediate_results
+                                .into_iter()
+                                .map(|result: IndexedResult| result.result)
+                                .collect(),
+                        );
+                        self.queue_terminal(RunTerminal::Failed {
+                            error: execution_authorization_error(error),
                             report: Box::new(self.report.clone()),
                         });
                         return Ok(());
                     }
-                    let prepared = match self.log_prepared(ordinal, &request) {
-                        Ok(prepared) => prepared,
-                        Err(error) => {
-                            self.finish_step(response, Vec::new());
-                            self.queue_terminal(RunTerminal::Failed {
-                                error,
-                                report: Box::new(self.report.clone()),
-                            });
-                            return Ok(());
-                        }
-                    };
-                    prepared_tools.push(prepared);
-                    self.pending.push_back(RunEvent::ToolPrepared {
-                        step: self.step,
+                },
+                ApprovalPolicy::Required => {
+                    let approval_request = ApprovalRequest::from_frozen(
+                        self.step,
                         ordinal,
-                        call: call.clone(),
-                    });
-                    let authorized = match request.approval_policy() {
-                        ApprovalPolicy::NotRequired => match request.authorize_not_required() {
-                            Ok(authorized) => Some(authorized),
-                            Err(error) => {
+                        self.target.clone(),
+                        &request,
+                    );
+                    let decision = wait_for(
+                        self.approval_decider.decide(&approval_request),
+                        &self.cancellation,
+                        self.total_deadline,
+                        RunTimeoutKind::Total,
+                    )
+                    .await;
+                    match decision {
+                        WaitResult::Ready(Ok(ApprovalDecision::Approve)) => {
+                            Some(request.authorize_host_auto_approved())
+                        }
+                        WaitResult::Ready(Ok(ApprovalDecision::Deny(denial))) => {
+                            let result = ToolResult {
+                                call_id: request.call_id().to_string(),
+                                name: request.name().to_string(),
+                                outcome: ToolOutcome::Denied {
+                                    reason: denial.reason().to_owned(),
+                                },
+                            };
+                            if let Err(error) = self.record_non_dispatch_result(&request, &result) {
                                 self.finish_step(
                                     response,
                                     immediate_results
@@ -1217,166 +1248,119 @@ impl StepEngine {
                                         .map(|result: IndexedResult| result.result)
                                         .collect(),
                                 );
-                                self.queue_terminal(RunTerminal::Failed {
-                                    error: execution_authorization_error(error),
-                                    report: Box::new(self.report.clone()),
-                                });
-                                return Ok(());
-                            }
-                        },
-                        ApprovalPolicy::Required => {
-                            let approval_request = ApprovalRequest::from_frozen(
-                                self.step,
-                                ordinal,
-                                self.target.clone(),
-                                &request,
-                            );
-                            let decision = wait_for(
-                                self.approval_decider.decide(&approval_request),
-                                &self.cancellation,
-                                self.total_deadline,
-                                RunTimeoutKind::Total,
-                            )
-                            .await;
-                            match decision {
-                                WaitResult::Ready(Ok(ApprovalDecision::Approve)) => {
-                                    Some(request.authorize_host_auto_approved())
-                                }
-                                WaitResult::Ready(Ok(ApprovalDecision::Deny(denial))) => {
-                                    let result = ToolResult {
-                                        call_id: request.call_id().to_string(),
-                                        name: request.name().to_string(),
-                                        outcome: ToolOutcome::Denied {
-                                            reason: denial.reason().to_owned(),
-                                        },
-                                    };
-                                    if let Err(error) =
-                                        self.record_non_dispatch_result(&request, &result)
-                                    {
-                                        self.finish_step(
-                                            response,
-                                            immediate_results
-                                                .into_iter()
-                                                .map(|result: IndexedResult| result.result)
-                                                .collect(),
-                                        );
-                                        match error {
-                                            NonDispatchResultError::Budget(error) => {
-                                                self.queue_terminal(RunTerminal::BudgetExceeded {
-                                                    error,
-                                                    report: Box::new(self.report.clone()),
-                                                });
-                                            }
-                                            NonDispatchResultError::Failed(error) => {
-                                                self.queue_terminal(RunTerminal::Failed {
-                                                    error,
-                                                    report: Box::new(self.report.clone()),
-                                                });
-                                            }
-                                        }
-                                        return Ok(());
-                                    }
-                                    self.pending.push_back(RunEvent::ToolCompleted {
-                                        step: self.step,
-                                        ordinal,
-                                        result: result.clone(),
-                                    });
-                                    let stop = self.outcome_policy.action(&result.outcome)
-                                        == ToolOutcomeAction::Stop;
-                                    immediate_results.push(IndexedResult {
-                                        ordinal,
-                                        result: result.clone(),
-                                    });
-                                    if stop {
-                                        let tool_results = immediate_results
-                                            .into_iter()
-                                            .map(|result| result.result)
-                                            .collect();
-                                        self.finish_step(response, tool_results);
-                                        self.queue_terminal(RunTerminal::Stopped {
-                                            reason: RunStopReason::ToolOutcome {
-                                                call_id: result.call_id,
-                                                outcome: result.outcome,
-                                            },
-                                            report: Box::new(self.report.clone()),
-                                        });
-                                        return Ok(());
-                                    }
-                                    None
-                                }
-                                WaitResult::Ready(Ok(ApprovalDecision::AwaitExternal)) => {
-                                    if let Err(error) = self
-                                        .report
-                                        .budget_mut()
-                                        .reserve_pending_approval(&self.budget)
-                                    {
-                                        self.finish_step(
-                                            response,
-                                            immediate_results
-                                                .into_iter()
-                                                .map(|result: IndexedResult| result.result)
-                                                .collect(),
-                                        );
+                                match error {
+                                    NonDispatchResultError::Budget(error) => {
                                         self.queue_terminal(RunTerminal::BudgetExceeded {
                                             error,
                                             report: Box::new(self.report.clone()),
                                         });
-                                        return Ok(());
                                     }
-                                    pending_approvals.push(PendingApprovalCall { request });
-                                    None
+                                    NonDispatchResultError::Failed(error) => {
+                                        self.queue_terminal(RunTerminal::Failed {
+                                            error,
+                                            report: Box::new(self.report.clone()),
+                                        });
+                                    }
                                 }
-                                WaitResult::Ready(Err(error)) => {
-                                    self.finish_step(
-                                        response,
-                                        immediate_results
-                                            .into_iter()
-                                            .map(|result: IndexedResult| result.result)
-                                            .collect(),
-                                    );
-                                    self.queue_terminal(RunTerminal::Failed {
-                                        error: execution_approval_decision_error(error),
-                                        report: Box::new(self.report.clone()),
-                                    });
-                                    return Ok(());
-                                }
-                                WaitResult::TimedOut(kind) => {
-                                    self.finish_step(
-                                        response,
-                                        immediate_results
-                                            .into_iter()
-                                            .map(|result: IndexedResult| result.result)
-                                            .collect(),
-                                    );
-                                    self.queue_terminal(RunTerminal::TimedOut {
-                                        kind,
-                                        report: Box::new(self.report.clone()),
-                                    });
-                                    return Ok(());
-                                }
-                                WaitResult::Cancelled => {
-                                    self.finish_step(
-                                        response,
-                                        immediate_results
-                                            .into_iter()
-                                            .map(|result: IndexedResult| result.result)
-                                            .collect(),
-                                    );
-                                    self.queue_terminal(RunTerminal::Cancelled {
-                                        reason: "tool loop cancelled during approval decision"
-                                            .to_string(),
-                                        report: Box::new(self.report.clone()),
-                                    });
-                                    return Ok(());
-                                }
+                                return Ok(());
                             }
+                            self.pending.push_back(RunEvent::ToolCompleted {
+                                step: self.step,
+                                ordinal,
+                                result: result.clone(),
+                            });
+                            let stop = self.outcome_policy.action(&result.outcome)
+                                == ToolOutcomeAction::Stop;
+                            immediate_results.push(IndexedResult {
+                                ordinal,
+                                result: result.clone(),
+                            });
+                            if stop {
+                                let tool_results = immediate_results
+                                    .into_iter()
+                                    .map(|result| result.result)
+                                    .collect();
+                                self.finish_step(response, tool_results);
+                                self.queue_terminal(RunTerminal::Stopped {
+                                    reason: RunStopReason::ToolOutcome {
+                                        call_id: result.call_id,
+                                        outcome: result.outcome,
+                                    },
+                                    report: Box::new(self.report.clone()),
+                                });
+                                return Ok(());
+                            }
+                            None
                         }
-                    };
-                    if let Some(call) = authorized {
-                        requests.push(IndexedAuthorizedCall { ordinal, call });
+                        WaitResult::Ready(Ok(ApprovalDecision::AwaitExternal)) => {
+                            if let Err(error) = self
+                                .report
+                                .budget_mut()
+                                .reserve_pending_approval(&self.budget)
+                            {
+                                self.finish_step(
+                                    response,
+                                    immediate_results
+                                        .into_iter()
+                                        .map(|result: IndexedResult| result.result)
+                                        .collect(),
+                                );
+                                self.queue_terminal(RunTerminal::BudgetExceeded {
+                                    error,
+                                    report: Box::new(self.report.clone()),
+                                });
+                                return Ok(());
+                            }
+                            pending_approvals.push(PendingApprovalCall { request });
+                            None
+                        }
+                        WaitResult::Ready(Err(error)) => {
+                            self.finish_step(
+                                response,
+                                immediate_results
+                                    .into_iter()
+                                    .map(|result: IndexedResult| result.result)
+                                    .collect(),
+                            );
+                            self.queue_terminal(RunTerminal::Failed {
+                                error: execution_approval_decision_error(error),
+                                report: Box::new(self.report.clone()),
+                            });
+                            return Ok(());
+                        }
+                        WaitResult::TimedOut(kind) => {
+                            self.finish_step(
+                                response,
+                                immediate_results
+                                    .into_iter()
+                                    .map(|result: IndexedResult| result.result)
+                                    .collect(),
+                            );
+                            self.queue_terminal(RunTerminal::TimedOut {
+                                kind,
+                                report: Box::new(self.report.clone()),
+                            });
+                            return Ok(());
+                        }
+                        WaitResult::Cancelled => {
+                            self.finish_step(
+                                response,
+                                immediate_results
+                                    .into_iter()
+                                    .map(|result: IndexedResult| result.result)
+                                    .collect(),
+                            );
+                            self.queue_terminal(RunTerminal::Cancelled {
+                                reason: "tool loop cancelled during approval decision".to_string(),
+                                report: Box::new(self.report.clone()),
+                            });
+                            return Ok(());
+                        }
                     }
                 }
-                _ => {}
+            };
+            if let Some(call) = authorized {
+                requests.push(IndexedAuthorizedCall { ordinal, call });
             }
         }
 
@@ -1450,8 +1434,8 @@ impl StepEngine {
     ) {
         let outcome = execution_error_outcome(error);
         let result = ToolResult {
-            call_id: call.id.clone(),
-            name: call.name,
+            call_id: call.id().to_owned(),
+            name: call.name().to_owned(),
             outcome: outcome.clone(),
         };
         self.pending.push_back(RunEvent::ToolCompleted {
@@ -1465,7 +1449,7 @@ impl StepEngine {
         } else {
             self.queue_terminal(RunTerminal::Stopped {
                 reason: RunStopReason::ToolOutcome {
-                    call_id: call.id,
+                    call_id: call.id().to_owned(),
                     outcome,
                 },
                 report: Box::new(self.report.clone()),
@@ -1968,10 +1952,9 @@ impl StepEngine {
     }
 
     fn append_assistant_message(&mut self, response: &LanguageResponse) {
-        self.report.messages_mut().push(Message::new(
-            MessageRole::Assistant,
-            response.content().iter().cloned().map(MessagePart::from),
-        ));
+        if let Some(message) = response.project_assistant_history().into_message() {
+            self.report.messages_mut().push(message);
+        }
     }
 
     fn finish_step(&mut self, response: LanguageResponse, results: Vec<ToolResult>) {
@@ -2375,19 +2358,6 @@ fn terminal_checkpoint(terminal: &RunTerminal) -> SnapshotTerminal {
     }
 }
 
-fn provider_state_from_call(call: &ToolCall) -> ProviderStateSnapshot {
-    let namespace = match &call.owner {
-        ExecutionOwner::Provider { provider } => format!("provider-tool:{provider}:{}", call.id),
-        _ => format!("external-tool:{}", call.id),
-    };
-    ProviderStateSnapshot {
-        namespace,
-        correlation_id: Some(call.id.clone()),
-        encoding: "tool-call-id".to_string(),
-        payload: Vec::new(),
-    }
-}
-
 fn provider_state_from_deferred(
     id: &str,
     item: &siumai_core::OpaqueProviderItem,
@@ -2402,8 +2372,8 @@ fn provider_state_from_deferred(
     Ok(ProviderStateSnapshot {
         namespace: format!(
             "provider-deferred:{}:{}:{id}",
-            item.provenance().provider,
-            item.provenance().protocol
+            item.provenance().provider(),
+            item.provenance().protocol()
         ),
         correlation_id: Some(id.to_string()),
         encoding: "siumai.opaque-provider-item+json".to_string(),

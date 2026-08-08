@@ -2,10 +2,11 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::{
     CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelFamily, ProviderOptions, StreamTerminal, UsageValue, WarningKind,
+    Model, ModelFamily, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
+    WarningKind,
 };
 use siumai_provider_alibaba::{
-    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaCredential,
+    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaConfigError, AlibabaCredential,
     AlibabaPromptCacheBreakpoint, AlibabaProvider, AlibabaReasoningEffort, AlibabaResponsesOptions,
     AlibabaResponsesTool, AlibabaSearchOptions,
 };
@@ -17,11 +18,16 @@ fn request(text: &str) -> siumai_core::LanguageRequest {
     siumai_core::LanguageRequest::new(vec![Message::text(MessageRole::User, text)])
 }
 
+fn test_replay_domain() -> ReplayDomain {
+    ReplayDomain::custom(ReplayDomainId::new("test-endpoint").unwrap())
+}
+
 fn provider(server: &MockServer) -> AlibabaProvider {
     AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
         .with_language_endpoint(
             EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap(),
         )
+        .with_replay_domain(test_replay_domain())
         .build()
         .unwrap()
 }
@@ -31,6 +37,7 @@ fn one_public_provider_exposes_both_language_modes_for_open_model_ids() {
     let endpoint = EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap();
     let provider = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
         .with_language_endpoint(endpoint)
+        .with_replay_domain(test_replay_domain())
         .build()
         .unwrap();
 
@@ -50,6 +57,30 @@ fn one_public_provider_exposes_both_language_modes_for_open_model_ids() {
         responses_registration.api_mode(ModelFamily::Language),
         chat_registration.api_mode(ModelFamily::Language)
     );
+}
+
+#[test]
+fn custom_language_endpoints_require_a_matching_replay_domain() {
+    let missing = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_language_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap())
+        .build()
+        .unwrap_err();
+    assert!(matches!(
+        missing,
+        AlibabaConfigError::CustomLanguageEndpointRequiresReplayDomain
+    ));
+
+    let mismatched = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_language_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9/v1").unwrap())
+        .with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("test-endpoint").unwrap(),
+        ))
+        .build()
+        .unwrap_err();
+    assert!(matches!(
+        mismatched,
+        AlibabaConfigError::ReplayAudienceMismatch
+    ));
 }
 
 #[tokio::test]

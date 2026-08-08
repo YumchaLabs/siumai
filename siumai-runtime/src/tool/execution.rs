@@ -4,9 +4,7 @@ use std::pin::Pin;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use siumai_core::{
-    ExecutionOwner, ProviderId, ToolBindingIdentity, ToolCall, ToolResult, ToolSpec,
-};
+use siumai_core::{ExecutionOwner, ToolBindingIdentity, ToolCall, ToolResult, ToolSpec};
 use thiserror::Error;
 
 use crate::approval::{ApprovalClaimField, VerifiedApproval};
@@ -229,9 +227,9 @@ impl std::fmt::Debug for ToolExecutionRequest {
         formatter
             .debug_struct("ToolExecutionRequest")
             .field("binding", &self.binding.identity())
-            .field("call_id", &self.call.id)
-            .field("tool", &self.call.name)
-            .field("owner", &self.call.owner)
+            .field("call_id", &self.call.id())
+            .field("tool", &self.call.name())
+            .field("owner", &self.call.owner())
             .field("arguments", &"<redacted>")
             .field("has_idempotency_key", &self.idempotency_key.is_some())
             .field("recovery_policy", &self.recovery_policy)
@@ -242,12 +240,12 @@ impl std::fmt::Debug for ToolExecutionRequest {
 
 impl ToolExecutionRequest {
     pub(crate) fn local(binding: ToolBinding, call: ToolCall) -> Result<Self, ToolExecutionError> {
-        debug_assert!(matches!(&call.owner, ExecutionOwner::Local));
-        debug_assert_eq!(binding.name(), call.name.as_str());
+        debug_assert!(matches!(call.owner(), ExecutionOwner::Local));
+        debug_assert_eq!(binding.name(), call.name());
         let idempotency_key = binding.stable_idempotency_key(&call).map_err(|source| {
             ToolExecutionError::InvalidIdempotencyKey {
-                call_id: call.id.clone(),
-                tool: call.name.clone(),
+                call_id: call.id().to_owned(),
+                tool: call.name().to_owned(),
                 message: source.to_string(),
             }
         })?;
@@ -266,19 +264,19 @@ impl ToolExecutionRequest {
     }
 
     pub fn call_id(&self) -> &str {
-        &self.call.id
+        self.call.id()
     }
 
     pub fn name(&self) -> &str {
-        &self.call.name
+        self.call.name()
     }
 
     pub fn arguments(&self) -> &Value {
-        &self.call.arguments
+        self.call.arguments()
     }
 
     pub fn owner(&self) -> &ExecutionOwner {
-        &self.call.owner
+        self.call.owner()
     }
 
     pub fn binding_identity(&self) -> &ToolBindingIdentity {
@@ -346,8 +344,8 @@ impl ToolExecutionRequest {
 
         let outcome = self.binding.execute(self).await?;
         Ok(ToolResult {
-            call_id: self.call.id.clone(),
-            name: self.call.name.clone(),
+            call_id: self.call.id().to_owned(),
+            name: self.call.name().to_owned(),
             outcome,
         })
     }
@@ -358,8 +356,8 @@ impl ToolExecutionRequest {
     ) -> Result<AuthorizedToolCall, ToolAuthorizationError> {
         if self.approval_policy() != ApprovalPolicy::NotRequired {
             return Err(ToolAuthorizationError::ApprovalRequired {
-                call_id: self.call.id.clone(),
-                tool: self.call.name.clone(),
+                call_id: self.call.id().to_owned(),
+                tool: self.call.name().to_owned(),
             });
         }
         Ok(AuthorizedToolCall::new(
@@ -409,8 +407,8 @@ impl ToolExecutionRequest {
     ) -> Result<Self, ToolAuthorizationError> {
         if !self.permits_retry(certainty) {
             return Err(ToolAuthorizationError::RecoveryNotPermitted {
-                call_id: self.call.id.clone(),
-                tool: self.call.name.clone(),
+                call_id: self.call.id().to_owned(),
+                tool: self.call.name().to_owned(),
                 certainty,
             });
         }
@@ -418,8 +416,8 @@ impl ToolExecutionRequest {
             self.attempt
                 .next()
                 .ok_or_else(|| ToolAuthorizationError::AttemptOverflow {
-                    call_id: self.call.id.clone(),
-                    tool: self.call.name.clone(),
+                    call_id: self.call.id().to_owned(),
+                    tool: self.call.name().to_owned(),
                 })?;
         let mut next = self.clone();
         next.attempt = attempt;
@@ -523,12 +521,6 @@ pub(crate) enum ToolAuthorizationError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ToolExecutionError {
-    #[error("provider-owned tool `{tool}` cannot resolve to a local binding")]
-    ProviderOwnedCall {
-        call_id: String,
-        tool: String,
-        provider: ProviderId,
-    },
     #[error("no local binding exists for tool `{tool}`")]
     UnknownLocalTool { call_id: String, tool: String },
     #[error("the frozen binding identity for tool `{tool}` no longer matches the trusted catalog")]
@@ -538,8 +530,6 @@ pub enum ToolExecutionError {
         expected: Box<ToolBindingIdentity>,
         actual: Box<ToolBindingIdentity>,
     },
-    #[error("the tool call uses an unsupported execution owner")]
-    UnsupportedExecutionOwner { call_id: String, tool: String },
     #[error("invalid arguments for tool `{tool}`: {message}")]
     InvalidArguments { tool: String, message: String },
     #[error("tool `{tool}` produced an invalid stable idempotency key: {message}")]

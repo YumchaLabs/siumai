@@ -324,11 +324,11 @@ fn encode_message(
             }
             ContentPart::ToolCall(call) if message_role == MessageRole::Assistant => {
                 tool_calls.push(json!({
-                    "id": call.id,
+                    "id": call.id(),
                     "type": "function",
                     "function": {
-                        "name": call.name,
-                        "arguments": serde_json::to_string(&call.arguments)
+                        "name": call.name(),
+                        "arguments": serde_json::to_string(call.arguments())
                             .map_err(json_encode_error)?,
                     }
                 }));
@@ -475,14 +475,19 @@ mod tests {
 
     use serde_json::json;
     use siumai_core::{
-        ContentPart, GenerationConfig, LanguageRequest, MediaData, MediaPart, Message, MessageRole,
-        ModelId, ProviderId, ProviderScope,
+        ApiModeId, ContentPart, GenerationConfig, LanguageRequest, MediaData, MediaPart, Message,
+        MessageRole, ModelId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
     };
 
     use super::*;
 
     fn scope() -> ProviderScope {
         ProviderScope::new(ProviderId::new("test-provider").unwrap())
+            .with_protocol(ProtocolId::new("openai").unwrap())
+            .with_api_mode(ApiModeId::new("chat-completions").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("chat-request-test").unwrap(),
+            ))
     }
 
     #[test]
