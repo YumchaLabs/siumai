@@ -144,12 +144,77 @@ impl VerificationDate {
     }
 }
 
+/// Normalized maturity of an upstream provider surface.
+///
+/// This describes the provider's own lifecycle label, not the stability of Siumai's API. It is
+/// optional because an official source may not publish a normalized maturity state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum UpstreamMaturity {
+    Stable,
+    Preview,
+    Beta,
+    Experimental,
+}
+
+/// Normalized support status of an upstream provider surface.
+///
+/// Maturity and support status are independent. For example, a provider may leave a surface in
+/// `Beta` while marking it `Deprecated` for new integrations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum UpstreamSupportStatus {
+    Active,
+    Legacy,
+    Deprecated,
+    Retired,
+}
+
+/// Optional upstream lifecycle evidence attached to a support claim.
+///
+/// An absent field means that the owning official source did not make that assertion. Siumai does
+/// not infer these values from model names, recommendation text, or a missing deprecation notice.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpstreamLifecycle {
+    maturity: Option<UpstreamMaturity>,
+    support_status: Option<UpstreamSupportStatus>,
+    official_label: Option<String>,
+}
+
+impl UpstreamLifecycle {
+    pub fn new(
+        maturity: Option<UpstreamMaturity>,
+        support_status: Option<UpstreamSupportStatus>,
+        official_label: Option<String>,
+    ) -> Self {
+        Self {
+            maturity,
+            support_status,
+            official_label,
+        }
+    }
+
+    pub fn maturity(&self) -> Option<UpstreamMaturity> {
+        self.maturity
+    }
+
+    pub fn support_status(&self) -> Option<UpstreamSupportStatus> {
+        self.support_status
+    }
+
+    pub fn official_label(&self) -> Option<&str> {
+        self.official_label.as_deref()
+    }
+}
+
 /// Evidence required for every named support claim and catalog row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationEvidence {
     source: OfficialSource,
     verified_at: VerificationDate,
     contract: ProtocolContractId,
+    #[serde(default)]
+    upstream: UpstreamLifecycle,
 }
 
 impl VerificationEvidence {
@@ -162,7 +227,13 @@ impl VerificationEvidence {
             source,
             verified_at,
             contract,
+            upstream: UpstreamLifecycle::default(),
         }
+    }
+
+    pub fn with_upstream(mut self, upstream: UpstreamLifecycle) -> Self {
+        self.upstream = upstream;
+        self
     }
 
     pub fn source(&self) -> &OfficialSource {
@@ -175,6 +246,10 @@ impl VerificationEvidence {
 
     pub fn contract(&self) -> &ProtocolContractId {
         &self.contract
+    }
+
+    pub fn upstream(&self) -> &UpstreamLifecycle {
+        &self.upstream
     }
 }
 
@@ -344,6 +419,8 @@ impl NativeSupportScope {
 pub struct NativeVerificationEvidence {
     source: OfficialSource,
     verified_at: VerificationDate,
+    #[serde(default)]
+    upstream: UpstreamLifecycle,
 }
 
 impl NativeVerificationEvidence {
@@ -351,7 +428,13 @@ impl NativeVerificationEvidence {
         Self {
             source,
             verified_at,
+            upstream: UpstreamLifecycle::default(),
         }
+    }
+
+    pub fn with_upstream(mut self, upstream: UpstreamLifecycle) -> Self {
+        self.upstream = upstream;
+        self
     }
 
     pub fn source(&self) -> &OfficialSource {
@@ -360,6 +443,10 @@ impl NativeVerificationEvidence {
 
     pub fn verified_at(&self) -> VerificationDate {
         self.verified_at
+    }
+
+    pub fn upstream(&self) -> &UpstreamLifecycle {
+        &self.upstream
     }
 }
 
@@ -848,6 +935,43 @@ mod tests {
             VerificationDate::new(NaiveDate::from_ymd_opt(2026, 8, 4).unwrap()),
             ProtocolContractId::new("openai-chat-v1").unwrap(),
         )
+    }
+
+    #[test]
+    fn upstream_maturity_and_support_status_are_independent_evidence_axes() {
+        let lifecycle = UpstreamLifecycle::new(
+            Some(UpstreamMaturity::Beta),
+            Some(UpstreamSupportStatus::Deprecated),
+            Some("legacy beta endpoint".to_owned()),
+        );
+        let evidence = evidence().with_upstream(lifecycle.clone());
+
+        assert_eq!(evidence.upstream(), &lifecycle);
+        assert_eq!(evidence.upstream().maturity(), Some(UpstreamMaturity::Beta));
+        assert_eq!(
+            evidence.upstream().support_status(),
+            Some(UpstreamSupportStatus::Deprecated)
+        );
+        assert_eq!(
+            evidence.upstream().official_label(),
+            Some("legacy beta endpoint")
+        );
+
+        let round_trip = serde_json::from_value::<VerificationEvidence>(
+            serde_json::to_value(&evidence).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(round_trip, evidence);
+    }
+
+    #[test]
+    fn missing_upstream_lifecycle_remains_unasserted() {
+        let evidence = evidence();
+
+        assert_eq!(evidence.upstream(), &UpstreamLifecycle::default());
+        assert_eq!(evidence.upstream().maturity(), None);
+        assert_eq!(evidence.upstream().support_status(), None);
+        assert_eq!(evidence.upstream().official_label(), None);
     }
 
     fn model(id: &str, lifecycle: ModelLifecycle) -> ModelProfile {

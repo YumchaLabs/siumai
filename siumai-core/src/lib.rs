@@ -53,8 +53,9 @@ pub use profile::{
     ApiStability, CatalogError, GenericSupportClaim, ModelCatalog, ModelLifecycle, ModelProfile,
     NativeSupportScope, NativeSurfaceBinding, NativeSurfaceKind, NativeVerificationEvidence,
     OfficialSource, ProfileError, ProviderProfile, ProviderSupportManifest, SupportFidelity,
-    SupportManifestError, SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity,
-    VerifiedNativeSupportClaim, VerifiedSupportClaim,
+    SupportManifestError, SupportScope, UpstreamLifecycle, UpstreamMaturity, UpstreamSupportStatus,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedNativeSupportClaim,
+    VerifiedSupportClaim,
 };
 pub use provider::{
     ApiModeId, EmbeddingModelProvider, ImageModelProvider, InvalidId, LanguageModelProvider,

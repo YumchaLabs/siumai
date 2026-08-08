@@ -9,7 +9,7 @@ unknown IDs remain valid input.
 Every model-family claim is scoped by:
 
 ```text
-provider + technical_platform + family + protocol + api_mode + fidelity + stability
+provider + technical_platform + family + protocol + api_mode + fidelity + stability + evidence
 ```
 
 Provider-native resources, sessions, and jobs use the same identity and evidence fields but name a
@@ -33,6 +33,23 @@ models, and fallback policy are host control-plane facts and are not part of a S
 When a remote API requires a caller-selected region, project, workspace, or deployment to address
 or sign a request, Siumai models that value only as technical addressing context. It does not infer
 that a model is commercially available there or publish an exhaustive region/deployment inventory.
+
+### Upstream lifecycle evidence
+
+`ApiStability` describes the stability of Siumai's public surface. It is independent from the
+optional upstream evidence fields carried by `VerificationEvidence` and
+`NativeVerificationEvidence`:
+
+| Field | Meaning |
+|---|---|
+| `upstream.maturity` | Normalized provider maturity such as `stable`, `preview`, `beta`, or `experimental`. |
+| `upstream.support_status` | Normalized provider status such as `active`, `legacy`, `deprecated`, or `retired`. |
+| `upstream.official_label` | The provider's wording when normalization would lose useful meaning. |
+
+Each field is independently optional. A missing value means that the cited official source does
+not make that assertion; it is not a claim that the surface is active or stable. Siumai never
+infers upstream state from model names, recommendation prose, or the absence of a deprecation
+notice, and these fields never act as runtime capability or routing authority.
 
 ## Current facade surface
 
