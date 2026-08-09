@@ -58,6 +58,7 @@ impl OpenAiResponsesResponse {
 pub struct OpenAiResponsesStreamFrame {
     native: ResponsesStreamEvent,
     portable_events: Vec<LanguageStreamEvent>,
+    canonical_terminal_response: Option<ResponseWire>,
 }
 
 impl fmt::Debug for OpenAiResponsesStreamFrame {
@@ -67,6 +68,10 @@ impl fmt::Debug for OpenAiResponsesStreamFrame {
             .field("native", &self.native)
             .field("portable_event_count", &self.portable_events.len())
             .field("terminal", &self.is_terminal())
+            .field(
+                "has_canonical_terminal_response",
+                &self.canonical_terminal_response.is_some(),
+            )
             .finish()
     }
 }
@@ -75,10 +80,12 @@ impl OpenAiResponsesStreamFrame {
     pub(crate) fn new(
         native: ResponsesStreamEvent,
         portable_events: Vec<LanguageStreamEvent>,
+        canonical_terminal_response: Option<ResponseWire>,
     ) -> Self {
         Self {
             native,
             portable_events,
+            canonical_terminal_response,
         }
     }
 
@@ -88,6 +95,15 @@ impl OpenAiResponsesStreamFrame {
 
     pub fn portable_events(&self) -> &[LanguageStreamEvent] {
         &self.portable_events
+    }
+
+    /// Return the reconstructed canonical terminal response, when this frame settles the turn.
+    ///
+    /// This may contain output items reconstructed from earlier events when the
+    /// raw terminal event is abbreviated. [`Self::native`] always remains the
+    /// exact provider event and is never rewritten.
+    pub fn canonical_terminal_response(&self) -> Option<&ResponseWire> {
+        self.canonical_terminal_response.as_ref()
     }
 
     pub fn terminal(&self) -> Option<&StreamTerminal> {
@@ -104,8 +120,18 @@ impl OpenAiResponsesStreamFrame {
         self.portable_events
     }
 
-    pub fn into_parts(self) -> (ResponsesStreamEvent, Vec<LanguageStreamEvent>) {
-        (self.native, self.portable_events)
+    pub fn into_parts(
+        self,
+    ) -> (
+        ResponsesStreamEvent,
+        Vec<LanguageStreamEvent>,
+        Option<ResponseWire>,
+    ) {
+        (
+            self.native,
+            self.portable_events,
+            self.canonical_terminal_response,
+        )
     }
 }
 

@@ -38,6 +38,9 @@ secrecy.workspace = true
 [features]
 default = []
 
+# Experimental persistent OpenAI Responses WebSocket sessions.
+openai-responses-websocket = ["dep:uuid"]
+
 # Experimental native OpenAI Realtime and Realtime Translation sessions.
 openai-realtime = ["dep:url", "dep:uuid", "siumai-protocol-openai/openai-realtime"]
 

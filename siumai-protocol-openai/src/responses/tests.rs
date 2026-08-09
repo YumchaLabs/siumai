@@ -595,7 +595,27 @@ fn protected_fields_cannot_be_overridden_by_extra_options() {
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
     assert!(is_protected_option_field("tools"));
     assert!(is_protected_option_field("background"));
+    assert!(is_protected_option_field("type"));
+    assert!(is_protected_option_field("generate"));
     assert!(!is_protected_option_field("reasoning"));
+}
+
+#[test]
+fn websocket_request_body_omits_http_transport_fields() {
+    let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
+    let body = encode_request_with_options(
+        &scope(),
+        &model(),
+        &request,
+        &RequestEncodingOptions::websocket(),
+    )
+    .unwrap();
+
+    assert_eq!(body["model"], "gpt-5.6");
+    assert!(body.get("stream").is_none());
+    assert!(body.get("background").is_none());
+    assert!(body.get("type").is_none());
+    assert!(body.get("generate").is_none());
 }
 
 #[test]

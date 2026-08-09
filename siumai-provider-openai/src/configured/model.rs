@@ -11,7 +11,7 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelAdvisory,
     ModelDescriptor, ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision,
-    ProviderOptionError, StreamTerminal, SupportState, Warning, WarningKind,
+    ProviderOptionError, ProviderScope, StreamTerminal, SupportState, Warning, WarningKind,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
@@ -40,8 +40,31 @@ use super::responses_native::{
     OpenAiResponsesResponse, OpenAiResponsesStream, OpenAiResponsesStreamFrame,
 };
 use super::responses_resource::OpenAiBackgroundResponse;
+#[cfg(feature = "openai-responses-websocket")]
+use super::responses_websocket::{
+    OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError,
+};
 
 const RESPONSES_TARGET: &str = "responses";
+
+#[cfg(feature = "openai-responses-websocket")]
+pub(crate) struct PreparedOpenAiResponsesWebSocketCall {
+    pub(crate) body: Value,
+    pub(crate) warnings: Vec<Warning>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OpenAiResponsesBodyMode {
+    Http {
+        stream: bool,
+        background: bool,
+    },
+    #[cfg(feature = "openai-responses-websocket")]
+    WebSocket {
+        generate: bool,
+    },
+}
+
 /// Lightweight model handle for the recommended OpenAI Responses API.
 #[derive(Clone)]
 pub struct OpenAiResponsesModel {
@@ -90,31 +113,12 @@ impl OpenAiResponsesModel {
         background: bool,
         merged: OpenAiMergedOptions,
     ) -> Result<RequestPlan, Error> {
-        let resolver = OpenAiAnnotationResolver;
-        let mut encoding = RequestEncodingOptions::new(stream).with_extra(merged.wire);
-        for tool in merged.native_tools {
-            encoding = encoding.with_native_tool(tool);
-        }
-        for (name, options) in merged.function_tools {
-            encoding = encoding.with_function_tool_options(name, options);
-        }
-        let mut body = encode_request_with_options(
+        let body = self.encode_body(
             self.runtime.scope(OpenAiApiMode::Responses),
-            self.model_id(),
             request,
-            &encoding,
-            &resolver,
+            OpenAiResponsesBodyMode::Http { stream, background },
+            merged,
         )?;
-        if background {
-            body.as_object_mut()
-                .ok_or_else(|| {
-                    Error::new(
-                        ErrorKind::Protocol,
-                        "OpenAI Responses encoder produced a non-object request",
-                    )
-                })?
-                .insert("background".to_string(), Value::Bool(true));
-        }
         request_plan(
             RESPONSES_TARGET,
             body,
@@ -124,7 +128,105 @@ impl OpenAiResponsesModel {
         )
     }
 
-    fn contextualize(&self, operation: ModelOperation, error: Error) -> Error {
+    fn encode_body(
+        &self,
+        scope: &ProviderScope,
+        request: &LanguageRequest,
+        mode: OpenAiResponsesBodyMode,
+        merged: OpenAiMergedOptions,
+    ) -> Result<Value, Error> {
+        let resolver = OpenAiAnnotationResolver;
+        let mut encoding = match mode {
+            OpenAiResponsesBodyMode::Http { stream, .. } => RequestEncodingOptions::new(stream),
+            #[cfg(feature = "openai-responses-websocket")]
+            OpenAiResponsesBodyMode::WebSocket { .. } => RequestEncodingOptions::websocket(),
+        }
+        .with_extra(merged.wire);
+        for tool in merged.native_tools {
+            encoding = encoding.with_native_tool(tool);
+        }
+        for (name, options) in merged.function_tools {
+            encoding = encoding.with_function_tool_options(name, options);
+        }
+        let mut body =
+            encode_request_with_options(scope, self.model_id(), request, &encoding, &resolver)?;
+        let object = body.as_object_mut().ok_or_else(|| {
+            Error::new(
+                ErrorKind::Protocol,
+                "OpenAI Responses encoder produced a non-object request",
+            )
+        })?;
+        match mode {
+            OpenAiResponsesBodyMode::Http {
+                background: true, ..
+            } => {
+                object.insert("background".to_string(), Value::Bool(true));
+            }
+            OpenAiResponsesBodyMode::Http { .. } => {}
+            #[cfg(feature = "openai-responses-websocket")]
+            OpenAiResponsesBodyMode::WebSocket { generate } => {
+                object.insert(
+                    "type".to_string(),
+                    Value::String("response.create".to_string()),
+                );
+                if !generate {
+                    object.insert("generate".to_string(), Value::Bool(false));
+                }
+            }
+        }
+        Ok(body)
+    }
+
+    #[cfg(feature = "openai-responses-websocket")]
+    /// Configure one persistent provider-owned Responses WebSocket session.
+    pub fn websocket(
+        &self,
+    ) -> Result<OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError> {
+        OpenAiResponsesWebSocketConfig::from_model(self.clone())
+    }
+
+    #[cfg(feature = "openai-responses-websocket")]
+    pub(crate) fn prepare_websocket_call(
+        &self,
+        scope: &ProviderScope,
+        request: LanguageRequest,
+        options: &CallOptions,
+        generate: bool,
+    ) -> Result<PreparedOpenAiResponsesWebSocketCall, Error> {
+        let operation = ModelOperation::Stream;
+        let mut warnings = policy_warnings(
+            &self.runtime,
+            OpenAiApiMode::Responses,
+            self.model_id(),
+            operation,
+        )
+        .map_err(|error| self.contextualize(operation, error))?;
+        let mut merged = self
+            .runtime
+            .merge_options(OpenAiApiMode::Responses, options)
+            .map_err(|source| {
+                self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
+            })?;
+        let (request, compatibility_warnings) = normalize_request(
+            OpenAiApiMode::Responses,
+            self.model_id(),
+            request,
+            &mut merged,
+        )
+        .map_err(|error| self.contextualize(operation, error))?;
+        warnings.extend(compatibility_warnings);
+        let body = self
+            .encode_body(
+                scope,
+                &request,
+                OpenAiResponsesBodyMode::WebSocket { generate },
+                merged,
+            )
+            .map_err(|error| self.contextualize(operation, error))?;
+        Ok(PreparedOpenAiResponsesWebSocketCall { body, warnings })
+    }
+
+    pub(crate) fn contextualize(&self, operation: ModelOperation, error: Error) -> Error {
         contextualize(self, operation, error)
     }
 
@@ -299,7 +401,7 @@ impl OpenAiResponsesModel {
     }
 }
 
-fn responses_terminal_policy(runtime: &OpenAiRuntime) -> ResponsesTerminalPolicy {
+pub(crate) fn responses_terminal_policy(runtime: &OpenAiRuntime) -> ResponsesTerminalPolicy {
     let scope = runtime.scope(OpenAiApiMode::Responses);
     let verified = runtime
         .profile
@@ -743,7 +845,7 @@ fn contextualize(model: &impl Model, operation: ModelOperation, error: Error) ->
     error.with_context(model_error_context(model, operation))
 }
 
-fn model_error_context(model: &impl Model, operation: ModelOperation) -> ErrorContext {
+pub(crate) fn model_error_context(model: &impl Model, operation: ModelOperation) -> ErrorContext {
     ErrorContext {
         operation: Some(operation),
         provider: Some(model.provider_id().clone()),
@@ -821,7 +923,7 @@ fn with_policy_warnings(mut response: LanguageResponse, warnings: &[Warning]) ->
     response
 }
 
-fn attach_policy_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
+pub(crate) fn attach_policy_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
     if warnings.is_empty() {
         return;
     }
@@ -877,7 +979,16 @@ fn decode_responses_sse_stream(
                     contextualize_terminal_error(event, &context);
                     attach_policy_warnings(event, &warnings);
                 }
-                let frame = OpenAiResponsesStreamFrame::new(native, portable_events);
+                let canonical_terminal_response = portable_events
+                    .iter()
+                    .any(|event| event.terminal().is_some())
+                    .then(|| protocol.terminal_response().cloned())
+                    .flatten();
+                let frame = OpenAiResponsesStreamFrame::new(
+                    native,
+                    portable_events,
+                    canonical_terminal_response,
+                );
                 let terminal = frame.is_terminal();
                 yield frame;
                 if terminal {
@@ -959,7 +1070,10 @@ where
     })
 }
 
-fn contextualize_terminal_error(event: &mut LanguageStreamEvent, context: &ErrorContext) {
+pub(crate) fn contextualize_terminal_error(
+    event: &mut LanguageStreamEvent,
+    context: &ErrorContext,
+) {
     let LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }) = event else {
         return;
     };

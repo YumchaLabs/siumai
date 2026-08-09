@@ -24,6 +24,8 @@ mod realtime_resource;
 mod resources;
 mod responses_native;
 mod responses_resource;
+#[cfg(feature = "openai-responses-websocket")]
+mod responses_websocket;
 mod speech;
 mod tools;
 mod transcription;
@@ -79,6 +81,13 @@ pub use responses_resource::{
     OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions, OpenAiResponsesInputItemsOrder,
     OpenAiResponsesInputItemsPage, OpenAiResponsesInputTokenCount,
     OpenAiResponsesInputTokenCountRequest, OpenAiResponsesResource, OpenAiResponsesRetrieveOptions,
+};
+#[cfg(feature = "openai-responses-websocket")]
+pub use responses_websocket::{
+    OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame, OpenAiResponsesWarmUpOutcome,
+    OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError,
+    OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
+    OpenAiResponsesWebSocketTurnKind,
 };
 pub use speech::{
     GPT_4O_MINI_TTS, GPT_4O_MINI_TTS_2025_03_20, GPT_4O_MINI_TTS_2025_12_15, OpenAiSpeechModel,
@@ -192,6 +201,27 @@ pub mod experimental {
             pub use crate::configured::realtime::{
                 OpenAiRealtimeConnectRequest, OpenAiRealtimeConnector, OpenAiRealtimeSocket,
                 OpenAiRealtimeSocketReceiver, OpenAiRealtimeSocketSender, OpenAiWebSocketConnector,
+            };
+        }
+    }
+
+    /// Persistent provider-owned Responses WebSocket sessions.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub mod responses_websocket {
+        pub use crate::configured::{
+            OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
+            OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
+            OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
+            OpenAiResponsesWebSocketTurnKind,
+        };
+
+        /// Connector seams for custom transports and deterministic integration tests.
+        pub mod advanced {
+            pub use crate::configured::responses_websocket::{
+                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
+                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
+                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
             };
         }
     }

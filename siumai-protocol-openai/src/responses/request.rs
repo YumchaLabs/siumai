@@ -126,9 +126,9 @@ impl FunctionToolEncodingOptions {
 
 /// Protocol-owned request shaping. Provider crates keep typed user options and
 /// translate them into this wire-focused structure after applying precedence.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RequestEncodingOptions {
-    stream: bool,
+    stream: Option<bool>,
     extra: BTreeMap<String, Value>,
     native_tools: Vec<Value>,
     function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
@@ -136,14 +136,26 @@ pub struct RequestEncodingOptions {
 }
 
 impl RequestEncodingOptions {
+    /// Encode an HTTP Responses request with the required `stream` field.
     pub fn new(stream: bool) -> Self {
         Self {
-            stream,
+            stream: Some(stream),
             ..Self::default()
         }
     }
 
-    pub fn stream(&self) -> bool {
+    /// Encode a Responses WebSocket `response.create` body.
+    ///
+    /// The provider-owned WebSocket event wrapper adds `type` and optional
+    /// `generate`; the shared Responses body must not contain `stream`.
+    pub fn websocket() -> Self {
+        Self {
+            stream: None,
+            ..Self::default()
+        }
+    }
+
+    pub fn stream(&self) -> Option<bool> {
         self.stream
     }
 
@@ -169,6 +181,18 @@ impl RequestEncodingOptions {
     pub const fn with_media_dialect(mut self, dialect: ResponsesMediaDialect) -> Self {
         self.media_dialect = dialect;
         self
+    }
+}
+
+impl Default for RequestEncodingOptions {
+    fn default() -> Self {
+        Self {
+            stream: Some(false),
+            extra: BTreeMap::new(),
+            native_tools: Vec::new(),
+            function_tools: BTreeMap::new(),
+            media_dialect: ResponsesMediaDialect::default(),
+        }
     }
 }
 
@@ -268,7 +292,9 @@ pub fn encode_request_with_options_and_resolver(
     let mut body = Map::new();
     body.insert("model".to_string(), Value::String(model.to_string()));
     body.insert("input".to_string(), Value::Array(input));
-    body.insert("stream".to_string(), Value::Bool(options.stream));
+    if let Some(stream) = options.stream {
+        body.insert("stream".to_string(), Value::Bool(stream));
+    }
     insert_optional_u64(
         &mut body,
         "max_output_tokens",
@@ -374,6 +400,8 @@ pub fn is_protected_option_field(field: &str) -> bool {
             | "input"
             | "stream"
             | "background"
+            | "type"
+            | "generate"
             | "max_output_tokens"
             | "temperature"
             | "top_p"

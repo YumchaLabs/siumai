@@ -23,6 +23,8 @@ use siumai_transport::{
     EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
     TransportConfigError, TransportLimits, TransportObserver,
 };
+#[cfg(feature = "openai-responses-websocket")]
+use siumai_transport::{WebSocketEndpoint, WebSocketTransport};
 use thiserror::Error;
 
 use super::credential::{OpenAiCredential, OpenAiCredentialError};
@@ -43,6 +45,11 @@ use super::realtime::{
 use super::realtime_resource::OpenAiRealtimeResource;
 use super::resources::{OpenAiConversations, OpenAiFiles, OpenAiVectorStores};
 use super::responses_resource::OpenAiResponsesResource;
+#[cfg(feature = "openai-responses-websocket")]
+use super::responses_websocket::{
+    OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWebSocketConfigError,
+    OpenAiResponsesWebSocketRuntime,
+};
 use super::speech::{OpenAiSpeechModel, OpenAiSpeechOptions};
 use super::transcription::{OpenAiTranscriptionModel, OpenAiTranscriptionOptions};
 
@@ -454,6 +461,14 @@ pub struct OpenAiProviderBuilder {
     realtime_session_timeout: Option<Duration>,
     #[cfg(feature = "openai-realtime")]
     realtime_io_timeout: Option<Duration>,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_endpoint: Option<WebSocketEndpoint>,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_session_timeout: Option<Duration>,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_io_timeout: Option<Duration>,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_turn_timeout: Option<Duration>,
     responses_defaults: OpenAiResponsesOptions,
     chat_completions_defaults: OpenAiChatCompletionsOptions,
     embedding_defaults: OpenAiEmbeddingOptions,
@@ -487,6 +502,14 @@ impl OpenAiProviderBuilder {
             realtime_session_timeout: None,
             #[cfg(feature = "openai-realtime")]
             realtime_io_timeout: None,
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_endpoint: None,
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_session_timeout: None,
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_io_timeout: None,
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_turn_timeout: None,
             responses_defaults: OpenAiResponsesOptions::default(),
             chat_completions_defaults: OpenAiChatCompletionsOptions::default(),
             embedding_defaults: OpenAiEmbeddingOptions::default(),
@@ -576,6 +599,38 @@ impl OpenAiProviderBuilder {
     #[cfg(feature = "openai-realtime")]
     pub fn with_realtime_io_timeout(mut self, timeout: Duration) -> Self {
         self.realtime_io_timeout = Some(timeout);
+        self
+    }
+
+    /// Configure the caller-controlled Responses WebSocket endpoint.
+    ///
+    /// Custom HTTP providers must select this endpoint explicitly. An official
+    /// HTTP provider cannot attach a caller-controlled WebSocket endpoint because
+    /// that would give the relay OpenAI-owned replay provenance.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_endpoint(mut self, endpoint: WebSocketEndpoint) -> Self {
+        self.responses_websocket_endpoint = Some(endpoint);
+        self
+    }
+
+    /// Configure the maximum lifetime of one Responses WebSocket connection.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_session_timeout(mut self, timeout: Duration) -> Self {
+        self.responses_websocket_session_timeout = Some(timeout);
+        self
+    }
+
+    /// Configure the inactivity timeout for one Responses WebSocket send or receive.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_io_timeout(mut self, timeout: Duration) -> Self {
+        self.responses_websocket_io_timeout = Some(timeout);
+        self
+    }
+
+    /// Configure the maximum duration of one generated or warm-up turn.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_turn_timeout(mut self, timeout: Duration) -> Self {
+        self.responses_websocket_turn_timeout = Some(timeout);
         self
     }
 
@@ -670,6 +725,39 @@ impl OpenAiProviderBuilder {
         let realtime_session_timeout = self.realtime_session_timeout;
         #[cfg(feature = "openai-realtime")]
         let realtime_io_timeout = self.realtime_io_timeout;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_credential = self.credential.clone();
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_organization = self.organization.clone();
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_project = self.project.clone();
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_limits = self.limits.clone();
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_connect_timeout = self.connect_timeout;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_session_timeout = self.responses_websocket_session_timeout;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_io_timeout = self.responses_websocket_io_timeout;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_turn_timeout = self.responses_websocket_turn_timeout;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket_endpoint = match (
+            self.responses_websocket_endpoint,
+            provider_verified_endpoint,
+        ) {
+            (Some(_), true) => {
+                return Err(
+                    OpenAiConfigError::CallerControlledResponsesWebSocketOnOfficialProvider,
+                );
+            }
+            (Some(endpoint), false) => Some(endpoint),
+            (None, true) => Some(WebSocketEndpoint::official(
+                OPENAI_RESPONSES_WEBSOCKET_URL,
+                OfficialOrigin::new(OFFICIAL_ORIGIN)?,
+            )?),
+            (None, false) => None,
+        };
         #[cfg(feature = "openai-realtime")]
         let realtime_endpoint = self
             .realtime_endpoint
@@ -767,6 +855,31 @@ impl OpenAiProviderBuilder {
             transport = transport.with_observer(observer);
         }
         let transport = transport.build()?;
+        #[cfg(feature = "openai-responses-websocket")]
+        let responses_websocket = if let Some(endpoint) = responses_websocket_endpoint {
+            let auth = responses_websocket_credential.into_auth(
+                responses_websocket_organization,
+                responses_websocket_project,
+            )?;
+            let mut websocket = WebSocketTransport::builder(endpoint)
+                .with_auth(auth)
+                .with_limits(responses_websocket_limits);
+            if let Some(timeout) = responses_websocket_connect_timeout {
+                websocket = websocket.with_connect_timeout(timeout);
+            }
+            if let Some(timeout) = responses_websocket_session_timeout {
+                websocket = websocket.with_session_timeout(timeout);
+            }
+            if let Some(timeout) = responses_websocket_io_timeout {
+                websocket = websocket.with_io_timeout(timeout);
+            }
+            Some(OpenAiResponsesWebSocketRuntime::new(
+                websocket.build()?,
+                responses_websocket_turn_timeout,
+            )?)
+        } else {
+            None
+        };
         let policy = Arc::new(OpenAiModelPolicy::new(&profile));
         Ok(OpenAiProvider {
             runtime: Arc::new(OpenAiRuntime {
@@ -801,6 +914,8 @@ impl OpenAiProviderBuilder {
                 realtime_session_timeout,
                 #[cfg(feature = "openai-realtime")]
                 realtime_io_timeout,
+                #[cfg(feature = "openai-responses-websocket")]
+                responses_websocket,
             }),
         })
     }
@@ -844,6 +959,16 @@ impl fmt::Debug for OpenAiProviderBuilder {
                     false
                 }
             })
+            .field("has_responses_websocket_endpoint", &{
+                #[cfg(feature = "openai-responses-websocket")]
+                {
+                    self.responses_websocket_endpoint.is_some()
+                }
+                #[cfg(not(feature = "openai-responses-websocket"))]
+                {
+                    false
+                }
+            })
             .finish()
     }
 }
@@ -878,6 +1003,8 @@ pub(crate) struct OpenAiRuntime {
     realtime_session_timeout: Option<Duration>,
     #[cfg(feature = "openai-realtime")]
     realtime_io_timeout: Option<Duration>,
+    #[cfg(feature = "openai-responses-websocket")]
+    pub(crate) responses_websocket: Option<OpenAiResponsesWebSocketRuntime>,
 }
 
 fn native_support_claim(
@@ -1190,7 +1317,13 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
         || match mode {
             OptionMode::Responses => matches!(
                 field,
-                "input" | "text" | "background" | "tools" | "function_tool_options"
+                "input"
+                    | "text"
+                    | "background"
+                    | "tools"
+                    | "function_tool_options"
+                    | "type"
+                    | "generate"
             ),
             OptionMode::ChatCompletions => matches!(
                 field,
@@ -1258,6 +1391,14 @@ pub enum OpenAiConfigError {
     ReplayAudienceMismatch,
     #[error("organization or project configuration requires a non-secret replay caller scope")]
     AccountScopeRequiresReplayCallerScope,
+    #[cfg(feature = "openai-responses-websocket")]
+    #[error(
+        "a caller-controlled Responses WebSocket endpoint requires a caller-controlled HTTP provider"
+    )]
+    CallerControlledResponsesWebSocketOnOfficialProvider,
+    #[cfg(feature = "openai-responses-websocket")]
+    #[error(transparent)]
+    ResponsesWebSocket(#[from] OpenAiResponsesWebSocketConfigError),
     #[error("invalid default Responses options: {0}")]
     InvalidResponsesDefaults(ProviderOptionError),
     #[error("invalid default Chat Completions options: {0}")]

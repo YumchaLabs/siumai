@@ -1,4 +1,4 @@
-//! Stateful decoder for OpenAI Responses SSE data values.
+//! Transport-neutral decoder for OpenAI Responses server events.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -485,7 +485,7 @@ impl ResponsesStreamDecoder {
         let wire = serde_json::from_str::<StreamEventWire>(data).map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
-                "provider returned malformed OpenAI Responses stream JSON",
+                "provider returned malformed OpenAI Responses event JSON",
             )
             .with_source(source)
         })?;
