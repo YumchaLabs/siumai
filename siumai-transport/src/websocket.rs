@@ -72,6 +72,18 @@ impl WebSocketEndpoint {
         )
     }
 
+    /// Construct a WebSocket endpoint explicitly authorized for RFC 6598 shared address space.
+    ///
+    /// The exact grant accepts only `100.64.0.0/10`, including IPv4-mapped IPv6
+    /// representations. Cleartext `ws` remains a caller-selected local-network
+    /// risk; prefer `wss` whenever the relay supports it.
+    pub fn shared_address_space_explicit(url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::SharedAddressSpace),
+        )
+    }
+
     pub fn new(url: impl AsRef<str>, policy: EndpointPolicy) -> Result<Self, EndpointError> {
         let url = Url::parse(url.as_ref()).map_err(|_| EndpointError::InvalidUrl)?;
         match policy {
@@ -872,6 +884,16 @@ mod tests {
             EndpointError::AddressNotAllowed
         );
         WebSocketEndpoint::private_network_explicit("ws://10.0.0.7:8080/live").unwrap();
+        assert_eq!(
+            WebSocketEndpoint::private_network_explicit("ws://100.64.0.1:8080/live").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        WebSocketEndpoint::shared_address_space_explicit("ws://100.64.0.1:8080/live").unwrap();
+        assert_eq!(
+            WebSocketEndpoint::shared_address_space_explicit("ws://100.128.0.0:8080/live")
+                .unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
     }
 
     #[tokio::test]

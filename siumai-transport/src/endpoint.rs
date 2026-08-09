@@ -82,6 +82,13 @@ pub enum LocalNetworkGrant {
     PrivateNetwork,
     /// IPv4 or IPv6 link-local addresses only. This includes metadata ranges.
     LinkLocal,
+    /// RFC 6598 IPv4 shared address space (`100.64.0.0/10`) only.
+    ///
+    /// This range is neither RFC 1918 private space nor globally routable public
+    /// space. Selecting it is an explicit caller trust decision for an overlay,
+    /// carrier-grade NAT, or relay deployment. Cleartext HTTP remains possible
+    /// under local grants, so callers should prefer HTTPS whenever supported.
+    SharedAddressSpace,
 }
 
 impl EndpointPolicy {
@@ -200,6 +207,18 @@ impl EndpointConfig {
         )
     }
 
+    /// Construct an endpoint explicitly authorized for RFC 6598 shared address space.
+    ///
+    /// The exact grant accepts only `100.64.0.0/10`, including IPv4-mapped IPv6
+    /// representations. It does not authorize RFC 1918, loopback, link-local, or
+    /// globally routable addresses. Prefer HTTPS when the selected relay supports it.
+    pub fn shared_address_space_explicit(base_url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(
+            base_url,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::SharedAddressSpace),
+        )
+    }
+
     /// Construct an endpoint from an explicit security policy.
     pub fn new(base_url: impl AsRef<str>, policy: EndpointPolicy) -> Result<Self, EndpointError> {
         let base_url = Url::parse(base_url.as_ref()).map_err(|_| EndpointError::InvalidUrl)?;
@@ -267,7 +286,7 @@ impl EndpointConfig {
         resolver: &R,
     ) -> Result<Vec<SocketAddr>, EndpointError> {
         let port = self.audience.port;
-        let addresses = match self.base_url.host().ok_or(EndpointError::MissingHost)? {
+        let mut addresses = match self.base_url.host().ok_or(EndpointError::MissingHost)? {
             Host::Ipv4(address) => vec![SocketAddr::new(IpAddr::V4(address), port)],
             Host::Ipv6(address) => vec![SocketAddr::new(IpAddr::V6(address), port)],
             Host::Domain(host) => resolver.resolve(host, port).await?,
@@ -275,9 +294,12 @@ impl EndpointConfig {
         if addresses.is_empty() {
             return Err(EndpointError::NoAddresses);
         }
-        for address in &addresses {
+        for address in &mut addresses {
             validate_address(address.ip(), &self.policy)?;
+            address.set_port(port);
         }
+        addresses.sort_unstable();
+        addresses.dedup();
         Ok(addresses)
     }
 
@@ -312,10 +334,10 @@ impl EndpointConfig {
         }
         validate_address(remote.ip(), &self.policy)?;
         match self.base_url.host().ok_or(EndpointError::MissingHost)? {
-            Host::Ipv4(expected) if remote.ip() != IpAddr::V4(expected) => {
+            Host::Ipv4(expected) if !same_ip_address(IpAddr::V4(expected), remote.ip()) => {
                 Err(EndpointError::AddressNotAllowed)
             }
-            Host::Ipv6(expected) if remote.ip() != IpAddr::V6(expected) => {
+            Host::Ipv6(expected) if !same_ip_address(IpAddr::V6(expected), remote.ip()) => {
                 Err(EndpointError::AddressNotAllowed)
             }
             Host::Domain(_) | Host::Ipv4(_) | Host::Ipv6(_) => Ok(()),
@@ -464,6 +486,7 @@ fn local_grant_allows(address: IpAddr, grant: LocalNetworkGrant) -> bool {
         LocalNetworkGrant::Loopback => is_loopback_ip(address),
         LocalNetworkGrant::PrivateNetwork => is_private_ip(address),
         LocalNetworkGrant::LinkLocal => is_link_local_ip(address),
+        LocalNetworkGrant::SharedAddressSpace => is_shared_address_space_ip(address),
     }
 }
 
@@ -501,6 +524,29 @@ fn is_link_local_ip(address: IpAddr) -> bool {
             (address.segments()[0] & 0xffc0) == 0xfe80
         }
     }
+}
+
+fn is_shared_address_space_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_shared_address_space_ipv4(address),
+        IpAddr::V6(address) => address
+            .to_ipv4_mapped()
+            .is_some_and(is_shared_address_space_ipv4),
+    }
+}
+
+fn is_shared_address_space_ipv4(address: Ipv4Addr) -> bool {
+    let [first, second, _, _] = address.octets();
+    first == 100 && (64..=127).contains(&second)
+}
+
+fn same_ip_address(expected: IpAddr, actual: IpAddr) -> bool {
+    expected == actual
+        || match (expected, actual) {
+            (IpAddr::V4(expected), IpAddr::V6(actual)) => actual.to_ipv4_mapped() == Some(expected),
+            (IpAddr::V6(expected), IpAddr::V4(actual)) => expected.to_ipv4_mapped() == Some(actual),
+            _ => false,
+        }
 }
 
 #[cfg(test)]
@@ -576,6 +622,84 @@ mod tests {
         EndpointConfig::link_local_explicit("http://169.254.169.254/v1").unwrap();
         assert_eq!(
             EndpointConfig::link_local_explicit("http://127.0.0.1:8080/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        assert_eq!(
+            EndpointConfig::private_network_explicit("http://100.64.0.1:8080/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        EndpointConfig::shared_address_space_explicit("http://100.64.0.1:8080/v1").unwrap();
+        assert_eq!(
+            EndpointConfig::shared_address_space_explicit("http://10.0.0.7:8080/v1").unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+    }
+
+    #[tokio::test]
+    async fn shared_address_space_is_exact_across_literals_dns_and_connected_peers() {
+        for allowed in ["100.64.0.1", "100.127.255.254"] {
+            EndpointConfig::shared_address_space_explicit(format!("http://{allowed}:8080/v1"))
+                .unwrap();
+        }
+        for denied in ["100.63.255.255", "100.128.0.0"] {
+            assert_eq!(
+                EndpointConfig::shared_address_space_explicit(format!("http://{denied}:8080/v1"))
+                    .unwrap_err(),
+                EndpointError::AddressNotAllowed
+            );
+        }
+
+        assert!(is_shared_address_space_ip(
+            "::ffff:100.64.0.1".parse().unwrap()
+        ));
+        assert!(!is_shared_address_space_ip(
+            "::ffff:100.128.0.0".parse().unwrap()
+        ));
+
+        let endpoint =
+            EndpointConfig::shared_address_space_explicit("http://relay.internal.example:8080/v1")
+                .unwrap();
+        let allowed = FixedResolver(vec![
+            "100.64.0.1:8080".parse().unwrap(),
+            "100.127.255.254:8080".parse().unwrap(),
+        ]);
+        endpoint.validated_addresses(&allowed).await.unwrap();
+
+        let mixed = FixedResolver(vec![
+            "100.64.0.1:8080".parse().unwrap(),
+            "10.0.0.1:8080".parse().unwrap(),
+        ]);
+        assert_eq!(
+            endpoint.validated_addresses(&mixed).await.unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+        let mixed_public = FixedResolver(vec![
+            "100.64.0.1:8080".parse().unwrap(),
+            "93.184.216.34:8080".parse().unwrap(),
+        ]);
+        assert_eq!(
+            endpoint
+                .validated_addresses(&mixed_public)
+                .await
+                .unwrap_err(),
+            EndpointError::AddressNotAllowed
+        );
+
+        let wrong_port = FixedResolver(vec!["100.64.0.1:9999".parse().unwrap()]);
+        assert_eq!(
+            endpoint.validated_addresses(&wrong_port).await.unwrap(),
+            vec!["100.64.0.1:8080".parse().unwrap()]
+        );
+        endpoint
+            .validate_remote("100.100.0.1:8080".parse().unwrap())
+            .unwrap();
+        endpoint
+            .validate_remote("[::ffff:100.100.0.1]:8080".parse().unwrap())
+            .unwrap();
+        assert_eq!(
+            endpoint
+                .validate_remote("100.128.0.1:8080".parse().unwrap())
+                .unwrap_err(),
             EndpointError::AddressNotAllowed
         );
     }

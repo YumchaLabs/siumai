@@ -79,6 +79,17 @@ impl ResourceUrl {
         )
     }
 
+    /// Construct a resource URL explicitly authorized for RFC 6598 shared address space.
+    ///
+    /// Redirects remain bound to the exact original origin. Cleartext HTTP is a
+    /// caller-selected local-network risk; prefer HTTPS whenever the relay supports it.
+    pub fn shared_address_space_explicit(value: impl AsRef<str>) -> Result<Self, ResourceUrlError> {
+        Self::new(
+            value.as_ref(),
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::SharedAddressSpace),
+        )
+    }
+
     fn new(value: &str, policy: EndpointPolicy) -> Result<Self, ResourceUrlError> {
         let is_data = value
             .get(.."data:".len())
@@ -439,6 +450,15 @@ impl ResourceDownloader {
                 let redirected = current.url.join(location).map_err(|_| {
                     Error::new(ErrorKind::Protocol, "resource redirect location is invalid")
                 })?;
+                current
+                    .validate_redirect_target(&redirected)
+                    .map_err(|error| {
+                        Error::new(
+                            ErrorKind::Transport,
+                            "resource redirect target failed security validation",
+                        )
+                        .with_source(error)
+                    })?;
                 current = ResourceUrl::new(redirected.as_str(), current.policy.clone()).map_err(
                     |error| {
                         Error::new(
@@ -561,6 +581,25 @@ impl ResourceDownloader {
             _admission: admission,
             _in_flight: in_flight,
         })
+    }
+}
+
+impl ResourceUrl {
+    fn validate_redirect_target(&self, redirected: &Url) -> Result<(), ResourceUrlError> {
+        if !matches!(
+            &self.policy,
+            EndpointPolicy::LocalExplicit(LocalNetworkGrant::SharedAddressSpace)
+        ) {
+            return Ok(());
+        }
+        let current = crate::CredentialAudience::from_url(&self.url)
+            .map_err(|_| ResourceUrlError::Endpoint)?;
+        let next = crate::CredentialAudience::from_url(redirected)
+            .map_err(|_| ResourceUrlError::Endpoint)?;
+        if current != next {
+            return Err(ResourceUrlError::Endpoint);
+        }
+        Ok(())
     }
 }
 
@@ -875,6 +914,35 @@ mod tests {
 
         let inline_payload = "a".repeat(MAX_NETWORK_RESOURCE_URL_BYTES);
         assert!(ResourceUrl::public(format!("data:text/plain,{inline_payload}")).is_ok());
+    }
+
+    #[test]
+    fn shared_address_resources_require_exact_same_origin_redirects() {
+        let resource = ResourceUrl::shared_address_space_explicit(
+            "https://100.64.0.10:8443/files/item?token=secret",
+        )
+        .unwrap();
+        resource
+            .validate_redirect_target(&Url::parse("https://100.64.0.10:8443/files/next").unwrap())
+            .unwrap();
+
+        for denied in [
+            "https://100.64.0.11:8443/files/next",
+            "https://100.64.0.10:9443/files/next",
+            "http://100.64.0.10:8443/files/next",
+        ] {
+            assert_eq!(
+                resource
+                    .validate_redirect_target(&Url::parse(denied).unwrap())
+                    .unwrap_err(),
+                ResourceUrlError::Endpoint
+            );
+        }
+
+        let private = ResourceUrl::private_network_explicit("http://10.0.0.1/files/item").unwrap();
+        private
+            .validate_redirect_target(&Url::parse("http://10.0.0.2/files/next").unwrap())
+            .unwrap();
     }
 
     #[tokio::test]

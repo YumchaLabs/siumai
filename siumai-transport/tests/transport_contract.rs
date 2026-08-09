@@ -13,7 +13,7 @@ use siumai_transport::{
     EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
     ProviderTransport, ReplaySafety, RequestBody, RequestPlan, RequestTarget, Resolver,
     ResourceDownloadOptions, ResourceDownloader, ResourceUrl, RetryClassifier, RetryPolicy,
-    RetryReason, TransportEvent, TransportLimits, TransportObserver,
+    RetryReason, TransportEvent, TransportLimits, TransportObserver, WebSocketEndpoint,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -555,6 +555,35 @@ async fn connector_dns_guard_resolves_the_actual_host_and_rechecks_the_peer() {
         .unwrap();
     assert_eq!(response.body(), &bytes::Bytes::from_static(b"ok"));
     assert_eq!(*calls.lock().unwrap(), vec![("model.local".to_owned(), 0)]);
+}
+
+#[test]
+fn shared_address_grant_is_exact_across_http_resource_and_websocket_surfaces() {
+    for address in ["100.64.0.1", "100.127.255.254"] {
+        EndpointConfig::shared_address_space_explicit(format!("http://{address}:8080/v1")).unwrap();
+        ResourceUrl::shared_address_space_explicit(format!("http://{address}:8080/file")).unwrap();
+        WebSocketEndpoint::shared_address_space_explicit(format!("ws://{address}:8080/live"))
+            .unwrap();
+    }
+
+    for address in ["100.63.255.255", "100.128.0.0"] {
+        assert!(
+            EndpointConfig::shared_address_space_explicit(format!("http://{address}:8080/v1"))
+                .is_err()
+        );
+        assert!(
+            ResourceUrl::shared_address_space_explicit(format!("http://{address}:8080/file"))
+                .is_err()
+        );
+        assert!(
+            WebSocketEndpoint::shared_address_space_explicit(format!("ws://{address}:8080/live"))
+                .is_err()
+        );
+    }
+
+    assert!(EndpointConfig::public_custom("https://100.64.0.1/v1").is_err());
+    assert!(ResourceUrl::public("https://100.64.0.1/file").is_err());
+    assert!(WebSocketEndpoint::public_custom("wss://100.64.0.1/live").is_err());
 }
 
 #[tokio::test]

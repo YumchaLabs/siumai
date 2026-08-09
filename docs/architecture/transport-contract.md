@@ -68,11 +68,15 @@ backslashes, and path traversal segments are rejected.
 `Official` requires an `OfficialOrigin` created from provider-owned static metadata,
 and the configured endpoint must match its exact scheme, normalized host, and
 effective port. Both `Official` and `PublicCustom` require HTTPS and globally
-routable DNS answers. `LocalExplicit` permits HTTP/HTTPS only for loopback,
-link-local, or private targets. Every DNS answer is filtered in reqwest's actual
-connector resolver, so a preflight/connection rebinding gap cannot bypass policy.
-Literal IPs are checked at construction, and a reported connected peer is checked
-again after the handshake.
+routable DNS answers. `LocalExplicit` permits HTTP/HTTPS only for one exact
+caller-selected grant: loopback, RFC 1918 or IPv6 unique-local private space,
+link-local space, or RFC 6598 shared address space (`100.64.0.0/10`). The RFC 6598
+grant does not widen any adjacent scope and treats IPv4-mapped IPv6 as the same
+address. Cleartext local transport is an explicit caller trust decision; HTTPS/WSS
+should be preferred whenever the deployment supports it. Every DNS answer is
+filtered in reqwest's actual connector resolver, so a preflight/connection
+rebinding gap cannot bypass policy. Literal IPs are checked at construction, and a
+reported connected peer is checked again after the handshake.
 
 WebSocket endpoints use the same address policy while preserving `ws`/`wss` as a
 distinct credential audience. `WebSocketTransport` owns resolution, direct TCP
@@ -86,6 +90,9 @@ forget or reorder.
 `ResourceDownloader` cannot receive an `AuthApplier` or an external `reqwest::Client`.
 It follows redirects manually within a fixed budget, validates each new URL and DNS
 answer, disables proxy/referer/retry behavior, and never copies provider credentials.
+Resources authorized through the RFC 6598 grant additionally keep redirects on the
+exact original scheme, normalized host, and effective port, preventing lateral
+overlay-network pivots or scheme downgrade.
 Network and data URLs share the decompressed response-byte limit and the same
 admission controls. Data URLs are decoded in bounded blocking work that observes
 cancellation and deadlines while retaining its permits. Declared media type and
