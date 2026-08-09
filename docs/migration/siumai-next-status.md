@@ -35,7 +35,7 @@ This checkpoint includes the provider extraction and Gemini work (`12027215`, `b
 
 ## Checkpoint C — flagship product surfaces and release readiness
 
-Status: implementation complete; final serial release gates pending.
+Status: complete.
 
 The current line includes the planned typed OpenAI lifecycle/media slices, Gemini language and
 product resources, Alibaba/DeepSeek Anthropic-compatible Messages, MiniMax portable media adapters,
@@ -43,12 +43,16 @@ Kimi and ARK native breadth, xAI Files/image/video/speech/transcription, Groq au
 and Deepgram/ElevenLabs portable audio families. The relevant delivery commits are `5832445a`,
 `86a73026`, `53982be0`, `d71acbce`, and `af6f0558`.
 
-Remaining work in this checkpoint is release hygiene rather than live-provider expansion:
+Release hygiene is complete. The root and affected crate changelogs, breaking migration guide,
+delivery status, and Hajimi handoff now describe one coherent API line. The final serial gates passed:
 
-- refresh the root and affected crate changelogs and the breaking migration guide;
-- publish the downstream Hajimi handoff;
-- run the serial workspace, documentation, feature, package, and MSRV checks;
-- perform one final diff review and commit only the scoped release-hygiene changes.
+- 986 workspace/all-features nextest cases;
+- workspace/all-targets/all-features Clippy with warnings denied;
+- workspace doctests and rustdoc generation;
+- Rust 1.88 workspace/all-targets/all-features check;
+- no-default `all-providers` facade Clippy and the optional runtime JSON Schema feature check;
+- architecture policy, metadata, package-content lists for 24 changed packages, formatting, relative
+  documentation links, and final diff checks.
 
 Live provider canaries remain opt-in diagnostics. They are not release gates and must not be used to
 turn relay capacity, quota, or upstream availability into parser or API claims.

@@ -1217,6 +1217,13 @@ sequenceDiagram
     source to infer semantics.
 - **Verification outcome:** The workspace tells one accurate story, passes its focused and release
   gates, contains no dead migration scaffolding, and is ready for a later explicit publish decision.
+- **Implementation checkpoint (2026-08-09):** Complete. The root and affected crate changelogs,
+  migration guide, three delivery checkpoints, and Hajimi handoff are current; the superseded
+  baseline plan now lives only in Git history. The serial final gates passed with 986 nextest cases,
+  warnings-denied workspace Clippy, doctests/rustdoc, Rust 1.88, no-default `all-providers`, optional
+  JSON Schema, dependency-policy/metadata, package-content, formatting, link, and diff checks. The
+  local Hajimi checkout was not treated as evidence because it still depends on `0.11.0-beta.4` and
+  does not contain the separately reported adapter crate.
 
 ## Verification Contract
 
