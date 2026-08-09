@@ -4,9 +4,11 @@ type: refactor
 date: 2026-08-09
 deepened: 2026-08-09
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: implementation-ready
+artifact_readiness: completed
 product_contract_source: ce-plan-bootstrap
 execution: code
+status: completed
+completed: 2026-08-09
 ---
 
 # OpenAI Conversation Conformance and Responses WebSocket - Plan
@@ -165,7 +167,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 
 ### Assumptions
 
-- A1. The relay's abbreviated terminal output is a compatible contraction only when the endpoint explicitly selects compatible terminal policy and the same stream already delivered one unique matching completed item. Verified official OpenAI mode remains strict.
+- A1. The relay's abbreviated terminal output is a compatible contraction only when the endpoint explicitly selects compatible terminal policy, the same stream already delivered one unique matching completed item, and every present semantic field still agrees. Compatible recovery is limited to absent identity, status, phase, and output-text provider metadata. Verified official OpenAI mode remains strict.
 - A2. The official one-in-flight-per-connection rule is the initial Responses WebSocket concurrency contract; parallel callers use separate sessions.
 - A3. `siumai-transport` already owns WebSocket connection, framing, endpoint validation, and resource bounds, while the existing OpenAI Realtime actor is provider-private lifecycle prior art rather than a reusable transport actor. Responses WebSocket therefore needs its own bounded provider session actor plus a transport-neutral Responses request-preparation helper shared with HTTP.
 - A4. No new repository script is required. Temporary credentialed probes may run outside the repository, and deterministic fixtures remain the committed evidence.
@@ -174,7 +176,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 ### Key Technical Decisions
 
 - KTD1. **Normalize once inside the protocol decoder.** Chat continuation handling and Responses terminal repair remain below the unified boundary; no consumer adapter and no parallel core type system is introduced. (session-settled: user-approved — chosen over another core reset: the unified interface remains Siumai's primary ergonomic value and the current family boundaries are already sound.) Governs R2, R4-R7.
-- KTD2. **Use a partial terminal candidate plus an explicit terminal policy before strict construction.** Responses terminal events decode into a bounded partial representation. Verified official OpenAI mode permits only omissions allowed by the official schema; compatible endpoints may additionally fill a missing message ID from one unique same-position, same-kind completed item. Every present conflict fails. The raw abbreviated native event and the reconstructed canonical response remain distinct public concepts, and misleading accessors that blur them may be removed. Governs R5-R7.
+- KTD2. **Use a partial terminal candidate plus an explicit terminal policy before strict construction.** Responses terminal events decode into a bounded partial representation. Verified official OpenAI mode permits only omissions allowed by the official schema. Compatible endpoints may additionally restore absent message identity, status, phase, annotations, and logprobs from one unique same-position, same-kind completed item, but text, refusal, role, type, and every other present semantic field must agree. Every present conflict fails. The raw abbreviated native event and the reconstructed canonical response remain distinct public concepts, and misleading accessors that blur them may be removed. Governs R5-R7.
 - KTD3. **Share one Responses turn state machine across SSE and WebSocket.** Framing adapters differ, but item accumulation, reconciliation, error classification, cancellation, and settlement do not. Governs R7, R11-R13.
 - KTD4. **Keep Responses WebSocket provider-owned and experimental.** The OpenAI provider exposes a typed single-flight session built on transport primitives; `LanguageModel::stream` remains the portable SSE-like request surface. (session-settled: user-approved — chosen over provider-specific behavior in the unified trait: native capabilities remain reachable without weakening the portable contract.) Governs R2, R3, R11-R13.
 - KTD5. **Attach role-aware cache intent to semantic content nodes.** The public API uses one typed OpenAI content annotation to distinguish historical markers from current write candidates, removes request-level coordinates and the ambiguous constructor, and rejects excess current writes. In canonical marker traversal order, historical markers must precede current write candidates; interleaving is rejected. It does not trim or reject historical markers using the provider's contradictory 50-versus-80 lookback descriptions; ordinary request and body bounds remain authoritative. (session-settled: user-approved — chosen over preserving the old beta API and over another index-based side table: breaking changes are allowed when they remove ambiguous semantics, and ADR-0012 requires node-scoped provider intent.) Governs R8-R10.
@@ -362,7 +364,7 @@ sequenceDiagram
 - **Approach:**
   1. Introduce a protocol-internal partial terminal envelope rather than weakening strict `ResponseWire` or `OutputItem` decoding globally.
   2. Extract framing-neutral item accumulation, matching, reconciliation, error classification, and settlement into one Responses turn state.
-  3. Select an explicit strict-official or compatible terminal policy from provider endpoint ownership; match terminal items by proven item ID, output position and kind, or function call ID as that policy permits, require unique matches, and copy only absent fields.
+  3. Select an explicit strict-official or compatible terminal policy from provider endpoint ownership; match terminal items by proven item ID, output position and kind, or function call ID as that policy permits, require unique matches, and copy only policy-approved absent fields.
   4. Compare canonical text, media, reasoning, function name, caller, call ID, and parsed arguments whenever both views provide them.
   5. Enforce one framing-neutral per-turn budget over accumulated item count, item metadata, text, reasoning, and tool-input bytes before inserting state.
   6. Preserve the original abbreviated native event payload separately from the canonical projected response, and remove or rename public accessors that imply the native payload is already canonical.
@@ -371,13 +373,14 @@ sequenceDiagram
 - **Test scenarios:**
   - Covers AE3. A strict official message terminal item may inherit missing status from the completed streamed item, but not a required missing ID.
   - Covers AE3. A function terminal item without item ID inherits it while preserving equal call ID, name, caller, and arguments.
-  - Covers AE13. Compatible terminal policy may inherit a missing message ID only from one unique completed item at the same output position and kind; strict official policy rejects it.
+  - Covers AE13. Compatible terminal policy may inherit a missing message ID and restore omitted status, phase, annotations, or logprobs only from one unique completed item at the same output position and kind; strict official policy rejects the compatible-only contraction.
+  - Compatible recovery still rejects changed text, refusal, role, type, content length, or unknown content semantics.
   - Covers AE4. Present identity or canonical argument disagreement returns a typed protocol error.
   - Duplicate streamed identities or ambiguous terminal matches fail closed.
   - Many individually small frames that exceed the aggregate item or byte budget produce one typed response-limit failure in both SSE and WebSocket adapters.
   - Covers AE5. `[DONE]`, EOF, or disconnect without terminal settlement returns an incomplete-stream error.
   - A valid terminal followed by EOF settles once; a duplicate terminal fails.
-- **Verification:** Existing direct Responses decoding remains strict, verified official SSE follows strict terminal policy, and explicit compatible SSE fixtures settle abbreviated text and tool terminals to canonical responses equal to their completed streamed items.
+- **Verification:** Existing direct Responses decoding remains strict, verified official SSE follows strict terminal policy, and explicit compatible SSE fixtures settle abbreviated text and tool terminals to canonical responses equal to their completed streamed semantics while restoring bounded omitted provider metadata.
 
 ### U3. Replace the OpenAI prompt-cache marker API
 

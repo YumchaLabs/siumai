@@ -1,7 +1,7 @@
 # Public API and Extension Policy
 
 - Status: Current repository contract
-- Updated: 2026-08-06
+- Updated: 2026-08-09
 
 ## Public entry points
 
@@ -66,6 +66,36 @@ Provider-owned profiles or support manifests expose dated claims for named surfa
 introspection and maintenance evidence, not capability gates: custom endpoints may carry generic or
 empty evidence while still constructing models that the selected protocol can encode safely.
 
+## Provider-owned sessions
+
+Persistent or bidirectional provider workflows remain outside the portable model-family traits when
+their lifecycle is not genuinely shared. Their public API follows the provider product instead of a
+universal session command envelope.
+
+OpenAI Responses WebSocket is an experimental provider-owned session enabled separately with
+`openai-responses-websocket`. Callers acquire it from a Responses model, connect once, and then run
+generated turns or native-only warm-up turns:
+
+```rust,ignore
+let model = provider.responses("gpt-5.6")?;
+let config = model.websocket()?;
+let session = config.connect(CallOptions::default()).await?;
+
+let turn = session
+    .generate(LanguageRequest::new(vec![Message::user("Continue the task")]), CallOptions::default())
+    .await?;
+```
+
+The session permits one active response at a time, reuses the Responses semantic decoder for every
+turn, and exposes exact native events alongside portable projections. `generate: false` warm-up is
+native-only and never fabricates a portable language response. The official OpenAI provider may use
+the provider-owned default WebSocket endpoint; a custom HTTP provider must configure its WebSocket
+endpoint explicitly and never inherits the official support claim.
+
+This shape is intentionally not a new portable `SessionModel` family. Other provider sessions may
+share transport or lifecycle helpers internally while retaining their own typed commands, events,
+and settlement rules.
+
 ## Stability
 
 The public contract has three practical levels:
@@ -103,6 +133,14 @@ observe a terminal completed, failed, or cancelled event. Protocol/server encode
 after terminal and do not manufacture success on unexpected EOF. In-band provider errors are failed
 terminals carrying the same typed `Error` contract as setup failures; raw provider error JSON is not
 a second high-level failure channel.
+
+Provider-owned persistent turns follow the same settlement rule: each established turn produces one
+canonical terminal outcome or a typed error. Unexpected EOF, malformed frames, queue exhaustion,
+deadline expiry, and cancellation are explicit outcomes. A turn-local provider failure may leave a
+synchronized session reusable; transport or protocol desynchronization closes it conservatively.
+Standard retryable WebSocket availability closes, including service restart, try-again-later, and
+bad-gateway codes, retain `ErrorKind::Unavailable` without exposing the provider-controlled close
+reason.
 
 ## Documentation rule
 

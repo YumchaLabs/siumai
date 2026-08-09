@@ -27,6 +27,7 @@ features = [
     "all-providers",
     "openai-compatible",
     "openai-realtime",
+    "openai-responses-websocket",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -62,6 +63,7 @@ alibaba = ["dep:siumai-provider-alibaba"]
 moonshotai = ["dep:siumai-provider-moonshotai"]
 volcengine = ["dep:siumai-provider-volcengine"]
 openai-realtime = ["openai", "siumai-provider-openai/openai-realtime"]
+openai-responses-websocket = ["openai", "siumai-provider-openai/openai-responses-websocket"]
 openai-compatible = ["dep:siumai-openai-compatible"]
 anthropic = ["dep:siumai-provider-anthropic"]
 google = ["dep:siumai-provider-gemini"]

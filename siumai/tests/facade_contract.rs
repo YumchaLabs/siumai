@@ -1435,3 +1435,26 @@ fn facade_exposes_realtime_as_typed_provider_sessions() {
         "session.close"
     );
 }
+
+#[cfg(feature = "openai-responses-websocket")]
+#[test]
+fn facade_exposes_responses_websocket_as_an_experimental_native_session() {
+    use siumai::providers::openai::experimental::responses_websocket::{
+        OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWebSocketTurnKind,
+    };
+    use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+
+    let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-key"))
+        .build()
+        .unwrap();
+    let config = provider.responses("gpt-5.6").unwrap().websocket().unwrap();
+
+    assert_eq!(
+        config.endpoint().expose_url().as_str(),
+        OPENAI_RESPONSES_WEBSOCKET_URL
+    );
+    assert_ne!(
+        OpenAiResponsesWebSocketTurnKind::Generate,
+        OpenAiResponsesWebSocketTurnKind::WarmUp
+    );
+}

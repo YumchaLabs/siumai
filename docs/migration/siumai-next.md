@@ -32,6 +32,14 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 Add `registry` or `runtime` only when the application uses those layers.
 
+OpenAI Responses WebSocket is an independent provider-native feature. It enables the base OpenAI
+provider but does not enable Realtime:
+
+```toml
+[dependencies]
+siumai = { version = "0.11.0-beta.9", default-features = false, features = ["openai-responses-websocket"] }
+```
+
 ## OpenAI Responses module path
 
 The temporary `siumai_protocol_openai::responses_next` module was renamed to
@@ -86,6 +94,47 @@ The former broad native support ID `responses-resources` is replaced by
 `responses-resource-lifecycle`, with separate support claims for Conversations, Files, Vector
 Stores, and Skills. Applications that persist or inspect support manifests should migrate those
 IDs directly.
+
+## OpenAI Responses WebSocket sessions
+
+Responses WebSocket is provider-owned and experimental. It does not add a seventh portable model
+family and is not part of `LanguageModel::stream`. Acquire the session from an OpenAI Responses
+model:
+
+```rust,ignore
+use siumai::providers::openai::experimental::responses_websocket::OpenAiResponsesWebSocketEvent;
+use siumai::{CallOptions, LanguageRequest, Message};
+
+let model = provider.responses("gpt-5.6")?;
+let session = model
+    .websocket()?
+    .connect(CallOptions::default())
+    .await?;
+
+let turn = session
+    .generate(
+        LanguageRequest::new(vec![Message::user("Continue the task")]),
+        CallOptions::default(),
+    )
+    .await?;
+
+// Poll `turn` as a Stream<Item = Result<OpenAiResponsesWebSocketEvent, Error>>.
+```
+
+One connection accepts one active response. After a terminal event, another generated turn may use
+the normal typed `previous_response_id` option. `warm_up` sends `generate: false` and produces only
+native warm-up frames; it never fabricates a `LanguageResponse`. Dropping or cancelling a turn
+settles that exact turn, while malformed frames, unexpected EOF, queue exhaustion, or protocol
+desynchronization close the session conservatively. Retryable WebSocket availability close codes
+such as service restart, try again later, and bad gateway become sanitized
+`ErrorKind::Unavailable`; provider-controlled close reasons are not copied into the turn error.
+
+The official provider constructor supplies the provider-owned
+`wss://api.openai.com/v1/responses` endpoint and publishes the experimental
+`responses-websocket` native support claim. A custom HTTP endpoint has no inferred WebSocket route:
+configure one explicitly with `OpenAiProviderBuilder::with_responses_websocket_endpoint`, together
+with the custom replay domain required by the HTTP provider. Caller-controlled endpoints never gain
+the official claim, even if their transport policy is labelled official.
 
 ## MiniMax construction
 
@@ -177,6 +226,17 @@ Chat Completions retains a trailing usage-only chunk before publishing its termi
 Responses streams compare an executable item shared by stable and terminal views using canonical
 JSON semantics, and reject changes to its call ID, name, caller, or tool kind. Consumers no longer
 need to normalize encoded tool-argument strings or reconcile disagreeing executable snapshots.
+
+`OpenAiResponsesStreamFrame::native()` remains the exact provider event. Abbreviated terminal
+events may require reconstruction from earlier completed items, so use
+`canonical_terminal_response()` for the strict terminal `ResponseWire`. Accordingly,
+`OpenAiResponsesStreamFrame::into_parts()` now returns
+`(ResponsesStreamEvent, Vec<LanguageStreamEvent>, Option<ResponseWire>)` instead of the former
+two-element tuple. Official OpenAI endpoints use strict terminal reconciliation; explicitly
+compatible profiles may opt into the bounded compatible policy inside the configured provider.
+That policy may restore absent message identity, status, phase, annotations, and logprobs from one
+uniquely matched completed item, but it still rejects changed text, refusal, role, type, content
+length, or unknown content semantics.
 
 Custom compatibility decoders that wrap another `LanguageStreamDecoder` should forward
 `set_response_diagnostics` to the inner decoder. The method has a default implementation for
@@ -277,6 +337,26 @@ let provider = GoogleVertexAnthropicProvider::builder(project, location, credent
 
 The caller-supplied label need not equal the raw project ID. It exists only to prevent replay across
 materially different configured audiences.
+
+## Explicit RFC 6598 relay endpoints
+
+The transport no longer requires a loopback forwarder for a caller-authorized relay in RFC 6598
+shared address space. Select the exact grant explicitly for each transport surface:
+
+```rust,ignore
+use siumai_transport::{EndpointConfig, ResourceUrl, WebSocketEndpoint};
+
+let http = EndpointConfig::shared_address_space_explicit("http://100.64.0.10:8080/v1")?;
+let websocket =
+    WebSocketEndpoint::shared_address_space_explicit("ws://100.64.0.10:8080/v1/responses")?;
+let resource = ResourceUrl::shared_address_space_explicit("http://100.64.0.10:8080/result")?;
+```
+
+This grant accepts only `100.64.0.0/10`, including equivalent IPv4-mapped IPv6 peers. It does not
+authorize RFC 1918, loopback, link-local, adjacent public addresses, or mixed DNS answer sets.
+Resource redirects remain on the exact original scheme, normalized host, and effective port. Using
+cleartext HTTP or WS is an explicit caller trust decision; prefer TLS when the deployment supports
+it.
 
 ## Node-scoped prompt caching
 
@@ -476,9 +556,10 @@ or a temporary hidden feature:
 - ElevenLabs retains buffered speech synthesis and restores final-result/batch transcription over
   the provider-owned Speech-to-Text wire contract. Realtime transcription remains intentionally
   outside the portable family surface.
-- OpenAI retains configured Chat Completions, Responses, Responses resources, and opt-in Realtime.
-  It also exposes portable embedding, image-generation, buffered speech, and final-result
-  transcription handles, plus typed Conversations, Files, Vector Stores, and Skills resources.
+- OpenAI retains configured Chat Completions, Responses, Responses resources, opt-in Realtime, and
+  the separate experimental Responses WebSocket session feature. It also exposes portable
+  embedding, image-generation, buffered speech, and final-result transcription handles, plus typed
+  Conversations, Files, Vector Stores, and Skills resources.
   Moderation and broad legacy compatibility resources remain intentionally outside this release
   slice.
 - The generic OpenAI-compatible engine retains explicit generic and custom endpoints only. Kimi is
@@ -555,6 +636,10 @@ provider provenance.
   `LanguageResponse::project_assistant_history()` before appending assistant history.
 - Move provider call controls into the matching typed MiniMax options and `CallOptions`.
 - Move prompt-cache intent onto typed message, content, or tool annotations.
+- Update native Responses stream destructuring for the canonical terminal response returned by
+  `OpenAiResponsesStreamFrame::into_parts()`.
+- Enable `openai-responses-websocket` only when the application needs persistent provider-owned
+  Responses turns; configure a WebSocket endpoint explicitly for custom HTTP providers.
 - Acquire files, image, video, music, and speech APIs from `MinimaxProvider`.
 - Add Registry only for explicit local routing, and register each non-default API mode separately.
 - Replace provider-wide `scope()` or `platform()` queries with `provider_id()` or an exact model or

@@ -66,6 +66,11 @@ const VECTOR_STORES_SOURCE: &str =
 const SKILLS_SOURCE: &str =
     "https://developers.openai.com/api/reference/resources/skills/methods/create";
 const RESPONSES_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+#[cfg(feature = "openai-responses-websocket")]
+const RESPONSES_WEBSOCKET_SOURCE: &str =
+    "https://developers.openai.com/api/docs/guides/websocket-mode";
+#[cfg(feature = "openai-responses-websocket")]
+const RESPONSES_WEBSOCKET_SUPPORT_VERIFIED_ON: &str = "2026-08-09";
 #[cfg(feature = "openai-realtime")]
 const REALTIME_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
 const RESOURCE_SUPPORT_VERIFIED_ON: &str = "2026-08-08";
@@ -805,6 +810,14 @@ impl OpenAiProviderBuilder {
                     RESOURCE_SUPPORT_VERIFIED_ON,
                 )?,
             ]);
+            #[cfg(feature = "openai-responses-websocket")]
+            native_claims.push(native_support_claim(
+                "responses-websocket",
+                NativeSurfaceKind::Session,
+                ApiStability::Experimental,
+                RESPONSES_WEBSOCKET_SOURCE,
+                RESPONSES_WEBSOCKET_SUPPORT_VERIFIED_ON,
+            )?);
         }
         #[cfg(feature = "openai-realtime")]
         if realtime_endpoint
@@ -1617,6 +1630,16 @@ mod tests {
                 .binding()
                 .surface_id()
                 .is_some_and(|surface| surface.as_str() == "realtime")
+                && claim.stability() == ApiStability::Experimental
+        }));
+        #[cfg(feature = "openai-responses-websocket")]
+        assert!(manifest.native_claims().iter().any(|claim| {
+            claim
+                .scope()
+                .binding()
+                .surface_id()
+                .is_some_and(|surface| surface.as_str() == "responses-websocket")
+                && claim.scope().kind() == NativeSurfaceKind::Session
                 && claim.stability() == ApiStability::Experimental
         }));
     }

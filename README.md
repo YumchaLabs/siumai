@@ -44,6 +44,7 @@ Provider features describe the exact retained slice, not every product sold unde
 |---|---|
 | `openai` | Responses and Chat language, embeddings, image generation, buffered speech, final-result transcription, and typed Conversations/Files/Vector Stores/Skills resources |
 | `openai-realtime` | Experimental OpenAI Realtime support |
+| `openai-responses-websocket` | Experimental persistent OpenAI Responses WebSocket sessions; also enables `openai` |
 | `anthropic` | Messages and Anthropic-native resources |
 | `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
@@ -62,6 +63,13 @@ Provider features describe the exact retained slice, not every product sold unde
 See the [provider support policy](docs/providers/support-policy.md) for fidelity, stability, and
 host-control-plane boundaries. Model identifiers remain open; constants are dated hints rather
 than allowlists.
+
+OpenAI Responses WebSocket is intentionally provider-owned rather than a portable family. Enable
+`openai-responses-websocket`, acquire a Responses model, call `model.websocket()?`, and connect the
+returned configuration. One connection accepts one generated turn at a time, supports sequential
+continuation and native-only warm-up, and uses the same canonical Responses decoder as HTTP SSE.
+Custom HTTP providers must configure a WebSocket endpoint explicitly and do not inherit OpenAI's
+official session support claim.
 
 ## Choose the narrowest public surface
 

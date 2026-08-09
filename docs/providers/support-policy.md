@@ -60,6 +60,7 @@ of compiled public scope, not a promise that every account can use every model o
 |---|---|---|
 | `openai` | Native Chat Completions and Responses; portable text embedding, image generation, buffered speech, and final-result transcription; provider-owned Responses, Conversations, Files, Vector Stores, and Skills slices | Image edits/streaming, realtime transcription, vector search/batches, zip skill upload, or a universal resource client |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
+| `openai-responses-websocket` | Experimental provider-owned persistent Responses WebSocket sessions over the official OpenAI endpoint | A provider-neutral session family, concurrent turns on one connection, or an official claim for caller-controlled endpoints |
 | `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
@@ -151,6 +152,7 @@ portable model families.
 | `openai` / OpenAI | `openai` / `openai-api` | Resource / `skills-directory-lifecycle` | `native` | `experimental` | https://developers.openai.com/api/reference/resources/skills/methods/create | 2026-08-08 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-websocket | 2026-08-06 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime-translation` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-translation | 2026-08-06 |
+| `openai-responses-websocket` / OpenAI | `openai` / `openai-api` | Session / `responses-websocket` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/websocket-mode | 2026-08-09 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `files` | `native` | `experimental` | https://platform.claude.com/docs/en/api/files-create | 2026-08-06 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Job / `message-batches` | `native` | `stable` | https://platform.claude.com/docs/en/api/creating-message-batches | 2026-08-06 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-06 |

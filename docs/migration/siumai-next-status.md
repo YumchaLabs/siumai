@@ -33,7 +33,7 @@ addressing data; Siumai does not maintain a region or availability catalog.
 This checkpoint includes the provider extraction and Gemini work (`12027215`, `bc59b59f`,
 `1c838d09`, `796b0065`, and `46013147`).
 
-## Checkpoint C — flagship product surfaces and release readiness
+## Checkpoint C — flagship product surfaces
 
 Status: complete.
 
@@ -43,16 +43,57 @@ Kimi and ARK native breadth, xAI Files/image/video/speech/transcription, Groq au
 and Deepgram/ElevenLabs portable audio families. The relevant delivery commits are `5832445a`,
 `86a73026`, `53982be0`, `d71acbce`, and `af6f0558`.
 
-Release hygiene is complete. The root and affected crate changelogs, breaking migration guide,
-delivery status, and Hajimi handoff now describe one coherent API line. The final serial gates passed:
+The earlier revival workspace gate established a broad provider baseline. It remains historical
+evidence for that checkpoint, not proof that every future provider field, event shape, or product
+surface is permanently complete.
 
-- 986 workspace/all-features nextest cases;
-- workspace/all-targets/all-features Clippy with warnings denied;
-- workspace doctests and rustdoc generation;
-- Rust 1.88 workspace/all-targets/all-features check;
-- no-default `all-providers` facade Clippy and the optional runtime JSON Schema feature check;
-- architecture policy, metadata, package-content lists for 24 changed packages, formatting, relative
-  documentation links, and final diff checks.
+## Checkpoint D — OpenAI conversation conformance
+
+Status: complete.
+
+Chat tool identity continuation, trailing usage, and bounded metadata now match observed protocol
+ordering. Responses SSE reconstructs only policy-permitted abbreviated terminal fields and exposes
+the canonical terminal resource separately from the exact native event. Prompt-cache intent is
+node-scoped, current-write budgets are mode-specific, and TTL and retention remain independent typed
+controls. RFC 6598 relay endpoints require an exact explicit transport grant.
+
+The OpenAI provider now also owns an experimental persistent Responses WebSocket session behind the
+independent `openai-responses-websocket` feature. HTTP and WebSocket turns share request
+normalization and one Responses semantic decoder. Sessions enforce one active response, typed
+turn/session cancellation, bounded queues and deadlines, response identity, sequential continuation,
+native-only warm-up, and conservative close behavior. Only the provider-owned official endpoint
+publishes the dated native support claim.
+
+The implementation units are `fe1295c9`, `d2409ee3`, `eb8c27d1`, `73439125`, `e2dce58d`,
+`997ff09e`, `26a641d1`, `4387e9a9`, and `566ecd27`. The focused serial release evidence for this
+checkpoint is:
+
+- 110 OpenAI protocol tests;
+- 103 OpenAI provider tests;
+- 80 transport tests;
+- 25 facade tests, including the dedicated no-default WebSocket feature contract;
+- Clippy with warnings denied for the OpenAI protocol, OpenAI provider, transport, and facade;
+- facade doctests, no-default feature compilation, formatting, architecture policy, and diff checks.
+
+### Opt-in live diagnostic
+
+The authorized `sub2api` diagnostic ran on 2026-08-09 after its status endpoint reported green. No
+credential, endpoint value, response text, tool argument, provider ID, or raw payload was recorded:
+
+- Chat streaming produced one canonical local tool call, and direct continuation accepted the
+  projected assistant/tool history. The upstream direct response itself carried null content;
+  Siumai preserved that empty result instead of fabricating text.
+- Responses text and tool SSE completed with canonical terminal responses after compatible recovery
+  restored metadata omitted by the abbreviated terminal event. Present semantic conflicts remain
+  deterministic protocol errors.
+- Repeated Responses calls using typed `prompt_cache_key` plus 24-hour retention produced a cache
+  hit on the second call. The relay accepted typed TTL options but returned HTTP 502 whenever a
+  content-level explicit breakpoint was present, so no named claim is made for that custom relay's
+  explicit-breakpoint fidelity.
+- The Responses WebSocket handshake returned HTTP 101 and accepted `response.create`, then the relay
+  closed with standard code 1013. Siumai now reports that as sanitized, retryable
+  `ErrorKind::Unavailable` rather than `UnexpectedEof`. The operational close is not evidence that
+  two-turn live continuation succeeded on this relay.
 
 Live provider canaries remain opt-in diagnostics. They are not release gates and must not be used to
 turn relay capacity, quota, or upstream availability into parser or API claims.

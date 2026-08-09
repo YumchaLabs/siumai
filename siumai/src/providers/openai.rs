@@ -163,4 +163,23 @@ pub mod experimental {
             };
         }
     }
+
+    #[cfg(feature = "openai-responses-websocket")]
+    pub mod responses_websocket {
+        pub use siumai_provider_openai::experimental::responses_websocket::{
+            OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
+            OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
+            OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
+            OpenAiResponsesWebSocketTurnKind,
+        };
+
+        pub mod advanced {
+            pub use siumai_provider_openai::experimental::responses_websocket::advanced::{
+                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
+                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
+                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
+            };
+        }
+    }
 }
