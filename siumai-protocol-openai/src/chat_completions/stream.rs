@@ -657,6 +657,45 @@ mod tests {
     }
 
     #[test]
+    fn conflicting_non_empty_tool_identity_is_rejected() {
+        for conflicting_delta in [
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-2","function":{"name":"lookup","arguments":""}}]}}]}"#,
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"different","arguments":""}}]}}]}"#,
+        ] {
+            let mut decoder = decoder();
+            decoder
+                .decode(
+                    r#"{"id":"chat-1","model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{"}}]}}]}"#,
+                )
+                .unwrap();
+
+            let error = decoder.decode(conflicting_delta).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Protocol);
+            assert!(!decoder.terminal_seen());
+        }
+    }
+
+    #[test]
+    fn tool_identity_must_be_established_before_completion() {
+        let mut decoder = decoder();
+        let events = decoder
+            .decode(
+                r#"{"id":"chat-1","model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","type":"function","function":{"name":"","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+        assert!(events.iter().all(|event| !matches!(
+            event,
+            LanguageStreamEvent::ToolInputStart { .. }
+                | LanguageStreamEvent::ToolInputDelta { .. }
+                | LanguageStreamEvent::ToolCall(_)
+        )));
+
+        let error = decoder.decode("[DONE]").unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Protocol);
+        assert!(!decoder.terminal_seen());
+    }
+
+    #[test]
     fn done_without_finish_reason_is_a_protocol_error() {
         let mut decoder = decoder();
         decoder

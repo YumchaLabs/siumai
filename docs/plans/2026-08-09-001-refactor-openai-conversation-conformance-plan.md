@@ -120,7 +120,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 - AE5. Covers R7. Given `[DONE]`, EOF, or socket close before canonical terminal settlement, the established stream returns an incomplete-stream error instead of successful EOF.
 - AE6. Covers F4. Given implicit mode with three explicit write candidates and retained markers, validation succeeds; a fourth explicit candidate fails because the implicit write consumes the remaining slot.
 - AE7. Covers F4. Given explicit mode with four write candidates and additional historical markers, validation preserves the historical markers subject only to ordinary request bounds; a fifth write candidate fails with a typed option error.
-- AE8. Covers R10. Given TTL `30m` on a known GPT-5.6 model or retention `24h` on a known legacy model, the selected field reaches both the Chat and Responses wire bodies; a request that supplies both controls fails before transport for known and unknown model policies.
+- AE8. Covers R10. Given TTL `30m` on a known GPT-5.6 model or retention `24h` on a known legacy model, the selected field reaches both the Chat and Responses wire bodies. GPT-5.6 preserves both controls when supplied together, exact known incompatible generations fail before transport, and unknown model IDs preserve explicit caller intent.
 - AE9. Covers F3. Given one active WebSocket response, a second `response.create` on the same session is rejected locally; after settlement, a continuation request is accepted.
 - AE10. Covers R12. Given a WebSocket request carrying `background` or an explicit `stream`, configuration fails before any frame is sent.
 - AE11. Covers R14. Given an endpoint inside `100.64.0.0/10` and the explicit shared-address grant, both HTTP and WebSocket destination checks accept it; adjacent non-authorized ranges remain rejected.
@@ -412,7 +412,7 @@ sequenceDiagram
   - Historical marker count is not rejected or silently trimmed merely for exceeding 50 or 80; ordinary request/body bounds still apply.
   - A node cannot carry conflicting OpenAI cache roles, and malformed or wrong-target annotations return a typed provider error.
   - A historical marker after the first current write candidate is rejected before either protocol encoder runs.
-  - Covers AE8. TTL `30m` reaches known GPT-5.6 Chat and Responses bodies, retention `24h` reaches known legacy Chat and Responses bodies, and supplying both controls fails before transport for known and unknown model policies.
+  - Covers AE8. TTL `30m` reaches known GPT-5.6 Chat and Responses bodies, retention `24h` reaches known legacy Chat and Responses bodies, GPT-5.6 preserves both controls when supplied together, exact known incompatible combinations fail before transport, and unknown model IDs preserve explicit caller intent.
   - Known unsupported model-policy combinations fail before transport; an unknown compatible model does not silently lose explicit fields.
   - Raw extra options cannot inject protected cache fields around typed validation.
 - **Verification:** Provider option tests and one request fixture per protocol prove the current-write budgets, historical-marker preservation, generation-sensitive lifetime controls, and final-wire protection.

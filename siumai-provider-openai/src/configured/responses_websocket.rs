@@ -1785,6 +1785,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn websocket_rejects_http_transport_fields_before_send() {
+        let mut harness = harness();
+        let model = provider(true).unwrap().responses("gpt-5.6").unwrap();
+        let provider_id = model.provider_id().clone();
+        let session = model
+            .websocket()
+            .unwrap()
+            .with_connector(harness.connector.clone())
+            .connect(CallOptions::default())
+            .await
+            .unwrap();
+
+        for raw in [json!({"stream": true}), json!({"background": true})] {
+            let options = ProviderOptions::checked_raw(provider_id.clone(), raw).unwrap();
+            let error = session
+                .generate(
+                    request("reject HTTP transport field"),
+                    CallOptions::default().with_provider_options(options),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::InvalidInput);
+            assert!(harness.outgoing.try_recv().is_err());
+        }
+    }
+
+    #[tokio::test]
     async fn a_turn_keeps_its_session_alive_after_the_external_handle_is_dropped() {
         let mut harness = harness();
         let session = connect(&harness).await;
@@ -1968,6 +1995,42 @@ mod tests {
         assert!(matches!(
             wait_for_session_terminal(&session).await,
             SessionTerminal::Cancelled { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn active_turn_timeout_settles_once_and_closes_the_session() {
+        let mut harness = harness();
+        let session = provider(true)
+            .unwrap()
+            .responses("gpt-5.6")
+            .unwrap()
+            .websocket()
+            .unwrap()
+            .with_connector(harness.connector.clone())
+            .with_turn_timeout(Duration::from_millis(10))
+            .connect(CallOptions::default())
+            .await
+            .unwrap();
+        let mut turn = session
+            .generate(request("timeout"), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+
+        let error = tokio::time::timeout(Duration::from_secs(1), turn.next())
+            .await
+            .expect("turn timeout must settle")
+            .expect("turn must emit one terminal error")
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+        assert!(turn.next().await.is_none());
+        assert!(matches!(
+            wait_for_session_terminal(&session).await,
+            SessionTerminal::Failed(SessionFailure {
+                kind: ErrorKind::Timeout,
+                ..
+            })
         ));
     }
 
