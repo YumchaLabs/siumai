@@ -7,7 +7,8 @@ use siumai_core::{
     InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
     ModelPolicyContext, ModelPolicyDecision, Provider, ProviderOptionContext, ProviderOptionError,
     ProviderOptionLayers, ProviderOptionMerger, ProviderOptions, ProviderRegistration,
-    ProviderScope, TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
+    ProviderRegistrationError, ProviderScope, SpeechModelProvider, TranscriptionModelProvider,
+    TypedProviderOptions, UnsupportedReason,
 };
 use siumai_transport::{
     EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
@@ -20,7 +21,9 @@ use crate::model::DeepgramTranscriptionModel;
 use crate::options::DeepgramTranscriptionOptions;
 use crate::profile::{
     API_MODE_ID, DeepgramProfile, DeepgramProfileError, PROTOCOL_ID, PROVIDER_ID,
+    SPEECH_API_MODE_ID, SPEECH_PROTOCOL_ID,
 };
+use crate::speech::DeepgramSpeechModel;
 
 const DEEPGRAM_ORIGIN: &str = "https://api.deepgram.com";
 
@@ -28,6 +31,8 @@ const DEEPGRAM_ORIGIN: &str = "https://api.deepgram.com";
 #[derive(Clone)]
 pub struct DeepgramProvider {
     pub(crate) runtime: Arc<ProviderRuntime>,
+    pub(crate) speech_runtime: Arc<DeepgramSpeechRuntime>,
+    registration: ProviderRegistration,
     profile: DeepgramProfile,
 }
 
@@ -63,16 +68,24 @@ impl DeepgramProvider {
         self.transcription(crate::models::DEFAULT_TRANSCRIPTION)
     }
 
+    /// Create a lightweight buffered Aura speech model from an open model ID.
+    pub fn speech(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<DeepgramSpeechModel, ModelLookupError> {
+        self.speech_model(ModelId::new(model.into())?)
+    }
+
+    pub fn speech_model(&self, model: ModelId) -> Result<DeepgramSpeechModel, ModelLookupError> {
+        Ok(DeepgramSpeechModel::new(self.speech_runtime.clone(), model))
+    }
+
+    pub fn default_speech_model(&self) -> Result<DeepgramSpeechModel, ModelLookupError> {
+        self.speech(crate::models::DEFAULT_SPEECH)
+    }
+
     pub fn registration(&self) -> ProviderRegistration {
-        let provider = self.clone();
-        ProviderRegistration::from_transcription(
-            self.runtime.scope.clone(),
-            self.runtime.policy.clone(),
-            Arc::new(move |model| {
-                Ok(Arc::new(provider.create_transcription_model(model))
-                    as Arc<dyn siumai_core::TranscriptionModel>)
-            }),
-        )
+        self.registration.clone()
     }
 
     pub fn profile(&self) -> &DeepgramProfile {
@@ -98,11 +111,20 @@ impl TranscriptionModelProvider for DeepgramProvider {
     }
 }
 
+impl SpeechModelProvider for DeepgramProvider {
+    type Model = DeepgramSpeechModel;
+
+    fn speech_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        DeepgramProvider::speech_model(self, model)
+    }
+}
+
 impl fmt::Debug for DeepgramProvider {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("DeepgramProvider")
             .field("scope", &self.runtime.scope)
+            .field("speech_scope", &self.speech_runtime.scope)
             .field("transport", &"shared")
             .finish()
     }
@@ -111,6 +133,7 @@ impl fmt::Debug for DeepgramProvider {
 pub struct DeepgramProviderBuilder {
     credential: DeepgramCredential,
     endpoint: Option<EndpointConfig>,
+    provider_selected_endpoint: bool,
     limits: TransportLimits,
     connect_timeout: Option<Duration>,
     call_timeout: Option<Duration>,
@@ -123,6 +146,7 @@ impl DeepgramProviderBuilder {
         Self {
             credential,
             endpoint: None,
+            provider_selected_endpoint: true,
             limits: TransportLimits::default(),
             connect_timeout: None,
             call_timeout: None,
@@ -134,6 +158,7 @@ impl DeepgramProviderBuilder {
     /// Select a statically validated endpoint, including an explicit local grant for tests.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Some(endpoint);
+        self.provider_selected_endpoint = false;
         self
     }
 
@@ -176,7 +201,7 @@ impl DeepgramProviderBuilder {
         {
             return Err(DeepgramConfigError::OfficialEndpointRequiresCredential);
         }
-        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let verified_endpoint = self.provider_selected_endpoint;
         let profile = if verified_endpoint {
             DeepgramProfile::current()?
         } else {
@@ -197,14 +222,46 @@ impl DeepgramProviderBuilder {
         }
         let transport = transport.build()?;
         let policy = Arc::new(DeepgramModelPolicy { verified_endpoint });
+        let runtime = Arc::new(ProviderRuntime {
+            scope: profile.scope(),
+            transport: transport.clone(),
+            policy,
+            default_options,
+            option_merger: DeepgramOptionMerger,
+        });
+        let speech_runtime = Arc::new(DeepgramSpeechRuntime {
+            scope: profile.speech_scope(),
+            transport,
+            policy: Arc::new(DeepgramSpeechModelPolicy { verified_endpoint }),
+        });
+        let transcription_registration = ProviderRegistration::from_transcription(
+            runtime.scope.clone(),
+            runtime.policy.clone(),
+            {
+                let runtime = runtime.clone();
+                Arc::new(move |model| {
+                    Ok(
+                        Arc::new(DeepgramTranscriptionModel::new(runtime.clone(), model))
+                            as Arc<dyn siumai_core::TranscriptionModel>,
+                    )
+                })
+            },
+        );
+        let speech_registration = ProviderRegistration::from_speech(
+            speech_runtime.scope.clone(),
+            speech_runtime.policy.clone(),
+            {
+                let runtime = speech_runtime.clone();
+                Arc::new(move |model| {
+                    Ok(Arc::new(DeepgramSpeechModel::new(runtime.clone(), model))
+                        as Arc<dyn siumai_core::SpeechModel>)
+                })
+            },
+        );
         Ok(DeepgramProvider {
-            runtime: Arc::new(ProviderRuntime {
-                scope: profile.scope(),
-                transport,
-                policy,
-                default_options,
-                option_merger: DeepgramOptionMerger,
-            }),
+            runtime,
+            speech_runtime,
+            registration: transcription_registration.merge(speech_registration)?,
             profile,
         })
     }
@@ -216,6 +273,10 @@ impl fmt::Debug for DeepgramProviderBuilder {
             .debug_struct("DeepgramProviderBuilder")
             .field("credential", &self.credential)
             .field("endpoint", &self.endpoint)
+            .field(
+                "provider_selected_endpoint",
+                &self.provider_selected_endpoint,
+            )
             .field("limits", &self.limits)
             .field("connect_timeout", &self.connect_timeout)
             .field("call_timeout", &self.call_timeout)
@@ -231,6 +292,12 @@ pub(crate) struct ProviderRuntime {
     pub(crate) policy: Arc<DeepgramModelPolicy>,
     default_options: ProviderOptions,
     option_merger: DeepgramOptionMerger,
+}
+
+pub(crate) struct DeepgramSpeechRuntime {
+    pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) transport: ProviderTransport,
+    pub(crate) policy: Arc<DeepgramSpeechModelPolicy>,
 }
 
 impl ProviderRuntime {
@@ -265,6 +332,29 @@ impl fmt::Debug for ProviderRuntime {
 
 pub(crate) struct DeepgramModelPolicy {
     verified_endpoint: bool,
+}
+
+pub(crate) struct DeepgramSpeechModelPolicy {
+    verified_endpoint: bool,
+}
+
+impl ModelPolicy for DeepgramSpeechModelPolicy {
+    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
+        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
+            && context.scope().protocol().map(|value| value.as_str()) == Some(SPEECH_PROTOCOL_ID)
+            && context.scope().api_mode().map(|value| value.as_str()) == Some(SPEECH_API_MODE_ID);
+        if !matches_scope {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
+        }
+        if context.operation() != ModelOperation::SynthesizeSpeech {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
+        }
+        if self.verified_endpoint && crate::models::is_current_speech(context.model().as_str()) {
+            ModelPolicyDecision::supported()
+        } else {
+            ModelPolicyDecision::unknown_model()
+        }
+    }
 }
 
 impl ModelPolicy for DeepgramModelPolicy {
@@ -344,6 +434,8 @@ pub enum DeepgramConfigError {
     Credential(#[from] DeepgramCredentialError),
     #[error("invalid Deepgram default options: {0}")]
     Options(#[from] ProviderOptionError),
+    #[error("invalid Deepgram provider registration: {0}")]
+    Registration(#[from] ProviderRegistrationError),
     #[error("the official Deepgram endpoint requires an API key")]
     OfficialEndpointRequiresCredential,
 }
@@ -388,18 +480,21 @@ mod tests {
     }
 
     #[test]
-    fn official_profile_exposes_only_current_prerecorded_models() {
+    fn official_profile_exposes_current_prerecorded_and_aura_models() {
         let provider = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
             .build()
             .unwrap();
         let profile = provider.profile().provider_profile();
         let claims = profile.verified_claims().unwrap();
-        assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
-        assert_eq!(claims[0].stability(), ApiStability::Stable);
+        assert_eq!(claims.len(), 2);
+        assert!(claims.iter().all(|claim| {
+            claim.fidelity() == VerifiedFidelity::Native
+                && claim.stability() == ApiStability::Stable
+        }));
         assert_eq!(
             profile.catalog().unwrap().iter().count(),
             crate::models::CURRENT_TRANSCRIPTION_MODELS.len()
+                + crate::models::CURRENT_SPEECH_MODELS.len()
         );
     }
 

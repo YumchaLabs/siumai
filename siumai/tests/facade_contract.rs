@@ -337,6 +337,59 @@ fn facade_registration_sources_cover_all_six_stable_families() {
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
 }
 
+#[cfg(all(feature = "deepgram", feature = "elevenlabs"))]
+#[test]
+fn facade_exposes_deepgram_speech_and_elevenlabs_transcription() {
+    use siumai::core::{Model, ModelFamily, ProviderOptions};
+    use siumai::providers::{deepgram, elevenlabs};
+
+    let deepgram =
+        deepgram::DeepgramProvider::builder(deepgram::DeepgramCredential::api_key("test-key"))
+            .build()
+            .unwrap();
+    assert!(deepgram.registration().supports_family(ModelFamily::Speech));
+    assert_eq!(
+        deepgram
+            .default_speech_model()
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("tts")
+    );
+
+    let elevenlabs = elevenlabs::ElevenLabsProvider::builder(
+        elevenlabs::ElevenLabsProfile::official().unwrap(),
+        elevenlabs::ElevenLabsCredential::api_key("test-key"),
+    )
+    .build()
+    .unwrap();
+    assert!(
+        elevenlabs
+            .registration()
+            .supports_family(ModelFamily::Transcription)
+    );
+    assert_eq!(
+        elevenlabs
+            .default_transcription_model()
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("batch-transcription")
+    );
+
+    let options = ProviderOptions::typed(
+        &elevenlabs::options::ElevenLabsTranscriptionOptions::new()
+            .with_diarize(true)
+            .with_timestamps_granularity(elevenlabs::options::ElevenLabsTimestampGranularity::Word),
+    )
+    .unwrap();
+    assert_eq!(options.namespace().as_str(), "elevenlabs");
+    assert_eq!(
+        options.api_mode().map(siumai::core::ApiModeId::as_str),
+        Some("batch-transcription")
+    );
+}
+
 #[cfg(feature = "openai")]
 #[test]
 fn facade_exposes_openai_portable_families_and_provider_owned_resources() {

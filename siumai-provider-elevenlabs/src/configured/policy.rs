@@ -8,13 +8,19 @@ use siumai_core::{
 pub(crate) struct ElevenLabsModelPolicy {
     profile: Arc<ProviderProfile>,
     support_scope: SupportScope,
+    operation: ModelOperation,
 }
 
 impl ElevenLabsModelPolicy {
-    pub(crate) fn new(profile: Arc<ProviderProfile>, support_scope: SupportScope) -> Self {
+    pub(crate) fn new(
+        profile: Arc<ProviderProfile>,
+        support_scope: SupportScope,
+        operation: ModelOperation,
+    ) -> Self {
         Self {
             profile,
             support_scope,
+            operation,
         }
     }
 }
@@ -28,7 +34,7 @@ impl ModelPolicy for ElevenLabsModelPolicy {
         {
             return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
         }
-        if context.operation() != ModelOperation::SynthesizeSpeech {
+        if context.operation() != self.operation {
             return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
         }
         let Some(catalog) = self.profile.catalog() else {

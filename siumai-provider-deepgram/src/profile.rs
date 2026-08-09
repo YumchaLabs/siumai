@@ -13,16 +13,21 @@ pub const PROVIDER_ID: &str = "deepgram";
 pub const PLATFORM_ID: &str = "public-api";
 pub const PROTOCOL_ID: &str = "deepgram-prerecorded";
 pub const API_MODE_ID: &str = "prerecorded";
-pub const VERIFIED_ON: &str = "2026-08-06";
+pub const SPEECH_PROTOCOL_ID: &str = "deepgram-aura-tts";
+pub const SPEECH_API_MODE_ID: &str = "tts";
+pub const VERIFIED_ON: &str = "2026-08-09";
 pub const API_SOURCE: &str =
     "https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded";
 pub const MODEL_SOURCE: &str = "https://developers.deepgram.com/docs/models-languages-overview";
+pub const SPEECH_SOURCE: &str = "https://developers.deepgram.com/reference/text-to-speech/speak";
+pub const SPEECH_MODEL_SOURCE: &str = "https://developers.deepgram.com/docs/tts-models";
 
 /// Evidence-backed Deepgram prerecorded transcription profile.
 #[derive(Debug, Clone)]
 pub struct DeepgramProfile {
     profile: Arc<ProviderProfile>,
     scope: Arc<ProviderScope>,
+    speech_scope: Arc<ProviderScope>,
 }
 
 impl DeepgramProfile {
@@ -40,37 +45,76 @@ impl DeepgramProfile {
         );
         let api_evidence = evidence(API_SOURCE, "deepgram-prerecorded-2026-08")?;
         let model_evidence = evidence(MODEL_SOURCE, "deepgram-model-catalog-2026-08")?;
-        let catalog = ModelCatalog::new(crate::models::CURRENT_TRANSCRIPTION_MODELS.iter().map(
-            |model| {
-                ModelProfile::new(
-                    ModelId::new(*model).expect("Deepgram model IDs are static"),
-                    support_scope.clone(),
-                    [ModelOperation::Transcribe],
-                    ModelLifecycle::Active,
-                    model_evidence.clone(),
-                )
-                .expect("Deepgram model profiles declare one operation")
-            },
-        ))?;
+        let speech_protocol = ProtocolId::new(SPEECH_PROTOCOL_ID)?;
+        let speech_api_mode = ApiModeId::new(SPEECH_API_MODE_ID)?;
+        let speech_scope = SupportScope::new(
+            provider.clone(),
+            platform.clone(),
+            ModelFamily::Speech,
+            speech_protocol.clone(),
+            speech_api_mode.clone(),
+        );
+        let speech_evidence = evidence(SPEECH_SOURCE, "deepgram-aura-tts-2026-08")?;
+        let speech_model_evidence =
+            evidence(SPEECH_MODEL_SOURCE, "deepgram-aura-model-catalog-2026-08")?;
+        let catalog = ModelCatalog::new(
+            crate::models::CURRENT_TRANSCRIPTION_MODELS
+                .iter()
+                .map(|model| {
+                    ModelProfile::new(
+                        ModelId::new(*model).expect("Deepgram model IDs are static"),
+                        support_scope.clone(),
+                        [ModelOperation::Transcribe],
+                        ModelLifecycle::Active,
+                        model_evidence.clone(),
+                    )
+                    .expect("Deepgram model profiles declare one operation")
+                })
+                .chain(crate::models::CURRENT_SPEECH_MODELS.iter().map(|model| {
+                    ModelProfile::new(
+                        ModelId::new(*model).expect("Deepgram speech model IDs are static"),
+                        speech_scope.clone(),
+                        [ModelOperation::SynthesizeSpeech],
+                        ModelLifecycle::Active,
+                        speech_model_evidence.clone(),
+                    )
+                    .expect("Deepgram speech model profiles declare one operation")
+                })),
+        )?;
         let profile = ProviderProfile::verified(
             ProfileId::new(PROVIDER_ID)?,
-            vec![VerifiedSupportClaim::new(
-                support_scope,
-                VerifiedFidelity::Native,
-                ApiStability::Stable,
-                api_evidence,
-            )],
+            vec![
+                VerifiedSupportClaim::new(
+                    support_scope,
+                    VerifiedFidelity::Native,
+                    ApiStability::Stable,
+                    api_evidence,
+                ),
+                VerifiedSupportClaim::new(
+                    speech_scope,
+                    VerifiedFidelity::Native,
+                    ApiStability::Stable,
+                    speech_evidence,
+                ),
+            ],
             catalog,
         )?;
         let scope = Arc::new(
-            ProviderScope::new(provider)
-                .with_platform(platform)
+            ProviderScope::new(provider.clone())
+                .with_platform(platform.clone())
                 .with_protocol(protocol)
                 .with_api_mode(api_mode),
+        );
+        let speech_scope = Arc::new(
+            ProviderScope::new(provider)
+                .with_platform(platform)
+                .with_protocol(speech_protocol)
+                .with_api_mode(speech_api_mode),
         );
         Ok(Self {
             profile: Arc::new(profile),
             scope,
+            speech_scope,
         })
     }
 
@@ -86,19 +130,36 @@ impl DeepgramProfile {
             protocol.clone(),
             api_mode.clone(),
         );
-        let profile = ProviderProfile::generic(
-            ProfileId::new("deepgram-custom")?,
-            GenericSupportClaim::new(support_scope, ApiStability::Experimental),
+        let speech_scope = SupportScope::new(
+            provider.clone(),
+            platform.clone(),
+            ModelFamily::Speech,
+            ProtocolId::new(SPEECH_PROTOCOL_ID)?,
+            ApiModeId::new(SPEECH_API_MODE_ID)?,
         );
+        let profile = ProviderProfile::generic_many(
+            ProfileId::new("deepgram-custom")?,
+            vec![
+                GenericSupportClaim::new(support_scope, ApiStability::Experimental),
+                GenericSupportClaim::new(speech_scope, ApiStability::Experimental),
+            ],
+        )?;
         let scope = Arc::new(
             ProviderScope::new(provider)
                 .with_platform(platform)
                 .with_protocol(protocol)
                 .with_api_mode(api_mode),
         );
+        let speech_scope = Arc::new(
+            ProviderScope::new(scope.provider_id().clone())
+                .with_platform(scope.platform().cloned().expect("custom platform"))
+                .with_protocol(ProtocolId::new(SPEECH_PROTOCOL_ID)?)
+                .with_api_mode(ApiModeId::new(SPEECH_API_MODE_ID)?),
+        );
         Ok(Self {
             profile: Arc::new(profile),
             scope,
+            speech_scope,
         })
     }
 
@@ -108,6 +169,10 @@ impl DeepgramProfile {
 
     pub(crate) fn scope(&self) -> Arc<ProviderScope> {
         self.scope.clone()
+    }
+
+    pub(crate) fn speech_scope(&self) -> Arc<ProviderScope> {
+        self.speech_scope.clone()
     }
 }
 

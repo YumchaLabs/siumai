@@ -56,8 +56,8 @@ Provider features describe the exact retained slice, not every product sold unde
 | `minimax` | Three language modes, portable image/speech, Responses input-token counting, and typed files/media/voice resources |
 | `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
 | `cohere` | Embeddings and reranking |
-| `deepgram` | Final-result transcription |
-| `elevenlabs` | Speech synthesis |
+| `deepgram` | Final-result transcription and buffered Aura speech synthesis |
+| `elevenlabs` | Buffered speech synthesis and final-result/batch transcription |
 
 See the [provider support policy](docs/providers/support-policy.md) for fidelity, stability, and
 host-control-plane boundaries. Model identifiers remain open; constants are dated hints rather

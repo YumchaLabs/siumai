@@ -16,16 +16,22 @@ use super::provider::ElevenLabsConfigError;
 pub const PROVIDER_ID: &str = "elevenlabs";
 pub const PROTOCOL_ID: &str = "elevenlabs-native";
 pub const API_MODE_ID: &str = "text-to-speech";
-pub const VERIFIED_ON: &str = "2026-08-04";
+pub const TRANSCRIPTION_PROTOCOL_ID: &str = "elevenlabs-speech-to-text";
+pub const TRANSCRIPTION_API_MODE_ID: &str = "batch-transcription";
+pub const VERIFIED_ON: &str = "2026-08-09";
 pub const OFFICIAL_SOURCE: &str = "https://elevenlabs.io/docs/api-reference/text-to-speech/convert";
 pub const MODEL_SOURCE: &str = "https://elevenlabs.io/docs/overview/models";
+pub const TRANSCRIPTION_SOURCE: &str =
+    "https://elevenlabs.io/docs/api-reference/speech-to-text/convert";
 
 /// Immutable endpoint and evidence profile for one ElevenLabs runtime.
 #[derive(Clone)]
 pub struct ElevenLabsProfile {
     profile: Arc<ProviderProfile>,
     support_scope: SupportScope,
+    transcription_support_scope: SupportScope,
     scope: Arc<ProviderScope>,
+    transcription_scope: Arc<ProviderScope>,
     endpoint: EndpointConfig,
 }
 
@@ -38,8 +44,19 @@ impl ElevenLabsProfile {
             ProtocolId::new(PROTOCOL_ID)?,
             ApiModeId::new(API_MODE_ID)?,
         );
-        let endpoint_evidence = evidence(OFFICIAL_SOURCE);
-        let model_evidence = evidence(MODEL_SOURCE);
+        let transcription_support_scope = SupportScope::new(
+            support_scope.provider().clone(),
+            support_scope.platform().clone(),
+            ModelFamily::Transcription,
+            ProtocolId::new(TRANSCRIPTION_PROTOCOL_ID)?,
+            ApiModeId::new(TRANSCRIPTION_API_MODE_ID)?,
+        );
+        let endpoint_evidence = evidence(OFFICIAL_SOURCE, "elevenlabs-text-to-speech-2026-08");
+        let model_evidence = evidence(MODEL_SOURCE, "elevenlabs-speech-models-2026-08");
+        let transcription_evidence = evidence(
+            TRANSCRIPTION_SOURCE,
+            "elevenlabs-batch-transcription-2026-08",
+        );
         let model = |id: &str, lifecycle: ModelLifecycle| {
             ModelProfile::new(
                 ModelId::new(id).expect("verified ElevenLabs model IDs are static"),
@@ -50,40 +67,66 @@ impl ElevenLabsProfile {
             )
             .expect("verified ElevenLabs model profiles declare one operation")
         };
-        let catalog = ModelCatalog::new([
-            model(models::ELEVEN_V3, ModelLifecycle::Active),
-            model(models::ELEVEN_MULTILINGUAL_V2, ModelLifecycle::Active),
-            model(models::ELEVEN_FLASH_V2_5, ModelLifecycle::Active),
-            model(models::ELEVEN_FLASH_V2, ModelLifecycle::Active),
-            model(
-                models::ELEVEN_TURBO_V2_5,
-                ModelLifecycle::Deprecated {
-                    replacement: Some(
-                        ModelId::new(models::ELEVEN_FLASH_V2_5)
-                            .expect("replacement model ID is static"),
-                    ),
-                },
+        let transcription_model = |id: &str| {
+            ModelProfile::new(
+                ModelId::new(id).expect("verified ElevenLabs transcription IDs are static"),
+                transcription_support_scope.clone(),
+                [ModelOperation::Transcribe],
+                ModelLifecycle::Active,
+                transcription_evidence.clone(),
+            )
+            .expect("verified ElevenLabs transcription profiles declare one operation")
+        };
+        let catalog = ModelCatalog::new(
+            [
+                model(models::ELEVEN_V3, ModelLifecycle::Active),
+                model(models::ELEVEN_MULTILINGUAL_V2, ModelLifecycle::Active),
+                model(models::ELEVEN_FLASH_V2_5, ModelLifecycle::Active),
+                model(models::ELEVEN_FLASH_V2, ModelLifecycle::Active),
+                model(
+                    models::ELEVEN_TURBO_V2_5,
+                    ModelLifecycle::Deprecated {
+                        replacement: Some(
+                            ModelId::new(models::ELEVEN_FLASH_V2_5)
+                                .expect("replacement model ID is static"),
+                        ),
+                    },
+                ),
+                model(
+                    models::ELEVEN_TURBO_V2,
+                    ModelLifecycle::Deprecated {
+                        replacement: Some(
+                            ModelId::new(models::ELEVEN_FLASH_V2)
+                                .expect("replacement model ID is static"),
+                        ),
+                    },
+                ),
+                model(models::ELEVEN_MULTILINGUAL_V1, ModelLifecycle::Active),
+            ]
+            .into_iter()
+            .chain(
+                models::VERIFIED_TRANSCRIPTION
+                    .iter()
+                    .map(|model| transcription_model(model)),
             ),
-            model(
-                models::ELEVEN_TURBO_V2,
-                ModelLifecycle::Deprecated {
-                    replacement: Some(
-                        ModelId::new(models::ELEVEN_FLASH_V2)
-                            .expect("replacement model ID is static"),
-                    ),
-                },
-            ),
-            model(models::ELEVEN_MULTILINGUAL_V1, ModelLifecycle::Active),
-        ])
+        )
         .expect("verified ElevenLabs model catalog has valid replacement rows");
         let profile = ProviderProfile::verified(
             ProfileId::new(PROVIDER_ID)?,
-            vec![VerifiedSupportClaim::new(
-                support_scope.clone(),
-                VerifiedFidelity::Native,
-                ApiStability::Stable,
-                endpoint_evidence,
-            )],
+            vec![
+                VerifiedSupportClaim::new(
+                    support_scope.clone(),
+                    VerifiedFidelity::Native,
+                    ApiStability::Stable,
+                    endpoint_evidence,
+                ),
+                VerifiedSupportClaim::new(
+                    transcription_support_scope.clone(),
+                    VerifiedFidelity::Native,
+                    ApiStability::Stable,
+                    transcription_evidence,
+                ),
+            ],
             catalog,
         )
         .expect("verified ElevenLabs profile and catalog scopes match");
@@ -92,7 +135,12 @@ impl ElevenLabsProfile {
             OfficialOrigin::new("https://api.elevenlabs.io")
                 .expect("ElevenLabs official origin is static and valid"),
         )?;
-        Self::from_parts(profile, support_scope, endpoint)
+        Self::from_parts(
+            profile,
+            support_scope,
+            transcription_support_scope,
+            endpoint,
+        )
     }
 
     pub fn public_custom(base_url: impl AsRef<str>) -> Result<Self, ElevenLabsConfigError> {
@@ -105,37 +153,63 @@ impl ElevenLabsProfile {
 
     fn generic(base_url: impl AsRef<str>, local: bool) -> Result<Self, ElevenLabsConfigError> {
         let provider = ProviderId::new(PROVIDER_ID)?;
+        let platform = PlatformId::new(if local { "local" } else { "custom-endpoint" })?;
         let support_scope = SupportScope::new(
-            provider,
-            PlatformId::new(if local { "local" } else { "custom-endpoint" })?,
+            provider.clone(),
+            platform.clone(),
             ModelFamily::Speech,
             ProtocolId::new(PROTOCOL_ID)?,
             ApiModeId::new(API_MODE_ID)?,
         );
-        let profile = ProviderProfile::generic(
+        let transcription_support_scope = SupportScope::new(
+            provider,
+            platform,
+            ModelFamily::Transcription,
+            ProtocolId::new(TRANSCRIPTION_PROTOCOL_ID)?,
+            ApiModeId::new(TRANSCRIPTION_API_MODE_ID)?,
+        );
+        let profile = ProviderProfile::generic_many(
             ProfileId::new(if local {
                 "elevenlabs-local"
             } else {
                 "elevenlabs-custom"
             })?,
-            GenericSupportClaim::new(support_scope.clone(), ApiStability::Experimental),
-        );
+            vec![
+                GenericSupportClaim::new(support_scope.clone(), ApiStability::Experimental),
+                GenericSupportClaim::new(
+                    transcription_support_scope.clone(),
+                    ApiStability::Experimental,
+                ),
+            ],
+        )?;
         let endpoint = if local {
             EndpointConfig::local_explicit(base_url)
         } else {
             EndpointConfig::public_custom(base_url)
         }?;
-        Self::from_parts(profile, support_scope, endpoint)
+        Self::from_parts(
+            profile,
+            support_scope,
+            transcription_support_scope,
+            endpoint,
+        )
     }
 
     fn from_parts(
         profile: ProviderProfile,
         support_scope: SupportScope,
+        transcription_support_scope: SupportScope,
         endpoint: EndpointConfig,
     ) -> Result<Self, ElevenLabsConfigError> {
         if support_scope.family() != ModelFamily::Speech
             || support_scope.protocol().as_str() != PROTOCOL_ID
             || support_scope.api_mode().as_str() != API_MODE_ID
+        {
+            return Err(ElevenLabsConfigError::IncompatibleSupportScope);
+        }
+        if transcription_support_scope.family() != ModelFamily::Transcription
+            || transcription_support_scope.protocol().as_str() != TRANSCRIPTION_PROTOCOL_ID
+            || transcription_support_scope.api_mode().as_str() != TRANSCRIPTION_API_MODE_ID
         {
             return Err(ElevenLabsConfigError::IncompatibleSupportScope);
         }
@@ -145,10 +219,18 @@ impl ElevenLabsProfile {
                 .with_protocol(support_scope.protocol().clone())
                 .with_api_mode(support_scope.api_mode().clone()),
         );
+        let transcription_scope = Arc::new(
+            ProviderScope::new(transcription_support_scope.provider().clone())
+                .with_platform(transcription_support_scope.platform().clone())
+                .with_protocol(transcription_support_scope.protocol().clone())
+                .with_api_mode(transcription_support_scope.api_mode().clone()),
+        );
         Ok(Self {
             profile: Arc::new(profile),
             support_scope,
+            transcription_support_scope,
             scope,
+            transcription_scope,
             endpoint,
         })
     }
@@ -165,6 +247,10 @@ impl ElevenLabsProfile {
         self.scope.clone()
     }
 
+    pub(crate) fn transcription_scope_arc(&self) -> Arc<ProviderScope> {
+        self.transcription_scope.clone()
+    }
+
     pub fn limits_for(&self, model: &ModelId) -> SpeechLimits {
         SpeechLimits {
             max_text_bytes: None,
@@ -174,6 +260,10 @@ impl ElevenLabsProfile {
 
     pub(crate) fn support_scope(&self) -> &SupportScope {
         &self.support_scope
+    }
+
+    pub(crate) fn transcription_support_scope(&self) -> &SupportScope {
+        &self.transcription_support_scope
     }
 
     pub(crate) fn profile_arc(&self) -> Arc<ProviderProfile> {
@@ -191,19 +281,20 @@ impl fmt::Debug for ElevenLabsProfile {
             .debug_struct("ElevenLabsProfile")
             .field("profile_id", self.profile.id())
             .field("scope", &self.scope)
+            .field("transcription_scope", &self.transcription_scope)
             .field("endpoint", &self.endpoint)
             .finish()
     }
 }
 
-fn evidence(source: &str) -> VerificationEvidence {
+fn evidence(source: &str, contract: &str) -> VerificationEvidence {
     VerificationEvidence::new(
         OfficialSource::new(source).expect("ElevenLabs evidence URL is static and valid"),
         VerificationDate::new(
             NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
                 .expect("ElevenLabs verification date is static and valid"),
         ),
-        ProtocolContractId::new("elevenlabs-text-to-speech-2026-08")
+        ProtocolContractId::new(contract)
             .expect("ElevenLabs protocol contract ID is static and valid"),
     )
 }
@@ -219,7 +310,7 @@ mod tests {
             .provider_profile()
             .verified_claims()
             .expect("official profile is verified");
-        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.len(), 2);
         assert_eq!(claims[0].fidelity(), VerifiedFidelity::Native);
         assert_eq!(claims[0].evidence().source().as_str(), OFFICIAL_SOURCE);
         assert_eq!(

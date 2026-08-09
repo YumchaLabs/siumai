@@ -36,11 +36,26 @@ pub mod transcription {
     ];
 }
 
+/// Evidence-backed Deepgram Aura text-to-speech model hints.
+pub mod speech {
+    /// A representative Aura 2 English voice. Model identifiers remain open input.
+    pub const AURA_2_THALIA_EN: &str = "aura-2-thalia-en";
+
+    pub const CURRENT: &[&str] = &[AURA_2_THALIA_EN];
+}
+
 pub const DEFAULT_TRANSCRIPTION: &str = transcription::NOVA_3;
 pub const CURRENT_TRANSCRIPTION_MODELS: &[&str] = transcription::CURRENT;
+pub const DEFAULT_SPEECH: &str = speech::AURA_2_THALIA_EN;
+pub const CURRENT_SPEECH_MODELS: &[&str] = speech::CURRENT;
 
+pub use speech::AURA_2_THALIA_EN;
 pub use transcription::NOVA_3;
 
 pub(crate) fn is_current(model: &str) -> bool {
     CURRENT_TRANSCRIPTION_MODELS.contains(&model)
+}
+
+pub(crate) fn is_current_speech(model: &str) -> bool {
+    CURRENT_SPEECH_MODELS.contains(&model)
 }

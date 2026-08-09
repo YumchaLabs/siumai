@@ -7,6 +7,7 @@ pub mod models;
 mod options;
 mod profile;
 mod provider;
+mod speech;
 
 pub mod providers;
 
@@ -17,5 +18,6 @@ pub use options::{
 };
 pub use profile::{DeepgramProfile, DeepgramProfileError};
 pub use provider::{DeepgramConfigError, DeepgramProvider, DeepgramProviderBuilder};
+pub use speech::DeepgramSpeechModel;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

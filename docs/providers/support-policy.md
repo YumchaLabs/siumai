@@ -72,15 +72,15 @@ of compiled public scope, not a promise that every account can use every model o
 | `minimax` | Verified Messages, Chat Completions, and bounded Responses modes; portable image and buffered speech; native files, media, input-token counting, and voice lifecycle resources | Cross-provider media/voice abstractions or hidden polling workflows |
 | `deepseek` | Verified Chat Completions, explicit beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes | Unverified non-language products |
 | `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat |
-| `deepgram` | Native final-result prerecorded transcription with current Nova-3/Nova-2 hints | Flux/live transcription or legacy-model lifecycle claims |
-| `elevenlabs` | Native speech synthesis | Transcription and broad resource clients |
+| `deepgram` | Native final-result prerecorded transcription plus portable buffered Aura speech | Flux/live transcription or legacy-model lifecycle claims |
+| `elevenlabs` | Native speech synthesis plus portable final-result/batch transcription | Realtime transcription sessions or broad resource clients |
 
 `all-providers` activates the retained branded provider slices but intentionally does not enable
 the generic `openai-compatible` escape hatch or experimental `openai-realtime` transport.
 
 ## Exact portable claim matrix
 
-The rows below mirror the provider-owned profiles compiled on 2026-08-08. `Protocol / API mode`
+The rows below mirror the provider-owned profiles compiled on 2026-08-09. `Protocol / API mode`
 names the exact execution surface; it is not provider-wide identity.
 
 | Facade feature / provider | Provider / platform | Family | Protocol / API mode | Fidelity | Stability | Official source | Verified |
@@ -123,8 +123,10 @@ names the exact execution surface; it is not provider-wide identity.
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-beta-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://api-docs.deepseek.com/guides/tool_calls | 2026-08-08 |
 | `cohere` / Cohere | `cohere` / `public-api` | Embedding | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/embed | 2026-08-06 |
 | `cohere` / Cohere | `cohere` / `public-api` | Rerank | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/rerank | 2026-08-06 |
-| `deepgram` / Deepgram | `deepgram` / `public-api` | Transcription | `deepgram-prerecorded` / `prerecorded` | `native` | `stable` | https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded | 2026-08-06 |
-| `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Speech | `elevenlabs-native` / `text-to-speech` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/text-to-speech/convert | 2026-08-04 |
+| `deepgram` / Deepgram | `deepgram` / `public-api` | Transcription | `deepgram-prerecorded` / `prerecorded` | `native` | `stable` | https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded | 2026-08-09 |
+| `deepgram` / Deepgram | `deepgram` / `public-api` | Speech | `deepgram-aura-tts` / `tts` | `native` | `stable` | https://developers.deepgram.com/reference/text-to-speech/speak | 2026-08-09 |
+| `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Speech | `elevenlabs-native` / `text-to-speech` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/text-to-speech/convert | 2026-08-09 |
+| `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Transcription | `elevenlabs-speech-to-text` / `batch-transcription` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/speech-to-text/convert | 2026-08-09 |
 
 The caller-supplied `openai-compatible` builder exposes either Chat Completions or Responses with a
 caller-selected provider ID and `custom-endpoint` or `local` platform. Those claims are

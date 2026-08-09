@@ -6,6 +6,7 @@ mod options;
 mod policy;
 mod profile;
 mod provider;
+mod transcription;
 
 pub mod models;
 
@@ -17,3 +18,7 @@ pub use options::{
 };
 pub use profile::ElevenLabsProfile;
 pub use provider::{ElevenLabsConfigError, ElevenLabsProvider, ElevenLabsProviderBuilder};
+pub use transcription::{
+    ElevenLabsTimestampGranularity, ElevenLabsTranscriptionFileFormat,
+    ElevenLabsTranscriptionModel, ElevenLabsTranscriptionOptions,
+};

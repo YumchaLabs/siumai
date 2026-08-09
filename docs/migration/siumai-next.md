@@ -432,10 +432,11 @@ or a temporary hidden feature:
 - Cohere retains embeddings and reranking; the old chat surface is removed.
 - Cohere model hints now track Embed v4 and Rerank v4/v3. Obsolete Embed v2 hints are removed;
   textual future or legacy IDs remain callable through the open model-ID contract.
-- Deepgram publishes current Nova-3/Nova-2 prerecorded hints only. Legacy Base, Enhanced, and Nova
-  constants are removed without turning the remaining constants into an allowlist.
-- ElevenLabs retains speech synthesis; the old transcription and broad resource clients are
-  removed.
+- Deepgram publishes current Nova-3/Nova-2 prerecorded hints and a portable buffered Aura speech
+  family. Legacy Base, Enhanced, and Nova constants remain removed, and every model ID stays open.
+- ElevenLabs retains buffered speech synthesis and restores final-result/batch transcription over
+  the provider-owned Speech-to-Text wire contract. Realtime transcription remains intentionally
+  outside the portable family surface.
 - OpenAI retains configured Chat Completions, Responses, Responses resources, and opt-in Realtime.
   The old universal client and unrelated files, image, audio, moderation, rerank, and skills
   surfaces are removed.

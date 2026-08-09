@@ -2,12 +2,14 @@
 
 pub use siumai_provider_deepgram::{
     DeepgramConfigError, DeepgramCredential, DeepgramCredentialError, DeepgramProfile,
-    DeepgramProfileError, DeepgramProvider, DeepgramProviderBuilder, DeepgramTranscriptionModel,
+    DeepgramProfileError, DeepgramProvider, DeepgramProviderBuilder, DeepgramSpeechModel,
+    DeepgramTranscriptionModel,
 };
 
 pub mod models {
     pub use siumai_provider_deepgram::models::{
-        CURRENT_TRANSCRIPTION_MODELS, DEFAULT_TRANSCRIPTION, NOVA_3, transcription,
+        AURA_2_THALIA_EN, CURRENT_SPEECH_MODELS, CURRENT_TRANSCRIPTION_MODELS, DEFAULT_SPEECH,
+        DEFAULT_TRANSCRIPTION, NOVA_3, speech, transcription,
     };
 }
 
