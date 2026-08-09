@@ -5,7 +5,65 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use siumai_core::{LanguageResponse, ResponseMetadata, TranscriptionResponse};
+use siumai_core::{
+    ContentPart, LanguageResponse, OpaqueProviderItem, ResponseMetadata, TranscriptionResponse,
+};
+
+/// Known provider-native Groq remote-MCP output kinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GroqMcpOutputKind {
+    ApprovalRequest,
+    ApprovalResponse,
+    Call,
+    CallOutput,
+    ListTools,
+}
+
+impl GroqMcpOutputKind {
+    fn parse(kind: &str) -> Option<Self> {
+        match kind {
+            "mcp_approval_request" => Some(Self::ApprovalRequest),
+            "mcp_approval_response" => Some(Self::ApprovalResponse),
+            "mcp_call" => Some(Self::Call),
+            "mcp_call_output" => Some(Self::CallOutput),
+            "mcp_list_tools" => Some(Self::ListTools),
+            _ => None,
+        }
+    }
+}
+
+/// Borrowed typed view over one bounded Groq remote-MCP output item.
+pub struct GroqMcpOutput<'a> {
+    kind: GroqMcpOutputKind,
+    item: &'a OpaqueProviderItem,
+}
+
+impl<'a> GroqMcpOutput<'a> {
+    pub fn kind(&self) -> GroqMcpOutputKind {
+        self.kind
+    }
+
+    pub fn item_id(&self) -> Option<&'a str> {
+        self.item.item_id()
+    }
+
+    /// Explicitly expose the bounded provider payload for exact replay or provider-native UI.
+    pub fn data(&self) -> &'a Value {
+        self.item.data()
+    }
+}
+
+impl std::fmt::Debug for GroqMcpOutput<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GroqMcpOutput")
+            .field("kind", &self.kind)
+            .field("item_id", &self.item.item_id())
+            .field("data", &"<redacted>")
+            .finish()
+    }
+}
 
 /// Groq-specific metadata retained from a language response.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -39,6 +97,7 @@ pub struct GroqLanguageMetadata {
 pub trait GroqLanguageResponseExt {
     fn groq_metadata(&self) -> Option<GroqLanguageMetadata>;
     fn groq_response_metadata(&self) -> ResponseMetadata;
+    fn groq_mcp_outputs(&self) -> Vec<GroqMcpOutput<'_>>;
 }
 
 impl GroqLanguageResponseExt for LanguageResponse {
@@ -70,6 +129,21 @@ impl GroqLanguageResponseExt for LanguageResponse {
             request_id,
             model: self.model().cloned(),
         }
+    }
+
+    fn groq_mcp_outputs(&self) -> Vec<GroqMcpOutput<'_>> {
+        self.content()
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::ProviderOpaque(item) => item
+                    .data()
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .and_then(GroqMcpOutputKind::parse)
+                    .map(|kind| GroqMcpOutput { kind, item }),
+                _ => None,
+            })
+            .collect()
     }
 }
 

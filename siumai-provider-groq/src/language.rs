@@ -474,6 +474,7 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
         extra.remove("browser_search");
         extra.remove("code_execution");
         extra.remove("inference_metrics");
+        extra.remove("remote_mcp_tools");
         extra.remove("reasoning_effort");
         if let Some(effort) = options.reasoning_effort {
             let effort = serde_json::to_value(effort).map_err(|source| {
@@ -498,6 +499,15 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
                 "type": "code_interpreter",
                 "container": {"type": "auto"}
             }));
+        }
+        for tool in &options.remote_mcp_tools {
+            native_tools.push(tool.as_value().map_err(|source| {
+                Error::new(
+                    ErrorKind::Internal,
+                    "Groq remote-MCP tool could not be serialized",
+                )
+                .with_source(source)
+            })?);
         }
         let headers = if options.inference_metrics == Some(true) {
             RequestHeaders::new()
@@ -1008,6 +1018,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::GroqLanguageResponseExt;
 
     fn request() -> LanguageRequest {
         LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
@@ -1094,6 +1105,11 @@ mod tests {
             .with_reasoning_effort(crate::GroqReasoningEffort::Low)
             .with_browser_search(true)
             .with_code_execution(true)
+            .with_remote_mcp_tool(
+                crate::GroqRemoteMcpTool::new("docs", "https://mcp.example.com/sse")
+                    .with_header("Authorization", "Bearer secret")
+                    .with_require_approval(crate::GroqMcpApproval::Always),
+            )
             .with_inference_metrics(true)
             .with_metadata([("trace", "test")]);
         let erased = ProviderOptions::typed(&options).unwrap();
@@ -1121,7 +1137,14 @@ mod tests {
                 serde_json::json!({
                     "type":"code_interpreter",
                     "container":{"type":"auto"}
-                })
+                }),
+                serde_json::json!({
+                    "type":"mcp",
+                    "server_label":"docs",
+                    "server_url":"https://mcp.example.com/sse",
+                    "headers":{"Authorization":"Bearer secret"},
+                    "require_approval":"always"
+                }),
             ]
         );
         assert_eq!(
@@ -1172,7 +1195,13 @@ mod tests {
             "created_at": 1_786_080_000,
             "model": models::language::GPT_OSS_20B,
             "status": "completed",
-            "output": [],
+            "output": [{
+                "id":"mcp-approval-1",
+                "type":"mcp_approval_request",
+                "server_label":"docs",
+                "name":"search",
+                "arguments":"{\"query\":\"siumai\"}"
+            }],
             "usage": {
                 "input_tokens": 4,
                 "input_tokens_details": {"cached_tokens": 2},
@@ -1208,6 +1237,11 @@ mod tests {
             response.provider_metadata()["groq"]["responses"]["extra"]["metadata"]["trace"],
             "test"
         );
+        let mcp = response.groq_mcp_outputs();
+        assert_eq!(mcp.len(), 1);
+        assert_eq!(mcp[0].kind(), crate::GroqMcpOutputKind::ApprovalRequest);
+        assert_eq!(mcp[0].item_id(), Some("mcp-approval-1"));
+        assert_eq!(mcp[0].data()["server_label"], "docs");
     }
 
     #[test]

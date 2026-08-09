@@ -37,6 +37,32 @@ pub mod code {
     pub const HINTS: &[&str] = &[GROK_BUILD_0_1];
 }
 
+/// Image-generation model IDs verified against the current xAI Images API.
+pub mod image {
+    pub const GROK_IMAGINE_IMAGE: &str = "grok-imagine-image";
+    pub const GROK_IMAGINE_IMAGE_QUALITY: &str = "grok-imagine-image-quality";
+
+    pub const HINTS: &[&str] = &[GROK_IMAGINE_IMAGE, GROK_IMAGINE_IMAGE_QUALITY];
+}
+
+/// Video-generation model IDs verified against the current xAI Videos API.
+pub mod video {
+    pub const GROK_IMAGINE_VIDEO: &str = "grok-imagine-video";
+    pub const GROK_IMAGINE_VIDEO_1_5: &str = "grok-imagine-video-1.5";
+
+    pub const HINTS: &[&str] = &[GROK_IMAGINE_VIDEO_1_5, GROK_IMAGINE_VIDEO];
+}
+
+/// Stable Siumai handle ID for xAI's model-less TTS endpoint.
+pub mod speech {
+    pub const TTS: &str = "xai-tts";
+}
+
+/// Stable Siumai handle ID for xAI's model-less STT endpoint.
+pub mod transcription {
+    pub const STT: &str = "xai-stt";
+}
+
 pub(crate) mod catalog {
     use super::{code, language};
 
@@ -60,6 +86,10 @@ pub mod recommended {
     pub const LANGUAGE: &str = super::language::GROK_4_5;
     pub const REASONING: &str = super::language::GROK_4_5;
     pub const CODE: &str = super::code::GROK_BUILD_0_1;
+    pub const IMAGE: &str = super::image::GROK_IMAGINE_IMAGE_QUALITY;
+    pub const VIDEO: &str = super::video::GROK_IMAGINE_VIDEO_1_5;
+    pub const SPEECH: &str = super::speech::TTS;
+    pub const TRANSCRIPTION: &str = super::transcription::STT;
 }
 
 /// Return all dated completion hints without implying a closed allowlist.
@@ -77,5 +107,7 @@ mod tests {
         assert!(unique.contains(language::GROK_4_5));
         assert!(unique.contains(code::GROK_BUILD_0_1));
         assert_eq!(unique.len(), hints().count());
+        assert_eq!(recommended::IMAGE, image::GROK_IMAGINE_IMAGE_QUALITY);
+        assert_eq!(recommended::VIDEO, video::GROK_IMAGINE_VIDEO_1_5);
     }
 }

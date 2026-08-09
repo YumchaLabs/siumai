@@ -7,21 +7,24 @@
 
 #![deny(unsafe_code)]
 
+mod audio;
 mod language;
 mod metadata;
 pub mod models;
 mod options;
 mod provider;
+mod speech;
 pub mod tools;
 mod transcription;
 
+pub use audio::{GroqAudio, GroqAudioResponse, GroqUrlAudioRequest};
 pub use language::{
     CHAT_SOURCE, DEFAULT_BASE_URL, DEPRECATIONS_SOURCE, GroqProfileError, MODEL_CATALOG_SOURCE,
     PLATFORM_ID, PROVIDER_ID, RESPONSES_SOURCE, VERIFIED_ON,
 };
 pub use metadata::{
-    GroqLanguageMetadata, GroqLanguageResponseExt, GroqTranscriptionMetadata,
-    GroqTranscriptionResponseExt,
+    GroqLanguageMetadata, GroqLanguageResponseExt, GroqMcpOutput, GroqMcpOutputKind,
+    GroqTranscriptionMetadata, GroqTranscriptionResponseExt,
 };
 pub use options::{
     GroqLanguageOptions, GroqReasoningEffort, GroqReasoningFormat, GroqResponsesOptions,
@@ -35,6 +38,8 @@ pub use provider::{
 pub use siumai_openai_compatible::{
     BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
 };
+pub use speech::{GroqSpeechModel, SPEECH_API_MODE_ID, SPEECH_PROTOCOL_ID, SPEECH_SOURCE};
+pub use tools::{GroqMcpApproval, GroqRemoteMcpTool};
 pub use transcription::{
     GroqTranscriptionModel, TRANSCRIPTION_API_MODE_ID, TRANSCRIPTION_PROTOCOL_ID,
     TRANSCRIPTION_SOURCE,

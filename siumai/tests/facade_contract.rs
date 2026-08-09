@@ -859,7 +859,7 @@ fn facade_exposes_anthropic_on_vertex_as_a_curated_provider() {
 
 #[cfg(all(feature = "registry", feature = "groq"))]
 #[test]
-fn facade_exposes_groq_language_modes_and_transcription() {
+fn facade_exposes_groq_language_and_audio_surfaces() {
     use siumai::core::ProviderOptions;
     use siumai::providers::groq::options::{
         GroqLanguageOptions, GroqResponsesOptions, GroqResponsesServiceTier, GroqServiceTier,
@@ -901,6 +901,15 @@ fn facade_exposes_groq_language_modes_and_transcription() {
     );
     assert_eq!(
         provider
+            .default_speech_model()
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("audio-speech")
+    );
+    let _audio = provider.audio();
+    assert_eq!(
+        provider
             .registration()
             .api_mode(ModelFamily::Language)
             .map(siumai::core::ApiModeId::as_str),
@@ -932,12 +941,24 @@ fn facade_exposes_groq_language_modes_and_transcription() {
     let browser_search =
         ProviderOptions::typed(&siumai::providers::groq::tools::browser_search()).unwrap();
     assert_eq!(browser_search.value()["browser_search"], true);
+    let remote_mcp = ProviderOptions::typed(&siumai::providers::groq::tools::responses_remote_mcp(
+        siumai::providers::groq::tools::GroqRemoteMcpTool::new(
+            "docs",
+            "https://mcp.example.com/sse",
+        )
+        .with_require_approval(siumai::providers::groq::tools::GroqMcpApproval::Always),
+    ))
+    .unwrap();
+    assert_eq!(
+        remote_mcp.value()["remote_mcp_tools"][0]["server_label"],
+        "docs"
+    );
 }
 
 #[cfg(all(feature = "registry", feature = "xai"))]
 #[test]
-fn facade_exposes_xai_language_modes_and_typed_tools() {
-    use siumai::core::{ApiModeId, Model, ProviderOptions};
+fn facade_exposes_xai_language_media_resources_and_typed_tools() {
+    use siumai::core::{ApiModeId, Model, ModelFamily, ProviderOptions};
     use siumai::providers::xai::options::{XaiResponsesOptions, XaiResponsesReasoningEffort};
     use siumai::providers::xai::tools;
     use siumai::providers::xai::{XaiCredential, XaiProvider};
@@ -973,6 +994,22 @@ fn facade_exposes_xai_language_modes_and_typed_tools() {
             .map(ApiModeId::as_str),
         Some("responses")
     );
+    assert_eq!(
+        provider
+            .default_image_model()
+            .unwrap()
+            .descriptor()
+            .api_mode(),
+        Some("image-generations")
+    );
+    assert_eq!(provider.speech().descriptor().api_mode(), Some("tts"));
+    assert_eq!(
+        provider.transcription().descriptor().api_mode(),
+        Some("stt")
+    );
+    assert_eq!(provider.support_manifest().native_claims().len(), 2);
+    let _files = provider.files();
+    let _video_jobs = provider.video_jobs();
 
     let options = ProviderOptions::typed(
         &XaiResponsesOptions::new()

@@ -51,8 +51,8 @@ Provider features describe the exact retained slice, not every product sold unde
 | `moonshotai` | Moonshot AI's Kimi Chat Completions, Partial Mode, and typed Files lifecycle |
 | `volcengine` | Volcengine ARK Chat Completions/Responses, portable Image, Remote MCP, and typed Video tasks |
 | `openai-compatible` | Explicit generic or custom OpenAI-compatible endpoints |
-| `groq` | Chat, Responses, and transcription |
-| `xai` | Responses and Chat Completions language modes |
+| `groq` | Chat, Responses, transcription, buffered Orpheus speech, Remote MCP, and URL-audio/translation resources |
+| `xai` | Responses-primary language, explicit Chat Completions, image, speech, transcription, Files, and video jobs |
 | `minimax` | Three language modes, portable image/speech, Responses input-token counting, and typed files/media/voice resources |
 | `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
 | `cohere` | Embeddings and reranking |

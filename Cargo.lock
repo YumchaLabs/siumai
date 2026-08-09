@@ -2347,6 +2347,7 @@ dependencies = [
  "bytes",
  "chrono",
  "http",
+ "mockito",
  "serde",
  "serde_json",
  "siumai-core",
@@ -2354,6 +2355,8 @@ dependencies = [
  "siumai-protocol-openai",
  "siumai-transport",
  "thiserror 2.0.18",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -2449,8 +2452,11 @@ name = "siumai-provider-xai"
 version = "0.11.0-beta.9"
 dependencies = [
  "async-trait",
+ "base64",
+ "bytes",
  "chrono",
  "http",
+ "mockito",
  "serde",
  "serde_json",
  "siumai-core",
@@ -2458,6 +2464,7 @@ dependencies = [
  "siumai-protocol-openai",
  "siumai-transport",
  "thiserror 2.0.18",
+ "tokio",
  "url",
 ]
 

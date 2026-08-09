@@ -51,6 +51,17 @@ pub mod transcription {
     pub const KNOWN: &[&str] = &[WHISPER_LARGE_V3, WHISPER_LARGE_V3_TURBO];
 }
 
+/// Known Groq Orpheus speech model IDs.
+pub mod speech {
+    pub const ORPHEUS_V1_ENGLISH: &str = "canopylabs/orpheus-v1-english";
+    pub const ORPHEUS_ARABIC_SAUDI: &str = "canopylabs/orpheus-arabic-saudi";
+
+    pub const KNOWN: &[&str] = &[ORPHEUS_V1_ENGLISH, ORPHEUS_ARABIC_SAUDI];
+}
+
+pub const DEFAULT_SPEECH: &str = speech::ORPHEUS_V1_ENGLISH;
+pub const CURRENT_SPEECH_MODELS: &[&str] = speech::KNOWN;
+
 pub const VERIFIED_ON: &str = "2026-08-05";
 
 pub(crate) fn is_known_language(model: &str) -> bool {
@@ -77,6 +88,10 @@ pub(crate) fn is_known_transcription(model: &str) -> bool {
     transcription::KNOWN.contains(&model)
 }
 
+pub(crate) fn is_known_speech(model: &str) -> bool {
+    speech::KNOWN.contains(&model)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +110,8 @@ mod tests {
         assert!(is_known_transcription(
             transcription::WHISPER_LARGE_V3_TURBO
         ));
+        assert!(is_known_speech(speech::ORPHEUS_V1_ENGLISH));
+        assert!(is_known_speech(speech::ORPHEUS_ARABIC_SAUDI));
         assert!(!is_known_language(preview::QWEN3_6_27B));
         assert!(!is_known_language("future-groq-model"));
     }

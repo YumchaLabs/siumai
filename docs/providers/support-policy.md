@@ -67,8 +67,8 @@ of compiled public scope, not a promise that every account can use every model o
 | `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options, Partial Mode, and Files lifecycle | Kimi Batch, token-estimate, Formula, or other resources not implemented by the branded provider |
 | `volcengine` | Verified Volcengine ARK Chat Completions/Responses dialects, portable Image, Remote MCP, and typed Video task lifecycle | Account-specific ARK deployments and media features outside the implemented Image/Video slices |
 | `openai-compatible` | Explicit generic-compatible configuration for caller-owned endpoints | Named-provider fidelity, model advice, or native-provider resources |
-| `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
-| `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
+| `groq` | Verified Chat Completions and Responses dialects, final-result transcription, buffered Orpheus speech, typed Remote MCP, and provider-owned URL-audio/translation operations | Files, Batch, live audio sessions, or a universal OpenAI clone |
+| `xai` | Responses-primary language with explicit Chat Completions, typed hosted tools, portable image/speech/final transcription, Files lifecycle, and typed video jobs | Realtime, Batch, or a generic native-resource client |
 | `minimax` | Verified Messages, Chat Completions, and bounded Responses modes; portable image and buffered speech; native files, media, input-token counting, and voice lifecycle resources | Cross-provider media/voice abstractions or hidden polling workflows |
 | `deepseek` | Verified Chat Completions, explicit beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes | Unverified non-language products |
 | `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat |
@@ -110,8 +110,12 @@ names the exact execution surface; it is not provider-wide identity.
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://console.groq.com/docs/openai | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://console.groq.com/docs/responses-api | 2026-08-05 |
 | `groq` / Groq | `groq` / `groq-cloud` | Transcription | `groq-audio-transcriptions` / `audio-transcriptions` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-06 |
+| `groq` / Groq | `groq` / `groq-cloud` | Speech | `groq-orpheus` / `audio-speech` | `native` | `stable` | https://console.groq.com/docs/text-to-speech | 2026-08-09 |
 | `xai` / xAI | `xai` / `xai-public-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://docs.x.ai/developers/rest-api-reference/inference/chat | 2026-08-06 |
 | `xai` / xAI | `xai` / `xai-public-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://docs.x.ai/developers/rest-api-reference/inference/responses | 2026-08-06 |
+| `xai` / xAI | `xai` / `xai-public-api` | Image | `xai-images` / `image-generations` | `native` | `stable` | https://docs.x.ai/developers/rest-api-reference/images/generate-image | 2026-08-09 |
+| `xai` / xAI | `xai` / `xai-public-api` | Speech | `xai-tts` / `tts` | `native` | `stable` | https://docs.x.ai/developers/model-capabilities/audio/tts | 2026-08-09 |
+| `xai` / xAI | `xai` / `xai-public-api` | Transcription | `xai-stt` / `stt` | `native` | `stable` | https://docs.x.ai/developers/model-capabilities/audio/stt | 2026-08-09 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://platform.minimax.io/docs/api-reference/text-chat-anthropic | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/responses-create | 2026-08-06 |
@@ -154,6 +158,10 @@ portable model families.
 | `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-08 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
+| `groq` / Groq | `groq` / `groq-cloud` | Resource / `url-audio-transcription` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
+| `groq` / Groq | `groq` / `groq-cloud` | Resource / `audio-translation` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
+| `xai` / xAI | `xai` / `xai-public-api` | Resource / `files-lifecycle` | `native` | `stable` | https://docs.x.ai/developers/files/managing-files | 2026-08-09 |
+| `xai` / xAI | `xai` / `xai-public-api` | Job / `video-generation-jobs` | `native` | `stable` | https://docs.x.ai/developers/model-capabilities/video/generation | 2026-08-09 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `files` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/file-management-upload | 2026-08-08 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `images` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-08 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `video-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/video-generation-v2-create | 2026-08-08 |

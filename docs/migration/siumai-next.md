@@ -427,8 +427,14 @@ or a temporary hidden feature:
 - Anthropic Messages on Vertex is available separately through the
   `google-vertex-anthropic` feature and `providers::google_vertex_anthropic`. Its project and
   location inputs are technical addressing data, not availability metadata.
-- xAI retains Responses and Chat Completions language modes. Its old files, image, speech, video,
-  and generic native-runtime surfaces are removed.
+- xAI keeps Responses as its primary language mode and exposes Chat Completions explicitly. It now
+  implements portable image generation, buffered speech, and final transcription, while Files and
+  asynchronous video generation live in provider-owned typed resources. Realtime and Batch remain
+  deliberately deferred instead of being inferred from OpenAI compatibility.
+- Groq now combines verified Chat Completions/Responses with final transcription, buffered Orpheus
+  speech, typed Remote MCP options and outputs, and provider-owned URL-audio transcription and
+  translation. Files and Batch remain unclaimed until their official contracts are consistent
+  enough for a bounded implementation.
 - Cohere retains embeddings and reranking; the old chat surface is removed.
 - Cohere model hints now track Embed v4 and Rerank v4/v3. Obsolete Embed v2 hints are removed;
   textual future or legacy IDs remain callable through the open model-ID contract.

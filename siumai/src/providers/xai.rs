@@ -1,13 +1,18 @@
 //! Curated xAI provider facade.
 
 pub use siumai_provider_xai::{
-    CredentialSourceError, DynamicCredentialSource, XaiConfigError, XaiCredential, XaiLanguageApi,
-    XaiLanguageModel, XaiProvider, XaiProviderBuilder,
+    CredentialSourceError, DynamicCredentialSource, XaiConfigError, XaiCredential, XaiDeletedFile,
+    XaiFile, XaiFileContent, XaiFileId, XaiFileList, XaiFileListOptions, XaiFileOrder,
+    XaiFileUpload, XaiFiles, XaiImageModel, XaiLanguageApi, XaiLanguageModel, XaiProvider,
+    XaiProviderBuilder, XaiSpeechModel, XaiTranscriptionModel, XaiVideoArtifact,
+    XaiVideoAspectRatio, XaiVideoCreateRequest, XaiVideoImage, XaiVideoJob, XaiVideoJobId,
+    XaiVideoJobState, XaiVideoJobs, XaiVideoResolution,
 };
 
 pub mod models {
     pub use siumai_provider_xai::providers::xai::models::{
-        OFFICIAL_SOURCE, VERIFIED_ON, code, hints, language, recommended,
+        OFFICIAL_SOURCE, VERIFIED_ON, code, hints, image, language, recommended, speech,
+        transcription, video,
     };
 }
 

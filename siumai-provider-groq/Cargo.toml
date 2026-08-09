@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Rust-first Groq Chat, Responses, and transcription provider for Siumai"
+description = "Rust-first Groq Chat, Responses, transcription, and speech provider for Siumai"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -28,9 +28,12 @@ http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+url.workspace = true
 
 [features]
 default = []
 
 [dev-dependencies]
 bytes.workspace = true
+mockito.workspace = true
+tokio.workspace = true

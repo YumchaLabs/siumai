@@ -7,6 +7,7 @@ use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
 use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 
+use crate::tools::GroqRemoteMcpTool;
 use crate::transcription::TRANSCRIPTION_API_MODE_ID;
 
 /// Groq processing tier for one language request.
@@ -218,6 +219,9 @@ pub struct GroqResponsesOptions {
     /// Request detailed inference metrics through the Groq beta response metadata header.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inference_metrics: Option<bool>,
+    /// Provider-executed remote-MCP servers exposed to this Responses call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote_mcp_tools: Vec<GroqRemoteMcpTool>,
 }
 
 impl GroqResponsesOptions {
@@ -278,6 +282,11 @@ impl GroqResponsesOptions {
         self
     }
 
+    pub fn with_remote_mcp_tool(mut self, tool: GroqRemoteMcpTool) -> Self {
+        self.remote_mcp_tools.push(tool);
+        self
+    }
+
     fn validate_values(&self) -> Result<(), ProviderOptionError> {
         if self.background == Some(true) {
             return Err(rejected(
@@ -303,6 +312,16 @@ impl GroqResponsesOptions {
                 "metadata",
                 "keys must be non-empty and metadata must not contain control characters",
             ));
+        }
+        if self.remote_mcp_tools.len() > 8 {
+            return Err(rejected(
+                "remote_mcp_tools",
+                "must contain at most eight servers",
+            ));
+        }
+        for (index, tool) in self.remote_mcp_tools.iter().enumerate() {
+            tool.validate(index)
+                .map_err(|reason| rejected("remote_mcp_tools", &reason))?;
         }
         Ok(())
     }

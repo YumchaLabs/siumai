@@ -14,7 +14,11 @@ pub use provider_options::{
     XaiResponsesOptions, XaiResponsesReasoningEffort, XaiSearchParameters,
 };
 pub use providers::xai::{
-    XaiConfigError, XaiCredential, XaiErrorData, XaiErrorPayload, XaiLanguageApi, XaiLanguageModel,
-    XaiProvider, XaiProviderBuilder,
+    XaiConfigError, XaiCredential, XaiDeletedFile, XaiErrorData, XaiErrorPayload, XaiFile,
+    XaiFileContent, XaiFileId, XaiFileList, XaiFileListOptions, XaiFileOrder, XaiFileUpload,
+    XaiFiles, XaiImageModel, XaiLanguageApi, XaiLanguageModel, XaiProvider, XaiProviderBuilder,
+    XaiSpeechModel, XaiTranscriptionModel, XaiVideoArtifact, XaiVideoAspectRatio,
+    XaiVideoCreateRequest, XaiVideoImage, XaiVideoJob, XaiVideoJobId, XaiVideoJobState,
+    XaiVideoJobs, XaiVideoResolution,
 };
 pub use siumai_openai_compatible::{CredentialSourceError, DynamicCredentialSource};

@@ -1161,6 +1161,12 @@ sequenceDiagram
   - Upstream Beta/Legacy status is reflected in evidence independently from Siumai API stability.
 - **Verification outcome:** The remaining high-value provider gaps are implemented with honest
   portability and provider-owned lifecycle boundaries.
+- **Implementation checkpoint (2026-08-09):** Complete. xAI keeps Responses as its primary
+  language route and now owns portable Image, Speech, and final Transcription families plus typed
+  Files and video-job resources. Groq now owns portable Orpheus Speech, typed Remote MCP, and
+  provider-owned URL-audio transcription/translation while Files and Batch remain explicitly
+  unclaimed. Deepgram Aura Speech and ElevenLabs final/batch Transcription landed as the independent
+  audio checkpoint. Focused provider fixtures, the facade contract, and scoped Clippy pass serially.
 
 ### U10 — Evidence, Facade, Migration, and Release Readiness
 

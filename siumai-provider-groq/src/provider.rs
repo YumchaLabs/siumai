@@ -12,12 +12,15 @@ use siumai_core::{
     ApiModeId, ApiStability, CallOptions, CatalogError, Error, GenericSupportClaim, InvalidId,
     LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse, LanguageStream, Model,
     ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle, ModelLookupError,
-    ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderOptionError, ProviderOptions,
-    ProviderProfile, ProviderRegistration, ProviderRegistrationError, ProviderScope,
-    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError, SupportScope,
-    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, VerificationDate,
-    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ModelProfile,
+    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
+    OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider,
+    ProviderId, ProviderOptionError, ProviderOptions, ProviderProfile, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
+    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedNativeSupportClaim,
+    VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -30,8 +33,10 @@ use siumai_transport::{
 };
 use thiserror::Error as ThisError;
 
+use crate::audio::GroqAudio;
 use crate::language::{DEFAULT_BASE_URL, GroqProfileError, PLATFORM_ID, PROVIDER_ID, profile};
 use crate::options::{GroqLanguageOptions, GroqResponsesOptions, GroqTranscriptionOptions};
+use crate::speech::{GroqSpeechModel, SPEECH_API_MODE_ID, SPEECH_PROTOCOL_ID, SPEECH_SOURCE};
 use crate::transcription::{
     GroqTranscriptionModel, GroqTranscriptionRuntime, TRANSCRIPTION_API_MODE_ID,
     TRANSCRIPTION_PROTOCOL_ID, TRANSCRIPTION_SOURCE,
@@ -40,6 +45,8 @@ use crate::transcription::{
 const OFFICIAL_ORIGIN: &str = "https://api.groq.com";
 const OFFICIAL_REPLAY_DOMAIN_ID: &str = "groq-public-api";
 const TRANSCRIPTION_VERIFIED_ON: &str = "2026-08-06";
+const SPEECH_VERIFIED_ON: &str = "2026-08-09";
+const AUDIO_NATIVE_VERIFIED_ON: &str = "2026-08-09";
 
 /// Explicit Groq authentication configuration.
 #[derive(Clone)]
@@ -106,6 +113,8 @@ pub struct GroqProvider {
     chat_registration: ProviderRegistration,
     default_registration: ProviderRegistration,
     transcription: Arc<GroqTranscriptionRuntime>,
+    speech: Arc<GroqSpeechRuntime>,
+    audio: GroqAudio,
     support_manifest: Arc<ProviderSupportManifest>,
 }
 
@@ -118,7 +127,7 @@ impl GroqProvider {
         Self::builder(GroqCredential::api_key(api_key)).build()
     }
 
-    /// Inspect the exact language and transcription claims for this configuration.
+    /// Inspect the exact language, transcription, and speech claims for this configuration.
     pub fn support_manifest(&self) -> &ProviderSupportManifest {
         &self.support_manifest
     }
@@ -164,6 +173,21 @@ impl GroqProvider {
         Ok(self.create_transcription_model(model))
     }
 
+    /// Create a lightweight buffered Orpheus speech model from an open model ID.
+    pub fn speech(&self, model: impl Into<String>) -> Result<GroqSpeechModel, ModelLookupError> {
+        let model = ModelId::new(model.into())?;
+        Ok(self.create_speech_model(model))
+    }
+
+    pub fn default_speech_model(&self) -> Result<GroqSpeechModel, ModelLookupError> {
+        self.speech(crate::models::DEFAULT_SPEECH)
+    }
+
+    /// Access provider-owned URL-audio transcription and translation operations.
+    pub fn audio(&self) -> GroqAudio {
+        self.audio.clone()
+    }
+
     pub fn language_registration(&self) -> Option<ProviderRegistration> {
         Some(self.chat_registration.clone())
     }
@@ -183,7 +207,7 @@ impl GroqProvider {
         }
     }
 
-    /// Register Groq's default language and transcription family bindings.
+    /// Register Groq's default language, transcription, and speech family bindings.
     pub fn registration(&self) -> ProviderRegistration {
         self.default_registration.clone()
     }
@@ -202,8 +226,23 @@ impl GroqProvider {
         )
     }
 
+    pub fn speech_registration(&self) -> ProviderRegistration {
+        let runtime = self.speech.clone();
+        ProviderRegistration::from_speech(
+            self.speech.scope.clone(),
+            self.speech.policy.clone(),
+            Arc::new(move |model| {
+                Ok(Arc::new(GroqSpeechModel::new(runtime.clone(), model)) as Arc<dyn SpeechModel>)
+            }),
+        )
+    }
+
     fn create_transcription_model(&self, model: ModelId) -> GroqTranscriptionModel {
         GroqTranscriptionModel::new(self.transcription.clone(), model)
+    }
+
+    fn create_speech_model(&self, model: ModelId) -> GroqSpeechModel {
+        GroqSpeechModel::new(self.speech.clone(), model)
     }
 }
 
@@ -231,6 +270,14 @@ impl TranscriptionModelProvider for GroqProvider {
     }
 }
 
+impl SpeechModelProvider for GroqProvider {
+    type Model = GroqSpeechModel;
+
+    fn speech_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
+        Ok(self.create_speech_model(model))
+    }
+}
+
 impl fmt::Debug for GroqProvider {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -241,6 +288,7 @@ impl fmt::Debug for GroqProvider {
                 &self.chat_registration.scope(ModelFamily::Language),
             )
             .field("transcription_scope", &self.transcription.scope)
+            .field("speech_scope", &self.speech.scope)
             .finish()
     }
 }
@@ -381,34 +429,43 @@ impl GroqProviderBuilder {
                 language.with_default_option(OpenAiCompatibleApiMode::Responses, name, value);
         }
 
-        let mut transcription_transport = ProviderTransport::builder(endpoint.clone())
+        let mut media_transport = ProviderTransport::builder(endpoint.clone())
             .with_auth(auth)
             .with_limits(self.limits)
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
-            transcription_transport = transcription_transport.with_connect_timeout(timeout);
+            media_transport = media_transport.with_connect_timeout(timeout);
         }
         if let Some(timeout) = self.call_timeout {
-            transcription_transport = transcription_transport.with_call_timeout(timeout);
+            media_transport = media_transport.with_call_timeout(timeout);
         }
         if let Some(timeout) = self.read_timeout {
-            transcription_transport = transcription_transport.with_read_timeout(timeout);
+            media_transport = media_transport.with_read_timeout(timeout);
         }
         let transcription_scope = Arc::new(transcription_scope(
             &endpoint,
-            replay_domain,
+            replay_domain.clone(),
             verified_endpoint,
         )?);
+        let speech_scope = Arc::new(speech_scope(&endpoint, replay_domain, verified_endpoint)?);
         let transcription_profile = transcription_profile(&transcription_scope, verified_endpoint)?;
+        let speech_profile = speech_profile(&speech_scope, verified_endpoint)?;
         let transcription_defaults = ProviderOptions::typed(&self.transcription_defaults)?;
         let language = language.build()?;
         let chat_registration = language
             .chat_completions_registration()
             .ok_or(GroqConfigError::MissingChatCompletionsMode)?;
+        let media_transport = media_transport.build()?;
         let transcription = Arc::new(GroqTranscriptionRuntime::new(
             transcription_scope,
-            transcription_transport.build()?,
+            media_transport.clone(),
             transcription_defaults,
+            verified_endpoint,
+        ));
+        let audio = GroqAudio::new(media_transport.clone(), verified_endpoint);
+        let speech = Arc::new(GroqSpeechRuntime::new(
+            speech_scope,
+            media_transport,
             verified_endpoint,
         ));
         let transcription_registration = ProviderRegistration::from_transcription(
@@ -424,22 +481,39 @@ impl GroqProviderBuilder {
                 })
             },
         );
+        let speech_registration =
+            ProviderRegistration::from_speech(speech.scope.clone(), speech.policy.clone(), {
+                let runtime = speech.clone();
+                Arc::new(move |model| {
+                    Ok(Arc::new(GroqSpeechModel::new(runtime.clone(), model))
+                        as Arc<dyn SpeechModel>)
+                })
+            });
         let default_registration = chat_registration
             .clone()
-            .merge(transcription_registration)?;
+            .merge(transcription_registration)?
+            .merge(speech_registration)?;
+        let native_claims = if verified_endpoint {
+            audio_native_claims()?
+        } else {
+            Vec::new()
+        };
         let support_manifest = Arc::new(ProviderSupportManifest::new(
             ProviderId::new(PROVIDER_ID)?,
             [
                 language.profile().provider_profile().clone(),
                 transcription_profile,
+                speech_profile,
             ],
-            [],
+            native_claims,
         )?);
         Ok(GroqProvider {
             language,
             chat_registration,
             default_registration,
             transcription,
+            speech,
+            audio,
             support_manifest,
         })
     }
@@ -506,6 +580,60 @@ impl fmt::Debug for GroqLanguageModel {
     }
 }
 
+pub(crate) struct GroqSpeechRuntime {
+    pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) transport: ProviderTransport,
+    pub(crate) policy: Arc<GroqSpeechPolicy>,
+}
+
+impl GroqSpeechRuntime {
+    fn new(
+        scope: Arc<ProviderScope>,
+        transport: ProviderTransport,
+        verified_endpoint: bool,
+    ) -> Self {
+        Self {
+            policy: Arc::new(GroqSpeechPolicy {
+                expected_scope: scope.clone(),
+                verified_endpoint,
+            }),
+            scope,
+            transport,
+        }
+    }
+}
+
+impl fmt::Debug for GroqSpeechRuntime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GroqSpeechRuntime")
+            .field("scope", &self.scope)
+            .field("transport", &"shared")
+            .finish()
+    }
+}
+
+pub(crate) struct GroqSpeechPolicy {
+    expected_scope: Arc<ProviderScope>,
+    verified_endpoint: bool,
+}
+
+impl ModelPolicy for GroqSpeechPolicy {
+    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
+        if context.scope() != self.expected_scope.as_ref() {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
+        }
+        if context.operation() != ModelOperation::SynthesizeSpeech {
+            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
+        }
+        if self.verified_endpoint && crate::models::is_known_speech(context.model().as_str()) {
+            ModelPolicyDecision::supported()
+        } else {
+            ModelPolicyDecision::unknown_model()
+        }
+    }
+}
+
 fn official_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(DEFAULT_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
@@ -526,6 +654,25 @@ fn transcription_scope(
         .with_platform(PlatformId::new(platform)?)
         .with_protocol(ProtocolId::new(TRANSCRIPTION_PROTOCOL_ID)?)
         .with_api_mode(ApiModeId::new(TRANSCRIPTION_API_MODE_ID)?)
+        .with_replay_domain(replay_domain))
+}
+
+fn speech_scope(
+    endpoint: &EndpointConfig,
+    replay_domain: ReplayDomain,
+    verified_endpoint: bool,
+) -> Result<ProviderScope, InvalidId> {
+    let platform = match (verified_endpoint, endpoint.policy()) {
+        (true, _) => PLATFORM_ID,
+        (false, EndpointPolicy::Official(_)) => "official-custom-endpoint",
+        (false, EndpointPolicy::PublicCustom) => "custom-endpoint",
+        (false, EndpointPolicy::LocalExplicit(_)) => "local",
+        (false, _) => "custom-endpoint",
+    };
+    Ok(ProviderScope::new(ProviderId::new(PROVIDER_ID)?)
+        .with_platform(PlatformId::new(platform)?)
+        .with_protocol(ProtocolId::new(SPEECH_PROTOCOL_ID)?)
+        .with_api_mode(ApiModeId::new(SPEECH_API_MODE_ID)?)
         .with_replay_domain(replay_domain))
 }
 
@@ -607,6 +754,101 @@ fn transcription_profile(
     )?)
 }
 
+fn speech_profile(
+    scope: &ProviderScope,
+    verified_endpoint: bool,
+) -> Result<ProviderProfile, GroqConfigError> {
+    let support_scope = SupportScope::new(
+        scope.provider_id().clone(),
+        scope
+            .platform()
+            .cloned()
+            .ok_or(GroqConfigError::IncompleteSpeechScope)?,
+        ModelFamily::Speech,
+        scope
+            .protocol()
+            .cloned()
+            .ok_or(GroqConfigError::IncompleteSpeechScope)?,
+        scope
+            .api_mode()
+            .cloned()
+            .ok_or(GroqConfigError::IncompleteSpeechScope)?,
+    );
+    let profile_id = ProfileId::new("groq-speech")?;
+    if !verified_endpoint {
+        return Ok(ProviderProfile::generic(
+            profile_id,
+            GenericSupportClaim::new(support_scope, ApiStability::Experimental),
+        ));
+    }
+
+    let verified_at =
+        VerificationDate::new(NaiveDate::parse_from_str(SPEECH_VERIFIED_ON, "%Y-%m-%d")?);
+    let evidence = VerificationEvidence::new(
+        OfficialSource::new(SPEECH_SOURCE)?,
+        verified_at,
+        ProtocolContractId::new("groq-orpheus-speech-2026-08")?,
+    );
+    let catalog = ModelCatalog::new(
+        crate::models::speech::KNOWN
+            .iter()
+            .map(|model| {
+                Ok(ModelProfile::new(
+                    ModelId::new(*model)?,
+                    support_scope.clone(),
+                    [ModelOperation::SynthesizeSpeech],
+                    ModelLifecycle::Active,
+                    evidence.clone(),
+                )?)
+            })
+            .collect::<Result<Vec<_>, GroqConfigError>>()?,
+    )?;
+    Ok(ProviderProfile::verified(
+        profile_id,
+        vec![VerifiedSupportClaim::new(
+            support_scope,
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            evidence,
+        )],
+        catalog,
+    )?)
+}
+
+fn audio_native_claims() -> Result<Vec<VerifiedNativeSupportClaim>, GroqConfigError> {
+    let provider = ProviderId::new(PROVIDER_ID)?;
+    let platform = PlatformId::new(PLATFORM_ID)?;
+    let verified_at = VerificationDate::new(NaiveDate::parse_from_str(
+        AUDIO_NATIVE_VERIFIED_ON,
+        "%Y-%m-%d",
+    )?);
+    let source = OfficialSource::new(TRANSCRIPTION_SOURCE)?;
+    Ok(vec![
+        VerifiedNativeSupportClaim::new(
+            NativeSupportScope::surface(
+                provider.clone(),
+                platform.clone(),
+                NativeSurfaceKind::Resource,
+                NativeSurfaceId::new("url-audio-transcription")?,
+            ),
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            NativeVerificationEvidence::new(source.clone(), verified_at),
+        ),
+        VerifiedNativeSupportClaim::new(
+            NativeSupportScope::surface(
+                provider,
+                platform,
+                NativeSurfaceKind::Resource,
+                NativeSurfaceId::new("audio-translation")?,
+            ),
+            VerifiedFidelity::Native,
+            ApiStability::Stable,
+            NativeVerificationEvidence::new(source, verified_at),
+        ),
+    ])
+}
+
 fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, GroqConfigError> {
     match serde_json::to_value(options)? {
         Value::Object(values) => Ok(values),
@@ -649,6 +891,8 @@ pub enum GroqConfigError {
     MissingChatCompletionsMode,
     #[error("the configured Groq transcription scope is incomplete")]
     IncompleteTranscriptionScope,
+    #[error("the configured Groq speech scope is incomplete")]
+    IncompleteSpeechScope,
     #[error("the official Groq endpoint requires authenticated credentials")]
     OfficialEndpointRequiresCredential,
     #[error("a custom Groq endpoint requires an explicit non-secret replay domain")]
@@ -767,14 +1011,14 @@ mod tests {
     }
 
     #[test]
-    fn support_manifest_exposes_exact_language_and_transcription_claims() {
+    fn support_manifest_exposes_exact_language_audio_claims() {
         let provider = GroqProvider::builder(GroqCredential::api_key("test-key"))
             .build()
             .unwrap();
         let manifest = provider.support_manifest();
 
         assert_eq!(manifest.provider_id().as_str(), PROVIDER_ID);
-        assert_eq!(manifest.profiles().len(), 2);
+        assert_eq!(manifest.profiles().len(), 3);
         let transcription = manifest
             .profiles()
             .iter()
@@ -789,6 +1033,21 @@ mod tests {
         assert_eq!(claim.stability(), ApiStability::Stable);
         assert_eq!(claim.scope().api_mode().as_str(), TRANSCRIPTION_API_MODE_ID);
         assert_eq!(transcription.catalog().unwrap().iter().count(), 2);
+
+        let speech = manifest
+            .profiles()
+            .iter()
+            .find(|profile| {
+                profile
+                    .verified_claims()
+                    .is_some_and(|claims| claims[0].scope().family() == ModelFamily::Speech)
+            })
+            .unwrap();
+        let claim = &speech.verified_claims().unwrap()[0];
+        assert_eq!(claim.fidelity(), VerifiedFidelity::Native);
+        assert_eq!(claim.stability(), ApiStability::Stable);
+        assert_eq!(claim.scope().api_mode().as_str(), SPEECH_API_MODE_ID);
+        assert_eq!(speech.catalog().unwrap().iter().count(), 2);
     }
 
     #[test]
