@@ -25,7 +25,7 @@ use siumai_protocol_openai::chat_completions::{
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesStreamDecoder,
-    decode_response as decode_responses_response,
+    ResponsesTerminalPolicy, decode_response as decode_responses_response,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
@@ -375,7 +375,8 @@ impl ResponsesCodecPolicy for XaiResponsesCodecPolicy {
         model: ModelId,
     ) -> CompatibleStreamDecoder {
         Box::new(XaiResponsesStreamDecoder {
-            inner: ResponsesStreamDecoder::new(scope, model),
+            inner: ResponsesStreamDecoder::new(scope, model)
+                .with_terminal_policy(ResponsesTerminalPolicy::Compatible),
         })
     }
 }

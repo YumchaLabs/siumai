@@ -556,11 +556,11 @@ mod tests {
     use futures_util::StreamExt;
     use http::header::{HeaderName, HeaderValue};
     use siumai_core::{
-        ApiModeId, ApiStability, CallOptions, Error, ErrorKind, LanguageModel, LanguageRequest,
-        Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
-        ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId,
-        ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId, SupportScope,
-        SupportState, VerificationDate, VerificationEvidence, VerifiedFidelity,
+        ApiModeId, ApiStability, CallOptions, ContentPart, Error, ErrorKind, LanguageModel,
+        LanguageRequest, Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId,
+        ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId,
+        ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId,
+        SupportScope, SupportState, VerificationDate, VerificationEvidence, VerifiedFidelity,
         VerifiedSupportClaim,
     };
     use siumai_protocol_openai::chat_completions::{
@@ -960,9 +960,12 @@ mod tests {
             ]))
             .with_status(200)
             .with_header("content-type", "text/event-stream")
-            .with_body(
-                "data: {\"type\":\"response.completed\",\"sequence_number\":0,\"response\":{\"id\":\"resp-stream\",\"created_at\":1785811200,\"model\":\"dual-model\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":0,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":0},\"error\":null,\"incomplete_details\":null,\"reasoning\":null}}\n\n",
-            )
+            .with_body(concat!(
+                "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp-stream\",\"created_at\":1785811200,\"model\":\"dual-model\",\"status\":\"in_progress\",\"output\":[],\"usage\":null,\"error\":null,\"incomplete_details\":null,\"reasoning\":null}}\n\n",
+                "data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg-compatible\",\"type\":\"message\",\"status\":\"in_progress\",\"role\":\"assistant\",\"content\":[]}}\n\n",
+                "data: {\"type\":\"response.output_item.done\",\"sequence_number\":2,\"output_index\":0,\"item\":{\"id\":\"msg-compatible\",\"type\":\"message\",\"status\":\"completed\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"compatible\",\"annotations\":[]}]}}\n\n",
+                "data: {\"type\":\"response.completed\",\"sequence_number\":3,\"response\":{\"id\":\"resp-stream\",\"created_at\":1785811200,\"model\":\"dual-model\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"compatible\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":0,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":0},\"error\":null,\"incomplete_details\":null,\"reasoning\":null}}\n\n",
+            ))
             .expect(1)
             .create_async()
             .await;
@@ -1008,6 +1011,9 @@ mod tests {
             Some(siumai_core::LanguageStreamEvent::Terminal(
                 siumai_core::StreamTerminal::Completed { response }
             )) if response.id() == Some("resp-stream")
+                && response.content().iter().any(
+                    |part| matches!(part, ContentPart::Text { text } if text == "compatible")
+                )
         ));
 
         let incomplete_events = provider

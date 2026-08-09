@@ -1331,6 +1331,113 @@ fn terminal_reconciliation_compares_function_calls_semantically() {
 }
 
 #[test]
+fn strict_terminal_policy_fills_verified_missing_function_and_message_fields() {
+    let mut function = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = function
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "type": "function_call",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{\"q\":\"tea\"}"
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(|part| matches!(
+                part,
+                ContentPart::ToolCall(call) if call.id() == "call_reconcile"
+            ))
+    ));
+
+    let mut message = completed_message_decoder();
+    let events = message
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_reconcile",
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "done",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(
+                |part| matches!(part, ContentPart::Text { text } if text == "done")
+            )
+    ));
+}
+
+#[test]
+fn terminal_policy_controls_missing_message_identity_recovery() {
+    let terminal = completed_function_response(
+        3,
+        json!([{
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": "done",
+                "annotations": []
+            }]
+        }]),
+    );
+
+    let mut strict = completed_message_decoder();
+    assert_eq!(
+        strict.decode(&terminal).unwrap_err().kind(),
+        ErrorKind::Protocol
+    );
+
+    let mut compatible =
+        completed_message_decoder().with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+    let events = compatible.decode(&terminal).unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(
+                |part| matches!(part, ContentPart::Text { text } if text == "done")
+            )
+    ));
+    assert_eq!(
+        compatible.terminal_response().unwrap().output[0].id(),
+        Some("msg_reconcile")
+    );
+}
+
+#[test]
+fn terminal_reconciliation_rejects_present_message_semantic_conflicts() {
+    let mut decoder = completed_message_decoder();
+    let error = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_reconcile",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "changed",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+}
+
+#[test]
 fn terminal_reconciliation_rejects_executable_identity_mutations() {
     let base = json!({
         "id": "fc_reconcile",
@@ -1365,11 +1472,38 @@ fn terminal_reconciliation_rejects_executable_identity_mutations() {
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::Protocol);
     }
+
+    let mut compatible = completed_function_decoder("{\"q\":\"tea\"}")
+        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+    let error = compatible
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_changed",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_changed",
+                "name": "lookup",
+                "arguments": "{\"q\":\"tea\"}"
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
 }
 
 #[test]
 fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot() {
-    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+    let mut strict = completed_function_decoder("{\"q\":\"tea\"}");
+    assert_eq!(
+        strict
+            .decode_native(&completed_function_response(3, json!([])))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Protocol
+    );
+
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}")
+        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
     let frame = decoder
         .decode_native(&completed_function_response(3, json!([])))
         .unwrap();
@@ -1378,7 +1512,7 @@ fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot(
         frame.native().kind(),
         &ResponsesStreamEventKind::ResponseCompleted
     );
-    assert!(frame.native().response().unwrap().output.is_empty());
+    assert_eq!(frame.native().raw_response().unwrap()["output"], json!([]));
     assert!(matches!(
         frame.portable_events().last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
@@ -1387,7 +1521,7 @@ fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot(
                 ContentPart::ToolCall(call) if call.id() == "call_reconcile"
             ))
     ));
-    assert!(decoder.terminal_native().unwrap().output.is_empty());
+    assert_eq!(decoder.terminal_response().unwrap().output.len(), 1);
 
     let mut terminal_only = ResponsesStreamDecoder::new(scope(), model());
     terminal_only
@@ -1425,7 +1559,8 @@ fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot(
 
 #[test]
 fn terminal_reconciliation_merges_a_function_omitted_before_a_retained_item() {
-    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}")
+        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
     decoder
         .decode(
             &json!({
@@ -1552,6 +1687,90 @@ fn terminal_reconciliation_accepts_provider_native_metadata_changes() {
 }
 
 #[test]
+fn terminal_reconciliation_rejects_typed_native_semantic_mutations() {
+    for (added, done, terminal) in [
+        (
+            json!({
+                "id": "custom_1",
+                "type": "custom_tool_call",
+                "status": "in_progress",
+                "call_id": "call_custom",
+                "name": "grammar",
+                "input": "opaque"
+            }),
+            json!({
+                "id": "custom_1",
+                "type": "custom_tool_call",
+                "status": "completed",
+                "call_id": "call_custom",
+                "name": "grammar",
+                "input": "opaque"
+            }),
+            json!({
+                "id": "custom_1",
+                "type": "custom_tool_call",
+                "status": "completed",
+                "call_id": "call_custom",
+                "name": "grammar",
+                "input": "changed"
+            }),
+        ),
+        (
+            json!({
+                "id": "program_1",
+                "type": "program",
+                "call_id": "call_program",
+                "code": "return 1",
+                "fingerprint": "fp_1"
+            }),
+            json!({
+                "id": "program_1",
+                "type": "program",
+                "call_id": "call_program",
+                "code": "return 1",
+                "fingerprint": "fp_1"
+            }),
+            json!({
+                "id": "program_1",
+                "type": "program",
+                "call_id": "call_program",
+                "code": "return 2",
+                "fingerprint": "fp_1"
+            }),
+        ),
+        (
+            json!({
+                "id": "program_output_1",
+                "type": "program_output",
+                "status": "in_progress",
+                "call_id": "call_program",
+                "result": "pending"
+            }),
+            json!({
+                "id": "program_output_1",
+                "type": "program_output",
+                "status": "completed",
+                "call_id": "call_program",
+                "result": "done"
+            }),
+            json!({
+                "id": "program_output_1",
+                "type": "program_output",
+                "status": "completed",
+                "call_id": "call_program",
+                "result": "changed"
+            }),
+        ),
+    ] {
+        let mut decoder = completed_native_item_decoder(added, done);
+        let error = decoder
+            .decode(&completed_function_response(3, json!([terminal])))
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Protocol);
+    }
+}
+
+#[test]
 fn terminal_reconciliation_keeps_related_native_items_out_of_function_identity() {
     let function = json!({
         "id": "fc_reconcile",
@@ -1577,7 +1796,8 @@ fn terminal_reconciliation_keeps_related_native_items_out_of_function_identity()
         ))
         .unwrap();
 
-    let mut omitted = completed_function_decoder("{\"q\":\"tea\"}");
+    let mut omitted = completed_function_decoder("{\"q\":\"tea\"}")
+        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
     let events = omitted
         .decode(&completed_function_response(3, json!([related_output])))
         .unwrap();
@@ -1678,6 +1898,59 @@ fn progress_response(status: &str) -> Value {
 
 fn completed_function_decoder(arguments: &str) -> ResponsesStreamDecoder {
     completed_function_decoder_with_caller(arguments, None)
+}
+
+fn completed_message_decoder() -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "msg_reconcile",
+                    "type": "message",
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": []
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 2,
+                "output_index": 0,
+                "item": {
+                    "id": "msg_reconcile",
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "done",
+                        "annotations": []
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
 }
 
 fn completed_function_decoder_with_caller(

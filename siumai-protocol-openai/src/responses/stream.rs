@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use siumai_core::{
     DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
     LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
@@ -20,6 +20,9 @@ use super::wire::{
     AnnotationWire, OutputContentPart, OutputItem, ResponseErrorWire, ResponseStatus, ResponseWire,
     StreamEventWire,
 };
+
+const DEFAULT_RESPONSES_TURN_EVENT_BYTES_LIMIT: usize = 64 * 1024 * 1024;
+const DEFAULT_RESPONSES_TURN_OUTPUT_ITEM_LIMIT: usize = 16_384;
 
 /// Typed classification for one native Responses streaming event.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +52,17 @@ pub enum ResponsesStreamEventKind {
     ResponseFailed,
     Error,
     Unknown(String),
+}
+
+/// Controls which abbreviated terminal response shapes may be reconstructed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResponsesTerminalPolicy {
+    /// Enforce the verified OpenAI terminal contract.
+    #[default]
+    Strict,
+    /// Permit bounded contractions used by explicitly compatible endpoints.
+    Compatible,
 }
 
 impl ResponsesStreamEventKind {
@@ -127,11 +141,7 @@ impl ResponsesStreamEvent {
         let payload = match &kind {
             ResponsesStreamEventKind::ResponseCreated
             | ResponsesStreamEventKind::ResponseQueued
-            | ResponsesStreamEventKind::ResponseInProgress
-            | ResponsesStreamEventKind::ResponseCompleted
-            | ResponsesStreamEventKind::ResponseIncomplete
-            | ResponsesStreamEventKind::ResponseCancelled
-            | ResponsesStreamEventKind::ResponseFailed => wire
+            | ResponsesStreamEventKind::ResponseInProgress => wire
                 .response()
                 .map_err(|source| {
                     Error::new(
@@ -143,6 +153,10 @@ impl ResponsesStreamEvent {
                 .map(Box::new)
                 .map(ResponsesStreamEventPayload::Response)
                 .unwrap_or(ResponsesStreamEventPayload::None),
+            ResponsesStreamEventKind::ResponseCompleted
+            | ResponsesStreamEventKind::ResponseIncomplete
+            | ResponsesStreamEventKind::ResponseCancelled
+            | ResponsesStreamEventKind::ResponseFailed => ResponsesStreamEventPayload::None,
             ResponsesStreamEventKind::OutputItemAdded
             | ResponsesStreamEventKind::OutputItemDone => wire
                 .item()
@@ -210,11 +224,17 @@ impl ResponsesStreamEvent {
         self.wire.sequence_number
     }
 
-    pub fn response(&self) -> Option<&ResponseWire> {
+    /// Return a fully decoded non-terminal response resource.
+    pub fn response_resource(&self) -> Option<&ResponseWire> {
         match &self.payload {
             ResponsesStreamEventPayload::Response(response) => Some(response.as_ref()),
             _ => None,
         }
+    }
+
+    /// Return the exact response JSON carried by this provider event.
+    pub fn raw_response(&self) -> Option<&Value> {
+        self.wire.field("response")
     }
 
     pub fn item(&self) -> Option<&OutputItem> {
@@ -335,7 +355,9 @@ pub struct ResponsesStreamDecoder {
     refusals: BTreeMap<String, String>,
     emitted_refusals: BTreeSet<String>,
     emitted_citations: BTreeSet<String>,
-    terminal_native: Option<ResponseWire>,
+    turn_budget: ResponsesTurnBudget,
+    terminal_policy: ResponsesTerminalPolicy,
+    terminal_response: Option<ResponseWire>,
     response_diagnostics: ResponseDiagnostics,
 }
 
@@ -349,8 +371,55 @@ impl std::fmt::Debug for ResponsesStreamDecoder {
             .field("terminal", &self.lifecycle.terminal_seen())
             .field("finished", &self.lifecycle.finish_seen())
             .field("item_count", &self.items.len())
+            .field("turn_event_bytes", &self.turn_budget.event_bytes)
+            .field("terminal_policy", &self.terminal_policy)
             .finish()
     }
+}
+
+#[derive(Debug)]
+struct ResponsesTurnBudget {
+    event_bytes: usize,
+    maximum_event_bytes: usize,
+    maximum_output_items: usize,
+}
+
+impl Default for ResponsesTurnBudget {
+    fn default() -> Self {
+        Self {
+            event_bytes: 0,
+            maximum_event_bytes: DEFAULT_RESPONSES_TURN_EVENT_BYTES_LIMIT,
+            maximum_output_items: DEFAULT_RESPONSES_TURN_OUTPUT_ITEM_LIMIT,
+        }
+    }
+}
+
+impl ResponsesTurnBudget {
+    fn observe_event(&mut self, bytes: usize) -> Result<(), Error> {
+        let total = self.event_bytes.checked_add(bytes).ok_or_else(|| {
+            turn_response_limit("OpenAI Responses turn event bytes exceeded the protocol limit")
+        })?;
+        if total > self.maximum_event_bytes {
+            return Err(turn_response_limit(
+                "OpenAI Responses turn event bytes exceeded the protocol limit",
+            ));
+        }
+        self.event_bytes = total;
+        Ok(())
+    }
+
+    fn ensure_output_items(&self, count: usize) -> Result<(), Error> {
+        if count > self.maximum_output_items {
+            return Err(turn_response_limit(
+                "OpenAI Responses turn output-item count exceeded the protocol limit",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn turn_response_limit(message: &'static str) -> Error {
+    Error::new(ErrorKind::ResponseLimit, message)
 }
 
 #[derive(Debug, Default)]
@@ -382,9 +451,17 @@ impl ResponsesStreamDecoder {
             refusals: BTreeMap::new(),
             emitted_refusals: BTreeSet::new(),
             emitted_citations: BTreeSet::new(),
-            terminal_native: None,
+            turn_budget: ResponsesTurnBudget::default(),
+            terminal_policy: ResponsesTerminalPolicy::Strict,
+            terminal_response: None,
             response_diagnostics: ResponseDiagnostics::default(),
         }
+    }
+
+    /// Select the endpoint-specific terminal reconciliation policy.
+    pub fn with_terminal_policy(mut self, policy: ResponsesTerminalPolicy) -> Self {
+        self.terminal_policy = policy;
+        self
     }
 
     pub fn with_response_diagnostics(mut self, diagnostics: ResponseDiagnostics) -> Self {
@@ -404,6 +481,7 @@ impl ResponsesStreamDecoder {
         if data.trim() == "[DONE]" {
             return Err(Error::unexpected_eof());
         }
+        self.turn_budget.observe_event(data.len())?;
         let wire = serde_json::from_str::<StreamEventWire>(data).map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
@@ -431,8 +509,9 @@ impl ResponsesStreamDecoder {
         self.lifecycle.terminal_seen()
     }
 
-    pub fn terminal_native(&self) -> Option<&ResponseWire> {
-        self.terminal_native.as_ref()
+    /// Return the reconstructed canonical terminal response resource.
+    pub fn terminal_response(&self) -> Option<&ResponseWire> {
+        self.terminal_response.as_ref()
     }
 
     fn decode_event(
@@ -489,7 +568,7 @@ impl ResponsesStreamDecoder {
         &mut self,
         event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let response = event.response().ok_or_else(|| {
+        let response = event.response_resource().ok_or_else(|| {
             protocol_error("OpenAI Responses lifecycle event omitted its response")
         })?;
         if matches!(
@@ -562,6 +641,8 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses stream reused an output index",
             ));
         }
+        self.turn_budget
+            .ensure_output_items(self.items.len().saturating_add(1))?;
         let item = event
             .item()
             .cloned()
@@ -1043,9 +1124,18 @@ impl ResponsesStreamDecoder {
         &mut self,
         event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let native = event.response().cloned().ok_or_else(|| {
+        let mut projected_value = event.raw_response().cloned().ok_or_else(|| {
             protocol_error("OpenAI Responses terminal event omitted its response")
         })?;
+        self.reconcile_terminal_value(&mut projected_value)?;
+        let mut projected =
+            serde_json::from_value::<ResponseWire>(projected_value).map_err(|source| {
+                Error::new(
+                    ErrorKind::Protocol,
+                    "OpenAI Responses terminal event contained a malformed response resource",
+                )
+                .with_source(source)
+            })?;
         let expected = match event.kind_str() {
             "response.completed" => "completed",
             "response.incomplete" => "incomplete",
@@ -1053,20 +1143,19 @@ impl ResponsesStreamDecoder {
             "response.failed" => "failed",
             _ => unreachable!("terminal dispatch only passes terminal events"),
         };
-        if native.status.as_str() != expected {
+        if projected.status.as_str() != expected {
             return Err(protocol_error(
                 "OpenAI Responses terminal event disagreed with response status",
             ));
         }
-        let mut projected = native.clone();
         self.reconcile_terminal_items(&mut projected)?;
-        let mut events = self.observe_identity(&native)?;
-        let decoded = decode_response_wire(projected, &self.scope, &self.requested_model)?;
-        if let Some(usage) = &native.usage {
+        let mut events = self.observe_identity(&projected)?;
+        let decoded = decode_response_wire(projected.clone(), &self.scope, &self.requested_model)?;
+        if let Some(usage) = &projected.usage {
             events.push(LanguageStreamEvent::Usage(decode_usage(usage)));
         }
         let (_, canonical) = decoded.into_parts();
-        let terminal = match &native.status {
+        let terminal = match &projected.status {
             ResponseStatus::Completed | ResponseStatus::Incomplete => StreamTerminal::Completed {
                 response: Box::new(canonical),
             },
@@ -1076,7 +1165,7 @@ impl ResponsesStreamDecoder {
             },
             ResponseStatus::Failed => StreamTerminal::Failed {
                 error: failed_response_error(
-                    &native,
+                    &projected,
                     &self.scope,
                     &self.requested_model,
                     self.response_diagnostics.clone(),
@@ -1089,9 +1178,95 @@ impl ResponsesStreamDecoder {
                 ));
             }
         };
-        self.terminal_native = Some(native);
+        self.terminal_response = Some(projected);
         events.push(LanguageStreamEvent::Terminal(terminal));
         Ok(events)
+    }
+
+    fn reconcile_terminal_value(&self, response: &mut Value) -> Result<(), Error> {
+        let object = response.as_object_mut().ok_or_else(|| {
+            protocol_error("OpenAI Responses terminal response must be a JSON object")
+        })?;
+        let output = object
+            .entry("output")
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or_else(|| protocol_error("OpenAI Responses terminal output must be an array"))?;
+        self.turn_budget.ensure_output_items(output.len())?;
+
+        for (position, terminal) in output.iter_mut().enumerate() {
+            let terminal_object = terminal.as_object_mut().ok_or_else(|| {
+                protocol_error("OpenAI Responses terminal output item must be an object")
+            })?;
+            let Some((_, streamed)) =
+                self.terminal_streamed_candidate(terminal_object, position)?
+            else {
+                continue;
+            };
+            reconcile_terminal_item_value(terminal_object, streamed, self.terminal_policy)?;
+        }
+        Ok(())
+    }
+
+    fn terminal_streamed_candidate<'a>(
+        &'a self,
+        terminal: &Map<String, Value>,
+        position: usize,
+    ) -> Result<Option<(u64, &'a OutputItem)>, Error> {
+        let kind = terminal
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                protocol_error("OpenAI Responses terminal output item omitted its type")
+            })?;
+        let id = terminal
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty());
+        let call_id = terminal
+            .get("call_id")
+            .and_then(Value::as_str)
+            .filter(|call_id| !call_id.is_empty());
+
+        let mut matches = self.items.iter().filter(|(output_index, streamed)| {
+            if streamed.kind() != kind || !self.completed_items.contains(output_index) {
+                return false;
+            }
+            id.is_some_and(|id| streamed.id() == Some(id))
+                || (has_stable_call_identity(kind)
+                    && call_id.is_some_and(|call_id| streamed.call_id() == Some(call_id)))
+        });
+        let first = matches.next();
+        if matches.next().is_some() {
+            return Err(protocol_error(
+                "OpenAI terminal response matched multiple completed output items",
+            ));
+        }
+        if let Some((index, item)) = first {
+            return Ok(Some((*index, item)));
+        }
+
+        let position = u64::try_from(position).map_err(|_| {
+            protocol_error("OpenAI terminal output position exceeded the platform limit")
+        })?;
+        if has_stable_call_identity(kind)
+            && let Some(item) = self.items.get(&position)
+            && item.kind() == kind
+            && self.completed_items.contains(&position)
+        {
+            return Ok(Some((position, item)));
+        }
+
+        if self.terminal_policy == ResponsesTerminalPolicy::Compatible
+            && kind == "message"
+            && id.is_none()
+            && let Some(item) = self.items.get(&position)
+            && item.kind() == kind
+            && self.completed_items.contains(&position)
+        {
+            return Ok(Some((position, item)));
+        }
+        Ok(None)
     }
 
     fn error_event(
@@ -1177,10 +1352,22 @@ impl ResponsesStreamDecoder {
                     terminal,
                     self.completed_items.contains(output_index),
                 )?;
-            } else if self.completed_items.contains(output_index)
-                && matches!(streamed, OutputItem::FunctionCall(_))
-            {
-                missing_functions.push((*output_index, streamed.clone()));
+            } else if self.completed_items.contains(output_index) {
+                match streamed {
+                    OutputItem::FunctionCall(_)
+                        if self.terminal_policy == ResponsesTerminalPolicy::Compatible =>
+                    {
+                        missing_functions.push((*output_index, streamed.clone()));
+                    }
+                    OutputItem::FunctionCall(_)
+                    | OutputItem::Message(_)
+                    | OutputItem::Reasoning(_) => {
+                        return Err(protocol_error(
+                            "OpenAI terminal response omitted a completed portable output item",
+                        ));
+                    }
+                    _ => {}
+                }
             }
         }
         for (output_index, function) in missing_functions {
@@ -1194,6 +1381,8 @@ impl ResponsesStreamDecoder {
                 .unwrap_or(response.output.len());
             response.output.insert(insert_at, function);
         }
+        self.turn_budget
+            .ensure_output_items(response.output.len())?;
         if matches!(&response.status, ResponseStatus::Completed)
             && self.completed_items.len() != self.items.len()
         {
@@ -1222,6 +1411,160 @@ impl ResponsesStreamDecoder {
     }
 }
 
+fn reconcile_terminal_item_value(
+    terminal: &mut Map<String, Value>,
+    streamed: &OutputItem,
+    policy: ResponsesTerminalPolicy,
+) -> Result<(), Error> {
+    let streamed_value = streamed.to_value().map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "failed to inspect a completed OpenAI Responses output item",
+        )
+        .with_source(source)
+    })?;
+    let streamed = streamed_value.as_object().ok_or_else(|| {
+        protocol_error("completed OpenAI Responses output item was not an object")
+    })?;
+    compare_required_terminal_field(terminal, streamed, "type")?;
+
+    match terminal.get("type").and_then(Value::as_str) {
+        Some("message") => {
+            reconcile_missing_terminal_field(
+                terminal,
+                streamed,
+                "id",
+                policy == ResponsesTerminalPolicy::Compatible,
+            )?;
+            reconcile_missing_terminal_field(terminal, streamed, "status", true)?;
+            compare_required_terminal_field(terminal, streamed, "role")?;
+            compare_required_terminal_field(terminal, streamed, "content")?;
+            compare_optional_terminal_field(terminal, streamed, "phase")?;
+        }
+        Some("function_call") => {
+            reconcile_missing_terminal_field(terminal, streamed, "id", true)?;
+            reconcile_missing_terminal_field(terminal, streamed, "status", true)?;
+            for field in ["call_id", "name"] {
+                compare_required_terminal_field(terminal, streamed, field)?;
+            }
+            compare_function_arguments_field(terminal, streamed)?;
+            compare_optional_terminal_field(terminal, streamed, "namespace")?;
+            compare_tool_caller_field(terminal, streamed)?;
+        }
+        Some("custom_tool_call") => {
+            for field in ["id", "call_id", "name", "input"] {
+                compare_required_terminal_field(terminal, streamed, field)?;
+            }
+            compare_optional_terminal_field(terminal, streamed, "status")?;
+            compare_optional_terminal_field(terminal, streamed, "namespace")?;
+            compare_tool_caller_field(terminal, streamed)?;
+        }
+        Some("program") => {
+            for field in ["id", "call_id", "code", "fingerprint"] {
+                compare_required_terminal_field(terminal, streamed, field)?;
+            }
+        }
+        Some("program_output") => {
+            for field in ["id", "status", "call_id", "result"] {
+                compare_required_terminal_field(terminal, streamed, field)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn reconcile_missing_terminal_field(
+    terminal: &mut Map<String, Value>,
+    streamed: &Map<String, Value>,
+    field: &'static str,
+    allow_missing: bool,
+) -> Result<(), Error> {
+    match (terminal.get(field), streamed.get(field)) {
+        (Some(terminal), Some(streamed)) if terminal != streamed => Err(protocol_error(
+            "OpenAI terminal response changed a completed output item field",
+        )),
+        (None, Some(streamed)) if allow_missing => {
+            terminal.insert(field.to_string(), streamed.clone());
+            Ok(())
+        }
+        (None, Some(_)) => Err(protocol_error(
+            "OpenAI terminal response omitted a required completed output item field",
+        )),
+        _ => Ok(()),
+    }
+}
+
+fn compare_required_terminal_field(
+    terminal: &Map<String, Value>,
+    streamed: &Map<String, Value>,
+    field: &'static str,
+) -> Result<(), Error> {
+    match (terminal.get(field), streamed.get(field)) {
+        (Some(terminal), Some(streamed)) if terminal == streamed => Ok(()),
+        _ => Err(protocol_error(
+            "OpenAI terminal response changed or omitted completed output semantics",
+        )),
+    }
+}
+
+fn compare_optional_terminal_field(
+    terminal: &Map<String, Value>,
+    streamed: &Map<String, Value>,
+    field: &'static str,
+) -> Result<(), Error> {
+    if terminal.get(field) == streamed.get(field) {
+        Ok(())
+    } else {
+        Err(protocol_error(
+            "OpenAI terminal response changed completed output semantics",
+        ))
+    }
+}
+
+fn compare_function_arguments_field(
+    terminal: &Map<String, Value>,
+    streamed: &Map<String, Value>,
+) -> Result<(), Error> {
+    let terminal = terminal
+        .get("arguments")
+        .and_then(Value::as_str)
+        .ok_or_else(|| protocol_error("OpenAI terminal function call omitted arguments"))?;
+    let streamed = streamed
+        .get("arguments")
+        .and_then(Value::as_str)
+        .ok_or_else(|| protocol_error("OpenAI completed function call omitted arguments"))?;
+    if function_arguments_equal(streamed, terminal)? {
+        Ok(())
+    } else {
+        Err(protocol_error(
+            "OpenAI terminal response changed completed function arguments",
+        ))
+    }
+}
+
+fn compare_tool_caller_field(
+    terminal: &Map<String, Value>,
+    streamed: &Map<String, Value>,
+) -> Result<(), Error> {
+    match (terminal.get("caller"), streamed.get("caller")) {
+        (None, None) => Ok(()),
+        (Some(terminal), Some(streamed)) => {
+            let terminal = terminal.as_object().ok_or_else(|| {
+                protocol_error("OpenAI terminal function caller must be an object")
+            })?;
+            let streamed = streamed.as_object().ok_or_else(|| {
+                protocol_error("OpenAI completed function caller must be an object")
+            })?;
+            compare_required_terminal_field(terminal, streamed, "type")?;
+            compare_optional_terminal_field(terminal, streamed, "caller_id")
+        }
+        _ => Err(protocol_error(
+            "OpenAI terminal response changed completed function caller semantics",
+        )),
+    }
+}
+
 fn terminal_item_index(
     terminal: &[OutputItem],
     streamed: &OutputItem,
@@ -1232,7 +1575,8 @@ fn terminal_item_index(
         .flatten();
     let mut matches = terminal.iter().enumerate().filter_map(|(index, terminal)| {
         let same_item_id = streamed_id.is_some() && streamed_id == terminal.id();
-        let same_call_id = matches!(terminal, OutputItem::FunctionCall(_))
+        let same_call_id = streamed.kind() == terminal.kind()
+            && has_stable_call_identity(terminal.kind())
             && streamed_call_id.is_some()
             && streamed_call_id == terminal.call_id();
         (same_item_id || same_call_id).then_some(index)
@@ -1256,15 +1600,65 @@ fn compare_terminal_item(
             "OpenAI terminal response changed a streamed output item identity",
         ));
     }
-    if compare_semantics
-        && matches!(streamed, OutputItem::FunctionCall(_))
-        && !function_calls_semantically_equal(streamed, terminal)?
-    {
-        return Err(protocol_error(
-            "OpenAI terminal response changed completed streamed output semantics",
-        ));
+    if compare_semantics {
+        let matches = match (streamed, terminal) {
+            (OutputItem::FunctionCall(_), OutputItem::FunctionCall(_)) => {
+                function_calls_semantically_equal(streamed, terminal)?
+            }
+            (OutputItem::Message(streamed), OutputItem::Message(terminal)) => {
+                streamed.id == terminal.id
+                    && streamed.status == terminal.status
+                    && streamed.role == terminal.role
+                    && streamed.content == terminal.content
+                    && streamed.phase == terminal.phase
+            }
+            (OutputItem::Reasoning(streamed), OutputItem::Reasoning(terminal)) => {
+                streamed.id == terminal.id
+                    && streamed.status == terminal.status
+                    && streamed.summary == terminal.summary
+                    && streamed.content == terminal.content
+                    && streamed.encrypted_content == terminal.encrypted_content
+            }
+            (OutputItem::CustomToolCall(streamed), OutputItem::CustomToolCall(terminal)) => {
+                streamed.id == terminal.id
+                    && streamed.status == terminal.status
+                    && streamed.call_id == terminal.call_id
+                    && streamed.name == terminal.name
+                    && streamed.input == terminal.input
+                    && streamed.namespace == terminal.namespace
+                    && tool_callers_semantically_equal(
+                        streamed.caller.as_ref(),
+                        terminal.caller.as_ref(),
+                    )
+            }
+            (OutputItem::Program(streamed), OutputItem::Program(terminal)) => {
+                streamed.id == terminal.id
+                    && streamed.call_id == terminal.call_id
+                    && streamed.code == terminal.code
+                    && streamed.fingerprint == terminal.fingerprint
+            }
+            (OutputItem::ProgramOutput(streamed), OutputItem::ProgramOutput(terminal)) => {
+                streamed.id == terminal.id
+                    && streamed.status == terminal.status
+                    && streamed.call_id == terminal.call_id
+                    && streamed.result == terminal.result
+            }
+            _ => true,
+        };
+        if !matches {
+            return Err(protocol_error(
+                "OpenAI terminal response changed completed streamed output semantics",
+            ));
+        }
     }
     Ok(())
+}
+
+fn has_stable_call_identity(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_call" | "custom_tool_call" | "program" | "program_output"
+    )
 }
 
 fn function_calls_semantically_equal(
@@ -1396,4 +1790,30 @@ fn encode_event_value(event: &StreamEventWire) -> Result<Value, Error> {
 
 fn content_id(item_id: &str, lane: &str, index: u64) -> String {
     format!("{item_id}:{lane}:{index}")
+}
+
+#[cfg(test)]
+mod turn_budget_tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_event_bytes_and_output_items_are_bounded() {
+        let mut budget = ResponsesTurnBudget {
+            event_bytes: 0,
+            maximum_event_bytes: 8,
+            maximum_output_items: 2,
+        };
+
+        budget.observe_event(3).unwrap();
+        budget.observe_event(5).unwrap();
+        assert_eq!(
+            budget.observe_event(1).unwrap_err().kind(),
+            ErrorKind::ResponseLimit
+        );
+        budget.ensure_output_items(2).unwrap();
+        assert_eq!(
+            budget.ensure_output_items(3).unwrap_err().kind(),
+            ErrorKind::ResponseLimit
+        );
+    }
 }

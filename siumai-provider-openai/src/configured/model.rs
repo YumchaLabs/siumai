@@ -20,7 +20,7 @@ use siumai_protocol_openai::chat_completions::{
     encode_request_with_options as encode_chat_request_with_options,
 };
 use siumai_protocol_openai::responses::{
-    PromptCacheBlock, RequestEncodingOptions, ResponsesStreamDecoder,
+    PromptCacheBlock, RequestEncodingOptions, ResponsesStreamDecoder, ResponsesTerminalPolicy,
     decode_response as decode_responses_response, encode_request_with_options,
 };
 use siumai_transport::framing::{SseDecoder, SseFrameError};
@@ -281,10 +281,12 @@ impl OpenAiResponsesModel {
         let (status, headers, body) = response.into_parts();
         let diagnostics = headers.diagnostics().with_status(status.as_u16());
         let context = model_error_context(self, operation);
+        let terminal_policy = responses_terminal_policy(&self.runtime);
         let decoder = ResponsesStreamDecoder::new(
             self.runtime.scope(OpenAiApiMode::Responses).clone(),
             self.model_id().clone(),
         )
+        .with_terminal_policy(terminal_policy)
         .with_response_diagnostics(diagnostics);
 
         Ok(decode_responses_sse_stream(
@@ -295,6 +297,29 @@ impl OpenAiResponsesModel {
             warnings,
             context,
         ))
+    }
+}
+
+fn responses_terminal_policy(runtime: &OpenAiRuntime) -> ResponsesTerminalPolicy {
+    let scope = runtime.scope(OpenAiApiMode::Responses);
+    let verified = runtime
+        .profile
+        .provider_profile()
+        .verified_claims()
+        .is_some_and(|claims| {
+            claims.iter().any(|claim| {
+                let claim = claim.scope();
+                claim.provider() == scope.provider_id()
+                    && scope.platform() == Some(claim.platform())
+                    && scope.protocol() == Some(claim.protocol())
+                    && scope.api_mode() == Some(claim.api_mode())
+                    && claim.family() == ModelFamily::Language
+            })
+        });
+    if verified {
+        ResponsesTerminalPolicy::Strict
+    } else {
+        ResponsesTerminalPolicy::Compatible
     }
 }
 
@@ -1074,6 +1099,25 @@ mod tests {
         assert!(responses_body.get("messages").is_none());
         assert!(chat_body.get("messages").is_some());
         assert!(chat_body.get("input").is_none());
+    }
+
+    #[test]
+    fn endpoint_ownership_selects_the_responses_terminal_policy() {
+        let compatible = provider().responses(GPT_5_6_SOL).unwrap();
+        assert_eq!(
+            responses_terminal_policy(&compatible.runtime),
+            ResponsesTerminalPolicy::Compatible
+        );
+
+        let official = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .build()
+            .unwrap()
+            .responses(GPT_5_6_SOL)
+            .unwrap();
+        assert_eq!(
+            responses_terminal_policy(&official.runtime),
+            ResponsesTerminalPolicy::Strict
+        );
     }
 
     #[test]
