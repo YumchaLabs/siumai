@@ -22,13 +22,18 @@ rules below before relying on it.
 | Breaking API migration | `migration/siumai-next.md` | User-facing guide for the next breaking release |
 | Delivery status | `migration/siumai-next-status.md` | Internal checkpoints for the current breaking line |
 | Hajimi handoff | `migration/hajimi-adapter-handoff.md` | Downstream containment-to-invariant mapping |
-| Active implementation | `plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md` | Task authority until completed |
 | Release process | `releasing.md` | Maintained, but incomplete until the next release rehearsal |
 
-The implementation plan is allowed to describe temporary migration work and acceptance criteria.
-While it is active, checkpoint notes may be recorded there for traceability; the durable summary of
-delivery status belongs in `migration/siumai-next-status.md`. Once the task completes, retain only
-the decisions and user-facing guidance that still have an owner elsewhere in the documentation tree.
+Task plans may describe temporary migration work and acceptance criteria. While a plan is active,
+checkpoint notes may be recorded there for traceability; the durable summary of delivery status
+belongs in `migration/siumai-next-status.md`. Once a task completes, the plan is a task-scoped record,
+not standing repository authority.
+
+## Completed task records
+
+- `plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md` — completed on
+  2026-08-09; its durable outcomes are reflected in the architecture, provider evidence, migration,
+  and delivery-status documents above.
 
 ## Document ownership
 
