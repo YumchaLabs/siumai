@@ -999,11 +999,17 @@ mod tests {
         assert!(compact.get("model").is_none());
         assert_eq!(compact["service_tier"], "scale");
 
-        let conflicting_cache = OpenAiResponsesCompactRequest::new()
+        let independent_cache_controls = OpenAiResponsesCompactRequest::new()
             .with_previous_response_id("resp_debug")
             .with_prompt_cache_options(OpenAiPromptCacheOptions::explicit_30_minutes())
             .with_prompt_cache_retention(OpenAiPromptCacheRetention::TwentyFourHours);
-        assert!(conflicting_cache.validate().is_err());
+        independent_cache_controls.validate().unwrap();
+        let independent_cache_controls = serde_json::to_value(independent_cache_controls).unwrap();
+        assert_eq!(
+            independent_cache_controls["prompt_cache_options"]["ttl"],
+            "30m"
+        );
+        assert_eq!(independent_cache_controls["prompt_cache_retention"], "24h");
     }
 
     #[tokio::test]

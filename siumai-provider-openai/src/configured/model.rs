@@ -666,10 +666,10 @@ fn validate_prompt_cache_model_policy(
     cache_summary: OpenAiPromptCacheSummary,
 ) -> Result<(), Error> {
     let retention = merged.wire.get("prompt_cache_retention");
-    if model_class.is_gpt_5_6() && retention.is_some() {
+    if model_class.is_gpt_5_6() && retention.and_then(Value::as_str) == Some("in_memory") {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "GPT-5.6 uses prompt_cache_options.ttl instead of prompt_cache_retention",
+            "GPT-5.6 prompt-cache retention supports only 24h",
         ));
     }
     if model_class.is_gpt_5_5() && retention.and_then(Value::as_str) == Some("in_memory") {
@@ -1339,8 +1339,30 @@ mod tests {
         let provider = provider();
 
         let responses_5_6 = provider.responses(GPT_5_6_SOL).unwrap();
-        let invalid_5_6 = OpenAiResponsesOptions {
+        let combined_5_6 = OpenAiResponsesOptions {
+            prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
             prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
+            ..OpenAiResponsesOptions::default()
+        };
+        let call_options = CallOptions::default()
+            .with_provider_options(ProviderOptions::typed(&combined_5_6).unwrap());
+        let mut merged = responses_5_6
+            .runtime
+            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        let (normalized, _) = normalize_request(
+            OpenAiApiMode::Responses,
+            responses_5_6.model_id(),
+            request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
+            &mut merged,
+        )
+        .unwrap();
+        let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
+        assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(body["prompt_cache_retention"], "24h");
+
+        let invalid_5_6 = OpenAiResponsesOptions {
+            prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()

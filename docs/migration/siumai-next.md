@@ -325,11 +325,13 @@ not trim historical markers to a client-side 50- or 80-marker window. The old
 `OpenAiPromptCacheBreakpoint` coordinate type and `with_prompt_cache_breakpoint` helpers were
 removed because message/content indices become invalid when middleware edits a request.
 
-`prompt_cache_options.ttl` and `prompt_cache_retention` remain separate typed controls for different
-model generations. GPT-5.6 and later use `ttl: 30m`; supported legacy models use retention (`24h` or
-`in_memory` where documented). Supplying both controls, or selecting a control that the exact known
-model does not support, fails before transport. Unknown model IDs preserve one explicit lane without
-guessing capabilities from the model name.
+`prompt_cache_options.ttl` and `prompt_cache_retention` remain separate typed controls. TTL expresses
+a minimum cache lifetime, while retention expresses a maximum retention policy. OpenAI deprecates
+the retention field in favor of TTL, but documents the controls as independent, so Siumai preserves
+both when the selected model supports them. GPT-5.6 accepts `ttl: 30m` and `24h` retention, including
+their simultaneous use, while GPT-5.5 rejects TTL and content breakpoints and accepts only `24h`
+retention. Unknown model IDs preserve explicit caller intent without guessing capabilities from the
+model name.
 
 ## Explicit MiniMax language modes
 

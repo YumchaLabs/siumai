@@ -108,7 +108,11 @@ pub enum OpenAiPromptCacheTtl {
     ThirtyMinutes,
 }
 
-/// Legacy prompt-cache retention for models before GPT-5.6.
+/// Maximum prompt-cache retention policy.
+///
+/// This legacy field is deprecated by OpenAI in favor of
+/// [`OpenAiPromptCacheOptions::ttl`], but the two controls have independent
+/// semantics and may be sent together when the selected model supports them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenAiPromptCacheRetention {
@@ -423,10 +427,6 @@ impl OpenAiResponsesOptions {
         validate_optional_text("instructions", self.instructions.as_deref())?;
         validate_optional_text("previous_response_id", self.previous_response_id.as_deref())?;
         validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
-        validate_prompt_cache_lifetime(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
-        )?;
         validate_safety_identifier(self.safety_identifier.as_deref())?;
         validate_optional_text("user", self.user.as_deref())?;
         validate_metadata(self.metadata.as_ref())?;
@@ -553,10 +553,6 @@ impl OpenAiChatCompletionsOptions {
     pub(crate) fn validate_values(&self) -> Result<(), ProviderOptionError> {
         validate_optional_text("user", self.user.as_deref())?;
         validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
-        validate_prompt_cache_lifetime(
-            self.prompt_cache_options.as_ref(),
-            self.prompt_cache_retention,
-        )?;
         validate_safety_identifier(self.safety_identifier.as_deref())?;
         validate_metadata(self.metadata.as_ref())?;
         if self
@@ -633,19 +629,6 @@ fn validate_metadata(
                 "metadata values must not exceed 512 characters",
             ));
         }
-    }
-    Ok(())
-}
-
-fn validate_prompt_cache_lifetime(
-    options: Option<&OpenAiPromptCacheOptions>,
-    retention: Option<OpenAiPromptCacheRetention>,
-) -> Result<(), ProviderOptionError> {
-    if options.is_some() && retention.is_some() {
-        return Err(rejected(
-            "prompt_cache_retention",
-            "prompt_cache_options and prompt_cache_retention are generation-specific alternatives",
-        ));
     }
     Ok(())
 }
@@ -771,7 +754,10 @@ mod tests {
             prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
             ..OpenAiResponsesOptions::default()
         };
-        assert!(independent_cache_controls.validate_values().is_err());
+        assert!(independent_cache_controls.validate_values().is_ok());
+        let value = serde_json::to_value(independent_cache_controls).unwrap();
+        assert_eq!(value["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(value["prompt_cache_retention"], "24h");
 
         let excessive_metadata = OpenAiChatCompletionsOptions {
             metadata: Some(
