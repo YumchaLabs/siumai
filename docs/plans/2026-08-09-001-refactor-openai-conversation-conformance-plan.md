@@ -468,10 +468,14 @@ sequenceDiagram
   7. Preserve custom endpoint operation without adding official support claims unless the provider-owned default endpoint and feature are used.
 - **Execution note:** Build on deterministic mock WebSocket fixtures first; run the authorized live canary only after offline tests pass.
 - **Patterns to follow:** OpenAI Realtime's bounded actor and shutdown discipline, `siumai-transport` WebSocket framing, and U2's Responses settlement state.
-- **Lifecycle contract:** Implement the existing experimental `ProviderSession` lifecycle where it fits; do not introduce a parallel generic session abstraction merely for Responses WebSocket.
+- **Lifecycle contract:** Reuse the existing experimental session lifecycle vocabulary and terminal
+  types, but keep the public Responses API provider-owned. `ProviderSession::send/receive` would
+  require an untyped command envelope and would hide turn ownership, so this milestone deliberately
+  does not implement that generic trait.
 - **Test scenarios:**
   - Initial `response.create` encodes the validated Responses body without `stream` or `background`.
-  - A `generate: false` warm-up is encoded explicitly, does not occupy the generated-turn lifecycle after its acknowledgement, and does not fabricate a canonical language response.
+  - A `generate: false` warm-up is encoded explicitly, settles through the ordinary Responses event
+    sequence with a terminal response ID, and does not fabricate a canonical language response.
   - Covers AE9. A second create while active returns a typed local state error without sending a frame.
   - A completed first response permits a second continuation using `previous_response_id`.
   - Covers AE10. Explicit `stream` or `background` configuration fails before send.
