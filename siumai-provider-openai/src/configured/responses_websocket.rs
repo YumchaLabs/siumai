@@ -1006,7 +1006,12 @@ impl SessionActor {
                     "OpenAI Responses WebSocket returned an unsupported binary frame",
                 ))
             }
-            Ok(Some(WebSocketFrame::Close { .. })) | Ok(None) => {
+            Ok(Some(WebSocketFrame::Close { code, .. })) => {
+                let (kind, message) = classify_unsettled_close(code);
+                self.fail_active(Error::new(kind, message));
+                Some(failed_terminal(kind, message))
+            }
+            Ok(None) => {
                 self.fail_active(Error::unexpected_eof());
                 Some(failed_terminal(
                     ErrorKind::UnexpectedEof,
@@ -1440,6 +1445,21 @@ fn remote_close_metadata(code: Option<u16>, reason: String) -> SessionCloseMetad
         metadata = metadata.with_reason(reason);
     }
     metadata
+}
+
+fn classify_unsettled_close(code: Option<u16>) -> (ErrorKind, &'static str) {
+    match code {
+        // Going Away, Internal Error, Service Restart, Try Again Later, and
+        // Bad Gateway all carry an explicit retryable availability signal.
+        Some(1001 | 1011..=1014) => (
+            ErrorKind::Unavailable,
+            "OpenAI Responses WebSocket became unavailable before turn settlement",
+        ),
+        _ => (
+            ErrorKind::UnexpectedEof,
+            "OpenAI Responses WebSocket closed before turn settlement",
+        ),
+    }
 }
 
 fn failed_terminal(kind: ErrorKind, message: &'static str) -> SessionTerminal {
@@ -1886,6 +1906,36 @@ mod tests {
             wait_for_session_terminal(&session).await,
             SessionTerminal::Failed(SessionFailure {
                 kind: ErrorKind::UnexpectedEof,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn active_retryable_close_is_a_sanitized_unavailable_failure() {
+        let mut harness = harness();
+        let session = connect(&harness).await;
+        let mut turn = session
+            .generate(request("temporary close"), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+        harness
+            .incoming
+            .send(Ok(Some(WebSocketFrame::Close {
+                code: Some(1013),
+                reason: "private tenant detail".to_string(),
+            })))
+            .unwrap();
+
+        let error = turn.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unavailable);
+        assert!(!error.message().contains("private tenant detail"));
+        assert!(matches!(
+            wait_for_session_terminal(&session).await,
+            SessionTerminal::Failed(SessionFailure {
+                kind: ErrorKind::Unavailable,
+                retryable: Some(true),
                 ..
             })
         ));
