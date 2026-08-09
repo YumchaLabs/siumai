@@ -7,7 +7,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 ### Added
 
 - Added six Rust-first provider-neutral model-family contracts, configured provider APIs, typed provider options and annotations, an immutable caller-configured Registry, and a provider-neutral runtime for tool loops, structured output, approvals, budgets, and durable runs.
-- Added current, narrowly scoped provider surfaces for OpenAI Chat/Responses/Realtime, Anthropic Messages and native resources, MiniMax language and media resources, Alibaba Chat/Responses/Messages plus embedding/video, xAI language, DeepSeek, Groq, Cohere, Deepgram, ElevenLabs, Gemini Interactions image generation, and Anthropic-on-Vertex.
+- Added current, narrowly scoped provider surfaces for OpenAI Chat/Responses/Realtime plus
+  embedding, image, speech, transcription, and lifecycle resources; Anthropic Messages and native
+  resources; Gemini Interactions language/image plus portable embedding/speech and provider-owned
+  Files/Veo slices; Alibaba and DeepSeek Chat/Responses/Messages; Moonshot AI and Volcengine ARK;
+  MiniMax language/media; xAI language/media/resources; Groq language/audio/MCP; Cohere embedding/
+  rerank; and Deepgram and ElevenLabs audio families.
 - Added explicit `google-vertex-anthropic` facade and Registry integration without an SDK-owned region or model-availability catalog.
 - Added dated native support profiles for Cohere v2 embedding/rerank and Deepgram prerecorded transcription, including current Embed v4, Rerank v4/v3, and Nova-3/Nova-2 model hints.
 - Added provider-owned support manifests for composite portable and native surfaces, including an exact Groq transcription claim and a dated facade support matrix.
@@ -36,13 +41,18 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Made `OpenAiProvider::registration()` bind its five portable families while keeping explicit
   Responses and Chat Completions registrations language-only. OpenAI speech now requires an
   explicit voice, and unsupported embedding-dimension overrides fail before transport.
+- Made direct and streaming language paths share canonical tool-input, typed failure, terminal
+  settlement, replay-identity, and usage semantics. Provider-owned replay payloads remain opaque
+  native data instead of becoming executable portable tool calls.
 
 ### Removed
 
 - Removed the deprecated Google Imagen `models/*:predict` surface instead of shipping an endpoint scheduled to stop functioning on August 17, 2026.
 - Removed the legacy universal client, capability/downcast traits, compatibility builders, completion aliases, duplicate request/response systems, source-shape tests, and the obsolete `siumai-spec`, `siumai-provider-utils`, and `siumai-extras` packages.
 - Removed Azure OpenAI, Amazon Bedrock, AI Gateway, Ollama, Together AI, broad Gemini/Vertex clients, and unverified named compatibility presets from the workspace, facade, and release feature graph.
-- Removed provider surfaces that lacked the new contracts, including xAI media/resources, Cohere chat, ElevenLabs transcription/resources, and legacy OpenAI media/moderation/resource clients.
+- Removed provider surfaces that still lack a bounded contract, including Cohere chat, OpenAI
+  moderation and broad legacy compatibility resources, unverified compatibility presets, and
+  experimental realtime/batch/media operations that are not yet represented by typed provider APIs.
 
 ### Migration
 

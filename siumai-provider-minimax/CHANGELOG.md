@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added portable ImageModel and SpeechModel adapters alongside the existing typed native image,
+  speech, music, and video APIs.
+- Added mode-specific endpoint/replay ownership for Messages and OpenAI-compatible language paths,
+  including fail-closed custom-domain handling for caller-controlled endpoints.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimax-v0.11.0-beta.8...siumai-provider-minimax-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

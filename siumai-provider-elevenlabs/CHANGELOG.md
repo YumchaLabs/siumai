@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added portable final-result/batch transcription over the provider-owned Speech-to-Text API while
+  retaining buffered speech synthesis as the portable family surface.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-elevenlabs-v0.11.0-beta.8...siumai-provider-elevenlabs-v0.11.0-beta.9) - 2026-05-27
 
 ### Added

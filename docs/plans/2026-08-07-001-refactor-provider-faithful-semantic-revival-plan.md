@@ -21,12 +21,11 @@ execution: code
 | Execution profile | Work serially in dependency order, use deterministic offline fixtures, run one Cargo process at a time, and create reviewable English Conventional Commits at meaningful boundaries. Do not push, publish, tag, or open a pull request. |
 | Stop conditions | Stop only for an official-provider contradiction that changes product scope, a security boundary that cannot be implemented safely, or an overlap with unrelated user changes that cannot be isolated. Stale downstream code caused by an intentional public break is migration work, not a blocker. |
 
-This plan follows the completed baseline in
-`docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`. It does not reopen the decisions to
-replace a universal client with small family traits, keep Registry local and network-free, separate
-provider and host control planes, or make stream settlement canonical. It starts from commit
-`3df1af34` and addresses the remaining correctness, ownership, ergonomics, and provider-coverage
-work.
+This plan follows the completed baseline represented by commit `3df1af34`. It does not reopen the
+decisions to replace a universal client with small family traits, keep Registry local and
+network-free, separate provider and host control planes, or make stream settlement canonical. It
+addresses the remaining correctness, ownership, ergonomics, and provider-coverage work. The compact
+delivery summary is maintained in `docs/migration/siumai-next-status.md`.
 
 ## Product Contract
 
@@ -574,8 +573,8 @@ sequenceDiagram
   - `docs/adr/0013-provider-identity-and-family-registration.md`
   - `docs/adr/0014-canonical-language-history-and-replay.md`
 - Current support evidence: `docs/providers/support-policy.md`.
-- Prior implementation baseline:
-  `docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`.
+- Prior implementation baseline: commit `3df1af34` (the superseded task plan is retained in Git
+  history rather than the active documentation tree).
 - Hajimi behavioral evidence supplied by the maintainer on 2026-08-07, covering direct and streaming
   Chat/Responses tool loops and Pi as a behavioral control.
 - Local AI SDK reference: `repo-ref/ai` commit `3bc0d4f40d` (2026-08-01).
@@ -1277,6 +1276,8 @@ sequenceDiagram
   fixture exists for each distinct transport pattern rather than for every provider.
 - The Hajimi containment handoff identifies which downstream normalization, error classification,
   settlement, usage, and reasoning workarounds can be deleted after adopting the rebuilt API.
+- The delivery checkpoints and the credential-free downstream mapping are published in
+  `docs/migration/siumai-next-status.md` and `docs/migration/hajimi-adapter-handoff.md`.
 
 ## Definition of Done
 

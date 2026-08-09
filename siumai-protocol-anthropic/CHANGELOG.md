@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Aligned Messages request options and annotations with current thinking, prompt-cache, structured
+  output, tool, and native replay semantics while keeping provider-specific fields typed.
+- Route direct and streaming Messages failures and terminal outcomes through the shared checked
+  language contracts; reject unsupported or non-replayable content instead of silently dropping it.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-anthropic-v0.11.0-beta.8...siumai-protocol-anthropic-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

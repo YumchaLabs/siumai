@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added portable buffered speech, URL-audio transcription, and URL-audio translation handles.
+- Added typed Remote MCP options and output projections for the provider-owned Responses surface.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-groq-v0.11.0-beta.8...siumai-provider-groq-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

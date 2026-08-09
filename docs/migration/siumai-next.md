@@ -444,8 +444,10 @@ or a temporary hidden feature:
   the provider-owned Speech-to-Text wire contract. Realtime transcription remains intentionally
   outside the portable family surface.
 - OpenAI retains configured Chat Completions, Responses, Responses resources, and opt-in Realtime.
-  The old universal client and unrelated files, image, audio, moderation, rerank, and skills
-  surfaces are removed.
+  It also exposes portable embedding, image-generation, buffered speech, and final-result
+  transcription handles, plus typed Conversations, Files, Vector Stores, and Skills resources.
+  Moderation and broad legacy compatibility resources remain intentionally outside this release
+  slice.
 - The generic OpenAI-compatible engine retains explicit generic and custom endpoints only. Kimi is
   owned by `siumai-provider-moonshotai`; Volcengine ARK is owned by
   `siumai-provider-volcengine`. Their typed options, model advisories, and support evidence no

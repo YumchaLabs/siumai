@@ -17,15 +17,18 @@ rules below before relying on it.
 | Provider/host ownership | `adr/0010-provider-plane-and-host-control-plane.md` | Accepted |
 | Provider identity and registration | `adr/0013-provider-identity-and-family-registration.md` | Accepted |
 | Provider support claims | `providers/support-policy.md` | Current claim policy |
-| Google image support | `providers/google.md` | Current dated Interactions image evidence |
+| Gemini provider support | `providers/google.md` | Current dated Gemini Interactions and product-surface evidence |
 | MiniMax support | `providers/minimax.md` | Current dated provider/API-mode and resource evidence |
 | Breaking API migration | `migration/siumai-next.md` | User-facing guide for the next breaking release |
-| Active implementation | `plans/2026-08-04-001-refactor-siumai-next-revival-plan.md` | Task authority until completed |
+| Delivery status | `migration/siumai-next-status.md` | Internal checkpoints for the current breaking line |
+| Hajimi handoff | `migration/hajimi-adapter-handoff.md` | Downstream containment-to-invariant mapping |
+| Active implementation | `plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md` | Task authority until completed |
 | Release process | `releasing.md` | Maintained, but incomplete until the next release rehearsal |
 
-The implementation plan is allowed to describe temporary migration work. It must not be treated as
-standing repository guidance after the task completes, and implementation progress must not be
-recorded inside it.
+The implementation plan is allowed to describe temporary migration work and acceptance criteria.
+While it is active, checkpoint notes may be recorded there for traceability; the durable summary of
+delivery status belongs in `migration/siumai-next-status.md`. Once the task completes, retain only
+the decisions and user-facing guidance that still have an owner elsewhere in the documentation tree.
 
 ## Document ownership
 

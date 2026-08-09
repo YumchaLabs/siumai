@@ -167,4 +167,4 @@ direct and routed model handles retain the same exact descriptors.
 - `docs/architecture/public-api.md`
 - `docs/architecture/registry.md`
 - `docs/adr/0010-provider-plane-and-host-control-plane.md`
-- `docs/plans/2026-08-04-001-refactor-siumai-next-revival-plan.md`
+- `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

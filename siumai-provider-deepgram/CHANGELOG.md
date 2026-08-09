@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a portable buffered Aura speech model alongside prerecorded transcription, with current
+  Nova model hints and bounded request/response codecs.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepgram-v0.11.0-beta.8...siumai-provider-deepgram-v0.11.0-beta.9) - 2026-05-27
 
 ### Added
