@@ -1,15 +1,17 @@
 use serde::{Deserialize, Serialize};
 use siumai_core::{
-    ContentAnnotationTarget, ContentAnnotations, MessageAnnotationTarget, MessageAnnotations,
-    ProviderAnnotationError, ToolAnnotationTarget, ToolAnnotations, TypedProviderAnnotation,
+    ContentAnnotationTarget, ContentAnnotations, Error, ErrorKind, MessageAnnotationTarget,
+    MessageAnnotations, ProviderAnnotationError, ToolAnnotationTarget, ToolAnnotations,
+    TypedProviderAnnotation,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, CacheControl, CacheTtl, ContentNodeOptions, MessageNodeOptions,
     MessagesAnnotationResolver, MessagesCodecError, ToolNodeOptions,
 };
+use siumai_protocol_openai::{PromptCacheAnnotationResolver, PromptCacheNodeOptions};
 
 macro_rules! cache_marker {
-    ($name:ident, $target:ty) => {
+    ($name:ident, $target:ty, $api_mode:expr) => {
         #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(deny_unknown_fields)]
         pub struct $name {}
@@ -24,14 +26,18 @@ macro_rules! cache_marker {
             type Target = $target;
 
             const NAMESPACE: &'static str = "alibaba";
-            const API_MODE: Option<&'static str> = Some(API_MODE_ID);
+            const API_MODE: Option<&'static str> = $api_mode;
         }
     };
 }
 
-cache_marker!(AlibabaMessageCache, MessageAnnotationTarget);
-cache_marker!(AlibabaContentCache, ContentAnnotationTarget);
-cache_marker!(AlibabaToolCache, ToolAnnotationTarget);
+cache_marker!(
+    AlibabaMessageCache,
+    MessageAnnotationTarget,
+    Some(API_MODE_ID)
+);
+cache_marker!(AlibabaContentCache, ContentAnnotationTarget, None);
+cache_marker!(AlibabaToolCache, ToolAnnotationTarget, Some(API_MODE_ID));
 
 /// Project Alibaba's fixed ephemeral cache markers into Messages wire controls.
 #[derive(Debug, Clone, Copy, Default)]
@@ -69,6 +75,28 @@ impl MessagesAnnotationResolver for AlibabaAnnotationResolver {
                 ToolNodeOptions::default().with_cache_control(fixed_cache())
             })
         })
+    }
+}
+
+/// Project Alibaba content cache annotations into its OpenAI-shaped Chat wire.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct AlibabaChatAnnotationResolver;
+
+impl PromptCacheAnnotationResolver for AlibabaChatAnnotationResolver {
+    fn resolve_content(
+        &self,
+        annotations: &ContentAnnotations,
+    ) -> Result<PromptCacheNodeOptions, Error> {
+        annotations
+            .decode::<AlibabaContentCache>()
+            .map(|marker| PromptCacheNodeOptions::new().with_explicit_breakpoint(marker.is_some()))
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "invalid Alibaba content annotation",
+                )
+                .with_source(source)
+            })
     }
 }
 

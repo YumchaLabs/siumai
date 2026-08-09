@@ -37,7 +37,7 @@ It normalizes real Chat and Responses stream shapes at the protocol boundary, up
 The completed provider-faithful revival established the correct macro boundaries, but current live traffic exposed several concrete protocol gaps that deterministic fixtures did not cover.
 Chat tool-call streams may repeat an established function name as an empty continuation value.
 Responses terminal events may abbreviate output items that were already delivered completely through `response.output_item.done`.
-The current prompt-cache API still combines historical matching markers and new write intent, treats a provider-side matching lookback as a client validity rule, and collapses distinct TTL and retention controls into blanket mutual exclusion instead of applying the current generation-specific contract.
+The current prompt-cache API still combines historical matching markers and new write intent, treats a provider-side matching lookback as a client validity rule, and does not make the generation-specific TTL-versus-retention contract explicit at the typed provider boundary.
 
 Siumai also exposes OpenAI Realtime WebSocket sessions but not the current Responses WebSocket mode intended for long-running tool workflows.
 Finally, the explicit local-network endpoint policy has no grant for RFC 6598 shared address space, so a caller cannot safely opt into a common overlay-network deployment without an external loopback forwarder.
@@ -64,7 +64,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 
 - R8. Replace the ambiguous request-level prompt-cache coordinate list with typed OpenAI content annotations that distinguish historical markers from current write candidates, enforce a maximum of four new writes per request, and do not turn the provider's documented 50-versus-80 historical matching lookback into a client-side validity limit.
 - R9. In implicit mode, reserve one write for the server-selected implicit breakpoint and allow at most three explicit write candidates; in explicit mode, allow at most four explicit write candidates.
-- R10. Model `prompt_cache_options.ttl` and `prompt_cache_retention` as distinct controls with generation-specific official guidance, preserve open future model IDs, and either encode explicit caller intent or reject it with a typed configuration error before transport.
+- R10. Model `prompt_cache_options.ttl` and `prompt_cache_retention` as distinct, generation-specific controls. Known GPT-5.6+ models accept the TTL lane, earlier supported models accept the retention lane, and a request that selects both lanes fails closed unless a dated provider contract later proves coexistence. Preserve open future model IDs, encode one explicit supported lane, and reject unsupported or ambiguous intent before transport.
 
 #### Provider-native WebSocket mode
 
@@ -118,7 +118,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 - AE5. Covers R7. Given `[DONE]`, EOF, or socket close before canonical terminal settlement, the established stream returns an incomplete-stream error instead of successful EOF.
 - AE6. Covers F4. Given implicit mode with three explicit write candidates and retained markers, validation succeeds; a fourth explicit candidate fails because the implicit write consumes the remaining slot.
 - AE7. Covers F4. Given explicit mode with four write candidates and additional historical markers, validation preserves the historical markers subject only to ordinary request bounds; a fifth write candidate fails with a typed option error.
-- AE8. Covers R10. Given TTL `30m` plus retention `24h`, both fields reach the final Chat or Responses wire body when the selected model policy permits them.
+- AE8. Covers R10. Given TTL `30m` on a known GPT-5.6 model or retention `24h` on a known legacy model, the selected field reaches both the Chat and Responses wire bodies; a request that supplies both controls fails before transport for known and unknown model policies.
 - AE9. Covers F3. Given one active WebSocket response, a second `response.create` on the same session is rejected locally; after settlement, a continuation request is accepted.
 - AE10. Covers R12. Given a WebSocket request carrying `background` or an explicit `stream`, configuration fails before any frame is sent.
 - AE11. Covers R14. Given an endpoint inside `100.64.0.0/10` and the explicit shared-address grant, both HTTP and WebSocket destination checks accept it; adjacent non-authorized ranges remain rejected.
@@ -178,7 +178,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 - KTD3. **Share one Responses turn state machine across SSE and WebSocket.** Framing adapters differ, but item accumulation, reconciliation, error classification, cancellation, and settlement do not. Governs R7, R11-R13.
 - KTD4. **Keep Responses WebSocket provider-owned and experimental.** The OpenAI provider exposes a typed single-flight session built on transport primitives; `LanguageModel::stream` remains the portable SSE-like request surface. (session-settled: user-approved — chosen over provider-specific behavior in the unified trait: native capabilities remain reachable without weakening the portable contract.) Governs R2, R3, R11-R13.
 - KTD5. **Attach role-aware cache intent to semantic content nodes.** The public API uses one typed OpenAI content annotation to distinguish historical markers from current write candidates, removes request-level coordinates and the ambiguous constructor, and rejects excess current writes. In canonical marker traversal order, historical markers must precede current write candidates; interleaving is rejected. It does not trim or reject historical markers using the provider's contradictory 50-versus-80 lookback descriptions; ordinary request and body bounds remain authoritative. (session-settled: user-approved — chosen over preserving the old beta API and over another index-based side table: breaking changes are allowed when they remove ambiguous semantics, and ADR-0012 requires node-scoped provider intent.) Governs R8-R10.
-- KTD6. **Model cache lifetime and retention as distinct, generation-sensitive controls.** Provider validation treats TTL as a minimum lifetime for GPT-5.6 and later known families, retention as the legacy maximum-retention policy, applies exact known-model restrictions, and does not infer unknown-model capability from name patterns. Explicit unknown/custom-compatible intent is encoded or rejected; it is never silently removed. Governs R10.
+- KTD6. **Model cache lifetime and retention as distinct, generation-sensitive controls.** Provider validation treats TTL as a minimum lifetime for GPT-5.6 and later known families, retention as the legacy maximum-retention policy, applies exact known-model restrictions, and rejects a request that combines the two lanes because no current official model contract proves coexistence. It does not infer unknown-model capability from name patterns: one explicit lane is preserved for an unknown model, while ambiguous or unsupported combinations are rejected rather than silently removed. Governs R10.
 - KTD7. **Add an exact shared-address grant.** `LocalNetworkGrant` gains an RFC 6598-specific variant used by HTTP and WebSocket validation; no broad `unsafe` or `allow_non_public` switch is added. Governs R13-R14.
 - KTD8. **Keep live traffic outside release gates.** Committed fixtures reproduce the semantic shapes, while operator-run canaries confirm real compatibility after the deterministic suite passes. (session-settled: user-directed — chosen over heavy smoke automation and digest-based proof: repository tests should remain focused and portable.) Governs R16-R18.
 
@@ -399,7 +399,7 @@ sequenceDiagram
   2. Read only the OpenAI annotation namespace from `MessagePart` nodes, deserialize and validate it at the provider boundary, and traverse markers in canonical message/content order.
   3. Require historical markers to precede current write candidates, reject role interleaving, and enforce the mode-specific write budget on the write suffix; do not impose a semantic 50- or 80-marker read window.
   4. Project only the validated annotated nodes into Chat and Responses wire blocks; protocol crates retain defensive structural bounds but do not own caller-intent policy or a parallel coordinate API.
-  5. Keep TTL and retention as separate typed fields, apply the official generation split to exact known model policies, and preserve explicit unknown/custom-compatible intent without model-name pattern guessing or silent filtering.
+  5. Keep TTL and retention as separate typed fields, apply the official generation split to exact known model policies, reject their simultaneous use before transport, and preserve one explicit unknown/custom-compatible lane without model-name pattern guessing or silent filtering.
   6. Ensure raw option merging cannot bypass final cache validation.
 - **Execution note:** Treat the public type replacement as one atomic breaking unit with migration docs and focused fixtures.
 - **Patterns to follow:** Typed provider option validation, final-wire validation after raw merge, and open future-model handling in the configured OpenAI provider.
@@ -409,7 +409,7 @@ sequenceDiagram
   - Historical marker count is not rejected or silently trimmed merely for exceeding 50 or 80; ordinary request/body bounds still apply.
   - A node cannot carry conflicting OpenAI cache roles, and malformed or wrong-target annotations return a typed provider error.
   - A historical marker after the first current write candidate is rejected before either protocol encoder runs.
-  - Covers AE8. TTL `30m` plus retention `24h` both reach final Chat and Responses bodies for an explicit unknown/custom-compatible model policy that permits both; exact known GPT-5.6 and legacy model restrictions fail before transport.
+  - Covers AE8. TTL `30m` reaches known GPT-5.6 Chat and Responses bodies, retention `24h` reaches known legacy Chat and Responses bodies, and supplying both controls fails before transport for known and unknown model policies.
   - Known unsupported model-policy combinations fail before transport; an unknown compatible model does not silently lose explicit fields.
   - Raw extra options cannot inject protected cache fields around typed validation.
 - **Verification:** Provider option tests and one request fixture per protocol prove the current-write budgets, historical-marker preservation, generation-sensitive lifetime controls, and final-wire protection.
@@ -558,7 +558,7 @@ The goal is complete only when:
 - Chat empty identity continuations work without weakening mismatch detection.
 - Responses abbreviated terminal resources settle only after bounded, conflict-checked reconciliation.
 - SSE and WebSocket turns share one Responses semantic state machine and exactly-once settlement contract.
-- The prompt-cache API distinguishes historical markers from current writes, enforces the mode-specific current-write budget without inventing a client-side historical lookback cap, and permits supported TTL plus retention combinations.
+- The prompt-cache API distinguishes historical markers from current writes, enforces the mode-specific current-write budget without inventing a client-side historical lookback cap, preserves the supported generation-specific lifetime lane, and rejects simultaneous TTL plus retention controls until a dated provider contract proves coexistence.
 - Responses WebSocket supports sequential continuation, one in-flight response per connection, typed failure, cancellation, timeout, and conservative close behavior.
 - RFC 6598 endpoints require an explicit exact grant for both HTTP and WebSocket paths.
 - Official and custom endpoint claims remain distinct.

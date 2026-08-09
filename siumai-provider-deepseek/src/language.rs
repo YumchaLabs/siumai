@@ -423,7 +423,7 @@ impl ChatCodecPolicy for DeepSeekChatCodecPolicy {
             dialect,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
+            prompt_cache_resolver: None,
             warnings,
         })
     }
@@ -568,7 +568,6 @@ impl ResponsesCodecPolicy for DeepSeekResponsesCodecPolicy {
             request,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
             native_tools,
             function_tools: BTreeMap::new(),
             warnings: Vec::new(),

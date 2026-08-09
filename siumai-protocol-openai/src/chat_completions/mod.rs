@@ -11,8 +11,9 @@ mod wire;
 pub use dialect::{ChatCompletionsDialect, DialectError, MaxOutputTokensField, WireFieldName};
 pub use reasoning::REASONING_DETAILS_OPAQUE_KIND;
 pub use request::{
-    CHAT_COMPLETIONS_TARGET, ChatPromptCacheBlock, ChatRequestEncodingOptions, encode_request,
-    encode_request_with_options, is_protected_option_field,
+    CHAT_COMPLETIONS_TARGET, ChatRequestEncodingOptions, encode_request,
+    encode_request_with_options, encode_request_with_options_and_resolver,
+    is_protected_option_field,
 };
 pub use response::decode_response;
 pub use sse::ChatCompletionsSseEncoder;

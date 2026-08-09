@@ -16,6 +16,14 @@ pub mod chat_completions {
     pub use siumai_provider_openai::{OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions};
 }
 
+pub mod prompt_cache {
+    pub use siumai_provider_openai::prompt_cache::{
+        OpenAiAnnotationError, OpenAiContentOptions, OpenAiPromptCacheMarker,
+        OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
+        OpenAiPromptCacheTtl,
+    };
+}
+
 pub mod embeddings {
     pub use siumai_provider_openai::{
         OpenAiEmbeddingModel, OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_LARGE,
@@ -105,10 +113,9 @@ pub mod responses {
     };
     pub use siumai_provider_openai::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
-        OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
-        OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
-        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
+        OpenAiReasoning, OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode,
+        OpenAiReasoningSummary, OpenAiResponseInclude, OpenAiResponsesCompactRequest,
+        OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
         OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
         OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
         OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,

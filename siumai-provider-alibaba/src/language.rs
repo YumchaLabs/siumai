@@ -26,8 +26,8 @@ use siumai_protocol_anthropic::messages::{
     PROTOCOL_ID as MESSAGES_PROTOCOL_ID,
 };
 use siumai_protocol_openai::chat_completions::{
-    API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, ChatPromptCacheBlock, DialectError,
-    MaxOutputTokensField, PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
+    API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, DialectError, MaxOutputTokensField,
+    PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
@@ -35,9 +35,12 @@ use siumai_protocol_openai::responses::{
 use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
 
-use crate::annotations::AlibabaAnnotationResolver;
+use crate::annotations::{
+    AlibabaAnnotationResolver, AlibabaChatAnnotationResolver, AlibabaContentCache,
+};
 use crate::options::{
-    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaResponsesOptions, AlibabaResponsesTool,
+    ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaPromptCacheBreakpoint,
+    AlibabaResponsesOptions, AlibabaResponsesTool,
 };
 
 pub const PROVIDER_ID: &str = "alibaba";
@@ -271,20 +274,16 @@ impl ChatCodecPolicy for AlibabaChatCodecPolicy {
                 "Alibaba web search is not declared for this Qwen model",
             ));
         }
-        let prompt_cache_breakpoints = options
-            .prompt_cache_breakpoints
-            .iter()
-            .map(|breakpoint| {
-                ChatPromptCacheBlock::new(breakpoint.message_index, breakpoint.content_index)
-            })
-            .collect();
+        let has_prompt_cache = !options.prompt_cache_breakpoints.is_empty();
+        let request = attach_chat_cache_annotations(request, &options.prompt_cache_breakpoints)?;
         extra.remove("prompt_cache_breakpoints");
         Ok(PreparedChatCall {
             request,
             dialect,
             extra,
             headers: siumai_transport::RequestHeaders::new(),
-            prompt_cache_breakpoints,
+            prompt_cache_resolver: has_prompt_cache
+                .then(|| Arc::new(AlibabaChatAnnotationResolver) as Arc<_>),
             warnings: Vec::new(),
         })
     }
@@ -306,29 +305,21 @@ impl ChatCodecPolicy for AlibabaChatCodecPolicy {
                     "Alibaba Chat encoder omitted the messages array",
                 )
             })?;
-        for breakpoint in &prepared.prompt_cache_breakpoints {
-            let content = messages
-                .get_mut(breakpoint.message_index)
-                .and_then(|message| message.get_mut("content"))
-                .and_then(Value::as_array_mut)
-                .and_then(|content| content.get_mut(breakpoint.content_index))
-                .and_then(Value::as_object_mut)
-                .ok_or_else(|| {
-                    Error::new(
-                        ErrorKind::Internal,
-                        "Alibaba prompt-cache breakpoint lost its encoded content block",
-                    )
-                })?;
-            if content.remove("prompt_cache_breakpoint").is_none() {
-                return Err(Error::new(
-                    ErrorKind::Internal,
-                    "Alibaba prompt-cache breakpoint marker was not encoded",
-                ));
+        for message in messages {
+            let Some(content) = message.get_mut("content").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            for block in content {
+                let Some(block) = block.as_object_mut() else {
+                    continue;
+                };
+                if block.remove("prompt_cache_breakpoint").is_some() {
+                    block.insert(
+                        "cache_control".to_string(),
+                        serde_json::json!({"type": "ephemeral"}),
+                    );
+                }
             }
-            content.insert(
-                "cache_control".to_string(),
-                serde_json::json!({"type": "ephemeral"}),
-            );
         }
         Ok(body)
     }
@@ -433,12 +424,40 @@ impl ResponsesCodecPolicy for AlibabaResponsesCodecPolicy {
             request,
             extra,
             headers,
-            prompt_cache_breakpoints: Vec::new(),
             native_tools,
             function_tools: BTreeMap::new(),
             warnings: Vec::new(),
         })
     }
+}
+
+fn attach_chat_cache_annotations(
+    mut request: LanguageRequest,
+    breakpoints: &[AlibabaPromptCacheBreakpoint],
+) -> Result<LanguageRequest, Error> {
+    for breakpoint in breakpoints {
+        let part = request
+            .messages
+            .get_mut(breakpoint.message_index)
+            .and_then(|message| message.content_mut().get_mut(breakpoint.content_index))
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "Alibaba prompt-cache breakpoint did not identify a request content node",
+                )
+            })?;
+        *part = part
+            .clone()
+            .with_provider_annotation(&AlibabaContentCache::new())
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "Alibaba prompt-cache breakpoint conflicts with an existing annotation",
+                )
+                .with_source(source)
+            })?;
+    }
+    Ok(request)
 }
 
 fn parse_chat_options(extra: &BTreeMap<String, Value>) -> Result<AlibabaChatOptions, Error> {

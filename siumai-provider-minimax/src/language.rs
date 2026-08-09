@@ -391,7 +391,7 @@ impl ChatCodecPolicy for MinimaxChatPolicy {
             dialect,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
+            prompt_cache_resolver: None,
             warnings: Vec::new(),
         })
     }
@@ -432,7 +432,6 @@ impl ResponsesCodecPolicy for MinimaxResponsesPolicy {
             request,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
             native_tools: Vec::new(),
             function_tools: BTreeMap::new(),
             warnings: Vec::new(),

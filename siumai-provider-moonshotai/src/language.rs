@@ -215,7 +215,7 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
                 dialect,
                 extra,
                 headers: siumai_transport::RequestHeaders::new(),
-                prompt_cache_breakpoints: Vec::new(),
+                prompt_cache_resolver: None,
                 warnings,
             });
         };
@@ -249,7 +249,7 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
             dialect,
             extra,
             headers: siumai_transport::RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
+            prompt_cache_resolver: None,
             warnings,
         })
     }

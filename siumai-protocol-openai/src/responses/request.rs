@@ -10,12 +10,13 @@ use siumai_core::{
     ToolChoice, ToolOutcome, ToolResult,
 };
 
+use crate::{NoPromptCacheAnnotations, PromptCacheAnnotationResolver};
+
 use super::wire::{OutputContentPart, OutputItem};
 use super::{API_MODE_ID, OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
 
 /// Internal merge key accepted from provider-owned typed options.
 pub const TEXT_VERBOSITY_OPTION: &str = "text_verbosity";
-const MAX_PROMPT_CACHE_BREAKPOINTS: usize = 50;
 
 /// Media kinds accepted by one Responses-compatible wire dialect.
 ///
@@ -58,23 +59,6 @@ impl ResponsesMediaDialect {
 impl Default for ResponsesMediaDialect {
     fn default() -> Self {
         Self::native()
-    }
-}
-
-/// One original neutral content location that should carry an explicit OpenAI
-/// prompt-cache breakpoint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PromptCacheBlock {
-    pub message_index: usize,
-    pub content_index: usize,
-}
-
-impl PromptCacheBlock {
-    pub const fn new(message_index: usize, content_index: usize) -> Self {
-        Self {
-            message_index,
-            content_index,
-        }
     }
 }
 
@@ -148,7 +132,6 @@ pub struct RequestEncodingOptions {
     extra: BTreeMap<String, Value>,
     native_tools: Vec<Value>,
     function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
-    prompt_cache_breakpoints: BTreeSet<PromptCacheBlock>,
     media_dialect: ResponsesMediaDialect,
 }
 
@@ -183,11 +166,6 @@ impl RequestEncodingOptions {
         self
     }
 
-    pub fn with_prompt_cache_breakpoint(mut self, block: PromptCacheBlock) -> Self {
-        self.prompt_cache_breakpoints.insert(block);
-        self
-    }
-
     pub const fn with_media_dialect(mut self, dialect: ResponsesMediaDialect) -> Self {
         self.media_dialect = dialect;
         self
@@ -217,15 +195,27 @@ pub fn encode_request_with_options(
     request: &LanguageRequest,
     options: &RequestEncodingOptions,
 ) -> Result<Value, Error> {
+    encode_request_with_options_and_resolver(
+        scope,
+        model,
+        request,
+        options,
+        &NoPromptCacheAnnotations,
+    )
+}
+
+/// Encode a Responses request after resolving provider-owned content
+/// annotations.
+pub fn encode_request_with_options_and_resolver(
+    scope: &ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    options: &RequestEncodingOptions,
+    resolver: &dyn PromptCacheAnnotationResolver,
+) -> Result<Value, Error> {
     request.validate().map_err(|source| {
         Error::new(ErrorKind::InvalidInput, "invalid language request").with_source(source)
     })?;
-    if options.prompt_cache_breakpoints.len() > MAX_PROMPT_CACHE_BREAKPOINTS {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "OpenAI Responses accepts at most 50 prompt-cache breakpoints per request",
-        ));
-    }
     if request.generation.seed.is_some() || !request.generation.stop_sequences.is_empty() {
         return Err(Error::new(
             ErrorKind::Unsupported,
@@ -263,24 +253,16 @@ pub fn encode_request_with_options(
 
     validate_target_scope(scope)?;
     let call_contexts = collect_native_call_contexts(&request.messages, scope)?;
-    let mut seen_breakpoints = BTreeSet::new();
     let mut input = Vec::new();
-    for (message_index, message) in request.messages.iter().enumerate() {
+    for message in &request.messages {
         encode_message(
             message,
-            message_index,
             scope,
             options,
             &call_contexts,
-            &mut seen_breakpoints,
+            resolver,
             &mut input,
         )?;
-    }
-    if seen_breakpoints != options.prompt_cache_breakpoints {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "an OpenAI prompt-cache breakpoint did not identify an encodable input block",
-        ));
     }
 
     let mut body = Map::new();
@@ -462,11 +444,10 @@ fn collect_native_call_contexts(
 
 fn encode_message(
     message: &Message,
-    message_index: usize,
     scope: &ProviderScope,
     options: &RequestEncodingOptions,
     call_contexts: &BTreeMap<String, NativeCallContext>,
-    seen_breakpoints: &mut BTreeSet<PromptCacheBlock>,
+    resolver: &dyn PromptCacheAnnotationResolver,
     input: &mut Vec<Value>,
 ) -> Result<(), Error> {
     let native_items = message
@@ -492,8 +473,9 @@ fn encode_message(
     let message_role = message.role();
     let mut message_content = Vec::new();
     for (content_index, part) in message.content().iter().enumerate() {
-        let cache_block = PromptCacheBlock::new(message_index, content_index);
-        let explicit_cache = options.prompt_cache_breakpoints.contains(&cache_block);
+        let explicit_cache = resolver
+            .resolve_content(part.annotations())?
+            .explicit_breakpoint();
         match part.content() {
             ContentPart::Text { text } if !suppression.message => {
                 let mut block = match message_role {
@@ -509,12 +491,17 @@ fn encode_message(
                         ));
                     }
                 };
-                apply_cache_breakpoint(&mut block, explicit_cache, cache_block, seen_breakpoints)?;
+                apply_cache_breakpoint(&mut block, explicit_cache)?;
                 message_content.push(block);
             }
-            ContentPart::Text { .. } if suppression.message => {}
-            ContentPart::Reasoning { .. } if suppression.reasoning => {}
+            ContentPart::Text { .. } if suppression.message => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
+            ContentPart::Reasoning { .. } if suppression.reasoning => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
             ContentPart::Reasoning { .. } => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
                     "reasoning history requires its native OpenAI Responses item",
@@ -522,32 +509,46 @@ fn encode_message(
             }
             ContentPart::Media(media) if !suppression.message => {
                 let mut block = encode_media(media, options.media_dialect)?;
-                apply_cache_breakpoint(&mut block, explicit_cache, cache_block, seen_breakpoints)?;
+                apply_cache_breakpoint(&mut block, explicit_cache)?;
                 message_content.push(block);
             }
-            ContentPart::Media(_) if suppression.message => {}
-            ContentPart::Citation(_) | ContentPart::Refusal { .. } if suppression.message => {}
+            ContentPart::Media(_) if suppression.message => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
+            ContentPart::Citation(_) | ContentPart::Refusal { .. } if suppression.message => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
             ContentPart::Citation(_) | ContentPart::Refusal { .. } => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
                     "response-only content requires its native OpenAI Responses message item",
                 ));
             }
-            ContentPart::ToolCall(_) if suppression.tool_calls.contains(&content_index) => {}
-            ContentPart::ToolCall(call) => input.push(json!({
-                "type": "function_call",
-                "call_id": call.id(),
-                "name": call.name(),
-                "arguments": serde_json::to_string(call.arguments()).map_err(|source| {
-                    Error::new(ErrorKind::InvalidInput, "failed to encode tool arguments")
-                        .with_source(source)
-                })?,
-            })),
+            ContentPart::ToolCall(_) if suppression.tool_calls.contains(&content_index) => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
+            ContentPart::ToolCall(call) => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+                input.push(json!({
+                    "type": "function_call",
+                    "call_id": call.id(),
+                    "name": call.name(),
+                    "arguments": serde_json::to_string(call.arguments()).map_err(|source| {
+                        Error::new(ErrorKind::InvalidInput, "failed to encode tool arguments")
+                            .with_source(source)
+                    })?,
+                }));
+            }
             ContentPart::ToolResult(result) => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
                 input.push(encode_tool_result(result, call_contexts)?);
             }
-            ContentPart::ProviderOpaque(_) => {}
+            ContentPart::ProviderOpaque(_) => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
+            }
             _ => {
+                reject_prompt_cache_breakpoint(explicit_cache)?;
                 return Err(Error::new(
                     ErrorKind::Unsupported,
                     "OpenAI Responses cannot encode this neutral content part",
@@ -879,12 +880,7 @@ fn encode_media(
     }
 }
 
-fn apply_cache_breakpoint(
-    block: &mut Value,
-    explicit: bool,
-    location: PromptCacheBlock,
-    seen: &mut BTreeSet<PromptCacheBlock>,
-) -> Result<(), Error> {
+fn apply_cache_breakpoint(block: &mut Value, explicit: bool) -> Result<(), Error> {
     if !explicit {
         return Ok(());
     }
@@ -898,7 +894,16 @@ fn apply_cache_breakpoint(
         "prompt_cache_breakpoint".to_string(),
         json!({"mode": "explicit"}),
     );
-    seen.insert(location);
+    Ok(())
+}
+
+fn reject_prompt_cache_breakpoint(enabled: bool) -> Result<(), Error> {
+    if enabled {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "OpenAI prompt-cache breakpoint targeted a non-encodable content node",
+        ));
+    }
     Ok(())
 }
 

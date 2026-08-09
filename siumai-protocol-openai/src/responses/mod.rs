@@ -11,9 +11,9 @@ mod stream;
 mod wire;
 
 pub use request::{
-    FunctionToolCaller, FunctionToolEncodingOptions, PromptCacheBlock, RequestEncodingOptions,
-    ResponsesMediaDialect, TEXT_VERBOSITY_OPTION, encode_request, encode_request_with_options,
-    is_protected_option_field,
+    FunctionToolCaller, FunctionToolEncodingOptions, RequestEncodingOptions, ResponsesMediaDialect,
+    TEXT_VERBOSITY_OPTION, encode_request, encode_request_with_options,
+    encode_request_with_options_and_resolver, is_protected_option_field,
 };
 pub use response::{DecodedResponse, decode_response, decode_response_resource};
 pub use stream::{

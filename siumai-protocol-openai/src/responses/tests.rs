@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageResponseStatus, LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole,
-    ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
+    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, Error, ErrorKind,
+    FinishReason, LanguageIncompleteReason, LanguageRequest, LanguageResponseStatus,
+    LanguageStreamEvent, MediaData, MediaPart, Message, MessagePart, MessageRole, ModelId,
+    PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
     ResponseDiagnostics, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult,
-    ToolSpec, UsageValue,
+    ToolSpec, TypedProviderAnnotation, UsageValue,
 };
+
+use crate::{PromptCacheAnnotationResolver, PromptCacheNodeOptions};
 
 use super::*;
 
@@ -24,6 +28,52 @@ fn scope() -> ProviderScope {
 
 fn model() -> ModelId {
     ModelId::new("gpt-5.6").unwrap()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TestPromptCacheAnnotation {
+    marked: bool,
+}
+
+impl TypedProviderAnnotation for TestPromptCacheAnnotation {
+    type Target = ContentAnnotationTarget;
+
+    const NAMESPACE: &'static str = "test-openai-cache";
+}
+
+#[derive(Debug, Default)]
+struct TestPromptCacheResolver;
+
+impl PromptCacheAnnotationResolver for TestPromptCacheResolver {
+    fn resolve_content(
+        &self,
+        annotations: &ContentAnnotations,
+    ) -> Result<PromptCacheNodeOptions, Error> {
+        annotations
+            .decode::<TestPromptCacheAnnotation>()
+            .map(|annotation| {
+                PromptCacheNodeOptions::new()
+                    .with_explicit_breakpoint(annotation.is_some_and(|value| value.marked))
+            })
+            .map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "invalid test prompt-cache annotation",
+                )
+                .with_source(source)
+            })
+    }
+}
+
+fn annotated_part(content: ContentPart) -> MessagePart {
+    let annotation = TestPromptCacheAnnotation { marked: true };
+    MessagePart::from_parts(
+        content,
+        ContentAnnotations::default()
+            .with(&annotation)
+            .expect("test annotation"),
+    )
 }
 
 fn fidelity_response() -> Value {
@@ -248,7 +298,12 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
         &model(),
     )
     .unwrap();
-    let user = Message::text(MessageRole::User, "Check inventory");
+    let user = Message::new(
+        MessageRole::User,
+        [annotated_part(ContentPart::Text {
+            text: "Check inventory".to_string(),
+        })],
+    );
     let projection = decoded.canonical().project_assistant_history();
     assert_eq!(projection.omissions().len(), 2);
     let assistant = projection
@@ -279,10 +334,16 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
             ),
             (TEXT_VERBOSITY_OPTION.to_string(), json!("low")),
         ]))
-        .with_native_tool(json!({"type": "web_search"}))
-        .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 0));
+        .with_native_tool(json!({"type": "web_search"}));
 
-    let body = encode_request_with_options(&scope(), &model(), &request, &options).unwrap();
+    let body = encode_request_with_options_and_resolver(
+        &scope(),
+        &model(),
+        &request,
+        &options,
+        &TestPromptCacheResolver,
+    )
+    .unwrap();
     assert_eq!(
         body["input"][0]["content"][0]["prompt_cache_breakpoint"],
         json!({"mode": "explicit"})
@@ -600,31 +661,35 @@ fn background_resource_decode_remains_native_until_it_is_terminal() {
 }
 
 #[test]
-fn explicit_prompt_cache_breakpoints_cover_text_image_and_file_blocks() {
+fn resolver_projects_annotated_text_image_and_file_blocks() {
     let request = LanguageRequest::new(vec![Message::new(
         MessageRole::User,
         [
-            ContentPart::Text {
+            annotated_part(ContentPart::Text {
                 text: "inspect these inputs".to_string(),
-            },
-            ContentPart::Media(MediaPart {
+            }),
+            annotated_part(ContentPart::Media(MediaPart {
                 media_type: "image/png".to_string(),
                 data: MediaData::Url("https://example.com/input.png".to_string()),
                 name: None,
-            }),
-            ContentPart::Media(MediaPart {
+            })),
+            annotated_part(ContentPart::Media(MediaPart {
                 media_type: "application/pdf".to_string(),
                 data: MediaData::Url("https://example.com/input.pdf".to_string()),
                 name: Some("input.pdf".to_string()),
-            }),
+            })),
         ],
     )]);
-    let options = RequestEncodingOptions::new(false)
-        .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 0))
-        .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 1))
-        .with_prompt_cache_breakpoint(PromptCacheBlock::new(0, 2));
+    let options = RequestEncodingOptions::new(false);
 
-    let body = encode_request_with_options(&scope(), &model(), &request, &options).unwrap();
+    let body = encode_request_with_options_and_resolver(
+        &scope(),
+        &model(),
+        &request,
+        &options,
+        &TestPromptCacheResolver,
+    )
+    .unwrap();
     let blocks = body["input"][0]["content"].as_array().unwrap();
     assert_eq!(blocks[0]["type"], "input_text");
     assert_eq!(blocks[1]["type"], "input_image");
@@ -679,19 +744,21 @@ fn compatible_media_dialect_encodes_video_without_enabling_generic_files() {
 }
 
 #[test]
-fn explicit_prompt_cache_breakpoints_are_bounded() {
+fn resolver_rejects_annotated_non_content_nodes() {
     let request = LanguageRequest::new(vec![Message::new(
-        MessageRole::User,
-        (0..51).map(|index| ContentPart::Text {
-            text: format!("cache block {index}"),
-        }),
+        MessageRole::Assistant,
+        [annotated_part(ContentPart::Reasoning {
+            text: "private state".to_string(),
+        })],
     )]);
-    let mut options = RequestEncodingOptions::new(false);
-    for content_index in 0..51 {
-        options = options.with_prompt_cache_breakpoint(PromptCacheBlock::new(0, content_index));
-    }
-
-    let error = encode_request_with_options(&scope(), &model(), &request, &options).unwrap_err();
+    let error = encode_request_with_options_and_resolver(
+        &scope(),
+        &model(),
+        &request,
+        &RequestEncodingOptions::new(false),
+        &TestPromptCacheResolver,
+    )
+    .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
 }
 

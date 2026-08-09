@@ -3,6 +3,12 @@
 //! OpenAI Chat Completions, Responses, and Realtime wire codecs.
 #![deny(unsafe_code)]
 
+mod prompt_cache;
+
+pub use prompt_cache::{
+    NoPromptCacheAnnotations, PromptCacheAnnotationResolver, PromptCacheNodeOptions,
+};
+
 /// Canonical-core Chat Completions codec used by configured providers.
 pub mod chat_completions;
 

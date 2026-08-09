@@ -197,7 +197,7 @@ impl ChatCodecPolicy for ArkChatCodecPolicy {
             dialect,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
+            prompt_cache_resolver: None,
             warnings: Vec::new(),
         })
     }
@@ -280,7 +280,6 @@ impl ResponsesCodecPolicy for ArkResponsesCodecPolicy {
             request,
             extra,
             headers,
-            prompt_cache_breakpoints: Vec::new(),
             native_tools,
             function_tools: BTreeMap::new(),
             warnings,

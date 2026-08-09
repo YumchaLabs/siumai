@@ -403,6 +403,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
         OpenAiSkillUpload, OpenAiSkillsProviderExt,
     };
     use siumai::providers::openai::images::{GPT_IMAGE_1, OpenAiImageOptions};
+    use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
     use siumai::providers::openai::resources::conversations::OpenAiConversationCreateRequest;
     use siumai::providers::openai::resources::files::{
         OpenAiBinaryContent, OpenAiFileUploadPurpose,
@@ -439,6 +440,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     let _ = OpenAiImageOptions::default();
     let _ = OpenAiSpeechOptions::default();
     let _ = OpenAiTranscriptionOptions::default();
+    let _ = OpenAiContentOptions::cache_write_candidate();
     let _ = OpenAiConversationCreateRequest::new();
     let _ = OpenAiVectorStoreCreateRequest::new();
     let _: Option<OpenAiSkillUpload> = None;

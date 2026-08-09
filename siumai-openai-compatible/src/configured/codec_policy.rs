@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
 
 use serde_json::Value;
 use siumai_core::{
     Error, LanguageRequest, LanguageResponse, LanguageStreamDecoder, ModelId, ProviderScope,
     Warning,
 };
+use siumai_protocol_openai::PromptCacheAnnotationResolver;
 use siumai_protocol_openai::chat_completions::{
-    ChatCompletionsDialect, ChatCompletionsStreamDecoder, ChatPromptCacheBlock,
-    ChatRequestEncodingOptions, decode_response as decode_chat_response,
-    encode_request_with_options as encode_chat_request,
+    ChatCompletionsDialect, ChatCompletionsStreamDecoder, ChatRequestEncodingOptions,
+    decode_response as decode_chat_response, encode_request_with_options as encode_chat_request,
 };
 use siumai_protocol_openai::responses::{
-    FunctionToolEncodingOptions, PromptCacheBlock, RequestEncodingOptions, ResponsesStreamDecoder,
+    FunctionToolEncodingOptions, RequestEncodingOptions, ResponsesStreamDecoder,
     ResponsesTerminalPolicy, decode_response as decode_responses_response,
     encode_request_with_options as encode_responses_request,
 };
@@ -65,7 +67,6 @@ pub trait ChatCodecPolicy: Send + Sync {
     }
 }
 
-#[derive(Debug)]
 pub struct PreparedChatCall {
     pub request: LanguageRequest,
     pub dialect: ChatCompletionsDialect,
@@ -75,8 +76,28 @@ pub struct PreparedChatCall {
     /// `RequestHeaders` rejects authentication and transport-controlled headers,
     /// so codec policies cannot use this hook to change endpoint or credential policy.
     pub headers: RequestHeaders,
-    pub prompt_cache_breakpoints: Vec<ChatPromptCacheBlock>,
+    /// Provider-owned projection from content annotations to Chat wire cache markers.
+    ///
+    /// Compatibility policies without a typed cache contract leave this unset.
+    pub prompt_cache_resolver: Option<Arc<dyn PromptCacheAnnotationResolver>>,
     pub warnings: Vec<Warning>,
+}
+
+impl fmt::Debug for PreparedChatCall {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreparedChatCall")
+            .field("request", &self.request)
+            .field("dialect", &self.dialect)
+            .field("extra", &self.extra)
+            .field("headers", &self.headers)
+            .field(
+                "has_prompt_cache_resolver",
+                &self.prompt_cache_resolver.is_some(),
+            )
+            .field("warnings", &self.warnings)
+            .finish()
+    }
 }
 
 impl PreparedChatCall {
@@ -86,11 +107,19 @@ impl PreparedChatCall {
         model: &ModelId,
         stream: bool,
     ) -> Result<Value, Error> {
-        let mut options = ChatRequestEncodingOptions::new(stream).with_extra(self.extra.clone());
-        for breakpoint in &self.prompt_cache_breakpoints {
-            options = options.with_prompt_cache_breakpoint(*breakpoint);
+        let options = ChatRequestEncodingOptions::new(stream).with_extra(self.extra.clone());
+        if let Some(resolver) = &self.prompt_cache_resolver {
+            siumai_protocol_openai::chat_completions::encode_request_with_options_and_resolver(
+                scope,
+                model,
+                &self.request,
+                &self.dialect,
+                &options,
+                resolver.as_ref(),
+            )
+        } else {
+            encode_chat_request(scope, model, &self.request, &self.dialect, &options)
         }
-        encode_chat_request(scope, model, &self.request, &self.dialect, &options)
     }
 }
 
@@ -140,7 +169,6 @@ pub struct PreparedResponsesCall {
     pub request: LanguageRequest,
     pub extra: BTreeMap<String, Value>,
     pub headers: RequestHeaders,
-    pub prompt_cache_breakpoints: Vec<PromptCacheBlock>,
     pub native_tools: Vec<Value>,
     pub function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
     pub warnings: Vec<Warning>,
@@ -154,9 +182,6 @@ impl PreparedResponsesCall {
         stream: bool,
     ) -> Result<Value, Error> {
         let mut encoding = RequestEncodingOptions::new(stream).with_extra(self.extra.clone());
-        for breakpoint in &self.prompt_cache_breakpoints {
-            encoding = encoding.with_prompt_cache_breakpoint(*breakpoint);
-        }
         for tool in &self.native_tools {
             encoding = encoding.with_native_tool(tool.clone());
         }
@@ -187,7 +212,7 @@ impl ChatCodecPolicy for IdentityChatCodecPolicy {
             dialect,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
+            prompt_cache_resolver: None,
             warnings: Vec::new(),
         })
     }
@@ -211,7 +236,6 @@ impl ResponsesCodecPolicy for IdentityResponsesCodecPolicy {
             request,
             extra,
             headers: RequestHeaders::new(),
-            prompt_cache_breakpoints: Vec::new(),
             native_tools: Vec::new(),
             function_tools: BTreeMap::new(),
             warnings: Vec::new(),

@@ -30,9 +30,7 @@ use super::embedding::{OpenAiEmbeddingModel, OpenAiEmbeddingOptions};
 use super::image::{OpenAiImageModel, OpenAiImageOptions};
 use super::mode::OpenAiApiMode;
 use super::model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
-use super::options::{
-    OpenAiChatCompletionsOptions, OpenAiPromptCacheBreakpoint, OpenAiResponsesOptions,
-};
+use super::options::{OpenAiChatCompletionsOptions, OpenAiResponsesOptions};
 use super::policy::OpenAiModelPolicy;
 use super::profile::{OpenAiProfile, PROVIDER_ID};
 #[cfg(feature = "openai-realtime")]
@@ -968,7 +966,6 @@ struct OpenAiOptionMerger {
 
 pub(crate) struct OpenAiMergedOptions {
     pub(crate) wire: BTreeMap<String, Value>,
-    pub(crate) prompt_cache_breakpoints: Vec<OpenAiPromptCacheBreakpoint>,
     pub(crate) native_tools: Vec<Value>,
     pub(crate) function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
 }
@@ -1056,26 +1053,16 @@ impl ProviderOptionMerger for OpenAiOptionMerger {
             }
         }
         self.validate_typed(&typed)?;
-        let (mut wire, prompt_cache_breakpoints, native_tools, function_tools) = match self.mode {
+        let (mut wire, native_tools, function_tools) = match self.mode {
             OptionMode::Responses => {
                 let options = deserialize_options::<OpenAiResponsesOptions>(&typed)?
                     .into_request_options()?;
-                (
-                    options.wire,
-                    options.prompt_cache_breakpoints,
-                    options.native_tools,
-                    options.function_tools,
-                )
+                (options.wire, options.native_tools, options.function_tools)
             }
             OptionMode::ChatCompletions => {
                 let options = deserialize_options::<OpenAiChatCompletionsOptions>(&typed)?
                     .into_request_options()?;
-                (
-                    options.wire,
-                    options.prompt_cache_breakpoints,
-                    Vec::new(),
-                    BTreeMap::new(),
-                )
+                (options.wire, Vec::new(), BTreeMap::new())
             }
         };
         if let Some(raw) = raw {
@@ -1088,7 +1075,6 @@ impl ProviderOptionMerger for OpenAiOptionMerger {
         validate_final_wire(self.mode, &validation_wire)?;
         Ok(OpenAiMergedOptions {
             wire,
-            prompt_cache_breakpoints,
             native_tools,
             function_tools,
         })
@@ -1107,7 +1093,6 @@ const RESPONSES_OPTION_FIELDS: &[&str] = &[
     "prompt_cache_key",
     "prompt_cache_options",
     "prompt_cache_retention",
-    "prompt_cache_breakpoints",
     "reasoning",
     "safety_identifier",
     "service_tier",
@@ -1134,7 +1119,6 @@ const CHAT_COMPLETIONS_OPTION_FIELDS: &[&str] = &[
     "prompt_cache_key",
     "prompt_cache_options",
     "prompt_cache_retention",
-    "prompt_cache_breakpoints",
     "safety_identifier",
 ];
 
@@ -1198,17 +1182,15 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
             | "seed"
             | "tools"
             | "tool_choice"
+            | "prompt_cache_options"
+            | "prompt_cache_retention"
+            | "prompt_cache_breakpoints"
     );
     common
         || match mode {
             OptionMode::Responses => matches!(
                 field,
-                "input"
-                    | "text"
-                    | "background"
-                    | "prompt_cache_breakpoints"
-                    | "tools"
-                    | "function_tool_options"
+                "input" | "text" | "background" | "tools" | "function_tool_options"
             ),
             OptionMode::ChatCompletions => matches!(
                 field,
@@ -1217,7 +1199,6 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                     | "stream_options"
                     | "max_tokens"
                     | "max_completion_tokens"
-                    | "prompt_cache_breakpoints"
             ),
         }
 }

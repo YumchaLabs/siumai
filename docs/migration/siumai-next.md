@@ -300,6 +300,37 @@ let request = LanguageRequest::new(vec![Message::new(
 Message- and tool-level equivalents are `MinimaxMessageCache` and `MinimaxToolCache`. These markers
 apply only to the Messages API mode and encode MiniMax's fixed ephemeral cache control.
 
+OpenAI prompt-cache markers use the same node-scoped principle, but distinguish retained history from
+the current request's write budget:
+
+```rust,no_run
+use siumai::core::MessagePart;
+use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
+use siumai::{LanguageRequest, Message, MessageRole};
+
+let history = MessagePart::text("A stable reusable prefix")
+    .with_provider_annotation(&OpenAiContentOptions::historical_cache_marker())?;
+let write = MessagePart::text("The current reusable suffix")
+    .with_provider_annotation(&OpenAiContentOptions::cache_write_candidate())?;
+let request = LanguageRequest::new(vec![Message::new(
+    MessageRole::User,
+    [history, write],
+)]);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Historical markers must precede write candidates. The implicit cache mode permits three current
+write candidates because OpenAI reserves one implicit slot; explicit mode permits four. Siumai does
+not trim historical markers to a client-side 50- or 80-marker window. The old
+`OpenAiPromptCacheBreakpoint` coordinate type and `with_prompt_cache_breakpoint` helpers were
+removed because message/content indices become invalid when middleware edits a request.
+
+`prompt_cache_options.ttl` and `prompt_cache_retention` remain separate typed controls for different
+model generations. GPT-5.6 and later use `ttl: 30m`; supported legacy models use retention (`24h` or
+`in_memory` where documented). Supplying both controls, or selecting a control that the exact known
+model does not support, fails before transport. Unknown model IDs preserve one explicit lane without
+guessing capabilities from the model name.
+
 ## Explicit MiniMax language modes
 
 `provider.language(model)` now has a documented meaning: it selects the recommended

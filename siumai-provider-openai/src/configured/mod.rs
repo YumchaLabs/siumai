@@ -5,6 +5,7 @@
 //! buffered speech, and final-result transcription adapters plus typed native
 //! resources. The default language-model path is Responses.
 
+mod annotations;
 mod catalog;
 mod credential;
 mod embedding;
@@ -27,6 +28,7 @@ mod speech;
 mod tools;
 mod transcription;
 
+pub use annotations::{OpenAiAnnotationError, OpenAiContentOptions, OpenAiPromptCacheMarker};
 pub use catalog::{
     GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
     classify_model,
@@ -45,10 +47,10 @@ pub use mode::OpenAiApiMode;
 pub use model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
 pub use options::{
     OpenAiChatCompletionsOptions, OpenAiContextManagement, OpenAiFunctionToolOptions,
-    OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-    OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
-    OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
-    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTextVerbosity, OpenAiTruncation,
+    OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
+    OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext, OpenAiReasoningEffort,
+    OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude, OpenAiResponsesOptions,
+    OpenAiServiceTier, OpenAiTextVerbosity, OpenAiTruncation,
 };
 pub use profile::OpenAiProfile;
 pub use provider::{OpenAiConfigError, OpenAiProvider, OpenAiProviderBuilder};
@@ -124,10 +126,9 @@ pub mod responses {
     };
     pub use crate::configured::{
         OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
-        OpenAiPromptCacheBreakpoint, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiReasoning, OpenAiReasoningContext,
-        OpenAiReasoningEffort, OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
-        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
+        OpenAiReasoning, OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode,
+        OpenAiReasoningSummary, OpenAiResponseInclude, OpenAiResponsesCompactRequest,
+        OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
         OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
         OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
         OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,

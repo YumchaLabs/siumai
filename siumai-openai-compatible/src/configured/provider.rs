@@ -602,7 +602,7 @@ mod tests {
                 dialect,
                 extra,
                 headers,
-                prompt_cache_breakpoints: Vec::new(),
+                prompt_cache_resolver: None,
                 warnings: Vec::new(),
             })
         }
