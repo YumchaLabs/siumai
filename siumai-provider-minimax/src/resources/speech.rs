@@ -108,6 +108,16 @@ impl Serialize for MinimaxVoiceId {
     }
 }
 
+impl<'de> Deserialize<'de> for MinimaxVoiceId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(de::Error::custom)
+    }
+}
+
 /// Validated MiniMax speech speed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MinimaxSpeechSpeed(f32);
@@ -1231,7 +1241,7 @@ impl MinimaxSpeechDownloadUrl {
         &self.0
     }
 
-    fn from_provider(value: String) -> Result<Self, Error> {
+    pub(crate) fn from_provider(value: String) -> Result<Self, Error> {
         if value.len() > 16_384 || value.chars().any(char::is_control) {
             return Err(protocol_error(
                 "MiniMax speech response returned an invalid URL",

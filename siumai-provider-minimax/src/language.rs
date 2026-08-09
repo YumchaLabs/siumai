@@ -36,7 +36,7 @@ use thiserror::Error as ThisError;
 
 use crate::MinimaxAnnotationResolver;
 use crate::models::{ALL_LANGUAGE, is_known_m2, is_m3};
-use crate::options::MINIMAX_MESSAGES_SERVICE_TIER_OPTION;
+use crate::options::{MINIMAX_MESSAGES_SERVICE_TIER_OPTION, MinimaxResponsesReasoning};
 
 pub(crate) const PROVIDER_ID: &str = "minimax";
 pub(crate) const PLATFORM_ID: &str = "minimax-api";
@@ -454,6 +454,49 @@ impl ResponsesCodecPolicy for MinimaxResponsesPolicy {
             .with_media_dialect(media);
         encode_responses_request(scope, model, &prepared.request, &options)
     }
+}
+
+pub(crate) fn encode_responses_input_token_request(
+    scope: &siumai_core::ProviderScope,
+    model: &ModelId,
+    request: &LanguageRequest,
+    reasoning: Option<MinimaxResponsesReasoning>,
+) -> Result<Value, Error> {
+    if request.generation != siumai_core::GenerationConfig::default() {
+        return Err(invalid(
+            "MiniMax Responses input-token counting does not accept output-generation controls",
+        ));
+    }
+    let mut extra = BTreeMap::new();
+    if let Some(reasoning) = reasoning {
+        extra.insert(
+            "reasoning".to_string(),
+            serde_json::to_value(reasoning).map_err(|source| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "MiniMax input-token reasoning options are invalid",
+                )
+                .with_source(source)
+            })?,
+        );
+    }
+    let policy = MinimaxResponsesPolicy;
+    let prepared = policy.prepare(model, request.clone(), extra)?;
+    let encoded = policy.encode_request(scope, model, &prepared, false)?;
+    let Value::Object(mut body) = encoded else {
+        return Err(Error::new(
+            ErrorKind::Protocol,
+            "MiniMax Responses request encoder returned a non-object body",
+        ));
+    };
+    body.remove("stream");
+    body.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "model" | "input" | "instructions" | "tools" | "tool_choice" | "text" | "reasoning"
+        )
+    });
+    Ok(Value::Object(body))
 }
 
 fn validate_common_request(model: &ModelId, request: &LanguageRequest) -> Result<(), Error> {

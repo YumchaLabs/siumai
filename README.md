@@ -53,7 +53,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `openai-compatible` | Explicit generic or custom OpenAI-compatible endpoints |
 | `groq` | Chat, Responses, and transcription |
 | `xai` | Responses and Chat Completions language modes |
-| `minimax` | Three language modes plus files, image, video, music, and speech |
+| `minimax` | Three language modes, portable image/speech, Responses input-token counting, and typed files/media/voice resources |
 | `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
 | `cohere` | Embeddings and reranking |
 | `deepgram` | Final-result transcription |
@@ -159,9 +159,10 @@ let model = registry.language_model("minimax:MiniMax-M3")?;
 ```
 
 The default MiniMax registration uses Messages. Chat Completions and Responses registrations remain
-explicit provider-owned choices. `register_provider` returns a typed error when a valid provider
-configuration exposes only provider-native resources or jobs. Combined registrations can be narrowed
-with `for_family` before assigning a route.
+explicit provider-owned choices while retaining the same portable image and speech families.
+`register_provider` returns a typed error when a valid provider configuration exposes only
+provider-native resources or jobs. Combined registrations can be narrowed with `for_family` before
+assigning a route.
 
 ## Provider plane and host control plane
 

@@ -69,7 +69,7 @@ of compiled public scope, not a promise that every account can use every model o
 | `openai-compatible` | Explicit generic-compatible configuration for caller-owned endpoints | Named-provider fidelity, model advice, or native-provider resources |
 | `groq` | Verified Chat Completions and Responses dialects plus final-result transcription | A universal OpenAI clone or unrelated Groq products |
 | `xai` | Verified Responses and Chat Completions language modes with typed xAI tools/options | Files, image, speech, video, or a generic native-resource client |
-| `minimax` | Verified Messages, Chat Completions, and bounded Responses modes plus native files, image, video, music, and speech resources | Cross-provider resource abstractions or hidden polling workflows |
+| `minimax` | Verified Messages, Chat Completions, and bounded Responses modes; portable image and buffered speech; native files, media, input-token counting, and voice lifecycle resources | Cross-provider media/voice abstractions or hidden polling workflows |
 | `deepseek` | Verified Chat Completions, explicit beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes | Unverified non-language products |
 | `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat |
 | `deepgram` | Native final-result prerecorded transcription with current Nova-3/Nova-2 hints | Flux/live transcription or legacy-model lifecycle claims |
@@ -115,6 +115,8 @@ names the exact execution surface; it is not provider-wide identity.
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://platform.minimax.io/docs/api-reference/text-chat-anthropic | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/responses-create | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Image | `minimax-image` / `image-generation` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Speech | `minimax-speech` / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-08 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/api/create-chat-completion | 2026-08-05 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/responses_api | 2026-08-05 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/anthropic_api | 2026-08-08 |
@@ -150,12 +152,17 @@ portable model families.
 | `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-08 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `files` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/file-management-upload | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `images` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `video-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/video-generation-v2-create | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `music` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/music-generation | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `speech-async-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/speech-t2a-async-create | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `files` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/file-management-upload | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `images` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `video-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/video-generation-v2-create | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `music` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/music-generation | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Job / `speech-async-tasks` | `native` | `experimental` | https://platform.minimax.io/docs/api-reference/speech-t2a-async-create | 2026-08-08 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `responses-input-tokens` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/responses-input-tokens | 2026-08-09 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-cloning` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-cloning-clone | 2026-08-09 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-design` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-design-design | 2026-08-09 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-management` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-management-get | 2026-08-09 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-delete` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-management-delete | 2026-08-09 |
 
 ## Fidelity
 

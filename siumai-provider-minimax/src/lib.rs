@@ -11,6 +11,7 @@ mod credential;
 mod language;
 pub mod models;
 mod options;
+mod portable;
 mod provider;
 pub mod resources;
 
@@ -27,6 +28,7 @@ pub use options::{
     MinimaxChatCompletionsOptions, MinimaxMessagesOptions, MinimaxReasoningEffort,
     MinimaxResponsesOptions, MinimaxResponsesReasoning, MinimaxServiceTier, MinimaxThinking,
 };
+pub use portable::{MinimaxImageModel, MinimaxSpeechModel};
 pub use provider::{
     MINIMAX_REPLAY_AUDIENCE, MinimaxConfigError, MinimaxLanguageApi, MinimaxLanguageModel,
     MinimaxProvider, MinimaxProviderBuilder,

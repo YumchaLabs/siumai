@@ -175,14 +175,46 @@ fn provider_identity_modes_and_credentials_are_rust_first() {
     );
     assert_eq!(
         provider
+            .registration()
+            .api_mode(ModelFamily::Image)
+            .map(ApiModeId::as_str),
+        Some("image-generation")
+    );
+    assert_eq!(
+        provider
+            .registration()
+            .api_mode(ModelFamily::Speech)
+            .map(ApiModeId::as_str),
+        Some("speech-http")
+    );
+    for registration in [
+        provider.messages_registration(),
+        provider.chat_completions_registration(),
+        provider.responses_registration(),
+    ] {
+        assert_eq!(
+            registration
+                .api_mode(ModelFamily::Image)
+                .map(ApiModeId::as_str),
+            Some("image-generation")
+        );
+        assert_eq!(
+            registration
+                .api_mode(ModelFamily::Speech)
+                .map(ApiModeId::as_str),
+            Some("speech-http")
+        );
+    }
+    assert_eq!(
+        provider
             .language("future-model")
             .expect("future model")
             .api(),
         MinimaxLanguageApi::Messages
     );
     let manifest = provider.support_manifest();
-    assert_eq!(manifest.profiles().len(), 2);
-    assert_eq!(manifest.native_claims().len(), 6);
+    assert_eq!(manifest.profiles().len(), 4);
+    assert_eq!(manifest.native_claims().len(), 11);
     assert!(manifest.native_claims().iter().any(|claim| {
         claim
             .scope()
@@ -358,7 +390,15 @@ fn caller_declared_official_endpoints_remain_custom_provider_identity() {
         )
         .build()
         .expect("provider with caller resource endpoint");
-    assert!(resource_only.support_manifest().native_claims().is_empty());
+    let native_claims = resource_only.support_manifest().native_claims();
+    assert_eq!(native_claims.len(), 1);
+    assert!(native_claims.iter().any(|claim| {
+        claim
+            .scope()
+            .binding()
+            .surface_id()
+            .is_some_and(|surface| surface.as_str() == "responses-input-tokens")
+    }));
 }
 
 #[tokio::test]

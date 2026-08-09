@@ -617,8 +617,12 @@ fn facade_exposes_minimax_as_a_curated_composite_provider() {
         MinimaxMessagesOptions, MinimaxReasoningEffort, MinimaxResponsesOptions,
         MinimaxServiceTier, MinimaxThinking,
     };
-    use siumai::providers::minimax::resources::MinimaxVideoResolution;
-    use siumai::providers::minimax::{MinimaxCredential, MinimaxLanguageApi, MinimaxProvider};
+    use siumai::providers::minimax::resources::{
+        MinimaxCustomVoiceId, MinimaxResponsesInputTokenRequest, MinimaxVideoResolution,
+    };
+    use siumai::providers::minimax::{
+        MinimaxCredential, MinimaxLanguageApi, MinimaxProvider, models,
+    };
     use siumai::registry::ProviderRegistrationSource;
 
     fn assert_registration_source<T: ProviderRegistrationSource>() {}
@@ -632,8 +636,20 @@ fn facade_exposes_minimax_as_a_curated_composite_provider() {
     let _files = provider.files();
     let _images = provider.images();
     let _music = provider.music();
+    let _responses_resource = provider.responses_resource();
     let _speech = provider.speech();
     let _video = provider.video();
+    let _voices = provider.voices();
+    let _image_model = provider.image(models::image::IMAGE_01).unwrap();
+    let _speech_model = provider
+        .speech_model(siumai::core::ModelId::new(models::speech::SPEECH_2_8_HD).unwrap())
+        .unwrap();
+    let _input_tokens = MinimaxResponsesInputTokenRequest::from_language_request(
+        "MiniMax-M3",
+        siumai::core::LanguageRequest::new(vec![siumai::core::Message::user("hello")]),
+    )
+    .unwrap();
+    let _custom_voice = MinimaxCustomVoiceId::new("FacadeVoice01").unwrap();
     assert_eq!(
         provider.language("future-minimax-model").unwrap().api(),
         MinimaxLanguageApi::Messages
@@ -656,6 +672,22 @@ fn facade_exposes_minimax_as_a_curated_composite_provider() {
             .api_mode(ModelFamily::Language)
             .map(siumai::core::ApiModeId::as_str),
         Some("messages")
+    );
+    assert_eq!(
+        provider
+            .provider_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Image)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("image-generation")
+    );
+    assert_eq!(
+        provider
+            .provider_registration()
+            .unwrap()
+            .api_mode(ModelFamily::Speech)
+            .map(siumai::core::ApiModeId::as_str),
+        Some("speech-http")
     );
 
     let messages = ProviderOptions::typed(

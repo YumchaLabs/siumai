@@ -2361,6 +2361,7 @@ name = "siumai-provider-minimax"
 version = "0.11.0-beta.9"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "futures-util",
  "http",

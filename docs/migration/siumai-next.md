@@ -327,13 +327,18 @@ let images = provider.images();
 let video = provider.video();
 let music = provider.music();
 let speech = provider.speech();
+let responses = provider.responses_resource();
+let voices = provider.voices();
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Each resource has typed request, response, identifier, status, and validation types under
 `siumai::providers::minimax::resources`. Video and asynchronous speech expose explicit submit/query
 operations; they do not start a hidden polling loop. Music and synchronous HTTP speech currently
-return buffered non-streaming responses.
+return buffered non-streaming responses. MiniMax image and buffered speech now also have portable
+`ImageModel` and `SpeechModel` adapters through `image(model)` and `speech_model(model_id)`; richer
+provider controls remain on `images()` and `speech()`. `responses_resource()` counts input tokens
+without starting generation, while `voices()` keeps clone/design/list/delete provider-owned.
 
 ## Provider-owned Alibaba video jobs
 
@@ -391,7 +396,9 @@ provider-native resources or jobs. It never creates an empty registration.
 
 The standard MiniMax registration resolves the Messages mode. Register
 `provider.chat_completions_registration()` or `provider.responses_registration()` explicitly under
-separate host-owned route names when those modes are required.
+separate host-owned route names when those modes are required. Each language-mode registration also
+retains MiniMax's portable image and speech families; use `for_family(ModelFamily::Language)` when a
+route should expose language only.
 
 ## Region and availability policy
 

@@ -2,10 +2,11 @@
 
 pub use siumai_provider_minimax::{
     MinimaxAnnotationResolver, MinimaxChatCompletionsOptions, MinimaxConfigError,
-    MinimaxContentCache, MinimaxCredential, MinimaxCredentialError, MinimaxLanguageApi,
-    MinimaxLanguageModel, MinimaxLanguageProfileError, MinimaxMessageCache, MinimaxMessagesOptions,
-    MinimaxProvider, MinimaxProviderBuilder, MinimaxReasoningEffort, MinimaxResponsesOptions,
-    MinimaxResponsesReasoning, MinimaxServiceTier, MinimaxThinking, MinimaxToolCache,
+    MinimaxContentCache, MinimaxCredential, MinimaxCredentialError, MinimaxImageModel,
+    MinimaxLanguageApi, MinimaxLanguageModel, MinimaxLanguageProfileError, MinimaxMessageCache,
+    MinimaxMessagesOptions, MinimaxProvider, MinimaxProviderBuilder, MinimaxReasoningEffort,
+    MinimaxResponsesOptions, MinimaxResponsesReasoning, MinimaxServiceTier, MinimaxSpeechModel,
+    MinimaxThinking, MinimaxToolCache,
 };
 
 pub mod models {

@@ -1,17 +1,22 @@
 use serde_json::{Value, json};
-use siumai_core::ErrorKind;
+use siumai_core::{
+    CallOptions, ErrorKind, ImageModel, ImageRequest, LanguageRequest, MediaData, Message, ModelId,
+    ReplayDomain, ReplayDomainId, SpeechModel, SpeechRequest,
+};
 use siumai_provider_minimax::{
     MinimaxCredential, MinimaxProvider,
     models::{image::IMAGE_01, music::MUSIC_3_0, speech::SPEECH_2_8_HD, video::MINIMAX_H3},
     resources::{
-        MinimaxFileDeletePurpose, MinimaxFileId, MinimaxImageAspectRatio, MinimaxImageRequest,
-        MinimaxMusicAudioFormat, MinimaxMusicAudioSetting, MinimaxMusicBitrate,
-        MinimaxMusicRequest, MinimaxMusicSampleRate, MinimaxMusicStatus, MinimaxSpeechAudioFormat,
+        MinimaxCustomVoiceId, MinimaxCustomVoiceKind, MinimaxFileDeletePurpose, MinimaxFileId,
+        MinimaxImageAspectRatio, MinimaxImageRequest, MinimaxMusicAudioFormat,
+        MinimaxMusicAudioSetting, MinimaxMusicBitrate, MinimaxMusicRequest, MinimaxMusicSampleRate,
+        MinimaxMusicStatus, MinimaxResponsesInputTokenRequest, MinimaxSpeechAudioFormat,
         MinimaxSpeechAudioSettings, MinimaxSpeechBitrate, MinimaxSpeechChannels,
         MinimaxSpeechOutputFormat, MinimaxSpeechSampleRate, MinimaxSpeechSynthesisRequest,
         MinimaxSpeechTaskId, MinimaxSpeechTaskStatus, MinimaxSubtitleGranularity,
-        MinimaxVideoRatio, MinimaxVideoRequest, MinimaxVideoResolution, MinimaxVoiceId,
-        MinimaxVoiceSettings,
+        MinimaxVideoRatio, MinimaxVideoRequest, MinimaxVideoResolution, MinimaxVoiceClonePreview,
+        MinimaxVoiceClonePrompt, MinimaxVoiceCloneRequest, MinimaxVoiceDesignRequest,
+        MinimaxVoiceId, MinimaxVoiceListKind, MinimaxVoicePreviewModel, MinimaxVoiceSettings,
     },
 };
 use siumai_transport::EndpointConfig;
@@ -20,11 +25,282 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn provider(server: &MockServer) -> MinimaxProvider {
     MinimaxProvider::builder(MinimaxCredential::api_key("resource-contract-key"))
+        .with_openai_endpoint(
+            EndpointConfig::local_explicit(server.uri()).expect("local OpenAI endpoint"),
+        )
+        .with_openai_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("minimax-contract-relay").expect("replay domain"),
+        ))
         .with_resource_endpoint(
             EndpointConfig::local_explicit(server.uri()).expect("local resource endpoint"),
         )
         .build()
         .expect("MiniMax provider")
+}
+
+#[tokio::test]
+async fn portable_image_and_speech_adapters_preserve_family_contracts() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/image_generation"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "portable-image-42",
+            "data": {"image_base64": ["iVBORw0KGgo="]},
+            "metadata": {"success_count": 1, "failed_count": 0},
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/t2a_v2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {"audio": "494433"},
+            "trace_id": "portable-speech-42",
+            "extra_info": {
+                "audio_length": 1250,
+                "audio_sample_rate": 24000,
+                "usage_characters": 5,
+                "audio_format": "mp3"
+            },
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = provider(&server);
+    let image_request = ImageRequest::new("A tiny copper robot").expect("image request");
+    let image = provider
+        .image(IMAGE_01)
+        .expect("image model")
+        .generate_image(image_request, CallOptions::default())
+        .await
+        .expect("portable image");
+    assert_eq!(
+        image.metadata.response_id.as_deref(),
+        Some("portable-image-42")
+    );
+    assert!(matches!(
+        &image.images[0].data,
+        MediaData::Bytes(bytes) if bytes.as_ref() == b"\x89PNG\r\n\x1a\n"
+    ));
+    assert_eq!(image.images[0].media_type, "image/png");
+    assert_eq!(image.provider["success_count"], json!(1));
+
+    let speech_request = SpeechRequest::new("hello")
+        .and_then(|request| request.with_voice("English_Graceful_Lady"))
+        .and_then(|request| request.with_format("mp3"))
+        .expect("speech request");
+    let speech = provider
+        .speech_model(ModelId::new(SPEECH_2_8_HD).expect("speech model id"))
+        .expect("speech model")
+        .synthesize(speech_request, CallOptions::default())
+        .await
+        .expect("portable speech");
+    assert_eq!(speech.audio.as_ref(), b"ID3");
+    assert_eq!(speech.media_type, "audio/mpeg");
+    assert_eq!(speech.duration_seconds, Some(1.25));
+    assert_eq!(speech.sample_rate_hz, Some(24_000));
+    assert_eq!(
+        speech.metadata.request_id.as_deref(),
+        Some("portable-speech-42")
+    );
+    assert_eq!(speech.usage.provider["characters"], json!(5));
+}
+
+#[tokio::test]
+async fn responses_input_tokens_supports_native_text_and_role_safe_items() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/responses/input_tokens"))
+        .and(header("authorization", "Bearer resource-contract-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "object": "response.input_tokens",
+            "input_tokens": 23,
+            "cache_detail": {"read": 7}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+
+    let request = MinimaxResponsesInputTokenRequest::from_language_request(
+        "MiniMax-M3",
+        LanguageRequest::new(vec![Message::user("hello")]),
+    )
+    .expect("input-token request");
+    let counted = provider(&server)
+        .responses_resource()
+        .count_input_tokens(request)
+        .await
+        .expect("input-token count");
+    assert_eq!(counted.input_tokens(), 23);
+    assert_eq!(counted.extra()["cache_detail"], json!({"read": 7}));
+    let text_counted = provider(&server)
+        .responses_resource()
+        .count_input_tokens(
+            MinimaxResponsesInputTokenRequest::from_text("MiniMax-M3", "hello")
+                .expect("text input-token request"),
+        )
+        .await
+        .expect("text input-token count");
+    assert_eq!(text_counted.input_tokens(), 23);
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert_eq!(requests.len(), 2);
+    let body: Value = serde_json::from_slice(&requests[0].body).expect("input-token JSON body");
+    assert_eq!(body["model"], json!("MiniMax-M3"));
+    assert!(body["input"].is_array());
+    assert!(body.get("stream").is_none());
+    assert!(body.get("max_output_tokens").is_none());
+    let text_body: Value =
+        serde_json::from_slice(&requests[1].body).expect("text input-token JSON body");
+    assert_eq!(text_body, json!({"model": "MiniMax-M3", "input": "hello"}));
+}
+
+#[tokio::test]
+async fn voice_lifecycle_is_typed_bounded_and_explicitly_non_polling() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/voice_clone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "demo_audio": "",
+            "input_sensitive": false,
+            "input_sensitive_type": 0,
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/voice_design"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "voice_id": "DesignVoice01",
+            "trial_audio": "494433",
+            "input_sensitive": false,
+            "input_sensitive_type": 0,
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/get_voice"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "system_voice": [{
+                "voice_id": "system-voice",
+                "voice_name": "System",
+                "description": ["Warm", "Narration"]
+            }],
+            "voice_cloning": [{
+                "voice_id": "Clone_Voice-01",
+                "created_time": "2026-08-09T00:00:00Z"
+            }],
+            "voice_generation": [{
+                "voice_id": "DesignVoice01",
+                "description": ["Calm"],
+                "created_time": "2026-08-09T00:00:00Z"
+            }],
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/delete_voice"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "voice_id": "Clone_Voice-01",
+            "created_time": "2026-08-09T00:00:00Z",
+            "request_trace": "delete-42",
+            "base_resp": {"status_code": 0, "status_msg": "success"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = provider(&server);
+    let voices = provider.voices();
+    let cloned = voices
+        .clone_voice(
+            MinimaxVoiceCloneRequest::new(
+                MinimaxFileId::new(42).expect("clone file"),
+                MinimaxCustomVoiceId::new("Clone_Voice-01").expect("clone voice id"),
+            )
+            .with_prompt(
+                MinimaxVoiceClonePrompt::new(
+                    MinimaxFileId::new(43).expect("prompt file"),
+                    "reference transcript",
+                )
+                .expect("clone prompt"),
+            )
+            .with_preview(
+                MinimaxVoiceClonePreview::new("preview text", MinimaxVoicePreviewModel::Speech28Hd)
+                    .expect("clone preview"),
+            ),
+        )
+        .await
+        .expect("clone voice");
+    assert_eq!(cloned.voice_id().as_str(), "Clone_Voice-01");
+    assert!(cloned.demo_audio().is_none());
+    assert_eq!(cloned.safety().flagged(), Some(false));
+
+    let designed = voices
+        .design_voice(
+            MinimaxVoiceDesignRequest::new("Warm, calm narrator", "hello world")
+                .expect("design request")
+                .with_voice_id(
+                    MinimaxCustomVoiceId::new("DesignVoice01").expect("design voice id"),
+                ),
+        )
+        .await
+        .expect("design voice");
+    assert_eq!(designed.voice_id().as_str(), "DesignVoice01");
+    assert_eq!(designed.trial_audio(), b"ID3");
+
+    let listed = voices
+        .list(MinimaxVoiceListKind::All)
+        .await
+        .expect("list voices");
+    assert_eq!(listed.system().len(), 1);
+    assert_eq!(listed.system()[0].description(), ["Warm", "Narration"]);
+    assert_eq!(
+        listed.voice_cloning()[0].voice_id().as_str(),
+        "Clone_Voice-01"
+    );
+    assert_eq!(
+        listed.voice_cloning()[0].created_time(),
+        Some("2026-08-09T00:00:00Z")
+    );
+    assert_eq!(
+        listed.voice_generation()[0].voice_id().as_str(),
+        "DesignVoice01"
+    );
+
+    let deleted = voices
+        .delete(
+            MinimaxCustomVoiceId::new("Clone_Voice-01").expect("delete voice id"),
+            MinimaxCustomVoiceKind::VoiceCloning,
+        )
+        .await
+        .expect("delete voice");
+    assert_eq!(deleted.voice_id().as_str(), "Clone_Voice-01");
+    assert_eq!(deleted.created_time(), "2026-08-09T00:00:00Z");
+    assert_eq!(deleted.extra()["request_trace"], json!("delete-42"));
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert_eq!(requests.len(), 4, "voice operations must not hide polling");
+    let clone_body: Value = serde_json::from_slice(&requests[0].body).expect("clone JSON body");
+    assert_eq!(clone_body["file_id"], json!(42));
+    assert_eq!(clone_body["voice_id"], json!("Clone_Voice-01"));
+    assert_eq!(clone_body["model"], json!("speech-2.8-hd"));
+    assert_eq!(clone_body["clone_prompt"]["prompt_audio"], json!(43));
+    let list_body: Value = serde_json::from_slice(&requests[2].body).expect("list JSON body");
+    assert_eq!(list_body, json!({"voice_type": "all"}));
+    let delete_body: Value = serde_json::from_slice(&requests[3].body).expect("delete JSON body");
+    assert_eq!(
+        delete_body,
+        json!({"voice_id": "Clone_Voice-01", "voice_type": "voice_cloning"})
+    );
 }
 
 #[tokio::test]

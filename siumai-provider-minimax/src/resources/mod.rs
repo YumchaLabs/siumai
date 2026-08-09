@@ -8,8 +8,10 @@ mod common;
 mod files;
 mod image;
 mod music;
+mod responses;
 mod speech;
 mod video;
+mod voice;
 
 pub(crate) use common::NativeRuntime;
 pub use files::{
@@ -27,6 +29,10 @@ pub use music::{
     MinimaxMusicCoverSource, MinimaxMusicCoverSourceKind, MinimaxMusicGeneration,
     MinimaxMusicMetadata, MinimaxMusicOutput, MinimaxMusicOutputFormat, MinimaxMusicRequest,
     MinimaxMusicRequestKind, MinimaxMusicSampleRate, MinimaxMusicStatus,
+};
+pub use responses::{
+    MinimaxResponses, MinimaxResponsesInput, MinimaxResponsesInputTokenCount,
+    MinimaxResponsesInputTokenRequest,
 };
 pub use speech::{
     MinimaxAsyncSpeechInput, MinimaxAsyncSpeechRequest, MinimaxLanguageBoost,
@@ -47,4 +53,13 @@ pub use video::{
     MinimaxVideoRequest, MinimaxVideoResolution, MinimaxVideoTask, MinimaxVideoTaskContent,
     MinimaxVideoTaskFailure, MinimaxVideoTaskId, MinimaxVideoTaskList, MinimaxVideoTaskStatus,
     MinimaxVideoTaskType, MinimaxVideoUsage,
+};
+pub use voice::{
+    MinimaxCustomVoiceId, MinimaxCustomVoiceIdError, MinimaxCustomVoiceKind,
+    MinimaxVoiceClonePreview, MinimaxVoiceClonePrompt, MinimaxVoiceCloneRequest,
+    MinimaxVoiceCloneResult, MinimaxVoiceDeleteResult, MinimaxVoiceDesignRequest,
+    MinimaxVoiceDesignResult, MinimaxVoiceInputSafety, MinimaxVoiceList, MinimaxVoiceListKind,
+    MinimaxVoicePreviewModel, MinimaxVoiceSummary, MinimaxVoices, VOICE_API_VERIFIED_ON,
+    VOICE_CLONE_API_SOURCE, VOICE_DELETE_API_SOURCE, VOICE_DESIGN_API_SOURCE,
+    VOICE_LIST_API_SOURCE,
 };
