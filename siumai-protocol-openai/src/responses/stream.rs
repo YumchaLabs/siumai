@@ -1438,8 +1438,13 @@ fn reconcile_terminal_item_value(
             )?;
             reconcile_missing_terminal_field(terminal, streamed, "status", true)?;
             compare_required_terminal_field(terminal, streamed, "role")?;
-            compare_required_terminal_field(terminal, streamed, "content")?;
-            compare_optional_terminal_field(terminal, streamed, "phase")?;
+            reconcile_message_content_field(terminal, streamed, policy)?;
+            reconcile_missing_terminal_field(
+                terminal,
+                streamed,
+                "phase",
+                policy == ResponsesTerminalPolicy::Compatible,
+            )?;
         }
         Some("function_call") => {
             reconcile_missing_terminal_field(terminal, streamed, "id", true)?;
@@ -1472,6 +1477,70 @@ fn reconcile_terminal_item_value(
         _ => {}
     }
     Ok(())
+}
+
+fn reconcile_message_content_field(
+    terminal: &mut Map<String, Value>,
+    streamed: &Map<String, Value>,
+    policy: ResponsesTerminalPolicy,
+) -> Result<(), Error> {
+    if policy == ResponsesTerminalPolicy::Strict {
+        return compare_required_terminal_field(terminal, streamed, "content");
+    }
+
+    let streamed_parts = streamed
+        .get("content")
+        .and_then(Value::as_array)
+        .ok_or_else(|| protocol_error("completed OpenAI message omitted content"))?;
+    let terminal_parts = terminal
+        .get_mut("content")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| protocol_error("terminal OpenAI message omitted content"))?;
+    if terminal_parts.len() != streamed_parts.len() {
+        return Err(protocol_error(
+            "OpenAI terminal response changed completed message content length",
+        ));
+    }
+    for (terminal_part, streamed_part) in terminal_parts.iter_mut().zip(streamed_parts) {
+        reconcile_message_content_part(terminal_part, streamed_part)?;
+    }
+    Ok(())
+}
+
+fn reconcile_message_content_part(terminal: &mut Value, streamed: &Value) -> Result<(), Error> {
+    let terminal = terminal
+        .as_object_mut()
+        .ok_or_else(|| protocol_error("OpenAI terminal message content part must be an object"))?;
+    let streamed = streamed
+        .as_object()
+        .ok_or_else(|| protocol_error("completed OpenAI message content part must be an object"))?;
+    compare_required_terminal_field(terminal, streamed, "type")?;
+    match terminal.get("type").and_then(Value::as_str) {
+        Some("output_text") => {
+            compare_required_terminal_field(terminal, streamed, "text")?;
+            restore_missing_provider_metadata(terminal, streamed, &["annotations", "logprobs"]);
+            Ok(())
+        }
+        Some("refusal") => compare_required_terminal_field(terminal, streamed, "refusal"),
+        _ if terminal == streamed => Ok(()),
+        _ => Err(protocol_error(
+            "OpenAI terminal response changed unknown completed message content",
+        )),
+    }
+}
+
+fn restore_missing_provider_metadata(
+    terminal: &mut Map<String, Value>,
+    streamed: &Map<String, Value>,
+    fields: &[&str],
+) {
+    for field in fields {
+        if !terminal.contains_key(*field)
+            && let Some(value) = streamed.get(*field)
+        {
+            terminal.insert((*field).to_string(), value.clone());
+        }
+    }
 }
 
 fn reconcile_missing_terminal_field(

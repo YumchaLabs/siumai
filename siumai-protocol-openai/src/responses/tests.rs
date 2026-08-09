@@ -1503,6 +1503,41 @@ fn terminal_policy_controls_missing_message_identity_recovery() {
 }
 
 #[test]
+fn compatible_terminal_restores_omitted_message_provider_metadata() {
+    let terminal = completed_function_response(
+        3,
+        json!([{
+            "type": "message",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": "done"
+            }]
+        }]),
+    );
+
+    let mut strict = completed_message_decoder_with_provider_metadata();
+    assert_eq!(
+        strict.decode(&terminal).unwrap_err().kind(),
+        ErrorKind::Protocol
+    );
+
+    let mut compatible = completed_message_decoder_with_provider_metadata()
+        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+    compatible.decode(&terminal).unwrap();
+    let OutputItem::Message(message) = &compatible.terminal_response().unwrap().output[0] else {
+        panic!("expected one reconciled message item");
+    };
+    let OutputContentPart::Text(text) = &message.content[0] else {
+        panic!("expected one reconciled text part");
+    };
+    assert_eq!(text.text, "done");
+    assert_eq!(text.annotations.len(), 1);
+    assert!(text.logprobs.is_some());
+    assert_eq!(message.phase.as_deref(), Some("final_answer"));
+}
+
+#[test]
 fn terminal_reconciliation_rejects_present_message_semantic_conflicts() {
     let mut decoder = completed_message_decoder();
     let error = decoder
@@ -1517,6 +1552,23 @@ fn terminal_reconciliation_rejects_present_message_semantic_conflicts() {
                     "type": "output_text",
                     "text": "changed",
                     "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+
+    let mut compatible =
+        completed_message_decoder().with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+    let error = compatible
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "changed"
                 }]
             }]),
         ))
@@ -2031,6 +2083,67 @@ fn completed_message_decoder() -> ResponsesStreamDecoder {
                         "type": "output_text",
                         "text": "done",
                         "annotations": []
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+}
+
+fn completed_message_decoder_with_provider_metadata() -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "msg_reconcile",
+                    "type": "message",
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": []
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.done",
+                "sequence_number": 2,
+                "output_index": 0,
+                "item": {
+                    "id": "msg_reconcile",
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "phase": "final_answer",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "done",
+                        "annotations": [{
+                            "type": "url_citation",
+                            "url": "https://example.com/source",
+                            "title": "Source",
+                            "start_index": 0,
+                            "end_index": 4
+                        }],
+                        "logprobs": [{"token": "done", "logprob": -0.1}]
                     }]
                 }
             })
