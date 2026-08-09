@@ -61,6 +61,7 @@ const VECTOR_STORES_SOURCE: &str =
 const SKILLS_SOURCE: &str =
     "https://developers.openai.com/api/reference/resources/skills/methods/create";
 const RESPONSES_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+#[cfg(feature = "openai-realtime")]
 const REALTIME_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
 const RESOURCE_SUPPORT_VERIFIED_ON: &str = "2026-08-08";
 
