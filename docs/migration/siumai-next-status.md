@@ -65,11 +65,11 @@ native-only warm-up, and conservative close behavior. Only the provider-owned of
 publishes the dated native support claim.
 
 The implementation units are `fe1295c9`, `d2409ee3`, `eb8c27d1`, `73439125`, `e2dce58d`,
-`997ff09e`, `26a641d1`, `4387e9a9`, and `566ecd27`. The focused serial release evidence for this
-checkpoint is:
+`997ff09e`, `26a641d1`, `4387e9a9`, `566ecd27`, and `bba1abff`. The focused serial release evidence
+for this checkpoint is:
 
-- 110 OpenAI protocol tests;
-- 103 OpenAI provider tests;
+- 112 OpenAI protocol tests;
+- 105 OpenAI provider tests;
 - 80 transport tests;
 - 25 facade tests, including the dedicated no-default WebSocket feature contract;
 - Clippy with warnings denied for the OpenAI protocol, OpenAI provider, transport, and facade;
