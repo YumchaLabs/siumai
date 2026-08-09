@@ -519,13 +519,12 @@ fn merge_identity(
     incoming: Option<String>,
     _field: &'static str,
 ) -> Result<(), Error> {
-    let Some(incoming) = incoming else {
+    let Some(incoming) = incoming.filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    if incoming.is_empty()
-        || current
-            .as_ref()
-            .is_some_and(|existing| existing != &incoming)
+    if current
+        .as_ref()
+        .is_some_and(|existing| existing != &incoming)
     {
         return Err(protocol_error(
             "Chat Completions tool stream changed or omitted an identity field",
@@ -626,6 +625,35 @@ mod tests {
         assert!(decoder.decode("[DONE]").is_err());
         assert!(decoder.finish().unwrap().is_empty());
         assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn empty_tool_identity_continuations_preserve_established_identity() {
+        let mut decoder = decoder();
+        decoder
+            .decode(
+                r#"{"id":"chat-1","model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":"}}]}}]}"#,
+            )
+            .unwrap();
+
+        decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"","function":{"name":"","arguments":"1}"}}]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+
+        let terminal = decoder.decode("[DONE]").unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [.., LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })]
+                if response.content().iter().any(|part| matches!(
+                    part,
+                    ContentPart::ToolCall(call)
+                        if call.id() == "call-1"
+                            && call.name() == "lookup"
+                            && call.arguments() == &serde_json::json!({"q": 1})
+                ))
+        ));
     }
 
     #[test]
