@@ -37,7 +37,7 @@ It normalizes real Chat and Responses stream shapes at the protocol boundary, up
 The completed provider-faithful revival established the correct macro boundaries, but current live traffic exposed several concrete protocol gaps that deterministic fixtures did not cover.
 Chat tool-call streams may repeat an established function name as an empty continuation value.
 Responses terminal events may abbreviate output items that were already delivered completely through `response.output_item.done`.
-The current prompt-cache API still combines historical matching markers and new write intent, treats a provider-side matching lookback as a client validity rule, and rejects TTL plus retention even though the current Responses contract treats them independently.
+The current prompt-cache API still combines historical matching markers and new write intent, treats a provider-side matching lookback as a client validity rule, and collapses distinct TTL and retention controls into blanket mutual exclusion instead of applying the current generation-specific contract.
 
 Siumai also exposes OpenAI Realtime WebSocket sessions but not the current Responses WebSocket mode intended for long-running tool workflows.
 Finally, the explicit local-network endpoint policy has no grant for RFC 6598 shared address space, so a caller cannot safely opt into a common overlay-network deployment without an external loopback forwarder.
@@ -62,9 +62,9 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 
 #### Prompt caching
 
-- R8. Replace the ambiguous prompt-cache breakpoint list with typed historical markers and current write candidates, enforce a maximum of four new writes per request, and do not turn the provider's documented 50-versus-80 historical matching lookback into a client-side validity limit.
+- R8. Replace the ambiguous request-level prompt-cache coordinate list with typed OpenAI content annotations that distinguish historical markers from current write candidates, enforce a maximum of four new writes per request, and do not turn the provider's documented 50-versus-80 historical matching lookback into a client-side validity limit.
 - R9. In implicit mode, reserve one write for the server-selected implicit breakpoint and allow at most three explicit write candidates; in explicit mode, allow at most four explicit write candidates.
-- R10. Treat `prompt_cache_options.ttl` and `prompt_cache_retention` as independent controls, preserve open future model IDs, and either encode explicit caller intent or reject it with a typed configuration error before transport.
+- R10. Model `prompt_cache_options.ttl` and `prompt_cache_retention` as distinct controls with generation-specific official guidance, preserve open future model IDs, and either encode explicit caller intent or reject it with a typed configuration error before transport.
 
 #### Provider-native WebSocket mode
 
@@ -105,7 +105,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 
 - F4. Prompt-cache projection
   - **Trigger:** A request contains retained history markers, current write candidates, and optional TTL or retention controls.
-  - **Steps:** Provider validation deduplicates coordinates, preserves bounded historical intent without inventing a semantic lookback cap, enforces the mode-specific current-write budget, and projects the same validated result into Chat or Responses wire blocks.
+  - **Steps:** Provider validation traverses typed content annotations in canonical request order, preserves bounded historical intent without inventing a semantic lookback cap, enforces the mode-specific current-write budget, and projects the same validated result into Chat or Responses wire blocks.
   - **Outcome:** Caller intent is deterministic and no cache control is silently dropped.
   - **Covered by:** R8, R9, R10
 
@@ -167,7 +167,7 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 
 - A1. The relay's abbreviated terminal output is a compatible contraction only when the endpoint explicitly selects compatible terminal policy and the same stream already delivered one unique matching completed item. Verified official OpenAI mode remains strict.
 - A2. The official one-in-flight-per-connection rule is the initial Responses WebSocket concurrency contract; parallel callers use separate sessions.
-- A3. The existing `siumai-transport` WebSocket actor, queue, frame-bound, timeout, and endpoint validation patterns are sufficient foundations for Responses WebSocket.
+- A3. `siumai-transport` already owns WebSocket connection, framing, endpoint validation, and resource bounds, while the existing OpenAI Realtime actor is provider-private lifecycle prior art rather than a reusable transport actor. Responses WebSocket therefore needs its own bounded provider session actor plus a transport-neutral Responses request-preparation helper shared with HTTP.
 - A4. No new repository script is required. Temporary credentialed probes may run outside the repository, and deterministic fixtures remain the committed evidence.
 - A5. The prior revival plan remains complete at the architecture level. This focused plan corrects newly observed protocol shapes and documentation claims without reopening unrelated completed units.
 
@@ -177,8 +177,8 @@ Its recent rolling uptime remained materially below 100%, so live canaries remai
 - KTD2. **Use a partial terminal candidate plus an explicit terminal policy before strict construction.** Responses terminal events decode into a bounded partial representation. Verified official OpenAI mode permits only omissions allowed by the official schema; compatible endpoints may additionally fill a missing message ID from one unique same-position, same-kind completed item. Every present conflict fails. The raw abbreviated native event and the reconstructed canonical response remain distinct public concepts, and misleading accessors that blur them may be removed. Governs R5-R7.
 - KTD3. **Share one Responses turn state machine across SSE and WebSocket.** Framing adapters differ, but item accumulation, reconciliation, error classification, cancellation, and settlement do not. Governs R7, R11-R13.
 - KTD4. **Keep Responses WebSocket provider-owned and experimental.** The OpenAI provider exposes a typed single-flight session built on transport primitives; `LanguageModel::stream` remains the portable SSE-like request surface. (session-settled: user-approved — chosen over provider-specific behavior in the unified trait: native capabilities remain reachable without weakening the portable contract.) Governs R2, R3, R11-R13.
-- KTD5. **Replace breakpoint coordinates with role-aware cache markers.** The public API distinguishes historical markers from current write candidates, removes the ambiguous constructor, and rejects excess current writes. To make caller write intent match position-based provider selection, historical markers form a contiguous encoded prefix and current write candidates form the suffix; interleaving is rejected. It does not trim or reject historical markers using the provider's contradictory 50-versus-80 lookback descriptions; ordinary request and body bounds remain authoritative. (session-settled: user-approved — chosen over preserving the old beta API: breaking changes are allowed when they remove ambiguous semantics.) Governs R8-R10.
-- KTD6. **Model cache lifetime and retention independently.** Provider validation treats TTL as a minimum lifetime and retention as a maximum policy, applies exact known-model restrictions, and does not infer unknown-model capability from name patterns. Governs R10.
+- KTD5. **Attach role-aware cache intent to semantic content nodes.** The public API uses one typed OpenAI content annotation to distinguish historical markers from current write candidates, removes request-level coordinates and the ambiguous constructor, and rejects excess current writes. In canonical marker traversal order, historical markers must precede current write candidates; interleaving is rejected. It does not trim or reject historical markers using the provider's contradictory 50-versus-80 lookback descriptions; ordinary request and body bounds remain authoritative. (session-settled: user-approved — chosen over preserving the old beta API and over another index-based side table: breaking changes are allowed when they remove ambiguous semantics, and ADR-0012 requires node-scoped provider intent.) Governs R8-R10.
+- KTD6. **Model cache lifetime and retention as distinct, generation-sensitive controls.** Provider validation treats TTL as a minimum lifetime for GPT-5.6 and later known families, retention as the legacy maximum-retention policy, applies exact known-model restrictions, and does not infer unknown-model capability from name patterns. Explicit unknown/custom-compatible intent is encoded or rejected; it is never silently removed. Governs R10.
 - KTD7. **Add an exact shared-address grant.** `LocalNetworkGrant` gains an RFC 6598-specific variant used by HTTP and WebSocket validation; no broad `unsafe` or `allow_non_public` switch is added. Governs R13-R14.
 - KTD8. **Keep live traffic outside release gates.** Committed fixtures reproduce the semantic shapes, while operator-run canaries confirm real compatibility after the deterministic suite passes. (session-settled: user-directed — chosen over heavy smoke automation and digest-based proof: repository tests should remain focused and portable.) Governs R16-R18.
 
@@ -312,6 +312,7 @@ sequenceDiagram
 - `https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events` defines usage-only final chunks and stable Chat chunk metadata.
 - Current official prompt-caching reference pages disagree on whether the service considers the latest 50 or 80 historical markers. This plan therefore treats the four-write budget as enforceable caller intent and the read lookback as provider behavior, not a client validation limit.
 - `https://developers.openai.com/api/reference/resources/responses/methods/create` defines current Responses prompt-cache options, matching window, write budget, retention, metadata, and safety identifier fields.
+- `https://developers.openai.com/api/docs/guides/prompt-caching#prompt-cache-retention` distinguishes GPT-5.6+ minimum TTL from legacy maximum-retention policy and lists current exact model restrictions.
 - `https://developers.openai.com/api/reference/resources/responses/websocket-events` defines `response.create`, implicit streaming, and unsupported background mode.
 - `https://developers.openai.com/api/docs/guides/deployment-checklist#use-websocket-mode` defines persistent continuation, one in-flight response per connection, and the current 60-minute connection limit.
 - `https://status.input.im/api/status` supplied current operational evidence on 2026-08-09.
@@ -354,6 +355,10 @@ sequenceDiagram
   - `siumai-protocol-openai/src/responses/response.rs`
   - `siumai-protocol-openai/src/responses/tests.rs`
   - `siumai-protocol-openai/tests/fixtures/responses/`
+  - `siumai-provider-openai/src/configured/model.rs`
+  - `siumai-openai-compatible/src/configured/codec_policy.rs`
+  - `siumai-provider-groq/src/language.rs`
+  - `siumai-provider-xai/src/providers/xai/language.rs`
 - **Approach:**
   1. Introduce a protocol-internal partial terminal envelope rather than weakening strict `ResponseWire` or `OutputItem` decoding globally.
   2. Extract framing-neutral item accumulation, matching, reconciliation, error classification, and settlement into one Responses turn state.
@@ -380,19 +385,21 @@ sequenceDiagram
 - **Requirements:** R8-R10; F4; AE6-AE8.
 - **Dependencies:** None.
 - **Files:**
+  - `siumai-provider-openai/src/configured/annotations.rs`
   - `siumai-provider-openai/src/configured/options.rs`
   - `siumai-provider-openai/src/configured/model.rs`
   - `siumai-provider-openai/src/configured/provider.rs`
+  - `siumai-provider-openai/src/configured/mod.rs`
+  - `siumai-provider-openai/src/lib.rs`
   - `siumai-protocol-openai/src/responses/request.rs`
   - `siumai-protocol-openai/src/chat_completions/request.rs`
-  - `siumai-provider-openai/README.md`
   - `docs/migration/siumai-next.md`
 - **Approach:**
-  1. Remove the ambiguous public breakpoint constructor and introduce role-aware retained-marker and write-candidate construction.
-  2. Validate coordinate uniqueness across both roles and reject a coordinate assigned conflicting roles.
-  3. Require a contiguous historical-marker prefix followed by a current-write suffix, reject role interleaving, and enforce the mode-specific write budget on that suffix; do not impose a semantic 50- or 80-marker read window.
-  4. Project only the validated marker set into Chat and Responses content blocks; protocol crates retain defensive bounds but do not reimplement provider policy.
-  5. Remove the false TTL-versus-retention exclusivity and replace the obsolete GPT-5.6 blanket retention rejection with current exact model-policy checks.
+  1. Delete request-level breakpoint coordinates and introduce a typed OpenAI content annotation with explicit historical-marker and write-candidate constructors.
+  2. Read only the OpenAI annotation namespace from `MessagePart` nodes, deserialize and validate it at the provider boundary, and traverse markers in canonical message/content order.
+  3. Require historical markers to precede current write candidates, reject role interleaving, and enforce the mode-specific write budget on the write suffix; do not impose a semantic 50- or 80-marker read window.
+  4. Project only the validated annotated nodes into Chat and Responses wire blocks; protocol crates retain defensive structural bounds but do not own caller-intent policy or a parallel coordinate API.
+  5. Keep TTL and retention as separate typed fields, apply the official generation split to exact known model policies, and preserve explicit unknown/custom-compatible intent without model-name pattern guessing or silent filtering.
   6. Ensure raw option merging cannot bypass final cache validation.
 - **Execution note:** Treat the public type replacement as one atomic breaking unit with migration docs and focused fixtures.
 - **Patterns to follow:** Typed provider option validation, final-wire validation after raw merge, and open future-model handling in the configured OpenAI provider.
@@ -400,12 +407,12 @@ sequenceDiagram
   - Covers AE6. Implicit mode accepts three explicit write candidates and rejects a fourth.
   - Covers AE7. Explicit mode accepts four write candidates and rejects a fifth.
   - Historical marker count is not rejected or silently trimmed merely for exceeding 50 or 80; ordinary request/body bounds still apply.
-  - Duplicate or conflicting marker coordinates return a typed option error.
+  - A node cannot carry conflicting OpenAI cache roles, and malformed or wrong-target annotations return a typed provider error.
   - A historical marker after the first current write candidate is rejected before either protocol encoder runs.
-  - Covers AE8. TTL `30m` and retention `24h` coexist in final Chat and Responses bodies.
+  - Covers AE8. TTL `30m` plus retention `24h` both reach final Chat and Responses bodies for an explicit unknown/custom-compatible model policy that permits both; exact known GPT-5.6 and legacy model restrictions fail before transport.
   - Known unsupported model-policy combinations fail before transport; an unknown compatible model does not silently lose explicit fields.
   - Raw extra options cannot inject protected cache fields around typed validation.
-- **Verification:** Provider option tests and one request fixture per protocol prove the current-write budgets, historical-marker preservation, independent lifetime controls, and final-wire protection.
+- **Verification:** Provider option tests and one request fixture per protocol prove the current-write budgets, historical-marker preservation, generation-sensitive lifetime controls, and final-wire protection.
 
 ### U4. Authorize RFC 6598 endpoints explicitly
 
@@ -444,6 +451,7 @@ sequenceDiagram
 - **Files:**
   - `siumai-provider-openai/Cargo.toml`
   - `siumai-provider-openai/src/configured/provider.rs`
+  - `siumai-provider-openai/src/configured/model.rs`
   - `siumai-provider-openai/src/configured/responses_websocket.rs`
   - `siumai-provider-openai/src/configured/mod.rs`
   - `siumai-protocol-openai/src/responses/request.rs`
@@ -452,7 +460,7 @@ sequenceDiagram
   - `siumai-provider-openai/tests/responses_websocket_contract.rs`
 - **Approach:**
   1. Add an OpenAI Responses WebSocket feature that depends on the existing transport WebSocket capability but remains distinct from OpenAI Realtime.
-  2. Build `response.create` from the same validated Responses request plan used by HTTP, omit only internally derived HTTP `stream` metadata, and reject explicit caller-supplied `stream` or `background` intent before sending a frame.
+  2. Extract a transport-neutral Responses call-preparation helper from `configured/model.rs`; use it for both HTTP and WebSocket so `response.create` receives the same normalized request and typed options, omits only internally derived HTTP `stream` metadata, and rejects explicit caller-supplied `stream` or `background` intent before sending a frame.
   3. Support an explicit `generate: false` warm-up request without pretending that it is a generated turn, and expose any returned provider event through the native surface.
   4. Implement a bounded session actor with one active generated turn, explicit cancellation and close, configurable connect, idle, turn, and session deadlines, and no hidden reconnection.
   5. Feed incoming JSON frames into the shared Responses turn state and expose provider-native events plus the canonical terminal response.
@@ -483,7 +491,7 @@ sequenceDiagram
   - `siumai/Cargo.toml`
   - `siumai/src/providers/openai.rs`
   - `siumai/tests/facade_contract.rs`
-  - `siumai-provider-openai/README.md`
+  - `siumai-provider-openai/src/lib.rs`
   - `docs/architecture/public-api.md`
   - `docs/architecture/transport-contract.md`
   - `docs/providers/support-policy.md`
@@ -492,7 +500,7 @@ sequenceDiagram
   - `README.md`
 - **Approach:**
   1. Add curated facade exports and a narrowly scoped feature for Responses WebSocket without merging it with Realtime.
-  2. Document the cache marker migration, mode budgets, independent lifetime controls, custom endpoint grant, and every Responses native-event accessor removed or renamed by U2 with its direct replacement.
+  2. Document the cache marker migration, mode budgets, generation-sensitive lifetime controls, custom endpoint grant, and every Responses native-event accessor removed or renamed by U2 with its direct replacement.
   3. Add an official OpenAI Responses WebSocket support row with source and verification date only for the provider-owned default endpoint.
   4. Revise the revival status narrative so architecture completion is not presented as proof that every future wire shape is closed.
   5. Run a final operator-authorized canary against the configured relay after confirming `status.input.im/api/status` is green; record only result categories and timestamps, never credentials or private payloads.
