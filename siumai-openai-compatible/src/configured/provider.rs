@@ -21,7 +21,6 @@ use thiserror::Error;
 use super::credentials::{CredentialSourceError, OpenAiCompatibleCredential};
 use super::mode::OpenAiCompatibleApiMode;
 use super::model::OpenAiCompatibleLanguageModel;
-use super::policy::OpenAiCompatibleModelPolicy;
 use super::profile::OpenAiCompatibleProfile;
 
 /// A synchronously configured OpenAI-compatible provider.
@@ -116,7 +115,6 @@ impl OpenAiCompatibleProvider {
         let provider = self.clone();
         ProviderRegistration::from_language(
             scope,
-            self.runtime.policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(provider.create_language_model(mode, model)?)
                     as Arc<dyn LanguageModel>)
@@ -306,14 +304,12 @@ impl OpenAiCompatibleProviderBuilder {
             transport = transport.with_read_timeout(timeout);
         }
         let transport = transport.build()?;
-        let policy = Arc::new(OpenAiCompatibleModelPolicy::new(&self.profile));
         let instance_id = self.instance_id.unwrap_or_default();
         Ok(OpenAiCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
                 instance_id,
                 profile: self.profile,
                 transport,
-                policy,
                 chat_options: CompatibleOptionMerger::new(
                     OpenAiCompatibleApiMode::ChatCompletions,
                     self.chat_defaults,
@@ -337,7 +333,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) profile: OpenAiCompatibleProfile,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<OpenAiCompatibleModelPolicy>,
     chat_options: CompatibleOptionMerger,
     responses_options: CompatibleOptionMerger,
     pub(crate) replay_safety: ReplaySafety,
@@ -604,7 +599,7 @@ mod tests {
         LanguageRequest, Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId,
         ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId,
         ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId,
-        SupportScope, SupportState, VerificationDate, VerificationEvidence, VerifiedFidelity,
+        SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity,
         VerifiedSupportClaim,
     };
     use siumai_protocol_openai::chat_completions::{
@@ -715,7 +710,7 @@ mod tests {
                 model.clone(),
                 responses_scope.clone(),
                 [ModelOperation::Generate, ModelOperation::Stream],
-                ModelLifecycle::Active,
+                ModelLifecycle::Retired { replacement: None },
                 evidence.clone(),
             )
             .unwrap(),
@@ -723,7 +718,7 @@ mod tests {
                 model,
                 chat_scope.clone(),
                 [ModelOperation::Generate, ModelOperation::Stream],
-                ModelLifecycle::Active,
+                ModelLifecycle::Retired { replacement: None },
                 evidence.clone(),
             )
             .unwrap(),
@@ -1057,6 +1052,20 @@ mod tests {
             responses_registration.scope(ModelFamily::Language),
             chat_registration.scope(ModelFamily::Language)
         );
+        let retired_profiles = provider
+            .profile()
+            .provider_profile()
+            .catalog()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry.model().as_str() == "dual-model")
+            .collect::<Vec<_>>();
+        assert_eq!(retired_profiles.len(), 2);
+        assert!(
+            retired_profiles
+                .iter()
+                .all(|entry| matches!(entry.lifecycle(), ModelLifecycle::Retired { .. }))
+        );
 
         let responses = provider.responses("dual-model").unwrap();
         let chat = provider.chat_completions("dual-model").unwrap();
@@ -1092,12 +1101,6 @@ mod tests {
 
         let future = ModelId::new("future:model").unwrap();
         for registration in [&responses_registration, &chat_registration] {
-            assert_eq!(
-                registration
-                    .evaluate(future.clone(), ModelOperation::Generate)
-                    .state(),
-                &SupportState::Unknown
-            );
             assert!(registration.language_model(future.clone()).is_ok());
         }
         responses_mock.assert_async().await;
@@ -1249,10 +1252,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(direct_response, erased_response);
-        assert!(matches!(
-            direct_response.warnings()[0].kind(),
-            siumai_core::WarningKind::UnknownModel
-        ));
+        assert!(direct_response.warnings().is_empty());
         mock.assert_async().await;
     }
 

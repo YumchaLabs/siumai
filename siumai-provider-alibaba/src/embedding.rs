@@ -11,14 +11,12 @@ use serde_json::{Map, Value};
 use siumai_core::{
     ApiStability, CallOptions, CatalogError, EmbeddingLimits, EmbeddingModel, EmbeddingRequest,
     EmbeddingResponse, Error, ErrorContext, ErrorKind, GenericSupportClaim, InvalidId, Model,
-    ModelAdvisory, ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ModelProfile,
-    OfficialSource, ProfileError, ProfileId, ProtocolContractId, ProviderInstanceId,
+    ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
+    ModelProfile, OfficialSource, ProfileError, ProfileId, ProtocolContractId, ProviderInstanceId,
     ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
     ProviderOptionOrigin, ProviderOptions, ProviderProfile, ProviderScope, ResponseMetadata,
-    SupportScope, SupportState, TypedProviderOptions, UnsupportedReason, Usage, UsageValue,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
-    WarningKind,
+    SupportScope, TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
+    VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_transport::{
     ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
@@ -37,9 +35,6 @@ pub const TEXT_EMBEDDING_V4: &str = "text-embedding-v4";
 pub const TEXT_EMBEDDING_V3: &str = "text-embedding-v3";
 
 const EMBEDDING_TARGET: &str = "services/embeddings/text-embedding/text-embedding";
-const KNOWN_MODELS: &[&str] = &[TEXT_EMBEDDING_V4, TEXT_EMBEDDING_V3];
-const TEXT_EMBEDDING_V4_DIMENSIONS: &[u32] = &[64, 128, 256, 512, 768, 1024, 1536, 2048];
-const TEXT_EMBEDDING_V3_DIMENSIONS: &[u32] = &[64, 128, 256, 512, 768, 1024];
 
 pub(crate) fn support_profile(
     scope: &ProviderScope,
@@ -200,7 +195,6 @@ pub(crate) struct AlibabaEmbeddingRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<AlibabaEmbeddingPolicy>,
     pub(crate) defaults: AlibabaEmbeddingOptions,
     pub(crate) replay_safety: ReplaySafety,
 }
@@ -278,15 +272,11 @@ impl EmbeddingModel for AlibabaEmbeddingModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = policy_warnings(&self.runtime, self.model_id())
-            .map_err(|error| self.contextualize(error))?;
         let provider_options =
             embedding_options(&options, self.descriptor.scope(), &self.runtime.defaults)
                 .map_err(option_error)
                 .map_err(|error| self.contextualize(error))?;
         let dimensions = request.dimensions().map(|value| value.get());
-        validate_dimensions(self.model_id(), dimensions)
-            .map_err(|error| self.contextualize(error))?;
         validate_output_type(self.model_id(), provider_options.output_type)
             .map_err(|error| self.contextualize(error))?;
 
@@ -328,7 +318,7 @@ impl EmbeddingModel for AlibabaEmbeddingModel {
                 model: Some(self.model_id().clone()),
             },
             usage: embedding_usage(decoded.usage.total_tokens),
-            warnings,
+            warnings: Vec::new(),
             provider: ordered.provider_metadata,
         };
         result
@@ -504,25 +494,6 @@ fn provider_status_error(response: TransportResponse) -> Error {
     )
 }
 
-fn validate_dimensions(model: &ModelId, dimensions: Option<u32>) -> Result<(), Error> {
-    let Some(dimensions) = dimensions else {
-        return Ok(());
-    };
-    let valid = match model.as_str() {
-        "text-embedding-v4" => TEXT_EMBEDDING_V4_DIMENSIONS.contains(&dimensions),
-        "text-embedding-v3" => TEXT_EMBEDDING_V3_DIMENSIONS.contains(&dimensions),
-        _ => true,
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(Error::new(
-            ErrorKind::InvalidInput,
-            "requested embedding dimensions are not supported by this known Alibaba model",
-        ))
-    }
-}
-
 fn validate_output_type(
     _model: &ModelId,
     output_type: Option<AlibabaEmbeddingOutputType>,
@@ -538,54 +509,6 @@ fn validate_output_type(
 
 fn max_inputs(_model: &ModelId) -> usize {
     10
-}
-
-fn policy_warnings(
-    runtime: &AlibabaEmbeddingRuntime,
-    model: &ModelId,
-) -> Result<Vec<Warning>, Error> {
-    let decision = runtime.policy.evaluate(&ModelPolicyContext::new(
-        runtime.scope.clone(),
-        model.clone(),
-        ModelOperation::Embed,
-    ));
-    if matches!(decision.state(), SupportState::Unsupported { .. }) {
-        return Err(Error::new(
-            ErrorKind::Unsupported,
-            "Alibaba embedding policy rejected the requested operation",
-        ));
-    }
-    Ok(decision
-        .advisories()
-        .iter()
-        .map(|advisory| match advisory {
-            ModelAdvisory::UnknownModel => Warning::new(
-                WarningKind::UnknownModel,
-                "model support is not verified for this Alibaba embedding endpoint",
-            ),
-            _ => Warning::provider(
-                "model_advisory",
-                "Alibaba embedding policy returned an advisory",
-            ),
-        })
-        .collect())
-}
-
-pub(crate) struct AlibabaEmbeddingPolicy {
-    pub(crate) verified_endpoint: bool,
-}
-
-impl ModelPolicy for AlibabaEmbeddingPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.operation() != ModelOperation::Embed {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && KNOWN_MODELS.contains(&context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
 }
 
 fn embedding_options(

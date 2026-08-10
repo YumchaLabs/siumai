@@ -14,7 +14,6 @@ mod image;
 mod mode;
 mod model;
 mod options;
-mod policy;
 mod profile;
 mod provider;
 #[cfg(feature = "openai-realtime")]

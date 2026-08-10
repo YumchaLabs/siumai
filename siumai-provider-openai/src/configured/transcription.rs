@@ -13,7 +13,7 @@ use siumai_core::{
     ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
     ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope,
     TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    TypedProviderOptions, Warning, WarningKind,
+    TypedProviderOptions,
 };
 use siumai_protocol_openai::transcription::{
     API_MODE_ID, TARGET, TranscriptionConfig, TranscriptionResponseFormat,
@@ -321,12 +321,6 @@ impl TranscriptionModel for OpenAiTranscriptionModel {
         let mut decoded = decode_transcription_response(&body, self.model_id())
             .map_err(|error| self.contextualize(error))?;
         decoded.metadata.request_id = response_request_id(&headers);
-        if !is_verified_model(self.descriptor.scope(), self.model_id()) {
-            decoded.warnings.push(Warning::new(
-                WarningKind::UnknownModel,
-                "model support is not verified for OpenAI final-result transcription",
-            ));
-        }
         Ok(decoded)
     }
 }
@@ -486,19 +480,6 @@ fn protocol_timestamp_granularity(
         }
         OpenAiTranscriptionTimestampGranularity::Word => TranscriptionTimestampGranularity::Word,
     }
-}
-
-fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
-    scope.platform().map(|value| value.as_str()) == Some("openai-api")
-        && matches!(
-            model.as_str(),
-            WHISPER_1
-                | GPT_4O_MINI_TRANSCRIBE
-                | GPT_4O_MINI_TRANSCRIBE_2025_03_20
-                | GPT_4O_MINI_TRANSCRIBE_2025_12_15
-                | GPT_4O_TRANSCRIBE
-                | GPT_4O_TRANSCRIBE_DIARIZE
-        )
 }
 
 fn rejected(path: &str, reason: &str) -> ProviderOptionError {

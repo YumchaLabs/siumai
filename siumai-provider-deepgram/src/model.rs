@@ -8,11 +8,10 @@ use http::{Method, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionError,
-    PublicDiagnosticText, ResponseMetadata, SensitiveResponse, SupportState, TranscriptSegment,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse, Usage,
-    Warning, WarningKind,
+    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionError, PublicDiagnosticText, ResponseMetadata, SensitiveResponse,
+    TranscriptSegment, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
+    TranscriptionResponse, Usage,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget,
@@ -46,24 +45,6 @@ impl DeepgramTranscriptionModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self
-            .runtime
-            .policy
-            .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.runtime.scope.clone(),
-                self.model_id().clone(),
-                ModelOperation::Transcribe,
-            ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "Deepgram model policy rejected transcription",
-            )));
-        }
-        Ok(policy_warnings(&decision))
     }
 
     fn plan(
@@ -148,7 +129,6 @@ impl TranscriptionModel for DeepgramTranscriptionModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy()?;
         let options = self
             .runtime
             .options(&call)
@@ -166,8 +146,7 @@ impl TranscriptionModel for DeepgramTranscriptionModel {
         if !response.status().is_success() {
             return Err(self.contextualize(provider_response_error(response)));
         }
-        decode_response(self.model_id(), response, warnings)
-            .map_err(|error| self.contextualize(error))
+        decode_response(self.model_id(), response).map_err(|error| self.contextualize(error))
     }
 }
 
@@ -257,7 +236,6 @@ fn append_text<T>(
 fn decode_response(
     requested_model: &ModelId,
     response: TransportResponse,
-    warnings: Vec<Warning>,
 ) -> Result<TranscriptionResponse, Error> {
     let (_, headers, body) = response.into_parts();
     let raw: Value = serde_json::from_slice(&body).map_err(|source| {
@@ -320,7 +298,7 @@ fn decode_response(
             model: Some(requested_model.clone()),
         },
         usage,
-        warnings,
+        warnings: Vec::new(),
         provider,
     };
     result.validate()?;
@@ -372,33 +350,6 @@ struct DeepgramWord {
     end: f64,
     #[serde(default)]
     confidence: Option<f64>,
-}
-
-fn policy_warnings(decision: &ModelPolicyDecision) -> Vec<Warning> {
-    decision
-        .advisories()
-        .iter()
-        .map(|advisory| match advisory {
-            ModelAdvisory::UnknownModel => Warning::new(
-                WarningKind::UnknownModel,
-                "model is absent from the verified Deepgram advisory catalog",
-            ),
-            ModelAdvisory::Deprecated { .. } => {
-                Warning::new(WarningKind::DeprecatedModel, "Deepgram model is deprecated")
-            }
-            ModelAdvisory::Retired { .. } => {
-                Warning::new(WarningKind::RetiredModel, "Deepgram model is retired")
-            }
-            ModelAdvisory::RollingAlias => Warning::new(
-                WarningKind::RollingModelAlias,
-                "Deepgram model ID is a rolling alias",
-            ),
-            _ => Warning::provider(
-                "model_advisory",
-                "Deepgram policy returned a model advisory",
-            ),
-        })
-        .collect()
 }
 
 fn option_error(source: ProviderOptionError) -> Error {
@@ -871,10 +822,7 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        assert!(matches!(
-            response.warnings[0].kind(),
-            WarningKind::UnknownModel
-        ));
+        assert!(response.warnings.is_empty());
         mock.assert_async().await;
     }
 

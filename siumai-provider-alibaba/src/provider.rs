@@ -31,9 +31,9 @@ use siumai_transport::{
 use thiserror::Error as ThisError;
 
 use crate::embedding::{
-    AlibabaEmbeddingModel, AlibabaEmbeddingOptions, AlibabaEmbeddingPolicy,
-    AlibabaEmbeddingProfileError, AlibabaEmbeddingRuntime, EMBEDDING_API_MODE_ID,
-    EMBEDDING_PROTOCOL_ID, LEGACY_SINGAPORE_EMBEDDING_BASE_URL, support_profile,
+    AlibabaEmbeddingModel, AlibabaEmbeddingOptions, AlibabaEmbeddingProfileError,
+    AlibabaEmbeddingRuntime, EMBEDDING_API_MODE_ID, EMBEDDING_PROTOCOL_ID,
+    LEGACY_SINGAPORE_EMBEDDING_BASE_URL, support_profile,
 };
 use crate::language::{
     AlibabaProfileError, LEGACY_SINGAPORE_LANGUAGE_BASE_URL, LEGACY_SINGAPORE_MESSAGES_BASE_URL,
@@ -239,7 +239,7 @@ impl AlibabaProvider {
 
     /// Default registration for configured stable families.
     ///
-    /// Language uses the recommended Responses mode; embedding keeps its native scope and policy.
+    /// Language uses the recommended Responses mode; embedding keeps its native scope.
     /// A video-only provider has no Registry registration because video remains a provider-owned job.
     pub fn registration(&self) -> Option<ProviderRegistration> {
         self.default_registration.clone()
@@ -695,7 +695,6 @@ impl AlibabaProviderBuilder {
                         scope,
                         instance_id: instance_id.clone(),
                         transport,
-                        policy: Arc::new(AlibabaEmbeddingPolicy { verified_endpoint }),
                         defaults: self.embedding_defaults,
                         replay_safety: ReplaySafety::Never,
                     }),
@@ -982,7 +981,6 @@ fn video_support_claim() -> Result<VerifiedNativeSupportClaim, AlibabaConfigErro
 fn embedding_registration(runtime: Arc<AlibabaEmbeddingRuntime>) -> ProviderRegistration {
     ProviderRegistration::from_embedding(
         runtime.scope.clone(),
-        runtime.policy.clone(),
         Arc::new(move |model| {
             Ok(Arc::new(AlibabaEmbeddingModel::new(runtime.clone(), model))
                 as Arc<dyn EmbeddingModel>)

@@ -9,7 +9,7 @@ use http::header::{ACCEPT, HeaderValue};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use siumai_core::{CallOptions, Error, ErrorContext, ErrorKind, ModelId, Warning};
+use siumai_core::{CallOptions, Error, ErrorContext, ErrorKind, ModelId};
 use siumai_protocol_openai::responses::{ResponseWire, decode_response_resource};
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportResponse,
@@ -26,11 +26,10 @@ use super::tools::OpenAiResponsesTool;
 
 const MAX_RESOURCE_ID_BYTES: usize = 512;
 
-/// A newly created background response plus provider-policy advisories.
+/// A newly created background response.
 #[derive(Clone, PartialEq)]
 pub struct OpenAiBackgroundResponse {
     resource: ResponseWire,
-    warnings: Vec<Warning>,
 }
 
 impl fmt::Debug for OpenAiBackgroundResponse {
@@ -39,26 +38,21 @@ impl fmt::Debug for OpenAiBackgroundResponse {
             .debug_struct("OpenAiBackgroundResponse")
             .field("status", &self.resource.status)
             .field("output_items", &self.resource.output.len())
-            .field("warnings", &self.warnings.len())
             .finish_non_exhaustive()
     }
 }
 
 impl OpenAiBackgroundResponse {
-    pub(crate) fn new(resource: ResponseWire, warnings: Vec<Warning>) -> Self {
-        Self { resource, warnings }
+    pub(crate) fn new(resource: ResponseWire) -> Self {
+        Self { resource }
     }
 
     pub fn resource(&self) -> &ResponseWire {
         &self.resource
     }
 
-    pub fn warnings(&self) -> &[Warning] {
-        &self.warnings
-    }
-
-    pub fn into_parts(self) -> (ResponseWire, Vec<Warning>) {
-        (self.resource, self.warnings)
+    pub fn into_resource(self) -> ResponseWire {
+        self.resource
     }
 }
 
@@ -951,7 +945,7 @@ mod tests {
             }]
         }))
         .unwrap();
-        let background = OpenAiBackgroundResponse::new(resource, Vec::new());
+        let background = OpenAiBackgroundResponse::new(resource);
         assert!(!format!("{background:?}").contains(sentinel));
 
         let page: OpenAiResponsesInputItemsPage = serde_json::from_value(json!({

@@ -16,8 +16,6 @@ use siumai_transport::{
     RequestTarget, ResponseHeaders, TransportResponse,
 };
 
-use crate::models;
-
 const TRANSCRIPTIONS_TARGET: &str = "audio/transcriptions";
 const TRANSLATIONS_TARGET: &str = "audio/translations";
 const MAX_URL_BYTES: usize = 4 * 1024;
@@ -116,15 +114,11 @@ pub struct GroqAudioResponse {
 #[derive(Clone)]
 pub struct GroqAudio {
     transport: ProviderTransport,
-    verified_endpoint: bool,
 }
 
 impl GroqAudio {
-    pub(crate) fn new(transport: ProviderTransport, verified_endpoint: bool) -> Self {
-        Self {
-            transport,
-            verified_endpoint,
-        }
+    pub(crate) fn new(transport: ProviderTransport) -> Self {
+        Self { transport }
     }
 
     pub async fn transcribe_url(
@@ -151,7 +145,6 @@ impl GroqAudio {
         request: GroqUrlAudioRequest,
         call: CallOptions,
     ) -> Result<GroqAudioResponse, Error> {
-        operation.validate_model(&request.model, self.verified_endpoint)?;
         if operation == GroqAudioOperation::Translate && request.language.is_some() {
             return Err(Error::new(
                 ErrorKind::Unsupported,
@@ -172,7 +165,6 @@ impl fmt::Debug for GroqAudio {
         formatter
             .debug_struct("GroqAudio")
             .field("transport", &"shared")
-            .field("verified_endpoint", &self.verified_endpoint)
             .finish()
     }
 }
@@ -203,22 +195,6 @@ impl GroqAudioOperation {
             Self::Transcribe => "Groq URL transcription request failed",
             Self::Translate => "Groq audio translation request failed",
         }
-    }
-
-    fn validate_model(self, model: &ModelId, verified_endpoint: bool) -> Result<(), Error> {
-        if !verified_endpoint {
-            return Ok(());
-        }
-        if self == Self::Translate
-            && models::is_known_transcription(model.as_str())
-            && model.as_str() != models::transcription::WHISPER_LARGE_V3
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Groq audio translation does not support the selected known model",
-            ));
-        }
-        Ok(())
     }
 
     fn plan(self, request: &GroqUrlAudioRequest) -> Result<RequestPlan, Error> {
@@ -414,7 +390,7 @@ mod tests {
     use siumai_transport::EndpointConfig;
 
     use super::*;
-    use crate::{GroqCredential, GroqProvider};
+    use crate::{GroqCredential, GroqProvider, models};
 
     #[tokio::test]
     async fn translates_provider_fetched_audio_with_unknown_usage() {
@@ -473,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_rejects_known_unsupported_model_and_unsafe_url() {
+    fn translation_keeps_model_ids_open_and_rejects_unsafe_urls() {
         let provider = GroqProvider::builder(GroqCredential::api_key("secret"))
             .build()
             .unwrap();
@@ -482,10 +458,9 @@ mod tests {
             "https://cdn.example.com/audio.wav",
         )
         .unwrap();
-        assert!(
-            GroqAudioOperation::Translate
-                .validate_model(request.model(), true)
-                .is_err()
+        assert_eq!(
+            request.model().as_str(),
+            models::transcription::WHISPER_LARGE_V3_TURBO
         );
         assert!(GroqUrlAudioRequest::new("future-model", "http://127.0.0.1/audio.wav").is_err());
         assert!(!format!("{:?}", provider.audio()).contains("secret"));

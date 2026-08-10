@@ -3,7 +3,6 @@
 mod credentials;
 mod model;
 mod options;
-mod policy;
 mod profile;
 mod provider;
 mod transcription;

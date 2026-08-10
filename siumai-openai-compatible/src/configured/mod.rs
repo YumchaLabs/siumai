@@ -2,7 +2,6 @@ mod codec_policy;
 mod credentials;
 mod mode;
 mod model;
-mod policy;
 mod profile;
 mod provider;
 

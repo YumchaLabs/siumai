@@ -36,7 +36,7 @@ use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
 
 use crate::MinimaxAnnotationResolver;
-use crate::models::{ALL_LANGUAGE, is_known_m2, is_m3};
+use crate::models::ALL_LANGUAGE;
 use crate::options::{MINIMAX_MESSAGES_SERVICE_TIER_OPTION, MinimaxResponsesReasoning};
 
 pub(crate) const PROVIDER_ID: &str = "minimax";
@@ -52,8 +52,6 @@ const CHAT_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/text-c
 const RESPONSES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/responses-create";
 const VERIFIED_ON: &str = "2026-08-06";
 const COMPATIBLE_API_VERSION: &str = "2023-06-01";
-const M3_MAX_OUTPUT_TOKENS: u64 = 524_288;
-const M2_MAX_OUTPUT_TOKENS: u64 = 204_800;
 
 pub(crate) fn messages_profile(
     endpoint: EndpointConfig,
@@ -278,11 +276,11 @@ struct MinimaxMessagesPolicy;
 impl MessagesRequestPolicy for MinimaxMessagesPolicy {
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: &LanguageRequest,
         options: &mut MessagesCallOptions,
     ) -> Result<MessagesRequestRequirements, Error> {
-        validate_common_request(model, request)?;
+        validate_common_request(request)?;
         if options.top_k().is_some() {
             return Err(unsupported("MiniMax Messages does not support top_k"));
         }
@@ -325,7 +323,7 @@ impl MessagesRequestPolicy for MinimaxMessagesPolicy {
                 "MiniMax Messages does not support Anthropic request controls",
             ));
         }
-        validate_thinking(model, options.thinking())?;
+        validate_thinking(options.thinking())?;
         if !request.generation.stop_sequences.is_empty() {
             return Err(unsupported(
                 "MiniMax Messages does not support stop_sequences",
@@ -353,12 +351,12 @@ impl ChatCodecPolicy for MinimaxChatPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         dialect: ChatCompletionsDialect,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedChatCall, Error> {
-        validate_common_request(model, &request)?;
+        validate_common_request(&request)?;
         if request
             .generation
             .temperature
@@ -377,7 +375,7 @@ impl ChatCodecPolicy for MinimaxChatPolicy {
             ));
         }
         validate_tool_choice(request.tool_choice.as_ref(), false)?;
-        validate_openai_extra(model, &extra, false)?;
+        validate_openai_extra(&extra, false)?;
         extra.insert("reasoning_split".to_string(), Value::Bool(true));
         let dialect = dialect
             .with_replayable_reasoning_details_field(self.reasoning_details.clone())
@@ -409,11 +407,11 @@ impl ResponsesCodecPolicy for MinimaxResponsesPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         extra: BTreeMap<String, Value>,
     ) -> Result<PreparedResponsesCall, Error> {
-        validate_common_request(model, &request)?;
+        validate_common_request(&request)?;
         if request
             .generation
             .temperature
@@ -429,7 +427,7 @@ impl ResponsesCodecPolicy for MinimaxResponsesPolicy {
             ));
         }
         validate_tool_choice(request.tool_choice.as_ref(), true)?;
-        validate_openai_extra(model, &extra, true)?;
+        validate_openai_extra(&extra, true)?;
         Ok(PreparedResponsesCall {
             request,
             extra,
@@ -500,7 +498,7 @@ pub(crate) fn encode_responses_input_token_request(
     Ok(Value::Object(body))
 }
 
-fn validate_common_request(model: &ModelId, request: &LanguageRequest) -> Result<(), Error> {
+fn validate_common_request(request: &LanguageRequest) -> Result<(), Error> {
     let has_developer = request
         .messages
         .iter()
@@ -510,7 +508,6 @@ fn validate_common_request(model: &ModelId, request: &LanguageRequest) -> Result
             "MiniMax language APIs do not support developer messages",
         ));
     }
-    let mut has_media = false;
     for media in request.messages.iter().flat_map(|message| {
         message
             .content()
@@ -520,54 +517,19 @@ fn validate_common_request(model: &ModelId, request: &LanguageRequest) -> Result
                 _ => None,
             })
     }) {
-        has_media = true;
-        if !is_m3(model.as_str()) {
-            return Err(unsupported(
-                "only the verified MiniMax-M3 profile accepts media input",
-            ));
-        }
         if !media.media_type.starts_with("image/") && !media.media_type.starts_with("video/") {
             return Err(unsupported(
-                "MiniMax-M3 accepts image or video media input only",
+                "MiniMax language APIs accept image or video media input only",
             ));
         }
-    }
-    if has_media && !is_m3(model.as_str()) {
-        return Err(unsupported(
-            "this MiniMax model does not support media input",
-        ));
-    }
-    validate_output_limit(model, request.generation.max_output_tokens)
-}
-
-fn validate_output_limit(model: &ModelId, requested: Option<u64>) -> Result<(), Error> {
-    let maximum = if is_m3(model.as_str()) {
-        Some(M3_MAX_OUTPUT_TOKENS)
-    } else if is_known_m2(model.as_str()) {
-        Some(M2_MAX_OUTPUT_TOKENS)
-    } else {
-        None
-    };
-    if let Some(maximum) = maximum
-        && requested.is_some_and(|requested| requested > maximum)
-    {
-        return Err(invalid(
-            "max_output_tokens exceeds this MiniMax model limit",
-        ));
     }
     Ok(())
 }
 
-fn validate_thinking(model: &ModelId, thinking: Option<ThinkingConfig>) -> Result<(), Error> {
+fn validate_thinking(thinking: Option<ThinkingConfig>) -> Result<(), Error> {
     match thinking {
         Some(ThinkingConfig::Enabled { .. }) => Err(unsupported(
             "MiniMax hosted Messages supports adaptive or disabled thinking, not enabled",
-        )),
-        Some(ThinkingConfig::Disabled) if is_known_m2(model.as_str()) => Err(unsupported(
-            "MiniMax M2 models cannot honor disabled thinking",
-        )),
-        Some(_) if !is_m3(model.as_str()) && !is_known_m2(model.as_str()) => Err(unsupported(
-            "thinking controls are not inferred for unknown MiniMax model IDs",
         )),
         _ => Ok(()),
     }
@@ -585,20 +547,12 @@ fn validate_tool_choice(choice: Option<&ToolChoice>, auto_and_none: bool) -> Res
     }
 }
 
-fn validate_openai_extra(
-    model: &ModelId,
-    extra: &BTreeMap<String, Value>,
-    responses: bool,
-) -> Result<(), Error> {
+fn validate_openai_extra(extra: &BTreeMap<String, Value>, responses: bool) -> Result<(), Error> {
     for (name, value) in extra {
         match name.as_str() {
             "thinking" if !responses => {
-                let thinking =
-                    serde_json::from_value::<crate::options::MinimaxThinking>(value.clone())
-                        .map_err(|source| {
-                            invalid_source("invalid MiniMax thinking option", source)
-                        })?;
-                validate_minimax_thinking(model, thinking)?;
+                serde_json::from_value::<crate::options::MinimaxThinking>(value.clone())
+                    .map_err(|source| invalid_source("invalid MiniMax thinking option", source))?;
             }
             "reasoning" if responses => {
                 let reasoning =
@@ -606,18 +560,7 @@ fn validate_openai_extra(
                         value.clone(),
                     )
                     .map_err(|source| invalid_source("invalid MiniMax reasoning option", source))?;
-                if !is_m3(model.as_str()) && !is_known_m2(model.as_str()) {
-                    return Err(unsupported(
-                        "reasoning controls are not inferred for unknown MiniMax model IDs",
-                    ));
-                }
-                if is_known_m2(model.as_str())
-                    && reasoning.effort() == crate::options::MinimaxReasoningEffort::None
-                {
-                    return Err(unsupported(
-                        "MiniMax M2 models cannot honor disabled reasoning",
-                    ));
-                }
+                let _ = reasoning;
             }
             "service_tier" => validate_service_tier(value)?,
             "prompt_cache_key" if responses => validate_string(value, "prompt_cache_key")?,
@@ -628,23 +571,6 @@ fn validate_openai_extra(
                 ));
             }
         }
-    }
-    Ok(())
-}
-
-fn validate_minimax_thinking(
-    model: &ModelId,
-    thinking: crate::options::MinimaxThinking,
-) -> Result<(), Error> {
-    if !is_m3(model.as_str()) && !is_known_m2(model.as_str()) {
-        return Err(unsupported(
-            "thinking controls are not inferred for unknown MiniMax model IDs",
-        ));
-    }
-    if is_known_m2(model.as_str()) && thinking == crate::options::MinimaxThinking::Disabled {
-        return Err(unsupported(
-            "MiniMax M2 models cannot honor disabled thinking",
-        ));
     }
     Ok(())
 }

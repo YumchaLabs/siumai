@@ -9,8 +9,8 @@ use siumai_core::{
     ApiModeId, ApiStability, ContentPart, Error, ErrorKind, LanguageRequest, MediaData,
     MessageRole, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile,
     OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId, ProviderId,
-    ProviderProfile, ReplayDomain, SupportScope, ToolChoice, ToolSpec, TypedProviderOptions,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
+    ProviderProfile, ReplayDomain, SupportScope, TypedProviderOptions, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_openai::chat_completions::{
     API_MODE_ID, ChatCompletionsDialect, MaxOutputTokensField, PROTOCOL_ID, WireFieldName,
@@ -21,7 +21,7 @@ use siumai_openai_compatible::extension::v1::{ChatCodecPolicy, PreparedChatCall}
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 
 use crate::annotations::KimiAssistantPartial;
-use crate::options::{KimiLanguageOptions, KimiThinking, KimiThinkingMode};
+use crate::options::KimiLanguageOptions;
 
 pub const PROVIDER_ID: &str = "moonshotai";
 pub const PLATFORM_ID: &str = "kimi-public-api";
@@ -165,28 +165,6 @@ fn verified_profile() -> Result<ProviderProfile, OpenAiCompatibleConfigError> {
     .expect("Kimi static profile and catalog scopes match"))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KimiModelPolicy {
-    K3,
-    K2_7,
-    K2_6,
-    K2_5,
-    LegacyText,
-    LegacyVision,
-}
-
-fn model_policy(model: &ModelId) -> Option<KimiModelPolicy> {
-    match model.as_str() {
-        KIMI_K3 => Some(KimiModelPolicy::K3),
-        KIMI_K2_7_CODE | KIMI_K2_7_CODE_HIGHSPEED => Some(KimiModelPolicy::K2_7),
-        KIMI_K2_6 => Some(KimiModelPolicy::K2_6),
-        KIMI_K2_5 => Some(KimiModelPolicy::K2_5),
-        value if MOONSHOT_V1_TEXT_MODELS.contains(&value) => Some(KimiModelPolicy::LegacyText),
-        value if MOONSHOT_V1_VISION_MODELS.contains(&value) => Some(KimiModelPolicy::LegacyVision),
-        _ => None,
-    }
-}
-
 #[derive(Debug)]
 struct KimiChatCodecPolicy {
     reasoning: WireFieldName,
@@ -194,55 +172,26 @@ struct KimiChatCodecPolicy {
 
 impl ChatCodecPolicy for KimiChatCodecPolicy {
     fn name(&self) -> &'static str {
-        "kimi-current-model-policy"
+        "kimi-chat-codec"
     }
 
     fn prepare(
         &self,
-        model: &ModelId,
-        mut request: LanguageRequest,
-        mut dialect: ChatCompletionsDialect,
+        _model: &ModelId,
+        request: LanguageRequest,
+        dialect: ChatCompletionsDialect,
         extra: BTreeMap<String, Value>,
     ) -> Result<PreparedChatCall, Error> {
         validate_api_limits(&request)?;
         validate_media_sources(&request)?;
         kimi_partial_index(&request)?;
-
-        let mut warnings = Vec::new();
-        let Some(policy) = model_policy(model) else {
-            return Ok(PreparedChatCall {
-                request,
-                dialect,
-                extra,
-                headers: siumai_transport::RequestHeaders::new(),
-                prompt_cache_resolver: None,
-                warnings,
-            });
-        };
-
-        dialect = match policy {
-            KimiModelPolicy::K3 | KimiModelPolicy::K2_7 | KimiModelPolicy::K2_6 => dialect
-                .with_video_input(true)
-                .with_reasoning_input_field(self.reasoning.clone())
-                .with_reasoning_output_field(self.reasoning.clone())
-                .with_function_tool_strict(true),
-            KimiModelPolicy::K2_5 => dialect
-                .with_reasoning_input_field(self.reasoning.clone())
-                .with_reasoning_output_field(self.reasoning.clone())
-                .with_function_tool_strict(true),
-            KimiModelPolicy::LegacyText | KimiModelPolicy::LegacyVision => dialect,
-        };
-
-        let options = parse_options(&extra)?;
-        match policy {
-            KimiModelPolicy::K3 => validate_k3(&request, &options, &extra)?,
-            KimiModelPolicy::K2_7 => validate_k2_7(&request, &options, &extra)?,
-            KimiModelPolicy::K2_6 => validate_k2_6(&request, &options, &extra)?,
-            KimiModelPolicy::K2_5 => validate_k2_5(&request, &options, &extra)?,
-            KimiModelPolicy::LegacyText => validate_legacy(&request, &options, false)?,
-            KimiModelPolicy::LegacyVision => validate_legacy(&request, &options, true)?,
-        }
-        normalize_schema_annotations(&mut request, &mut warnings)?;
+        validate_schema_annotations(&request)?;
+        parse_options(&extra)?;
+        let dialect = dialect
+            .with_video_input(true)
+            .with_reasoning_input_field(self.reasoning.clone())
+            .with_reasoning_output_field(self.reasoning.clone())
+            .with_function_tool_strict(true);
 
         Ok(PreparedChatCall {
             request,
@@ -250,7 +199,7 @@ impl ChatCodecPolicy for KimiChatCodecPolicy {
             extra,
             headers: siumai_transport::RequestHeaders::new(),
             prompt_cache_resolver: None,
-            warnings,
+            warnings: Vec::new(),
         })
     }
 
@@ -432,232 +381,20 @@ fn validate_media_sources(request: &LanguageRequest) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_k3(
-    request: &LanguageRequest,
-    options: &KimiLanguageOptions,
-    extra: &BTreeMap<String, Value>,
-) -> Result<(), Error> {
-    if options.thinking.is_some() {
-        return Err(invalid(
-            "Kimi K3 always thinks; use reasoning_effort instead of thinking",
-        ));
-    }
-    if request.generation.temperature.is_some()
-        || request.generation.top_p.is_some()
-        || extra.contains_key("presence_penalty")
-        || extra.contains_key("frequency_penalty")
-    {
-        return Err(invalid(
-            "Kimi K3 uses fixed sampling values; omit sampling and penalty fields",
-        ));
-    }
-    if request
-        .generation
-        .max_output_tokens
-        .is_some_and(|value| value > 1_048_576)
-    {
-        return Err(invalid(
-            "Kimi K3 max_completion_tokens must not exceed 1048576",
-        ));
-    }
-    if matches!(request.tool_choice, Some(ToolChoice::Named { .. })) {
-        return Err(invalid(
-            "Kimi K3 cannot force a named function while thinking is enabled",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_k2_7(
-    request: &LanguageRequest,
-    options: &KimiLanguageOptions,
-    extra: &BTreeMap<String, Value>,
-) -> Result<(), Error> {
-    if options.reasoning_effort.is_some() {
-        return Err(invalid("reasoning_effort is supported only by Kimi K3"));
-    }
-    if options
-        .thinking
+fn validate_schema_annotations(request: &LanguageRequest) -> Result<(), Error> {
+    let has_schema_annotation = request
+        .structured_output
         .as_ref()
-        .is_some_and(|thinking| matches!(thinking, KimiThinking::Disabled {}))
-    {
-        return Err(invalid("Kimi K2.7 thinking cannot be disabled"));
-    }
-    validate_fixed_number(request.generation.temperature, 1.0)?;
-    validate_fixed_number(request.generation.top_p, 0.95)?;
-    validate_fixed_extra(extra, "presence_penalty", 0.0)?;
-    validate_fixed_extra(extra, "frequency_penalty", 0.0)?;
-    if matches!(
-        request.tool_choice,
-        Some(ToolChoice::Required | ToolChoice::Named { .. })
-    ) {
-        return Err(invalid("Kimi K2.7 tool_choice supports only auto or none"));
-    }
-    Ok(())
-}
-
-fn validate_k2_6(
-    request: &LanguageRequest,
-    options: &KimiLanguageOptions,
-    extra: &BTreeMap<String, Value>,
-) -> Result<(), Error> {
-    if options.reasoning_effort.is_some() {
-        return Err(invalid("reasoning_effort is supported only by Kimi K3"));
-    }
-    let thinking = options
-        .thinking
-        .as_ref()
-        .map_or(KimiThinkingMode::Enabled, KimiThinking::mode);
-    let expected_temperature = if thinking == KimiThinkingMode::Enabled {
-        1.0
-    } else {
-        0.6
-    };
-    validate_fixed_number(request.generation.temperature, expected_temperature)?;
-    validate_fixed_number(request.generation.top_p, 0.95)?;
-    validate_fixed_extra(extra, "presence_penalty", 0.0)?;
-    validate_fixed_extra(extra, "frequency_penalty", 0.0)?;
-    if matches!(request.tool_choice, Some(ToolChoice::Required)) {
-        return Err(invalid("Kimi K2.6 does not support required tool_choice"));
-    }
-    if thinking == KimiThinkingMode::Enabled
-        && matches!(request.tool_choice, Some(ToolChoice::Named { .. }))
-    {
-        return Err(invalid("thinking Kimi K2.6 cannot force a named function"));
-    }
-    Ok(())
-}
-
-fn validate_k2_5(
-    request: &LanguageRequest,
-    options: &KimiLanguageOptions,
-    _extra: &BTreeMap<String, Value>,
-) -> Result<(), Error> {
-    if options.reasoning_effort.is_some() {
-        return Err(invalid("reasoning_effort is supported only by Kimi K3"));
-    }
-    if options
-        .thinking
-        .as_ref()
-        .and_then(KimiThinking::retention)
-        .is_some()
-    {
-        return Err(invalid("Kimi K2.5 thinking does not support keep"));
-    }
-    if request.messages.iter().any(|message| {
-        message.content().iter().any(|part| {
-            matches!(
-                part.content(),
-                ContentPart::Media(media) if media.media_type.starts_with("video/")
-            )
-        })
-    }) {
+        .and_then(|output| output.schema.as_object())
+        .is_some_and(|schema| schema.contains_key("$schema"))
+        || request.tools.iter().any(|tool| {
+            tool.input_schema()
+                .as_object()
+                .is_some_and(|schema| schema.contains_key("$schema"))
+        });
+    if has_schema_annotation {
         return Err(invalid(
-            "Kimi K2.5 supports image input but not video input",
-        ));
-    }
-    let thinking = options
-        .thinking
-        .as_ref()
-        .map_or(KimiThinkingMode::Enabled, KimiThinking::mode);
-    let expected_temperature = if thinking == KimiThinkingMode::Enabled {
-        1.0
-    } else {
-        0.6
-    };
-    validate_fixed_number(request.generation.temperature, expected_temperature)?;
-    Ok(())
-}
-
-fn validate_legacy(
-    request: &LanguageRequest,
-    options: &KimiLanguageOptions,
-    supports_images: bool,
-) -> Result<(), Error> {
-    if options.reasoning_effort.is_some() || options.thinking.is_some() {
-        return Err(invalid(
-            "Moonshot V1 does not accept current Kimi reasoning options",
-        ));
-    }
-    for media in request.messages.iter().flat_map(|message| {
-        message
-            .content()
-            .iter()
-            .filter_map(|part| match part.content() {
-                ContentPart::Media(media) => Some(media),
-                _ => None,
-            })
-    }) {
-        if !supports_images || !media.media_type.starts_with("image/") {
-            return Err(invalid(
-                "the selected Moonshot V1 model does not support this media input",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_fixed_number(actual: Option<f64>, expected: f64) -> Result<(), Error> {
-    if actual.is_some_and(|actual| actual != expected) {
-        return Err(invalid(
-            "Kimi sampling value conflicts with the selected model and thinking mode",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_fixed_extra(
-    extra: &BTreeMap<String, Value>,
-    field: &'static str,
-    expected: f64,
-) -> Result<(), Error> {
-    let Some(value) = extra.get(field) else {
-        return Ok(());
-    };
-    if value.as_f64() != Some(expected) {
-        return Err(invalid(
-            "Kimi penalty value conflicts with the selected model policy",
-        ));
-    }
-    Ok(())
-}
-
-fn normalize_schema_annotations(
-    request: &mut LanguageRequest,
-    warnings: &mut Vec<Warning>,
-) -> Result<(), Error> {
-    let mut removed = 0usize;
-    if let Some(output) = &mut request.structured_output
-        && output
-            .schema
-            .as_object_mut()
-            .is_some_and(|schema| schema.remove("$schema").is_some())
-    {
-        removed += 1;
-    }
-    let mut normalized_tools = Vec::with_capacity(request.tools.len());
-    for tool in std::mem::take(&mut request.tools) {
-        let mut parts = tool.into_parts();
-        if parts
-            .input_schema
-            .as_object_mut()
-            .is_some_and(|schema| schema.remove("$schema").is_some())
-        {
-            removed += 1;
-        }
-        normalized_tools.push(ToolSpec::from_parts(parts).map_err(|source| {
-            Error::new(
-                ErrorKind::Internal,
-                "Kimi schema normalization produced an invalid tool definition",
-            )
-            .with_source(source)
-        })?);
-    }
-    request.tools = normalized_tools;
-    if removed > 0 {
-        warnings.push(Warning::provider(
-            "schema_annotation_removed",
-            "Kimi uses an MFJS-compatible schema subset; top-level $schema annotations were removed",
+            "Kimi's schema subset does not accept top-level $schema annotations",
         ));
     }
     Ok(())

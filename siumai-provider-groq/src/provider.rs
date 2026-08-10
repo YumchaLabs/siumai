@@ -12,15 +12,14 @@ use siumai_core::{
     ApiModeId, ApiStability, CallOptions, CatalogError, Error, GenericSupportClaim, InvalidId,
     LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse, LanguageStream, Model,
     ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle, ModelLookupError,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ModelProfile,
-    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
-    OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider,
-    ProviderId, ProviderInstanceId, ProviderOptionError, ProviderOptions, ProviderProfile,
-    ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
-    ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError,
-    SupportScope, TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
-    UnsupportedReason, VerificationDate, VerificationEvidence, VerifiedFidelity,
-    VerifiedNativeSupportClaim, VerifiedSupportClaim,
+    ModelOperation, ModelProfile, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId,
+    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId, ProviderOptionError,
+    ProviderOptions, ProviderProfile, ProviderRegistration, ProviderRegistrationError,
+    ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel,
+    SpeechModelProvider, SupportManifestError, SupportScope, TranscriptionModel,
+    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerificationEvidence,
+    VerifiedFidelity, VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -216,7 +215,6 @@ impl GroqProvider {
         let runtime = self.transcription.clone();
         ProviderRegistration::from_transcription(
             self.transcription.scope.clone(),
-            self.transcription.policy.clone(),
             Arc::new(move |model| {
                 Ok(
                     Arc::new(GroqTranscriptionModel::new(runtime.clone(), model))
@@ -230,7 +228,6 @@ impl GroqProvider {
         let runtime = self.speech.clone();
         ProviderRegistration::from_speech(
             self.speech.scope.clone(),
-            self.speech.policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(GroqSpeechModel::new(runtime.clone(), model)) as Arc<dyn SpeechModel>)
             }),
@@ -463,19 +460,15 @@ impl GroqProviderBuilder {
             transcription_scope,
             media_transport.clone(),
             transcription_defaults,
-            verified_endpoint,
         ));
-        let audio = GroqAudio::new(media_transport.clone(), verified_endpoint);
+        let audio = GroqAudio::new(media_transport.clone());
         let speech = Arc::new(GroqSpeechRuntime::new(
             instance_id,
             speech_scope,
             media_transport,
-            verified_endpoint,
         ));
-        let transcription_registration = ProviderRegistration::from_transcription(
-            transcription.scope.clone(),
-            transcription.policy.clone(),
-            {
+        let transcription_registration =
+            ProviderRegistration::from_transcription(transcription.scope.clone(), {
                 let runtime = transcription.clone();
                 Arc::new(move |model| {
                     Ok(
@@ -483,16 +476,13 @@ impl GroqProviderBuilder {
                             as Arc<dyn TranscriptionModel>,
                     )
                 })
-            },
-        );
-        let speech_registration =
-            ProviderRegistration::from_speech(speech.scope.clone(), speech.policy.clone(), {
-                let runtime = speech.clone();
-                Arc::new(move |model| {
-                    Ok(Arc::new(GroqSpeechModel::new(runtime.clone(), model))
-                        as Arc<dyn SpeechModel>)
-                })
             });
+        let speech_registration = ProviderRegistration::from_speech(speech.scope.clone(), {
+            let runtime = speech.clone();
+            Arc::new(move |model| {
+                Ok(Arc::new(GroqSpeechModel::new(runtime.clone(), model)) as Arc<dyn SpeechModel>)
+            })
+        });
         let default_registration = chat_registration
             .clone()
             .merge(transcription_registration)?
@@ -588,7 +578,6 @@ pub(crate) struct GroqSpeechRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<GroqSpeechPolicy>,
 }
 
 impl GroqSpeechRuntime {
@@ -596,14 +585,9 @@ impl GroqSpeechRuntime {
         instance_id: ProviderInstanceId,
         scope: Arc<ProviderScope>,
         transport: ProviderTransport,
-        verified_endpoint: bool,
     ) -> Self {
         Self {
             instance_id,
-            policy: Arc::new(GroqSpeechPolicy {
-                expected_scope: scope.clone(),
-                verified_endpoint,
-            }),
             scope,
             transport,
         }
@@ -617,27 +601,6 @@ impl fmt::Debug for GroqSpeechRuntime {
             .field("scope", &self.scope)
             .field("transport", &"shared")
             .finish()
-    }
-}
-
-pub(crate) struct GroqSpeechPolicy {
-    expected_scope: Arc<ProviderScope>,
-    verified_endpoint: bool,
-}
-
-impl ModelPolicy for GroqSpeechPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.scope() != self.expected_scope.as_ref() {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::SynthesizeSpeech {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && crate::models::is_known_speech(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 

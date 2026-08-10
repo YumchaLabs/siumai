@@ -13,7 +13,6 @@ use siumai_core::{
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
     ProviderScope, PublicDiagnosticText, ReplayDomain, ResponseDiagnostics, StreamTerminal,
     SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
-    Warning, WarningKind,
 };
 use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -45,7 +44,6 @@ pub const DEPRECATIONS_SOURCE: &str = "https://console.groq.com/docs/deprecation
 pub const VERIFIED_ON: &str = "2026-08-05";
 
 const BROWSER_SEARCH_MARKER: &str = "__siumai_groq_browser_search";
-const STRUCTURED_OUTPUTS_MARKER: &str = "__siumai_groq_structured_outputs";
 const STRICT_JSON_SCHEMA_MARKER: &str = "__siumai_groq_strict_json_schema";
 
 pub(crate) fn profile(
@@ -259,40 +257,14 @@ impl ChatCodecPolicy for GroqChatCodecPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         _dialect: ChatCompletionsDialect,
         extra: BTreeMap<String, Value>,
     ) -> Result<PreparedChatCall, Error> {
         let options = parse_chat_options(&extra)?;
-        if models::is_compound(model.as_str()) && !request.tools.is_empty() {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Groq Compound systems do not support caller-defined function tools",
-            ));
-        }
-        if models::is_compound(model.as_str())
-            && request.structured_output.is_some()
-            && options.structured_outputs != Some(false)
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Groq Compound systems require JSON-object mode instead of JSON Schema",
-            ));
-        }
-        let mut warnings = Vec::new();
         let browser_search = options.browser_search == Some(true);
-        let browser_search_supported = models::supports_browser_search(model.as_str());
-        let known_unsupported = browser_search
-            && models::is_known_language(model.as_str())
-            && !browser_search_supported;
-        if known_unsupported {
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "Groq browser search was omitted because the selected known model does not support it",
-            ));
-        }
-        if browser_search && !known_unsupported && request.structured_output.is_some() {
+        if browser_search && request.structured_output.is_some() {
             return Err(invalid(
                 "Groq browser search cannot be combined with structured output",
             ));
@@ -305,18 +277,14 @@ impl ChatCodecPolicy for GroqChatCodecPolicy {
             ));
         }
         if options.structured_outputs == Some(false) && request.structured_output.is_some() {
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "Groq JSON Schema structured output was lowered to JSON-object mode",
+            return Err(invalid(
+                "Groq structured_outputs=false cannot represent portable JSON Schema output",
             ));
         }
 
         let mut wire = language_wire_options(&options)?;
-        if browser_search && !known_unsupported {
+        if browser_search {
             wire.insert(BROWSER_SEARCH_MARKER.to_string(), Value::Bool(true));
-        }
-        if let Some(enabled) = options.structured_outputs {
-            wire.insert(STRUCTURED_OUTPUTS_MARKER.to_string(), Value::Bool(enabled));
         }
         if let Some(enabled) = options.strict_json_schema {
             wire.insert(STRICT_JSON_SCHEMA_MARKER.to_string(), Value::Bool(enabled));
@@ -327,7 +295,7 @@ impl ChatCodecPolicy for GroqChatCodecPolicy {
             extra: wire,
             headers: RequestHeaders::new(),
             prompt_cache_resolver: None,
-            warnings,
+            warnings: Vec::new(),
         })
     }
 
@@ -346,7 +314,6 @@ impl ChatCodecPolicy for GroqChatCodecPolicy {
             )
         })?;
         let browser_search = take_marker(object, BROWSER_SEARCH_MARKER);
-        let structured_outputs = take_marker(object, STRUCTURED_OUTPUTS_MARKER);
         let strict_json_schema = take_marker(object, STRICT_JSON_SCHEMA_MARKER);
 
         if browser_search == Some(true) {
@@ -366,18 +333,6 @@ impl ChatCodecPolicy for GroqChatCodecPolicy {
             {
                 tools.push(serde_json::json!({"type": "browser_search"}));
             }
-        }
-        if structured_outputs == Some(false)
-            && object
-                .get("response_format")
-                .and_then(|format| format.get("type"))
-                .and_then(Value::as_str)
-                == Some("json_schema")
-        {
-            object.insert(
-                "response_format".to_string(),
-                serde_json::json!({"type": "json_object"}),
-            );
         }
         if let Some(strict) = strict_json_schema
             && let Some(schema) = object
@@ -426,46 +381,15 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedResponsesCall, Error> {
         reject_unsupported_responses_fields(&extra)?;
         let options = parse_responses_options(&extra)?;
-        if models::is_compound(model.as_str()) && !request.tools.is_empty() {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Groq Compound systems do not support caller-defined function tools",
-            ));
-        }
-        if models::is_compound(model.as_str()) && request.structured_output.is_some() {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Groq Compound Responses does not support JSON Schema structured output",
-            ));
-        }
         let browser_search = options.browser_search == Some(true);
         let code_execution = options.code_execution == Some(true);
-        let known_model = models::is_known_language(model.as_str());
-        let browser_search_supported = models::supports_responses_browser_search(model.as_str());
-        let code_execution_supported = models::supports_responses_code_execution(model.as_str());
-        let mut warnings = Vec::new();
-        if browser_search && known_model && !browser_search_supported {
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "Groq browser search was omitted because the selected known Responses model does not support it",
-            ));
-        }
-        if code_execution && known_model && !code_execution_supported {
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "Groq code execution was omitted because the selected known Responses model does not support it",
-            ));
-        }
-        if browser_search
-            && (!known_model || browser_search_supported)
-            && request.structured_output.is_some()
-        {
+        if browser_search && request.structured_output.is_some() {
             return Err(invalid(
                 "Groq browser search cannot be combined with structured output",
             ));
@@ -492,10 +416,10 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
         }
 
         let mut native_tools = Vec::new();
-        if browser_search && (!known_model || browser_search_supported) {
+        if browser_search {
             native_tools.push(serde_json::json!({"type": "browser_search"}));
         }
-        if code_execution && (!known_model || code_execution_supported) {
+        if code_execution {
             native_tools.push(serde_json::json!({
                 "type": "code_interpreter",
                 "container": {"type": "auto"}
@@ -532,7 +456,7 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
             headers,
             native_tools,
             function_tools: BTreeMap::new(),
-            warnings,
+            warnings: Vec::new(),
         })
     }
 
@@ -1291,10 +1215,8 @@ mod tests {
     }
 
     #[test]
-    fn browser_search_and_structured_controls_are_codec_owned() {
-        let options = GroqLanguageOptions::new()
-            .with_browser_search(true)
-            .with_structured_outputs(false);
+    fn browser_search_is_codec_owned() {
+        let options = GroqLanguageOptions::new().with_browser_search(true);
         let erased = ProviderOptions::typed(&options).unwrap();
         let extra = erased
             .value()

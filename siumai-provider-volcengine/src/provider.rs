@@ -31,7 +31,7 @@ use siumai_transport::{
 };
 use thiserror::Error as ThisError;
 
-use crate::image::{ARK_IMAGE_API_MODE, ArkImageModel, ArkImageOptions, ArkImagePolicy, ArkImages};
+use crate::image::{ARK_IMAGE_API_MODE, ArkImageModel, ArkImageOptions, ArkImages};
 use crate::language::{
     DEFAULT_BASE_URL, PLATFORM_ID, PROVIDER_ID, VolcengineProfileError, profile,
 };
@@ -97,7 +97,6 @@ pub struct VolcengineProvider {
     language: OpenAiCompatibleProvider,
     native: SharedArkNativeRuntime,
     image_scope: Arc<ProviderScope>,
-    image_policy: Arc<dyn siumai_core::ModelPolicy>,
     image_defaults: ArkImageOptions,
     chat_registration: ProviderRegistration,
     responses_registration: ProviderRegistration,
@@ -202,7 +201,6 @@ impl VolcengineProvider {
                 ModelFamily::Image,
                 self.native.instance_id.clone(),
             ),
-            self.image_policy.clone(),
             self.image_defaults.clone(),
         )
     }
@@ -359,8 +357,6 @@ impl VolcengineProviderBuilder {
         let auth = self.credential.0.into_auth();
         let profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
         let image_scope = Arc::new(image_provider_scope(replay_domain.clone())?);
-        let image_policy: Arc<dyn siumai_core::ModelPolicy> =
-            Arc::new(ArkImagePolicy { verified_endpoint });
         let image_profile = image_support_profile(verified_endpoint)?;
         let native_claims = if verified_endpoint {
             native_media_claims()?
@@ -405,11 +401,9 @@ impl VolcengineProviderBuilder {
         let native = Arc::new(ArkNativeRuntime::new(instance_id, native_builder.build()?));
         let image_registration = ProviderRegistration::from_image(
             image_scope.clone(),
-            image_policy.clone(),
             Arc::new({
                 let native = native.clone();
                 let image_scope = image_scope.clone();
-                let image_policy = image_policy.clone();
                 let image_defaults = self.image_defaults.clone();
                 move |model| {
                     Ok(Arc::new(ArkImageModel::new(
@@ -420,7 +414,6 @@ impl VolcengineProviderBuilder {
                             ModelFamily::Image,
                             native.instance_id.clone(),
                         ),
-                        image_policy.clone(),
                         image_defaults.clone(),
                     )) as Arc<dyn ImageModel>)
                 }
@@ -438,7 +431,6 @@ impl VolcengineProviderBuilder {
             language,
             native,
             image_scope,
-            image_policy,
             image_defaults: self.image_defaults,
             chat_registration,
             responses_registration,

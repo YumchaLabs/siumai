@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use siumai_core::{
     ApiStability, CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail,
-    ErrorKind, Model, ModelFamily, ModelId, ModelOperation, ProviderOptions, RerankCandidate,
-    RerankModel, RerankRequest, ResourceKind, SupportState, UsageValue, VerifiedFidelity,
+    ErrorKind, Model, ModelFamily, ModelId, ProviderOptions, RerankCandidate, RerankModel,
+    RerankRequest, ResourceKind, UsageValue, VerifiedFidelity,
 };
 use siumai_transport::{EndpointConfig, RetryPolicy};
 use wiremock::matchers::{body_json, header, method, path};
@@ -120,15 +120,11 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
         embedding.descriptor().instance_id(),
         separate_embedding.descriptor().instance_id()
     );
-    assert!(matches!(
+    assert!(
         registration
-            .evaluate(
-                ModelId::new("future-embed-model").expect("future model ID"),
-                ModelOperation::Embed,
-            )
-            .state(),
-        SupportState::Unknown
-    ));
+            .embedding_model(ModelId::new("future-embed-model").expect("future model ID"))
+            .is_ok()
+    );
 }
 
 #[tokio::test]

@@ -7,9 +7,9 @@ use http::{Method, StatusCode};
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamEvent, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
-    ModelId, ModelOperation, ModelPolicy, ProviderOptionError, PublicDiagnosticText,
-    SensitiveResponse, StreamTerminal, SupportState, Warning, WarningKind,
+    LanguageStream, LanguageStreamEvent, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionError, PublicDiagnosticText, SensitiveResponse, StreamTerminal,
+    Warning,
 };
 use siumai_protocol_openai::chat_completions::CHAT_COMPLETIONS_TARGET;
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
@@ -56,34 +56,6 @@ impl OpenAiCompatibleLanguageModel {
 
     pub const fn api_mode(&self) -> OpenAiCompatibleApiMode {
         self.mode.api_mode()
-    }
-
-    fn policy(&self, operation: ModelOperation) -> Result<Vec<Warning>, Error> {
-        let decision = self
-            .runtime
-            .policy
-            .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.mode.scope().clone(),
-                self.model_id().clone(),
-                operation,
-            ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(
-                operation,
-                Error::new(
-                    ErrorKind::Unsupported,
-                    match self.api_mode() {
-                        OpenAiCompatibleApiMode::Responses => {
-                            "model policy rejected the requested Responses operation"
-                        }
-                        OpenAiCompatibleApiMode::ChatCompletions => {
-                            "model policy rejected the requested Chat Completions operation"
-                        }
-                    },
-                ),
-            ));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn prepare_chat(
@@ -204,7 +176,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         let operation = ModelOperation::Generate;
-        let mut warnings = self.policy(operation)?;
+        let mut warnings = Vec::new();
         let mode = self.api_mode();
         let extra = self
             .runtime
@@ -278,7 +250,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let mut warnings = self.policy(operation)?;
+        let mut warnings = Vec::new();
         let mode = self.api_mode();
         let extra = self
             .runtime
@@ -404,31 +376,6 @@ fn attach_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
             **response = append_warnings(response.as_ref().clone(), warnings);
         }
         _ => {}
-    }
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the verified advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "model is deprecated; inspect the provider profile for its replacement",
-        ),
-        ModelAdvisory::Retired { .. } => Warning::new(
-            WarningKind::RetiredModel,
-            "model is retired in the provider profile",
-        ),
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "model ID is a rolling alias whose behavior may change",
-        ),
-        _ => Warning::provider(
-            "model_advisory",
-            "provider profile returned a model advisory",
-        ),
     }
 }
 

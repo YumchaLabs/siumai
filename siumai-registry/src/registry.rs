@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use siumai_core::{
-    EmbeddingModel, ImageModel, LanguageModel, ModelId, ModelOperation, ModelPolicyDecision,
-    ProviderRegistration, RerankModel, RouteId, SpeechModel, TranscriptionModel,
+    EmbeddingModel, ImageModel, LanguageModel, ModelId, ProviderRegistration, RerankModel, RouteId,
+    SpeechModel, TranscriptionModel,
 };
 
 use crate::middleware::{
@@ -166,15 +166,6 @@ impl Registry {
             }
         })?;
         self.snapshot.middleware.transcription(&context, model)
-    }
-
-    pub fn evaluate(
-        &self,
-        reference: impl AsRef<str>,
-        operation: ModelOperation,
-    ) -> Result<ModelPolicyDecision, RegistryResolveError> {
-        let (registration, model, _) = self.resolve(reference)?;
-        Ok(registration.evaluate(model, operation))
     }
 
     fn resolve(
@@ -344,21 +335,12 @@ mod tests {
         ApiModeId, CallOptions, EmbeddingLimits, EmbeddingRequest, EmbeddingResponse, Error,
         ErrorContext, ErrorKind, FinishReason, ImageRequest, ImageResponse, LanguageRequest,
         LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelFamily, ModelLookupError,
-        ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProtocolId, ProviderId,
-        ProviderInstanceId, ProviderScope, RerankRequest, RerankResponse, SpeechRequest,
-        SpeechResponse, TranscriptionRequest, TranscriptionResponse, Usage,
+        ModelOperation, ProtocolId, ProviderId, ProviderInstanceId, ProviderScope, RerankRequest,
+        RerankResponse, SpeechRequest, SpeechResponse, TranscriptionRequest, TranscriptionResponse,
+        Usage,
     };
 
     use super::*;
-
-    #[derive(Debug)]
-    struct AdvisoryPolicy;
-
-    impl ModelPolicy for AdvisoryPolicy {
-        fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
 
     #[derive(Debug)]
     struct FakeLanguageModel {
@@ -549,7 +531,6 @@ mod tests {
         let instance_id = ProviderInstanceId::new();
         ProviderRegistration::from_language(
             scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(move |model| {
                 constructions.fetch_add(1, Ordering::SeqCst);
                 Ok(Arc::new(FakeLanguageModel {
@@ -588,7 +569,6 @@ mod tests {
 
         ProviderRegistration::from_language(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new({
                 let scope = scope.clone();
                 let instance_id = instance_id.clone();
@@ -607,31 +587,23 @@ mod tests {
         )
         .bind_embedding(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             factory!(FakeEmbeddingModel, EmbeddingModel, Embedding),
         )
         .unwrap()
         .bind_rerank(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             factory!(FakeRerankModel, RerankModel, Rerank),
         )
         .unwrap()
-        .bind_image(
-            scope.clone(),
-            Arc::new(AdvisoryPolicy),
-            factory!(FakeImageModel, ImageModel, Image),
-        )
+        .bind_image(scope.clone(), factory!(FakeImageModel, ImageModel, Image))
         .unwrap()
         .bind_speech(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             factory!(FakeSpeechModel, SpeechModel, Speech),
         )
         .unwrap()
         .bind_transcription(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             factory!(FakeTranscriptionModel, TranscriptionModel, Transcription),
         )
         .unwrap()
@@ -642,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_alias_chains_and_preserves_model_colons() {
+    fn resolves_unknown_models_through_aliases_and_preserves_model_colons() {
         let constructions = Arc::new(AtomicUsize::new(0));
         let mut builder = Registry::builder();
         builder
@@ -776,7 +748,6 @@ mod tests {
         let factory_calls = calls.clone();
         let registration = ProviderRegistration::from_embedding(
             scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(move |model| {
                 Ok(Arc::new(FailingEmbeddingModel {
                     descriptor: ModelDescriptor::from_scope(

@@ -226,8 +226,8 @@ pub(crate) fn profile(
     };
 
     Ok(profile
-        .with_chat_codec_policy(Arc::new(AlibabaChatCodecPolicy { verified_endpoint }))
-        .with_responses_codec_policy(Arc::new(AlibabaResponsesCodecPolicy { verified_endpoint }))
+        .with_chat_codec_policy(Arc::new(AlibabaChatCodecPolicy))
+        .with_responses_codec_policy(Arc::new(AlibabaResponsesCodecPolicy))
         .with_responses_wire_dialect(ResponsesWireDialect::openai()))
 }
 
@@ -249,9 +249,7 @@ pub enum AlibabaProfileError {
 }
 
 #[derive(Debug)]
-struct AlibabaChatCodecPolicy {
-    verified_endpoint: bool,
-}
+struct AlibabaChatCodecPolicy;
 
 impl ChatCodecPolicy for AlibabaChatCodecPolicy {
     fn name(&self) -> &'static str {
@@ -260,21 +258,12 @@ impl ChatCodecPolicy for AlibabaChatCodecPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         dialect: ChatCompletionsDialect,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedChatCall, Error> {
         let options = parse_chat_options(&extra)?;
-        if options.enable_search == Some(true)
-            && self.verified_endpoint
-            && is_known_model(model)
-            && !supports_web_search(model)
-        {
-            return Err(invalid(
-                "Alibaba web search is not declared for this Qwen model",
-            ));
-        }
         let has_prompt_cache = !options.prompt_cache_breakpoints.is_empty();
         let request = attach_chat_cache_annotations(request, &options.prompt_cache_breakpoints)?;
         extra.remove("prompt_cache_breakpoints");
@@ -327,9 +316,7 @@ impl ChatCodecPolicy for AlibabaChatCodecPolicy {
 }
 
 #[derive(Debug)]
-struct AlibabaResponsesCodecPolicy {
-    verified_endpoint: bool,
-}
+struct AlibabaResponsesCodecPolicy;
 
 impl ResponsesCodecPolicy for AlibabaResponsesCodecPolicy {
     fn name(&self) -> &'static str {
@@ -338,7 +325,7 @@ impl ResponsesCodecPolicy for AlibabaResponsesCodecPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedResponsesCall, Error> {
@@ -371,20 +358,6 @@ impl ResponsesCodecPolicy for AlibabaResponsesCodecPolicy {
         let has_web_extractor = native_tools
             .iter()
             .any(|tool| tool.get("type").and_then(Value::as_str) == Some("web_extractor"));
-        let has_code_interpreter = native_tools
-            .iter()
-            .any(|tool| tool.get("type").and_then(Value::as_str) == Some("code_interpreter"));
-        if native_tools
-            .iter()
-            .any(|tool| tool.get("type").and_then(Value::as_str) == Some("web_search"))
-            && self.verified_endpoint
-            && is_known_model(model)
-            && !supports_web_search(model)
-        {
-            return Err(invalid(
-                "Alibaba Responses web_search is not declared for this Qwen model",
-            ));
-        }
         if has_web_extractor
             && !native_tools
                 .iter()
@@ -392,15 +365,6 @@ impl ResponsesCodecPolicy for AlibabaResponsesCodecPolicy {
         {
             return Err(invalid(
                 "Alibaba web_extractor requires a web_search tool in the same request",
-            ));
-        }
-        if self.verified_endpoint
-            && is_qwen3_max_model(model)
-            && (has_web_extractor || has_code_interpreter)
-            && reasoning_is_disabled(&extra)
-        {
-            return Err(invalid(
-                "Alibaba Qwen3-Max web_extractor/code_interpreter requires reasoning to be enabled",
             ));
         }
         extra.remove("native_tools");
@@ -534,59 +498,6 @@ fn prepare_reasoning_options(
         }
     }
     Ok(())
-}
-
-fn is_qwen3_max_model(model: &ModelId) -> bool {
-    matches!(
-        model.as_str(),
-        "qwen3-max" | "qwen3-max-2026-01-23" | "qwen3-max-preview"
-    )
-}
-
-fn reasoning_is_disabled(extra: &BTreeMap<String, Value>) -> bool {
-    extra
-        .get("reasoning")
-        .and_then(|value| value.get("effort"))
-        .and_then(Value::as_str)
-        == Some("none")
-        || extra.get("enable_thinking").and_then(Value::as_bool) == Some(false)
-}
-
-fn is_known_model(model: &ModelId) -> bool {
-    matches!(
-        model.as_str(),
-        "qwen3.7-max"
-            | "qwen3.7-max-2026-05-20"
-            | "qwen3.7-max-2026-06-08"
-            | "qwen3.7-plus"
-            | "qwen3.7-plus-2026-05-26"
-            | "qwen3.6-plus"
-            | "qwen3.6-flash"
-            | "qwen3.5-plus"
-            | "qwen3.5-flash"
-            | "qwen3-max"
-            | "qwen3-max-2026-01-23"
-            | "qwen3-max-preview"
-            | "qwen-plus"
-            | "qwen-flash"
-            | "qwen3-coder-plus"
-            | "qwen3-coder-flash"
-    )
-}
-
-fn supports_web_search(model: &ModelId) -> bool {
-    matches!(
-        model.as_str(),
-        "qwen3.7-max"
-            | "qwen3.7-max-2026-05-20"
-            | "qwen3.7-max-2026-06-08"
-            | "qwen3.6-plus"
-            | "qwen3.6-flash"
-            | "qwen3.5-plus"
-            | "qwen3.5-flash"
-            | "qwen3-max"
-            | "qwen3-max-2026-01-23"
-    )
 }
 
 fn invalid(message: &'static str) -> Error {

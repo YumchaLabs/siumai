@@ -6,10 +6,9 @@ use http::header::{ACCEPT, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
-    ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ProviderOptionError, PublicDiagnosticText,
-    RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata,
-    SensitiveResponse, SupportState, Usage, UsageValue, Warning, WarningKind,
+    ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
+    ProviderOptionError, PublicDiagnosticText, RerankLimits, RerankModel, RerankRequest,
+    RerankResponse, RerankResult, ResponseMetadata, SensitiveResponse, Usage, UsageValue,
 };
 use siumai_transport::{
     RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders,
@@ -94,8 +93,6 @@ impl EmbeddingModel for CohereEmbeddingModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = policy_warnings(&self.runtime, self.model_id(), ModelOperation::Embed)
-            .map_err(|error| self.contextualize(error))?;
         let provider_options = embedding_options(&options, self.descriptor.scope())
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
@@ -136,7 +133,7 @@ impl EmbeddingModel for CohereEmbeddingModel {
                 model: Some(self.model_id().clone()),
             },
             usage: embedding_usage(&decoded.meta),
-            warnings,
+            warnings: Vec::new(),
             provider: provider_metadata(&decoded.meta),
         };
         validate_embedding_response(&result, &request, dimensions)
@@ -207,8 +204,6 @@ impl RerankModel for CohereRerankModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = policy_warnings(&self.runtime, self.model_id(), ModelOperation::Rerank)
-            .map_err(|error| self.contextualize(error))?;
         let provider_options = rerank_options(&options, self.descriptor.scope())
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
@@ -259,7 +254,7 @@ impl RerankModel for CohereRerankModel {
                 model: Some(self.model_id().clone()),
             },
             usage: rerank_usage(&decoded.meta),
-            warnings,
+            warnings: Vec::new(),
             provider: provider_metadata(&decoded.meta),
         };
         result
@@ -336,45 +331,6 @@ fn validate_embedding_response(
         ));
     }
     Ok(())
-}
-
-fn policy_warnings(
-    runtime: &CohereRuntime,
-    model: &ModelId,
-    operation: ModelOperation,
-) -> Result<Vec<Warning>, Error> {
-    let decision = runtime.policy.evaluate(&ModelPolicyContext::new(
-        runtime.scope.clone(),
-        model.clone(),
-        operation,
-    ));
-    if matches!(decision.state(), SupportState::Unsupported { .. }) {
-        return Err(Error::new(
-            ErrorKind::Unsupported,
-            "Cohere model policy rejected the requested operation",
-        ));
-    }
-    Ok(decision
-        .advisories()
-        .iter()
-        .map(|advisory| match advisory {
-            ModelAdvisory::UnknownModel => Warning::new(
-                WarningKind::UnknownModel,
-                "model is absent from the verified Cohere advisory catalog",
-            ),
-            ModelAdvisory::Deprecated { .. } => {
-                Warning::new(WarningKind::DeprecatedModel, "Cohere model is deprecated")
-            }
-            ModelAdvisory::Retired { .. } => {
-                Warning::new(WarningKind::RetiredModel, "Cohere model is retired")
-            }
-            ModelAdvisory::RollingAlias => Warning::new(
-                WarningKind::RollingModelAlias,
-                "Cohere model ID is a rolling alias",
-            ),
-            _ => Warning::provider("model_advisory", "Cohere model policy returned an advisory"),
-        })
-        .collect())
 }
 
 fn decode_embedding(body: &[u8]) -> Result<EmbeddingWireResponse, Error> {

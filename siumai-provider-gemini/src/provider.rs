@@ -9,13 +9,12 @@ use secrecy::{ExposeSecret, SecretString};
 use siumai_core::{
     ApiStability, EmbeddingModel, EmbeddingModelProvider, Error as CoreError, ErrorKind,
     ImageModel, ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, ModelId,
-    ModelLookupError, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
-    OfficialSource, PlatformId, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptions,
-    ProviderRegistration, ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
-    SpeechModel, SpeechModelProvider, SupportManifestError, UnsupportedReason, UpstreamLifecycle,
-    UpstreamMaturity, UpstreamSupportStatus, VerificationDate, VerifiedFidelity,
-    VerifiedNativeSupportClaim,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, PlatformId, Provider, ProviderInstanceId,
+    ProviderOptionError, ProviderOptions, ProviderRegistration, ProviderScope,
+    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider,
+    SupportManifestError, UpstreamLifecycle, UpstreamMaturity, UpstreamSupportStatus,
+    VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
@@ -23,23 +22,16 @@ use siumai_transport::{
 };
 use thiserror::Error;
 
-use crate::embedding::{
-    GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2, GEMINI_EMBEDDING_API_MODE_ID, GeminiEmbeddingModel,
-    GeminiEmbeddingOptions,
-};
+use crate::embedding::{GeminiEmbeddingModel, GeminiEmbeddingOptions};
 use crate::files::GeminiFiles;
-use crate::generate_content::{
-    GeminiGenerateContentModel, GeminiGenerateContentOptions, GeminiGenerateContentPolicy,
-};
+use crate::generate_content::{GeminiGenerateContentModel, GeminiGenerateContentOptions};
 use crate::image::GeminiImageModel;
 use crate::language::GeminiLanguageModel;
-use crate::models::{is_current_image, is_current_interactions};
 use crate::options::{GeminiImageOptions, GeminiInteractionsOptions};
 use crate::profile::{
-    API_MODE_ID, EMBEDDING_PROTOCOL_ID, FILES_SOURCE, GeminiProfile, GeminiProfileError,
-    PLATFORM_ID, PROTOCOL_ID, PROVIDER_ID, VEO_SOURCE,
+    FILES_SOURCE, GeminiProfile, GeminiProfileError, PLATFORM_ID, PROVIDER_ID, VEO_SOURCE,
 };
-use crate::speech::{GeminiSpeechModel, GeminiSpeechOptions, GeminiSpeechPolicy};
+use crate::speech::{GeminiSpeechModel, GeminiSpeechOptions};
 use crate::veo::GeminiVeo;
 
 const OFFICIAL_BASE_URL: &str = "https://generativelanguage.googleapis.com";
@@ -209,7 +201,6 @@ impl GeminiProvider {
         let speech_provider = self.clone();
         ProviderRegistration::from_language(
             self.runtime.interactions_scope.clone(),
-            self.runtime.interactions_policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(language_provider.create_language_model(model))
                     as Arc<dyn LanguageModel>)
@@ -217,7 +208,6 @@ impl GeminiProvider {
         )
         .merge(ProviderRegistration::from_embedding(
             self.runtime.embedding_scope.clone(),
-            self.runtime.embedding_policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(embedding_provider.create_embedding_model(model))
                     as Arc<dyn EmbeddingModel>)
@@ -226,7 +216,6 @@ impl GeminiProvider {
         .expect("Gemini language and embedding registrations share one provider")
         .merge(ProviderRegistration::from_image(
             self.runtime.image_scope.clone(),
-            self.runtime.image_policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(image_provider.create_image_model(model)) as Arc<dyn ImageModel>)
             }),
@@ -234,7 +223,6 @@ impl GeminiProvider {
         .expect("Gemini image registration shares one provider")
         .merge(ProviderRegistration::from_speech(
             self.runtime.speech_scope.clone(),
-            self.runtime.speech_policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(speech_provider.create_speech_model(model)) as Arc<dyn SpeechModel>)
             }),
@@ -250,7 +238,6 @@ impl GeminiProvider {
         let provider = self.clone();
         ProviderRegistration::from_language(
             self.runtime.generate_content_scope.clone(),
-            self.runtime.generate_content_policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(provider.create_generate_content_model(model))
                     as Arc<dyn LanguageModel>)
@@ -518,13 +505,6 @@ impl GeminiProviderBuilder {
                 generate_content_scope: profile.generate_content_scope(),
                 transport: transport.build()?,
                 limits,
-                interactions_policy: Arc::new(GeminiInteractionsPolicy { verified_endpoint }),
-                embedding_policy: Arc::new(GeminiEmbeddingPolicy { verified_endpoint }),
-                image_policy: Arc::new(GeminiImagePolicy { verified_endpoint }),
-                speech_policy: Arc::new(GeminiSpeechPolicy { verified_endpoint }),
-                generate_content_policy: Arc::new(GeminiGenerateContentPolicy {
-                    verified_endpoint,
-                }),
                 interactions_defaults: self.interactions_defaults,
                 embedding_defaults: self.embedding_defaults,
                 image_defaults: self.image_defaults,
@@ -574,11 +554,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) generate_content_scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) limits: TransportLimits,
-    pub(crate) interactions_policy: Arc<GeminiInteractionsPolicy>,
-    pub(crate) embedding_policy: Arc<GeminiEmbeddingPolicy>,
-    pub(crate) image_policy: Arc<GeminiImagePolicy>,
-    pub(crate) speech_policy: Arc<GeminiSpeechPolicy>,
-    pub(crate) generate_content_policy: Arc<GeminiGenerateContentPolicy>,
     pub(crate) interactions_defaults: GeminiInteractionsOptions,
     pub(crate) embedding_defaults: GeminiEmbeddingOptions,
     pub(crate) image_defaults: GeminiImageOptions,
@@ -604,85 +579,6 @@ impl fmt::Debug for ProviderRuntime {
             .field("speech_defaults", &self.speech_defaults)
             .field("generate_content_defaults", &self.generate_content_defaults)
             .finish()
-    }
-}
-
-pub(crate) struct GeminiImagePolicy {
-    verified_endpoint: bool,
-}
-
-pub(crate) struct GeminiEmbeddingPolicy {
-    verified_endpoint: bool,
-}
-
-pub(crate) struct GeminiInteractionsPolicy {
-    verified_endpoint: bool,
-}
-
-impl ModelPolicy for GeminiInteractionsPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if !matches!(
-            context.operation(),
-            ModelOperation::Generate | ModelOperation::Stream
-        ) {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && is_current_interactions(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
-}
-
-impl ModelPolicy for GeminiEmbeddingPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str())
-                == Some(EMBEDDING_PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str())
-                == Some(GEMINI_EMBEDDING_API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::Embed {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint
-            && matches!(
-                context.model().as_str(),
-                GEMINI_EMBEDDING_2 | GEMINI_EMBEDDING_001
-            )
-        {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
-}
-
-impl ModelPolicy for GeminiImagePolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::GenerateImage {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && is_current_image(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 
@@ -742,7 +638,7 @@ mod tests {
         SpeechRequest, UsageValue,
     };
 
-    use crate::GEMINI_3_1_FLASH_TTS_PREVIEW;
+    use crate::{GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_EMBEDDING_001};
 
     use super::*;
 

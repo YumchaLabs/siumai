@@ -10,9 +10,8 @@ use http::{Method, StatusCode};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, PublicDiagnosticText, ResponseDiagnostics,
-    ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
-    SupportState, Usage, Warning,
+    ModelOperation, PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata, SensitiveResponse,
+    SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, Usage,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget,
@@ -47,21 +46,6 @@ impl GroqSpeechModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.runtime.policy.evaluate(&ModelPolicyContext::new(
-            self.runtime.scope.clone(),
-            self.model_id().clone(),
-            ModelOperation::SynthesizeSpeech,
-        ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "Groq model policy rejected speech synthesis",
-            )));
-        }
-        Ok(Vec::new())
     }
 
     fn plan(&self, request: &SpeechRequest) -> Result<RequestPlan, Error> {
@@ -157,7 +141,6 @@ impl SpeechModel for GroqSpeechModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy()?;
         let voice = request.voice().map(str::to_owned);
         let plan = self
             .plan(&request)
@@ -195,7 +178,7 @@ impl SpeechModel for GroqSpeechModel {
                 model: Some(self.model_id().clone()),
             },
             usage: Usage::default(),
-            warnings,
+            warnings: Vec::new(),
             provider,
         };
         response

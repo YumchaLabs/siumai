@@ -448,7 +448,7 @@ impl<'de> Deserialize<'de> for ModelId {
     }
 }
 
-/// The protocol operation evaluated by model policy.
+/// Stable operation taxonomy used by support evidence and error context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ModelOperation {
@@ -473,128 +473,6 @@ impl ModelOperation {
             Self::Transcribe => ModelFamily::Transcription,
         }
     }
-}
-
-/// Why a provider or protocol cannot execute an operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum UnsupportedReason {
-    FamilyNotImplemented,
-    OperationNotImplemented,
-    ApiModeMismatch,
-    ModelRetired,
-    ProviderRestriction,
-}
-
-/// The callable state of one model operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum SupportState {
-    Supported,
-    Unsupported { reason: UnsupportedReason },
-    Unknown,
-}
-
-/// Typed, non-remapping guidance attached to a model-policy decision.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum ModelAdvisory {
-    UnknownModel,
-    Deprecated { replacement: Option<ModelId> },
-    Retired { replacement: Option<ModelId> },
-    RollingAlias,
-}
-
-/// A model-policy result that keeps callability separate from lifecycle advice.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelPolicyDecision {
-    state: SupportState,
-    advisories: Box<[ModelAdvisory]>,
-}
-
-impl ModelPolicyDecision {
-    pub fn supported() -> Self {
-        Self {
-            state: SupportState::Supported,
-            advisories: Box::new([]),
-        }
-    }
-
-    pub fn unsupported(reason: UnsupportedReason) -> Self {
-        Self {
-            state: SupportState::Unsupported { reason },
-            advisories: Box::new([]),
-        }
-    }
-
-    pub fn unknown_model() -> Self {
-        Self {
-            state: SupportState::Unknown,
-            advisories: Box::new([ModelAdvisory::UnknownModel]),
-        }
-    }
-
-    pub fn with_advisory(mut self, advisory: ModelAdvisory) -> Self {
-        let mut advisories = self.advisories.into_vec();
-        advisories.push(advisory);
-        self.advisories = advisories.into_boxed_slice();
-        self
-    }
-
-    pub fn state(&self) -> &SupportState {
-        &self.state
-    }
-
-    pub fn advisories(&self) -> &[ModelAdvisory] {
-        &self.advisories
-    }
-}
-
-/// Complete identity and protocol context used by provider-owned model policy.
-///
-/// The operation determines the family, so callers cannot construct an
-/// internally inconsistent family/operation pair.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelPolicyContext {
-    scope: Arc<ProviderScope>,
-    model: ModelId,
-    operation: ModelOperation,
-}
-
-impl ModelPolicyContext {
-    pub fn new(
-        scope: impl Into<Arc<ProviderScope>>,
-        model: ModelId,
-        operation: ModelOperation,
-    ) -> Self {
-        Self {
-            scope: scope.into(),
-            model,
-            operation,
-        }
-    }
-
-    pub fn scope(&self) -> &ProviderScope {
-        self.scope.as_ref()
-    }
-
-    pub fn model(&self) -> &ModelId {
-        &self.model
-    }
-
-    pub const fn family(&self) -> ModelFamily {
-        self.operation.family()
-    }
-
-    pub const fn operation(&self) -> ModelOperation {
-        self.operation
-    }
-}
-
-/// Provider-owned model policy.
-pub trait ModelPolicy: Send + Sync {
-    /// Evaluate one model operation in its exact execution scope.
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision;
 }
 
 /// Failure to resolve a requested family or construct its lightweight model.
@@ -651,7 +529,6 @@ pub type ModelFactory<T> =
 
 struct FamilyRegistration<T: ?Sized> {
     scope: Arc<ProviderScope>,
-    model_policy: Arc<dyn ModelPolicy>,
     factory: ModelFactory<T>,
 }
 
@@ -659,29 +536,20 @@ impl<T: ?Sized> Clone for FamilyRegistration<T> {
     fn clone(&self) -> Self {
         Self {
             scope: self.scope.clone(),
-            model_policy: self.model_policy.clone(),
             factory: self.factory.clone(),
         }
     }
 }
 
 impl<T: ?Sized> FamilyRegistration<T> {
-    fn new(
-        scope: Arc<ProviderScope>,
-        model_policy: Arc<dyn ModelPolicy>,
-        factory: ModelFactory<T>,
-    ) -> Self {
-        Self {
-            scope,
-            model_policy,
-            factory,
-        }
+    fn new(scope: Arc<ProviderScope>, factory: ModelFactory<T>) -> Self {
+        Self { scope, factory }
     }
 }
 
 /// Host-selected family bindings for one canonical provider identity.
 ///
-/// Each family owns its exact technical scope, model policy, and constructor.
+/// Each family owns its exact technical scope and constructor.
 /// Registry stores this value without importing concrete provider packages.
 /// Alternative API modes for the same family remain separate route
 /// registrations instead of being selected implicitly. Explicit merge may
@@ -746,73 +614,67 @@ impl ProviderRegistration {
 
     pub fn from_language(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn LanguageModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_language(scope, model_policy, factory)
+            .bind_language(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
     pub fn from_embedding(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn EmbeddingModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_embedding(scope, model_policy, factory)
+            .bind_embedding(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
     pub fn from_rerank(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn RerankModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_rerank(scope, model_policy, factory)
+            .bind_rerank(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
     pub fn from_image(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn ImageModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_image(scope, model_policy, factory)
+            .bind_image(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
     pub fn from_speech(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn SpeechModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_speech(scope, model_policy, factory)
+            .bind_speech(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
     pub fn from_transcription(
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn TranscriptionModel>,
     ) -> Self {
         let scope = scope.into();
         let provider_id = scope.provider_id().clone();
         Self::empty(provider_id)
-            .bind_transcription(scope, model_policy, factory)
+            .bind_transcription(scope, factory)
             .expect("initial family scope defines the registration provider")
     }
 
@@ -849,8 +711,8 @@ impl ProviderRegistration {
 
     /// Whether this configured registration exposes a constructor for a family.
     ///
-    /// This reports factory availability only. Model and operation support
-    /// remains the responsibility of [`ModelPolicy`].
+    /// This reports factory availability only. Provider-specific request
+    /// validation remains the responsibility of the concrete model.
     pub fn supports_family(&self, family: ModelFamily) -> bool {
         match family {
             ModelFamily::Language => self.language.is_some(),
@@ -895,85 +757,69 @@ impl ProviderRegistration {
         registration.supports_family(family).then_some(registration)
     }
 
-    pub fn evaluate(&self, model: ModelId, operation: ModelOperation) -> ModelPolicyDecision {
-        let family = operation.family();
-        let Some(scope) = self.scope_arc(family).cloned() else {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::FamilyNotImplemented);
-        };
-        self.model_policy(family)
-            .expect("scope and model policy are stored in the same family binding")
-            .evaluate(&ModelPolicyContext::new(scope, model, operation))
-    }
-
     pub fn bind_language(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn LanguageModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Language, &scope)?;
-        self.language = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.language = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
     pub fn bind_embedding(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn EmbeddingModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Embedding, &scope)?;
-        self.embedding = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.embedding = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
     pub fn bind_rerank(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn RerankModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Rerank, &scope)?;
-        self.rerank = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.rerank = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
     pub fn bind_image(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn ImageModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Image, &scope)?;
-        self.image = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.image = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
     pub fn bind_speech(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn SpeechModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Speech, &scope)?;
-        self.speech = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.speech = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
     pub fn bind_transcription(
         mut self,
         scope: impl Into<Arc<ProviderScope>>,
-        model_policy: Arc<dyn ModelPolicy>,
         factory: ModelFactory<dyn TranscriptionModel>,
     ) -> Result<Self, ProviderRegistrationError> {
         let scope = scope.into();
         self.validate_binding(ModelFamily::Transcription, &scope)?;
-        self.transcription = Some(FamilyRegistration::new(scope, model_policy, factory));
+        self.transcription = Some(FamilyRegistration::new(scope, factory));
         Ok(self)
     }
 
@@ -1106,20 +952,6 @@ impl ProviderRegistration {
         }
     }
 
-    fn model_policy(&self, family: ModelFamily) -> Option<&Arc<dyn ModelPolicy>> {
-        match family {
-            ModelFamily::Language => self.language.as_ref().map(|binding| &binding.model_policy),
-            ModelFamily::Embedding => self.embedding.as_ref().map(|binding| &binding.model_policy),
-            ModelFamily::Rerank => self.rerank.as_ref().map(|binding| &binding.model_policy),
-            ModelFamily::Image => self.image.as_ref().map(|binding| &binding.model_policy),
-            ModelFamily::Speech => self.speech.as_ref().map(|binding| &binding.model_policy),
-            ModelFamily::Transcription => self
-                .transcription
-                .as_ref()
-                .map(|binding| &binding.model_policy),
-        }
-    }
-
     fn validate_binding(
         &self,
         family: ModelFamily,
@@ -1191,18 +1023,6 @@ fn merge_family<T: ?Sized>(
 mod tests {
     use super::*;
 
-    struct AdvisoryPolicy;
-
-    impl ModelPolicy for AdvisoryPolicy {
-        fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-            if context.model().as_str() == "known" {
-                ModelPolicyDecision::supported()
-            } else {
-                ModelPolicyDecision::unknown_model()
-            }
-        }
-    }
-
     #[test]
     fn canonical_ids_normalize_without_accepting_route_separators() {
         assert_eq!(ProviderId::new(" OpenAI ").unwrap().as_str(), "openai");
@@ -1261,27 +1081,10 @@ mod tests {
     }
 
     #[test]
-    fn unknown_future_models_remain_unknown_instead_of_unsupported() {
-        let context = ModelPolicyContext::new(
-            Arc::new(
-                ProviderScope::new(ProviderId::new("custom").unwrap())
-                    .with_protocol(ProtocolId::new("native").unwrap()),
-            ),
-            ModelId::new("future:model").unwrap(),
-            ModelOperation::Generate,
-        );
-
-        let decision = AdvisoryPolicy.evaluate(&context);
-        assert_eq!(decision.state(), &SupportState::Unknown);
-        assert_eq!(decision.advisories(), &[ModelAdvisory::UnknownModel]);
-    }
-
-    #[test]
     fn missing_family_is_a_typed_lookup_error() {
         let scope = Arc::new(ProviderScope::new(ProviderId::new("custom").unwrap()));
         let registration = ProviderRegistration::from_language(
             scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
         let error = registration
@@ -1299,11 +1102,10 @@ mod tests {
     }
 
     #[test]
-    fn family_availability_is_factory_presence_not_model_policy() {
+    fn family_availability_is_factory_presence() {
         let scope = Arc::new(ProviderScope::new(ProviderId::new("custom").unwrap()));
         let registration = ProviderRegistration::from_language(
             scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
 
@@ -1316,7 +1118,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_carries_policy_and_full_protocol_context() {
+    fn registration_carries_full_protocol_context() {
         let scope = Arc::new(
             ProviderScope::new(ProviderId::new("custom").unwrap())
                 .with_platform(PlatformId::new("public-api").unwrap())
@@ -1325,15 +1127,9 @@ mod tests {
         );
         let registration = ProviderRegistration::from_language(
             scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
 
-        let status = registration.evaluate(
-            ModelId::new("future:model").unwrap(),
-            ModelOperation::Generate,
-        );
-        assert_eq!(status.state(), &SupportState::Unknown);
         assert_eq!(
             registration
                 .platform(ModelFamily::Language)
@@ -1349,7 +1145,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_keeps_distinct_scopes_and_policies_per_family() {
+    fn registration_keeps_distinct_scopes_per_family() {
         let language_scope = Arc::new(
             ProviderScope::new(ProviderId::new("composite").unwrap())
                 .with_protocol(ProtocolId::new("openai").unwrap())
@@ -1362,12 +1158,10 @@ mod tests {
         );
         let registration = ProviderRegistration::from_language(
             language_scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         )
         .bind_transcription(
             transcription_scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         )
         .unwrap();
@@ -1391,24 +1185,18 @@ mod tests {
         let scope = Arc::new(ProviderScope::new(ProviderId::new("one").unwrap()));
         let registration = ProviderRegistration::from_language(
             scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
         let other_scope = Arc::new(ProviderScope::new(ProviderId::new("two").unwrap()));
         assert!(matches!(
             registration.clone().bind_embedding(
                 other_scope,
-                Arc::new(AdvisoryPolicy),
                 Arc::new(|_| unreachable!("factory is not called")),
             ),
             Err(ProviderRegistrationError::ProviderMismatch { .. })
         ));
         assert!(matches!(
-            registration.bind_language(
-                scope,
-                Arc::new(AdvisoryPolicy),
-                Arc::new(|_| unreachable!("factory is not called")),
-            ),
+            registration.bind_language(scope, Arc::new(|_| unreachable!("factory is not called")),),
             Err(ProviderRegistrationError::DuplicateFamily {
                 family: ModelFamily::Language,
                 ..
@@ -1442,12 +1230,10 @@ mod tests {
             ProviderScope::new(provider).with_api_mode(ApiModeId::new("embeddings").unwrap());
         let registration = ProviderRegistration::from_language(
             language_scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         )
         .bind_embedding(
             embedding_scope,
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         )
         .unwrap();
@@ -1468,12 +1254,10 @@ mod tests {
             .with_api_mode(ApiModeId::new("responses").unwrap());
         let chat = ProviderRegistration::from_language(
             chat_scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
         let responses = ProviderRegistration::from_language(
             responses_scope.clone(),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
 
@@ -1488,7 +1272,6 @@ mod tests {
 
         let other = ProviderRegistration::from_embedding(
             ProviderScope::new(ProviderId::new("two").unwrap()),
-            Arc::new(AdvisoryPolicy),
             Arc::new(|_| unreachable!("factory is not called")),
         );
         assert!(matches!(

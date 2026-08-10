@@ -21,7 +21,6 @@ use super::provider::OpenAiCompatibleConfigError;
 
 #[derive(Clone)]
 pub(crate) struct ChatModeProfile {
-    support_scope: SupportScope,
     scope: Arc<ProviderScope>,
     dialect: ChatCompletionsDialect,
     codec_policy: Arc<dyn ChatCodecPolicy>,
@@ -29,7 +28,6 @@ pub(crate) struct ChatModeProfile {
 
 #[derive(Clone)]
 pub(crate) struct ResponsesModeProfile {
-    support_scope: SupportScope,
     scope: Arc<ProviderScope>,
     wire_dialect: ResponsesWireDialect,
     codec_policy: Arc<dyn ResponsesCodecPolicy>,
@@ -290,13 +288,11 @@ impl OpenAiCompatibleProfile {
         }
         let chat = chat.map(|(support_scope, dialect)| ChatModeProfile {
             scope: provider_scope(&support_scope),
-            support_scope,
             dialect,
             codec_policy: Arc::new(IdentityChatCodecPolicy),
         });
         let responses = responses.map(|support_scope| ResponsesModeProfile {
             scope: provider_scope(&support_scope),
-            support_scope,
             wire_dialect: ResponsesWireDialect::openai(),
             codec_policy: Arc::new(IdentityResponsesCodecPolicy),
         });
@@ -424,21 +420,6 @@ impl OpenAiCompatibleProfile {
                 self.chat.as_ref().map(|mode| mode.scope.clone())
             }
         }
-    }
-
-    pub(crate) fn support_scope(&self, mode: OpenAiCompatibleApiMode) -> Option<&SupportScope> {
-        match mode {
-            OpenAiCompatibleApiMode::Responses => {
-                self.responses.as_ref().map(|mode| &mode.support_scope)
-            }
-            OpenAiCompatibleApiMode::ChatCompletions => {
-                self.chat.as_ref().map(|mode| &mode.support_scope)
-            }
-        }
-    }
-
-    pub(crate) fn profile_arc(&self) -> Arc<ProviderProfile> {
-        self.profile.clone()
     }
 
     pub(crate) fn endpoint(&self) -> &EndpointConfig {

@@ -12,9 +12,9 @@ use siumai_core::{
     MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
     ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
     ProviderId, ProviderOptions, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal,
-    SupportScope, SupportState, ToolAnnotationTarget, ToolAnnotations, ToolSpec,
-    TypedProviderAnnotation, TypedProviderOptions, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedSupportClaim,
+    SupportScope, ToolAnnotationTarget, ToolAnnotations, ToolSpec, TypedProviderAnnotation,
+    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, AnthropicTool, CacheControl, CacheTtl, ContentNodeOptions, InferenceGeo,
@@ -240,12 +240,7 @@ async fn direct_and_erased_models_have_identical_api_key_wire_behavior() {
         .await
         .unwrap();
     assert_eq!(direct_response.content(), erased_response.content());
-    assert!(
-        direct_response
-            .warnings()
-            .iter()
-            .any(|warning| warning.kind() == &siumai_core::WarningKind::UnknownModel)
-    );
+    assert!(direct_response.warnings().is_empty());
 }
 
 struct BodyVersionProjection;
@@ -1072,7 +1067,7 @@ async fn post_is_not_replayed_and_http_diagnostics_are_sanitized() {
 }
 
 #[test]
-fn verified_profile_carries_exact_evidence_and_open_model_policy() {
+fn verified_profile_carries_exact_evidence_and_open_model_construction() {
     let scope = SupportScope::new(
         ProviderId::new(PROVIDER_ID).unwrap(),
         PlatformId::new(PLATFORM_ID).unwrap(),
@@ -1089,7 +1084,7 @@ fn verified_profile_carries_exact_evidence_and_open_model_policy() {
         ModelId::new("known-model").unwrap(),
         scope.clone(),
         [ModelOperation::Generate, ModelOperation::Stream],
-        ModelLifecycle::Active,
+        ModelLifecycle::Retired { replacement: None },
         evidence.clone(),
     )
     .unwrap()])
@@ -1126,23 +1121,27 @@ fn verified_profile_carries_exact_evidence_and_open_model_policy() {
     .unwrap();
     let registration = provider.registration();
     assert!(matches!(
-        registration
-            .evaluate(
-                ModelId::new("known-model").unwrap(),
-                ModelOperation::Generate,
-            )
-            .state(),
-        SupportState::Supported
+        provider
+            .profile()
+            .provider_profile()
+            .catalog()
+            .unwrap()
+            .iter()
+            .find(|entry| entry.model().as_str() == "known-model")
+            .unwrap()
+            .lifecycle(),
+        ModelLifecycle::Retired { .. }
     ));
-    assert!(matches!(
+    assert!(
         registration
-            .evaluate(
-                ModelId::new("future-model").unwrap(),
-                ModelOperation::Generate,
-            )
-            .state(),
-        SupportState::Unknown
-    ));
+            .language_model(ModelId::new("known-model").unwrap())
+            .is_ok()
+    );
+    assert!(
+        registration
+            .language_model(ModelId::new("future-model").unwrap())
+            .is_ok()
+    );
     assert_eq!(
         provider
             .profile()

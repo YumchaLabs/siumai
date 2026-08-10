@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ProviderOptionError, PublicDiagnosticText,
-    ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SupportState, TranscriptSegment,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    TypedProviderOptions, Usage, Warning,
+    ModelOperation, ProviderOptionError, PublicDiagnosticText, ResponseDiagnostics,
+    ResponseMetadata, SensitiveResponse, TranscriptSegment, TranscriptionLimits,
+    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, Usage,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders,
@@ -176,21 +175,6 @@ impl ElevenLabsTranscriptionModel {
         }
     }
 
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.runtime.policy.evaluate(&ModelPolicyContext::new(
-            self.runtime.scope.clone(),
-            self.model_id().clone(),
-            ModelOperation::Transcribe,
-        ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "ElevenLabs model policy rejected final-result transcription",
-            )));
-        }
-        Ok(Vec::new())
-    }
-
     fn plan(
         &self,
         request: &TranscriptionRequest,
@@ -314,7 +298,6 @@ impl TranscriptionModel for ElevenLabsTranscriptionModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy()?;
         let options = self
             .runtime
             .merge_options(&call)
@@ -332,8 +315,7 @@ impl TranscriptionModel for ElevenLabsTranscriptionModel {
         if !response.status().is_success() {
             return Err(self.contextualize(response_error(response)));
         }
-        decode_response(self.model_id(), response, warnings)
-            .map_err(|error| self.contextualize(error))
+        decode_response(self.model_id(), response).map_err(|error| self.contextualize(error))
     }
 }
 
@@ -360,7 +342,6 @@ struct WordWire {
 fn decode_response(
     model: &ModelId,
     response: TransportResponse,
-    warnings: Vec<Warning>,
 ) -> Result<TranscriptionResponse, Error> {
     let attempts = response.attempts();
     let (_, headers, body) = response.into_parts();
@@ -407,7 +388,7 @@ fn decode_response(
             model: Some(model.clone()),
         },
         usage: Usage::default(),
-        warnings,
+        warnings: Vec::new(),
         provider,
     };
     response.validate()?;

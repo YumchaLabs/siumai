@@ -12,12 +12,11 @@ use siumai_core::{
     EmbeddingRequest, EmbeddingResponse, Error, ImageArtifact, ImageLimits, ImageModel,
     ImageRequest, ImageResponse, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, Message, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
-    ModelId, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProtocolId, ProviderId,
-    ProviderOptions, ProviderRegistration, ProviderScope, RerankCandidate, RerankLimits,
-    RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata, SpeechLimits,
-    SpeechModel, SpeechRequest, SpeechResponse, TranscriptionLimits, TranscriptionModel,
-    TranscriptionRequest, TranscriptionResponse, TypedProviderAnnotation, TypedProviderOptions,
-    Usage,
+    ModelId, ProtocolId, ProviderId, ProviderOptions, ProviderRegistration, ProviderScope,
+    RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult,
+    ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
+    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
+    TypedProviderAnnotation, TypedProviderOptions, Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -280,14 +279,6 @@ impl TypedProviderAnnotation for CustomContentAnnotation {
     const API_MODE: Option<&'static str> = Some("native");
 }
 
-struct CustomPolicy;
-
-impl ModelPolicy for CustomPolicy {
-    fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
-        ModelPolicyDecision::unknown_model()
-    }
-}
-
 fn prompt() -> LanguageRequest {
     LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
 }
@@ -395,7 +386,7 @@ async fn external_models_are_object_safe_callable_and_task_safe() {
 }
 
 #[tokio::test]
-async fn registration_captures_shared_runtime_and_returns_cheap_models() {
+async fn registration_constructs_unknown_models_and_captures_shared_runtime() {
     let constructions = Arc::new(AtomicUsize::new(0));
     let factory_count = constructions.clone();
     let scope = Arc::new(
@@ -405,7 +396,6 @@ async fn registration_captures_shared_runtime_and_returns_cheap_models() {
     );
     let registration = ProviderRegistration::from_language(
         scope,
-        Arc::new(CustomPolicy),
         Arc::new(move |model| {
             factory_count.fetch_add(1, Ordering::SeqCst);
             Ok(Arc::new(
@@ -444,7 +434,6 @@ fn registration_rejects_factory_identity_drift() {
     let scope = Arc::new(ProviderScope::new(ProviderId::new("other").unwrap()));
     let registration = ProviderRegistration::from_language(
         scope,
-        Arc::new(CustomPolicy),
         Arc::new(|model| Ok(Arc::new(FakeLanguage::new(model.as_str())))),
     );
 

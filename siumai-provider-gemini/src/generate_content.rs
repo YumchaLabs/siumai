@@ -8,11 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
-    ModelId, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, SupportState, TypedProviderOptions, Warning,
-    WarningKind,
+    LanguageStream, LanguageStreamDecoder, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, TypedProviderOptions,
 };
 use siumai_protocol_gemini::generate_content::{
     DecodedGenerateContent, GenerateContentLanguageConfig, GenerateContentStreamDecoder,
@@ -26,8 +24,7 @@ use siumai_transport::{
 
 use crate::http::{response_diagnostics, response_error, stream_response_error};
 use crate::language::{decode_sse_stream, with_response_context};
-use crate::models::is_current_interactions;
-use crate::profile::{GENERATE_CONTENT_API_MODE_ID, GENERATE_CONTENT_PROTOCOL_ID, PROVIDER_ID};
+use crate::profile::GENERATE_CONTENT_API_MODE_ID;
 use crate::provider::ProviderRuntime;
 
 /// Provider API mode identifier for the stable-v1 Generate Content compatibility surface.
@@ -148,27 +145,6 @@ impl GeminiGenerateContentModel {
         }
     }
 
-    fn policy(&self, operation: ModelOperation) -> Result<Vec<Warning>, Error> {
-        let decision = self
-            .runtime
-            .generate_content_policy
-            .evaluate(&ModelPolicyContext::new(
-                self.runtime.generate_content_scope.clone(),
-                self.model_id().clone(),
-                operation,
-            ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(
-                operation,
-                Error::new(
-                    ErrorKind::Unsupported,
-                    "model policy rejected the Gemini Generate Content language operation",
-                ),
-            ));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
-    }
-
     fn options(&self, call: &CallOptions) -> Result<GeminiGenerateContentOptions, Error> {
         let layers = call
             .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
@@ -219,7 +195,6 @@ impl GeminiGenerateContentModel {
         options: CallOptions,
     ) -> Result<DecodedGenerateContent, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = self.policy(operation)?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -241,9 +216,7 @@ impl GeminiGenerateContentModel {
         let (_, headers, body) = response.into_parts();
         decode_language_response(&body, self.descriptor.scope(), self.model_id())
             .map(|decoded| {
-                decoded.map_canonical(|canonical| {
-                    with_response_context(canonical, &headers, &warnings)
-                })
+                decoded.map_canonical(|canonical| with_response_context(canonical, &headers))
             })
             .map_err(|error| self.contextualize(operation, error))
     }
@@ -289,7 +262,6 @@ impl LanguageModel for GeminiGenerateContentModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = self.policy(operation)?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -331,42 +303,9 @@ impl LanguageModel for GeminiGenerateContentModel {
             self.runtime.limits.clone(),
             decoder,
             headers,
-            warnings,
             context,
         ))
     }
-}
-
-impl ModelPolicy for GeminiGenerateContentPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str())
-                == Some(GENERATE_CONTENT_PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str())
-                == Some(GENERATE_CONTENT_API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(
-                siumai_core::UnsupportedReason::ApiModeMismatch,
-            );
-        }
-        if !matches!(
-            context.operation(),
-            ModelOperation::Generate | ModelOperation::Stream
-        ) {
-            return ModelPolicyDecision::unsupported(
-                siumai_core::UnsupportedReason::OperationNotImplemented,
-            );
-        }
-        if self.verified_endpoint && is_current_interactions(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
-}
-
-pub(crate) struct GeminiGenerateContentPolicy {
-    pub(crate) verified_endpoint: bool,
 }
 
 fn generate_content_target(model: &ModelId, stream: bool) -> Result<RequestTarget, Error> {
@@ -451,28 +390,6 @@ fn decode_options(
             reason: "options do not match the Gemini Generate Content language schema".to_string(),
         }
     })
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the current Gemini Generate Content advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "Gemini Generate Content model is deprecated",
-        ),
-        ModelAdvisory::Retired { .. } => Warning::new(
-            WarningKind::RetiredModel,
-            "Gemini Generate Content model is retired",
-        ),
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "Gemini model ID is a rolling alias",
-        ),
-        _ => Warning::provider("model_advisory", "Gemini returned a model advisory"),
-    }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

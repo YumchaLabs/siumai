@@ -11,8 +11,7 @@ use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
     ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
     ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions, Warning,
-    WarningKind,
+    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions,
 };
 use siumai_protocol_openai::embedding::{
     API_MODE_ID, EmbeddingConfig, TARGET, decode_embedding_response, encode_embedding_request,
@@ -230,9 +229,6 @@ impl EmbeddingModel for OpenAiEmbeddingModel {
         let mut decoded = decode_embedding_response(&body, &request, self.model_id())
             .map_err(|error| self.contextualize(error))?;
         decoded.metadata.request_id = response_request_id(&headers);
-        if !is_verified_model(self.descriptor.scope(), self.model_id()) {
-            decoded.warnings.push(unknown_model_warning());
-        }
         Ok(decoded)
     }
 }
@@ -276,14 +272,6 @@ fn decode_options(
     })
 }
 
-fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
-    scope.platform().map(|value| value.as_str()) == Some("openai-api")
-        && matches!(
-            model.as_str(),
-            TEXT_EMBEDDING_3_SMALL | TEXT_EMBEDDING_3_LARGE | TEXT_EMBEDDING_ADA_002
-        )
-}
-
 fn validate_dimensions(model: &ModelId, request: &EmbeddingRequest) -> Result<(), Error> {
     if request.dimensions().is_some()
         && !matches!(
@@ -297,13 +285,6 @@ fn validate_dimensions(model: &ModelId, request: &EmbeddingRequest) -> Result<()
         ));
     }
     Ok(())
-}
-
-fn unknown_model_warning() -> Warning {
-    Warning::new(
-        WarningKind::UnknownModel,
-        "model support is not verified for OpenAI embeddings",
-    )
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

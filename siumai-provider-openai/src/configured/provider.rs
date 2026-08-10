@@ -35,7 +35,6 @@ use super::image::{OpenAiImageModel, OpenAiImageOptions};
 use super::mode::OpenAiApiMode;
 use super::model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};
 use super::options::{OpenAiChatCompletionsOptions, OpenAiResponsesOptions};
-use super::policy::OpenAiModelPolicy;
 use super::profile::{OpenAiProfile, PROVIDER_ID};
 #[cfg(feature = "openai-realtime")]
 use super::realtime::{
@@ -258,7 +257,6 @@ impl OpenAiProvider {
         registration = registration
             .bind_embedding(
                 self.runtime.family_scope_arc(ModelFamily::Embedding),
-                self.runtime.policy.clone(),
                 Arc::new({
                     let provider = provider.clone();
                     move |model| {
@@ -271,7 +269,6 @@ impl OpenAiProvider {
         registration = registration
             .bind_image(
                 self.runtime.family_scope_arc(ModelFamily::Image),
-                self.runtime.policy.clone(),
                 Arc::new({
                     let provider = provider.clone();
                     move |model| {
@@ -283,7 +280,6 @@ impl OpenAiProvider {
         registration = registration
             .bind_speech(
                 self.runtime.family_scope_arc(ModelFamily::Speech),
-                self.runtime.policy.clone(),
                 Arc::new({
                     let provider = provider.clone();
                     move |model| {
@@ -295,7 +291,6 @@ impl OpenAiProvider {
         registration
             .bind_transcription(
                 self.runtime.family_scope_arc(ModelFamily::Transcription),
-                self.runtime.policy.clone(),
                 Arc::new(move |model| {
                     Ok(Arc::new(provider.create_transcription_model(model))
                         as Arc<dyn TranscriptionModel>)
@@ -318,7 +313,6 @@ impl OpenAiProvider {
         let scope = self.runtime.scope_arc(mode);
         ProviderRegistration::from_language(
             scope,
-            self.runtime.policy.clone(),
             Arc::new(move |model| match mode {
                 OpenAiApiMode::Responses => {
                     Ok(Arc::new(provider.create_responses_model(model)) as Arc<dyn LanguageModel>)
@@ -899,7 +893,6 @@ impl OpenAiProviderBuilder {
         } else {
             None
         };
-        let policy = Arc::new(OpenAiModelPolicy::new(&profile));
         let instance_id = ProviderInstanceId::new();
         Ok(OpenAiProvider {
             runtime: Arc::new(OpenAiRuntime {
@@ -907,7 +900,6 @@ impl OpenAiProviderBuilder {
                 profile,
                 support_manifest,
                 transport,
-                policy,
                 responses_wire_dialect,
                 responses_options: OpenAiOptionMerger::responses(self.responses_defaults)?,
                 chat_completions_options: OpenAiOptionMerger::chat_completions(
@@ -1000,7 +992,6 @@ pub(crate) struct OpenAiRuntime {
     pub(crate) profile: OpenAiProfile,
     pub(crate) support_manifest: Arc<ProviderSupportManifest>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<OpenAiModelPolicy>,
     pub(crate) responses_wire_dialect: ResponsesWireDialect,
     responses_options: OpenAiOptionMerger,
     chat_completions_options: OpenAiOptionMerger,
@@ -1635,11 +1626,11 @@ pub enum OpenAiConfigError {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{ApiStability, Model, ModelAdvisory, ModelOperation, SupportState};
+    use siumai_core::{ApiStability, Model, ModelLifecycle};
 
     use super::*;
     use crate::configured::{
-        GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TTS, GPT_IMAGE_1, TEXT_EMBEDDING_3_SMALL,
+        DALL_E_2, GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TTS, GPT_IMAGE_1, TEXT_EMBEDDING_3_SMALL,
         catalog::{GPT_5_6, GPT_5_6_SOL},
     };
 
@@ -1739,6 +1730,11 @@ mod tests {
         assert_eq!(direct.descriptor(), erased.descriptor());
         assert_eq!(direct.descriptor().protocol(), Some("openai.embeddings"));
         assert_eq!(direct.descriptor().api_mode(), Some("embeddings"));
+        assert!(
+            registration
+                .image_model(ModelId::new(DALL_E_2).unwrap())
+                .is_ok()
+        );
 
         assert!(
             provider
@@ -1755,35 +1751,66 @@ mod tests {
     }
 
     #[test]
-    fn official_policy_keeps_alias_and_unknown_model_distinct() {
+    fn official_catalog_is_introspection_only_for_known_and_future_models() {
         let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
             .build()
             .unwrap();
         let registration = provider.responses_registration();
-        let alias = registration.evaluate(ModelId::new(GPT_5_6).unwrap(), ModelOperation::Generate);
-        assert_eq!(alias.state(), &SupportState::Supported);
-        assert_eq!(alias.advisories(), &[ModelAdvisory::RollingAlias]);
-
-        let future = registration.evaluate(
-            ModelId::new("gpt-6-future").unwrap(),
-            ModelOperation::Generate,
+        let profile = provider.profile().provider_profile();
+        let claims = profile.verified_claims().unwrap();
+        let scope = claims
+            .iter()
+            .find(|claim| claim.scope().api_mode().as_str() == "responses")
+            .unwrap()
+            .scope();
+        let alias = ModelId::new(GPT_5_6).unwrap();
+        assert_eq!(
+            profile
+                .catalog()
+                .unwrap()
+                .get(scope, &alias)
+                .unwrap()
+                .lifecycle(),
+            &ModelLifecycle::RollingAlias
         );
-        assert_eq!(future.state(), &SupportState::Unknown);
-        assert_eq!(future.advisories(), &[ModelAdvisory::UnknownModel]);
+        assert!(registration.language_model(alias).is_ok());
+        assert!(
+            registration
+                .language_model(ModelId::new("gpt-6-future").unwrap())
+                .is_ok()
+        );
+
+        let image_scope = claims
+            .iter()
+            .find(|claim| claim.scope().family() == ModelFamily::Image)
+            .unwrap()
+            .scope();
+        let deprecated = ModelId::new(DALL_E_2).unwrap();
+        assert!(matches!(
+            profile
+                .catalog()
+                .unwrap()
+                .get(image_scope, &deprecated)
+                .unwrap()
+                .lifecycle(),
+            ModelLifecycle::Deprecated { .. }
+        ));
+        assert!(provider.registration().image_model(deprecated).is_ok());
     }
 
     #[test]
-    fn custom_endpoint_uses_generic_profile_and_unknown_model_policy() {
+    fn custom_endpoint_uses_generic_profile_and_open_model_construction() {
         let provider = provider();
         let profile = provider.profile().provider_profile();
 
         assert!(profile.verified_claims().is_none());
         assert!(profile.catalog().is_none());
-        let decision = provider
-            .responses_registration()
-            .evaluate(ModelId::new(GPT_5_6_SOL).unwrap(), ModelOperation::Generate);
-        assert_eq!(decision.state(), &SupportState::Unknown);
-        assert_eq!(decision.advisories(), &[ModelAdvisory::UnknownModel]);
+        assert!(
+            provider
+                .responses_registration()
+                .language_model(ModelId::new(GPT_5_6_SOL).unwrap())
+                .is_ok()
+        );
         assert!(provider.support_manifest().native_claims().is_empty());
     }
 

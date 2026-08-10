@@ -28,7 +28,7 @@ pub const CLAUDE_SONNET_4_6: &str = "claude-sonnet-4-6";
 /// Claude Opus 4.1 snapshot retired on 2026-08-05.
 pub const CLAUDE_OPUS_4_1_20250805: &str = "claude-opus-4-1-20250805";
 
-/// Current recommended model IDs in stable advisory order.
+/// Current recommended model IDs in stable catalog order.
 pub const fn current_models() -> [&'static str; 4] {
     [
         CLAUDE_OPUS_5,

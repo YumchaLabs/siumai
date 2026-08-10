@@ -31,11 +31,3 @@ pub const fn current_image_models() -> [&'static str; 3] {
 pub const fn current_interactions_models() -> [&'static str; 3] {
     [GEMINI_3_6_FLASH, GEMINI_3_5_FLASH, GEMINI_3_5_FLASH_LITE]
 }
-
-pub(crate) fn is_current_image(model: &str) -> bool {
-    current_image_models().contains(&model)
-}
-
-pub(crate) fn is_current_interactions(model: &str) -> bool {
-    current_interactions_models().contains(&model)
-}

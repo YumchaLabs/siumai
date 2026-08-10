@@ -9,8 +9,7 @@ use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
     ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
     ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions, Warning,
-    WarningKind,
+    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions,
 };
 use siumai_protocol_gemini::embedding::{
     EmbedContentConfig, EmbedContentTaskType, EmbeddingRequestMode, decode_embedding_response,
@@ -245,12 +244,6 @@ impl EmbeddingModel for GeminiEmbeddingModel {
         let mut decoded = decode_embedding_response(&body, mode, &request, self.model_id())
             .map_err(|error| self.contextualize(error))?;
         decoded.metadata.request_id = response_request_id(&headers);
-        if !is_known_model(self.model_id()) {
-            decoded.warnings.push(Warning::new(
-                WarningKind::UnknownModel,
-                "model is absent from the current Gemini embedding advisory catalog",
-            ));
-        }
         Ok(decoded)
     }
 }

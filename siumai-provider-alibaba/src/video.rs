@@ -7,7 +7,7 @@ use http::{Method, StatusCode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ModelId, ProviderId, ProviderScope,
-    PublicDiagnosticText, Warning, WarningKind,
+    PublicDiagnosticText,
 };
 use siumai_transport::{
     ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
@@ -40,21 +40,6 @@ pub const WAN_2_7_R2V_SNAPSHOT: &str = "wan2.7-r2v-2026-06-12";
 const VIDEO_CREATE_TARGET: &str = "services/aigc/video-generation/video-synthesis";
 const ASYNC_HEADER: HeaderName = HeaderName::from_static("x-dashscope-async");
 const MAX_VIDEO_JOB_ID_BYTES: usize = 512;
-
-const KNOWN_MODELS: &[&str] = &[
-    WAN_2_7_T2V,
-    WAN_2_7_T2V_SNAPSHOT,
-    WAN_2_7_I2V,
-    WAN_2_7_I2V_SNAPSHOT,
-    WAN_2_7_R2V,
-    WAN_2_7_R2V_SNAPSHOT,
-    "wan2.6-t2v",
-    "wan2.5-t2v-preview",
-    "wan2.6-i2v",
-    "wan2.6-i2v-flash",
-    "wan2.6-r2v",
-    "wan2.6-r2v-flash",
-];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -628,8 +613,6 @@ pub struct AlibabaVideoJob {
     provider_code: Option<PublicDiagnosticText>,
     #[serde(default)]
     usage: AlibabaVideoUsage,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    warnings: Vec<Warning>,
 }
 
 impl AlibabaVideoJob {
@@ -663,10 +646,6 @@ impl AlibabaVideoJob {
     pub fn usage(&self) -> &AlibabaVideoUsage {
         &self.usage
     }
-
-    pub fn warnings(&self) -> &[Warning] {
-        &self.warnings
-    }
 }
 
 impl fmt::Debug for AlibabaVideoJob {
@@ -680,7 +659,6 @@ impl fmt::Debug for AlibabaVideoJob {
             .field("video_url", &self.video_url.as_ref().map(|_| "[REDACTED]"))
             .field("provider_code", &self.provider_code)
             .field("usage", &self.usage)
-            .field("warnings", &self.warnings)
             .finish()
     }
 }
@@ -751,7 +729,7 @@ impl AlibabaVideoModel {
             )
             .await
             .map_err(|error| self.contextualize(error))?;
-        self.decode_job_response(response, None, model_warnings(&self.model))
+        self.decode_job_response(response, None)
     }
 
     pub async fn poll(
@@ -772,7 +750,7 @@ impl AlibabaVideoModel {
             )
             .await
             .map_err(|error| self.contextualize(error))?;
-        self.decode_job_response(response, Some(job.id()), job.warnings.clone())
+        self.decode_job_response(response, Some(job.id()))
     }
 
     pub async fn cancel(
@@ -793,7 +771,7 @@ impl AlibabaVideoModel {
             )
             .await
             .map_err(|error| self.contextualize(error))?;
-        self.decode_job_response(response, Some(job.id()), job.warnings.clone())
+        self.decode_job_response(response, Some(job.id()))
     }
 
     pub async fn materialize(
@@ -854,7 +832,6 @@ impl AlibabaVideoModel {
         &self,
         response: TransportResponse,
         expected_job: Option<&AlibabaVideoJobId>,
-        warnings: Vec<Warning>,
     ) -> Result<AlibabaVideoJob, Error> {
         if !response.status().is_success() {
             return Err(self.contextualize(provider_status_error(response)));
@@ -902,7 +879,6 @@ impl AlibabaVideoModel {
             video_url: output.video_url.filter(|value| !value.trim().is_empty()),
             provider_code: safe_optional_text(output.code),
             usage: decoded.usage.unwrap_or_default(),
-            warnings,
         })
     }
 
@@ -1038,17 +1014,6 @@ fn decode_status(value: Option<&str>, creation: bool) -> Result<AlibabaVideoJobS
         _ => Err(Error::protocol_violation(
             "Alibaba video response contains an unknown task status",
         )),
-    }
-}
-
-fn model_warnings(model: &ModelId) -> Vec<Warning> {
-    if KNOWN_MODELS.contains(&model.as_str()) {
-        Vec::new()
-    } else {
-        vec![Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the verified Alibaba video advisory catalog",
-        )]
     }
 }
 

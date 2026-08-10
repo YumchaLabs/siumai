@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use siumai_core::{
     CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageStreamEvent, Message, MessagePart,
     MessageRole, Model, ModelFamily, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal,
-    UsageValue, WarningKind,
+    UsageValue,
 };
 use siumai_provider_alibaba::{
     ALIBABA_SESSION_CACHE_HEADER, AlibabaChatOptions, AlibabaConfigError, AlibabaContentCache,
@@ -165,10 +165,7 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
             .iter()
             .any(|part| matches!(part, ContentPart::Reasoning { text } if text == "thought"))
     );
-    assert!(matches!(
-        response.warnings().first().map(siumai_core::Warning::kind),
-        Some(&WarningKind::UnknownModel)
-    ));
+    assert!(response.warnings().is_empty());
     assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(1));
     assert_eq!(response.usage().cache_write_tokens, UsageValue::Known(2));
 

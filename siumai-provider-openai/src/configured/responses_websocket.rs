@@ -15,7 +15,7 @@ use siumai_core::experimental::{
 use siumai_core::{
     CallOptions, Cancellation, Error, ErrorContext, ErrorKind, LanguageRequest,
     LanguageStreamEvent, Model, ModelOperation, ProviderScope, PublicDiagnosticText,
-    StreamTerminal, Warning,
+    StreamTerminal,
 };
 use siumai_protocol_openai::responses::{
     DecodedResponsesStreamFrame, ResponseWire, ResponsesReplayStatus, ResponsesStreamDecoder,
@@ -30,9 +30,7 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use super::mode::OpenAiApiMode;
-use super::model::{
-    OpenAiResponsesModel, attach_policy_warnings, contextualize_terminal_error, model_error_context,
-};
+use super::model::{OpenAiResponsesModel, contextualize_terminal_error, model_error_context};
 
 /// Current provider-owned endpoint for persistent Responses sessions.
 pub const OPENAI_RESPONSES_WEBSOCKET_URL: &str = "wss://api.openai.com/v1/responses";
@@ -400,7 +398,6 @@ pub enum OpenAiResponsesWarmUpOutcome {
 pub struct OpenAiResponsesWarmUpFrame {
     native: ResponsesStreamEvent,
     outcome: Option<OpenAiResponsesWarmUpOutcome>,
-    warnings: Arc<[Warning]>,
     replay_status: ResponsesReplayStatus,
 }
 
@@ -411,10 +408,6 @@ impl OpenAiResponsesWarmUpFrame {
 
     pub fn outcome(&self) -> Option<&OpenAiResponsesWarmUpOutcome> {
         self.outcome.as_ref()
-    }
-
-    pub fn warnings(&self) -> &[Warning] {
-        self.warnings.as_ref()
     }
 
     /// Return whether the native warm-up result remains safe to replay.
@@ -433,7 +426,6 @@ impl fmt::Debug for OpenAiResponsesWarmUpFrame {
             .debug_struct("OpenAiResponsesWarmUpFrame")
             .field("native", &self.native)
             .field("terminal", &self.is_terminal())
-            .field("warning_count", &self.warnings.len())
             .field("replay_status", &self.replay_status)
             .finish()
     }
@@ -627,7 +619,6 @@ impl OpenAiResponsesWebSocketSession {
             .send(ActorCommand::Start(StartCommand {
                 kind,
                 payload,
-                warnings: prepared.warnings,
                 events,
                 shared: shared.clone(),
                 cancellation: cancellation.cancellation().clone(),
@@ -682,7 +673,6 @@ enum ActorCommand {
 struct StartCommand {
     kind: OpenAiResponsesWebSocketTurnKind,
     payload: String,
-    warnings: Vec<Warning>,
     events: mpsc::Sender<Result<OpenAiResponsesWebSocketEvent, Error>>,
     shared: Arc<TurnShared>,
     cancellation: Cancellation,
@@ -695,7 +685,6 @@ struct ActiveTurn {
     kind: OpenAiResponsesWebSocketTurnKind,
     decoder: ResponsesStreamDecoder,
     response_id: Option<String>,
-    warnings: Arc<[Warning]>,
     context: ErrorContext,
     events: mpsc::Sender<Result<OpenAiResponsesWebSocketEvent, Error>>,
     shared: Arc<TurnShared>,
@@ -928,7 +917,6 @@ impl SessionActor {
             )
             .with_wire_dialect(self.model.runtime.responses_wire_dialect),
             response_id: None,
-            warnings: command.warnings.into(),
             context,
             events: command.events,
             shared: command.shared,
@@ -1089,10 +1077,10 @@ impl SessionActor {
         let settled_response_id = canonical.as_ref().map(|response| response.id.clone());
         let event = match active.kind {
             OpenAiResponsesWebSocketTurnKind::Generate => {
-                generated_event(decoded, canonical, &active.warnings, &active.context)
+                generated_event(decoded, canonical, &active.context)
             }
             OpenAiResponsesWebSocketTurnKind::WarmUp => {
-                warm_up_event(decoded, canonical, active.warnings.clone(), &active.context)
+                warm_up_event(decoded, canonical, &active.context)
             }
         };
         let event = match event {
@@ -1217,13 +1205,11 @@ fn validate_active_response_identity(
 fn generated_event(
     decoded: DecodedResponsesStreamFrame,
     canonical_terminal_response: Option<ResponseWire>,
-    warnings: &[Warning],
     context: &ErrorContext,
 ) -> Result<OpenAiResponsesWebSocketEvent, Error> {
     let (native, mut portable_events, replay_status) = decoded.into_parts();
     for event in &mut portable_events {
         contextualize_terminal_error(event, context);
-        attach_policy_warnings(event, warnings);
     }
     Ok(OpenAiResponsesWebSocketEvent::Generated(
         super::responses_native::OpenAiResponsesStreamFrame::new(
@@ -1238,7 +1224,6 @@ fn generated_event(
 fn warm_up_event(
     decoded: DecodedResponsesStreamFrame,
     canonical_terminal_response: Option<ResponseWire>,
-    warnings: Arc<[Warning]>,
     context: &ErrorContext,
 ) -> Result<OpenAiResponsesWebSocketEvent, Error> {
     let (native, portable_events, replay_status) = decoded.into_parts();
@@ -1285,7 +1270,6 @@ fn warm_up_event(
         OpenAiResponsesWarmUpFrame {
             native,
             outcome,
-            warnings,
             replay_status,
         },
     ))

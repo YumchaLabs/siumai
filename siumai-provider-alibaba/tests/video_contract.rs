@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use siumai_core::{CallOptions, ErrorKind, ProviderOptions, WarningKind};
+use siumai_core::{CallOptions, ErrorKind, ProviderOptions};
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaCredential, AlibabaProvider,
     experimental::{
@@ -115,7 +115,6 @@ async fn typed_video_job_create_poll_and_materialize_preserve_native_wire_semant
     let created = model.create(request, CallOptions::default()).await.unwrap();
     assert_eq!(created.status(), &AlibabaVideoJobStatus::Queued);
     assert_eq!(created.request_id(), Some("create-request-42"));
-    assert!(created.warnings().is_empty());
 
     let completed = model.poll(&created, CallOptions::default()).await.unwrap();
     assert_eq!(completed.status(), &AlibabaVideoJobStatus::Completed);
@@ -260,10 +259,6 @@ async fn typed_video_job_snapshots_update_on_cancel_and_keep_future_models_calla
         .await
         .unwrap();
     assert_eq!(cancelled.status(), &AlibabaVideoJobStatus::Cancelled);
-    assert!(matches!(
-        cancelled.warnings()[0].kind(),
-        WarningKind::UnknownModel
-    ));
     let requests = server.received_requests().await.unwrap();
     let create = requests
         .iter()
@@ -341,13 +336,4 @@ async fn video_errors_expose_safe_code_and_request_id_only() {
     assert!(!debug.contains("canary-body-secret"));
     assert!(!display.contains("canary-header-secret"));
     assert!(!display.contains("canary-body-secret"));
-}
-
-#[test]
-fn unknown_model_warning_shape_is_stable_for_typed_jobs() {
-    let warning = siumai_core::Warning::new(
-        WarningKind::UnknownModel,
-        "model is absent from the verified Alibaba video advisory catalog",
-    );
-    assert_eq!(warning.kind(), &WarningKind::UnknownModel);
 }

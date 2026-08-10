@@ -58,9 +58,6 @@ const TRANSCRIPTION_CONTRACT: &str = "openai-audio-transcriptions-2026-08-08";
 #[derive(Debug, Clone)]
 pub struct OpenAiProfile {
     profile: Arc<ProviderProfile>,
-    responses_scope: SupportScope,
-    chat_completions_scope: SupportScope,
-    family_scopes: BTreeMap<ModelFamily, SupportScope>,
     responses_provider_scope: Arc<ProviderScope>,
     chat_completions_provider_scope: Arc<ProviderScope>,
     family_provider_scopes: BTreeMap<ModelFamily, Arc<ProviderScope>>,
@@ -206,14 +203,6 @@ impl OpenAiProfile {
 
         Ok(Self {
             profile: Arc::new(profile),
-            responses_scope,
-            chat_completions_scope,
-            family_scopes: BTreeMap::from([
-                (ModelFamily::Embedding, embedding_scope),
-                (ModelFamily::Image, image_scope),
-                (ModelFamily::Speech, speech_scope),
-                (ModelFamily::Transcription, transcription_scope),
-            ]),
             responses_provider_scope,
             chat_completions_provider_scope,
             family_provider_scopes: BTreeMap::from([
@@ -294,29 +283,24 @@ impl OpenAiProfile {
             TRANSCRIPTION_MODE,
             &replay_domain,
         )?;
-        let family_scopes = BTreeMap::from([
-            (ModelFamily::Embedding, embedding_scope),
-            (ModelFamily::Image, image_scope),
-            (ModelFamily::Speech, speech_scope),
-            (ModelFamily::Transcription, transcription_scope),
-        ]);
         let mut claims = vec![
             GenericSupportClaim::new(responses_scope.clone(), ApiStability::Experimental),
             GenericSupportClaim::new(chat_completions_scope.clone(), ApiStability::Experimental),
         ];
         claims.extend(
-            family_scopes
-                .values()
-                .cloned()
-                .map(|scope| GenericSupportClaim::new(scope, ApiStability::Experimental)),
+            [
+                embedding_scope,
+                image_scope,
+                speech_scope,
+                transcription_scope,
+            ]
+            .into_iter()
+            .map(|scope| GenericSupportClaim::new(scope, ApiStability::Experimental)),
         );
         let profile = ProviderProfile::generic_many(ProfileId::new("openai-custom")?, claims)?;
 
         Ok(Self {
             profile: Arc::new(profile),
-            responses_scope,
-            chat_completions_scope,
-            family_scopes,
             responses_provider_scope,
             chat_completions_provider_scope,
             family_provider_scopes: BTreeMap::from([
@@ -330,10 +314,6 @@ impl OpenAiProfile {
 
     pub fn provider_profile(&self) -> &ProviderProfile {
         &self.profile
-    }
-
-    pub(crate) fn profile_arc(&self) -> Arc<ProviderProfile> {
-        self.profile.clone()
     }
 
     pub(crate) fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
@@ -358,17 +338,6 @@ impl OpenAiProfile {
             );
         }
         self
-    }
-
-    pub(crate) fn support_scope(&self, mode: OpenAiApiMode) -> &SupportScope {
-        match mode {
-            OpenAiApiMode::Responses => &self.responses_scope,
-            OpenAiApiMode::ChatCompletions => &self.chat_completions_scope,
-        }
-    }
-
-    pub(crate) fn family_support_scope(&self, family: ModelFamily) -> Option<&SupportScope> {
-        self.family_scopes.get(&family)
     }
 
     pub(crate) fn provider_scope(&self, mode: OpenAiApiMode) -> &Arc<ProviderScope> {
@@ -519,14 +488,6 @@ fn transcription_models() -> impl IntoIterator<Item = (&'static str, ModelLifecy
     ]
 }
 
-pub(crate) fn mode_from_scope(scope: &ProviderScope) -> Option<OpenAiApiMode> {
-    match scope.api_mode().map(ApiModeId::as_str) {
-        Some("responses") => Some(OpenAiApiMode::Responses),
-        Some("chat-completions") => Some(OpenAiApiMode::ChatCompletions),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,7 +526,14 @@ mod tests {
     #[test]
     fn deprecated_dall_e_models_point_to_gpt_image_2() {
         let profile = OpenAiProfile::current().unwrap();
-        let scope = profile.family_support_scope(ModelFamily::Image).unwrap();
+        let scope = profile
+            .provider_profile()
+            .verified_claims()
+            .unwrap()
+            .iter()
+            .find(|claim| claim.scope().family() == ModelFamily::Image)
+            .unwrap()
+            .scope();
         let catalog = profile.provider_profile().catalog().unwrap();
 
         for model in [DALL_E_2, DALL_E_3] {

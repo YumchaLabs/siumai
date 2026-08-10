@@ -1,7 +1,7 @@
 //! Native Anthropic provider integration for Siumai.
 //!
 //! This crate owns Anthropic identity, authentication, official endpoint policy,
-//! typed Messages options, durable prompt-cache annotations, model advisories,
+//! typed Messages options, durable prompt-cache annotations, model catalog introspection,
 //! and provider-native resource APIs. Canonical Anthropic Messages wire semantics
 //! and reusable execution live in the protocol and compatible-engine crates.
 #![deny(unsafe_code)]

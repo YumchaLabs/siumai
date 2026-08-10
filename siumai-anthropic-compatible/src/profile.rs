@@ -123,7 +123,7 @@ impl AnthropicCompatibleProfile {
     /// Construct the explicit generic custom-compatible escape hatch.
     ///
     /// Generic profiles make no named model or native-fidelity claim. Unknown model IDs
-    /// remain callable with an advisory, and callers must select an explicit endpoint policy.
+    /// remain callable, and callers must select an explicit endpoint policy.
     pub fn custom(
         profile_id: ProfileId,
         provider: ProviderId,
@@ -342,10 +342,6 @@ impl AnthropicCompatibleProfile {
         } else {
             Ok(Some(features.into_iter().collect::<Vec<_>>().join(",")))
         }
-    }
-
-    pub(crate) fn provider_profile_arc(&self) -> Arc<ProviderProfile> {
-        self.provider_profile.clone()
     }
 
     pub(crate) fn annotation_resolver(&self) -> &Arc<dyn MessagesAnnotationResolver> {

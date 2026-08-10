@@ -7,17 +7,10 @@ use base64::Engine as _;
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
-    ImageRequest, ImageResponse, MediaData, Model, ModelAdvisory, ModelDescriptor, ModelOperation,
-    ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ResponseMetadata, SpeechLimits,
-    SpeechModel, SpeechRequest, SpeechResponse, SupportState, UnsupportedReason, Usage, Warning,
-    WarningKind,
+    ImageRequest, ImageResponse, MediaData, Model, ModelDescriptor, ModelOperation,
+    ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, Usage,
 };
 
-use crate::models::image::IMAGE_01;
-use crate::models::speech::{
-    SPEECH_01_HD, SPEECH_01_TURBO, SPEECH_2_6_HD, SPEECH_2_6_TURBO, SPEECH_2_8_HD,
-    SPEECH_2_8_TURBO, SPEECH_02_HD, SPEECH_02_TURBO,
-};
 use crate::resources::{
     MinimaxImageDimensions, MinimaxImageRequest, MinimaxImageResponseFormat, MinimaxImages,
     MinimaxSpeech, MinimaxSpeechAudioFormat, MinimaxSpeechAudioSettings, MinimaxSpeechOutput,
@@ -33,35 +26,14 @@ const MAX_SPEECH_TEXT_CHARACTERS: usize = 9_999;
 pub struct MinimaxImageModel {
     images: MinimaxImages,
     descriptor: ModelDescriptor,
-    policy: Arc<dyn ModelPolicy>,
 }
 
 impl MinimaxImageModel {
-    pub(crate) fn new(
-        runtime: Arc<NativeRuntime>,
-        descriptor: ModelDescriptor,
-        policy: Arc<dyn ModelPolicy>,
-    ) -> Self {
+    pub(crate) fn new(runtime: Arc<NativeRuntime>, descriptor: ModelDescriptor) -> Self {
         Self {
             images: MinimaxImages::new(runtime),
             descriptor,
-            policy,
         }
-    }
-
-    fn policy_warnings(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.policy.evaluate(&ModelPolicyContext::new(
-            Arc::new(self.descriptor.scope().clone()),
-            self.model_id().clone(),
-            ModelOperation::GenerateImage,
-        ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected the MiniMax portable image operation",
-            )));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn request(&self, request: &ImageRequest) -> Result<MinimaxImageRequest, Error> {
@@ -142,7 +114,6 @@ impl ImageModel for MinimaxImageModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy_warnings()?;
         let native = self
             .request(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -171,7 +142,7 @@ impl ImageModel for MinimaxImageModel {
                 model: Some(self.model_id().clone()),
             },
             usage: Usage::default(),
-            warnings,
+            warnings: Vec::new(),
             provider,
         };
         response
@@ -221,35 +192,14 @@ fn image_media_type(bytes: &[u8]) -> Option<&'static str> {
 pub struct MinimaxSpeechModel {
     speech: MinimaxSpeech,
     descriptor: ModelDescriptor,
-    policy: Arc<dyn ModelPolicy>,
 }
 
 impl MinimaxSpeechModel {
-    pub(crate) fn new(
-        runtime: Arc<NativeRuntime>,
-        descriptor: ModelDescriptor,
-        policy: Arc<dyn ModelPolicy>,
-    ) -> Self {
+    pub(crate) fn new(runtime: Arc<NativeRuntime>, descriptor: ModelDescriptor) -> Self {
         Self {
             speech: MinimaxSpeech::new(runtime),
             descriptor,
-            policy,
         }
-    }
-
-    fn policy_warnings(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.policy.evaluate(&ModelPolicyContext::new(
-            Arc::new(self.descriptor.scope().clone()),
-            self.model_id().clone(),
-            ModelOperation::SynthesizeSpeech,
-        ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected the MiniMax portable speech operation",
-            )));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn request(
@@ -329,7 +279,6 @@ impl SpeechModel for MinimaxSpeechModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy_warnings()?;
         let (native, format) = self
             .request(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -379,59 +328,13 @@ impl SpeechModel for MinimaxSpeechModel {
                 model: Some(self.model_id().clone()),
             },
             usage,
-            warnings,
+            warnings: Vec::new(),
             provider: BTreeMap::new(),
         };
         response
             .validate()
             .map_err(|error| self.contextualize(error))?;
         Ok(response)
-    }
-}
-
-pub(crate) struct MinimaxImagePolicy {
-    pub(crate) verified_endpoint: bool,
-}
-
-impl ModelPolicy for MinimaxImagePolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.operation() != ModelOperation::GenerateImage {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && context.model().as_str() == IMAGE_01 {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
-}
-
-pub(crate) struct MinimaxSpeechPolicy {
-    pub(crate) verified_endpoint: bool,
-}
-
-impl ModelPolicy for MinimaxSpeechPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.operation() != ModelOperation::SynthesizeSpeech {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint
-            && matches!(
-                context.model().as_str(),
-                SPEECH_2_8_HD
-                    | SPEECH_2_8_TURBO
-                    | SPEECH_2_6_HD
-                    | SPEECH_2_6_TURBO
-                    | SPEECH_02_HD
-                    | SPEECH_02_TURBO
-                    | SPEECH_01_HD
-                    | SPEECH_01_TURBO
-            )
-        {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 
@@ -462,26 +365,5 @@ fn speech_media_type(format: MinimaxSpeechAudioFormat) -> &'static str {
         MinimaxSpeechAudioFormat::PcmuRaw => "audio/pcmu",
         MinimaxSpeechAudioFormat::PcmuWav => "audio/wav",
         MinimaxSpeechAudioFormat::Opus => "audio/opus",
-    }
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the current MiniMax media advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "MiniMax media model is deprecated",
-        ),
-        ModelAdvisory::Retired { .. } => {
-            Warning::new(WarningKind::RetiredModel, "MiniMax media model is retired")
-        }
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "MiniMax media model ID is a rolling alias",
-        ),
-        _ => Warning::provider("model_advisory", "MiniMax returned a model advisory"),
     }
 }

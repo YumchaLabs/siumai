@@ -6,10 +6,10 @@ use http::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ModelPolicy, ProviderOptionError, PublicDiagnosticText,
-    ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel,
-    SpeechRequest, SpeechResponse, SupportState, Usage, Warning, WarningKind,
+    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionError, PublicDiagnosticText, ResponseDiagnostics,
+    ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
+    Usage,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget,
@@ -41,25 +41,6 @@ impl ElevenLabsSpeechModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let operation = ModelOperation::SynthesizeSpeech;
-        let decision = self
-            .runtime
-            .policy
-            .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.runtime.scope.clone(),
-                self.model_id().clone(),
-                operation,
-            ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected ElevenLabs speech synthesis",
-            )));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn plan(
@@ -170,7 +151,6 @@ impl SpeechModel for ElevenLabsSpeechModel {
         request: SpeechRequest,
         options: CallOptions,
     ) -> Result<SpeechResponse, Error> {
-        let warnings = self.policy()?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -215,7 +195,7 @@ impl SpeechModel for ElevenLabsSpeechModel {
                 model: Some(self.model_id().clone()),
             },
             usage: Usage::default(),
-            warnings,
+            warnings: Vec::new(),
             provider,
         };
         response
@@ -284,30 +264,6 @@ fn sample_rate(output_format: &str) -> Option<u32> {
         .split('_')
         .nth(1)
         .and_then(|value| value.parse().ok())
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the verified ElevenLabs advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "ElevenLabs model is deprecated; inspect the profile for its replacement",
-        ),
-        ModelAdvisory::Retired { .. } => {
-            Warning::new(WarningKind::RetiredModel, "ElevenLabs model is retired")
-        }
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "ElevenLabs model ID is a rolling alias",
-        ),
-        _ => Warning::provider(
-            "model_advisory",
-            "ElevenLabs profile returned a model advisory",
-        ),
-    }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {
@@ -484,10 +440,7 @@ mod tests {
         assert_eq!(response.sample_rate_hz, Some(44_100));
         assert_eq!(response.metadata.request_id.as_deref(), Some("req-123"));
         assert_eq!(response.usage.audio_output_tokens, UsageValue::Unknown);
-        assert!(matches!(
-            response.warnings.first().map(Warning::kind),
-            Some(&WarningKind::UnknownModel)
-        ));
+        assert!(response.warnings.is_empty());
         let audio = response.audio;
         let audio = tokio::spawn(async move { audio.to_vec() }).await.unwrap();
         assert_eq!(audio, vec![1, 2, 3, 4]);

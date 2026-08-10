@@ -8,11 +8,10 @@ use http::header::{ACCEPT, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, SupportState,
-    TypedProviderOptions, Warning, WarningKind,
+    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, SpeechLimits, SpeechModel,
+    SpeechRequest, SpeechResponse, TypedProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     InteractionSpeechConfig, V1BETA_SPEECH_TARGET, decode_speech_response, encode_speech_request,
@@ -22,7 +21,6 @@ use siumai_transport::{
 };
 
 use crate::http::{response_error, response_request_id};
-use crate::profile::{PROTOCOL_ID, PROVIDER_ID};
 use crate::provider::ProviderRuntime;
 
 /// Current Gemini Interactions TTS model hint.
@@ -33,12 +31,6 @@ pub const GEMINI_2_5_FLASH_PREVIEW_TTS: &str = "gemini-2.5-flash-preview-tts";
 pub const GEMINI_2_5_PRO_PREVIEW_TTS: &str = "gemini-2.5-pro-preview-tts";
 /// Provider API mode used by the current Interactions TTS slice.
 pub const GEMINI_SPEECH_API_MODE_ID: &str = "interactions-speech";
-
-const KNOWN_SPEECH_MODELS: &[&str] = &[
-    GEMINI_3_1_FLASH_TTS_PREVIEW,
-    GEMINI_2_5_FLASH_PREVIEW_TTS,
-    GEMINI_2_5_PRO_PREVIEW_TTS,
-];
 
 /// Provider-owned defaults for Gemini's current single-speaker Interactions TTS slice.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,24 +78,6 @@ impl GeminiSpeechModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self
-            .runtime
-            .speech_policy
-            .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.runtime.speech_scope.clone(),
-                self.model_id().clone(),
-                ModelOperation::SynthesizeSpeech,
-            ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected the Gemini Interactions speech operation",
-            )));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiSpeechOptions, Error> {
@@ -207,7 +181,6 @@ impl SpeechModel for GeminiSpeechModel {
         request: SpeechRequest,
         options: CallOptions,
     ) -> Result<SpeechResponse, Error> {
-        let warnings = self.policy()?;
         let provider_options = self.options(&options)?;
         let plan = self
             .plan(&request, &provider_options)
@@ -228,36 +201,7 @@ impl SpeechModel for GeminiSpeechModel {
         let mut response = decode_speech_response(&body, self.descriptor.scope(), self.model_id())
             .map_err(|error| self.contextualize(error))?;
         response.metadata.request_id = response_request_id(&headers);
-        response.warnings.extend(warnings);
         Ok(response)
-    }
-}
-
-pub(crate) struct GeminiSpeechPolicy {
-    pub(crate) verified_endpoint: bool,
-}
-
-impl ModelPolicy for GeminiSpeechPolicy {
-    fn evaluate(&self, context: &siumai_core::ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str())
-                == Some(GEMINI_SPEECH_API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(
-                siumai_core::UnsupportedReason::ApiModeMismatch,
-            );
-        }
-        if context.operation() != ModelOperation::SynthesizeSpeech {
-            return ModelPolicyDecision::unsupported(
-                siumai_core::UnsupportedReason::OperationNotImplemented,
-            );
-        }
-        if self.verified_endpoint && KNOWN_SPEECH_MODELS.contains(&context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 
@@ -319,19 +263,6 @@ fn validate_voice(voice: &str) -> Result<(), Error> {
         ));
     }
     Ok(())
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model support is not verified for Gemini Interactions speech",
-        ),
-        _ => Warning::provider(
-            "model_advisory",
-            "Gemini speech model policy returned an advisory",
-        ),
-    }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

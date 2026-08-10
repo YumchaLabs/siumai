@@ -51,11 +51,3 @@ pub const CURRENT_SPEECH_MODELS: &[&str] = speech::CURRENT;
 
 pub use speech::AURA_2_THALIA_EN;
 pub use transcription::NOVA_3;
-
-pub(crate) fn is_current(model: &str) -> bool {
-    CURRENT_TRANSCRIPTION_MODELS.contains(&model)
-}
-
-pub(crate) fn is_current_speech(model: &str) -> bool {
-    CURRENT_SPEECH_MODELS.contains(&model)
-}

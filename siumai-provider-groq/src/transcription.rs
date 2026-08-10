@@ -10,20 +10,18 @@ use http::{Method, StatusCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProviderInstanceId, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseMetadata,
-    SensitiveResponse, SupportState, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
-    TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, UnsupportedReason, Usage,
-    Warning, WarningKind,
+    CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderInstanceId, ProviderOptionContext, ProviderOptionError,
+    ProviderOptionLayers, ProviderOptionMerger, ProviderOptions, ProviderScope,
+    PublicDiagnosticText, ResponseMetadata, SensitiveResponse, TranscriptSegment,
+    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
+    TypedProviderOptions, Usage,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
     RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders, TransportResponse,
 };
 
-use crate::models;
 use crate::options::{
     GroqTimestampGranularity, GroqTranscriptionOptions, GroqTranscriptionResponseFormat,
 };
@@ -53,21 +51,6 @@ impl GroqTranscriptionModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.runtime.policy.evaluate(&ModelPolicyContext::new(
-            self.runtime.scope.clone(),
-            self.model_id().clone(),
-            ModelOperation::Transcribe,
-        ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "Groq model policy rejected transcription",
-            )));
-        }
-        Ok(policy_warnings(&decision))
     }
 
     fn plan(
@@ -166,7 +149,6 @@ impl TranscriptionModel for GroqTranscriptionModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy()?;
         let options = self
             .runtime
             .options(&call)
@@ -185,7 +167,7 @@ impl TranscriptionModel for GroqTranscriptionModel {
         if !response.status().is_success() {
             return Err(self.contextualize(provider_response_error(response)));
         }
-        decode_response(self.model_id(), response, warnings, response_format)
+        decode_response(self.model_id(), response, response_format)
             .map_err(|error| self.contextualize(error))
     }
 }
@@ -194,7 +176,6 @@ pub(crate) struct GroqTranscriptionRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<GroqTranscriptionPolicy>,
     default_options: ProviderOptions,
     option_merger: GroqTranscriptionOptionMerger,
 }
@@ -205,14 +186,9 @@ impl GroqTranscriptionRuntime {
         scope: Arc<ProviderScope>,
         transport: ProviderTransport,
         default_options: ProviderOptions,
-        verified_endpoint: bool,
     ) -> Self {
         Self {
             instance_id,
-            policy: Arc::new(GroqTranscriptionPolicy::new(
-                scope.clone(),
-                verified_endpoint,
-            )),
             scope,
             transport,
             default_options,
@@ -243,36 +219,6 @@ impl fmt::Debug for GroqTranscriptionRuntime {
             .field("transport", &"shared")
             .field("default_options", &self.default_options)
             .finish()
-    }
-}
-
-pub(crate) struct GroqTranscriptionPolicy {
-    expected_scope: Arc<ProviderScope>,
-    verified_endpoint: bool,
-}
-
-impl GroqTranscriptionPolicy {
-    fn new(expected_scope: Arc<ProviderScope>, verified_endpoint: bool) -> Self {
-        Self {
-            expected_scope,
-            verified_endpoint,
-        }
-    }
-}
-
-impl ModelPolicy for GroqTranscriptionPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.scope() != self.expected_scope.as_ref() {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::Transcribe {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && models::is_known_transcription(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 
@@ -347,22 +293,20 @@ fn audio_file_name(media_type: &str) -> &'static str {
 fn decode_response(
     requested_model: &ModelId,
     response: TransportResponse,
-    warnings: Vec<Warning>,
     format: GroqTranscriptionResponseFormat,
 ) -> Result<TranscriptionResponse, Error> {
     let (_, headers, body) = response.into_parts();
-    decode_response_parts(requested_model, Some(&headers), &body, warnings, format)
+    decode_response_parts(requested_model, Some(&headers), &body, format)
 }
 
 fn decode_response_parts(
     requested_model: &ModelId,
     headers: Option<&ResponseHeaders>,
     body: &[u8],
-    warnings: Vec<Warning>,
     format: GroqTranscriptionResponseFormat,
 ) -> Result<TranscriptionResponse, Error> {
     if format == GroqTranscriptionResponseFormat::Text {
-        return decode_text_response(requested_model, headers, body, warnings);
+        return decode_text_response(requested_model, headers, body);
     }
     let wire = serde_json::from_slice::<GroqTranscriptionWire>(body).map_err(|source| {
         Error::new(
@@ -449,7 +393,7 @@ fn decode_response_parts(
             model: Some(requested_model.clone()),
         },
         usage,
-        warnings,
+        warnings: Vec::new(),
         provider,
     };
     result.validate()?;
@@ -460,7 +404,6 @@ fn decode_text_response(
     requested_model: &ModelId,
     headers: Option<&ResponseHeaders>,
     body: &[u8],
-    warnings: Vec<Warning>,
 ) -> Result<TranscriptionResponse, Error> {
     let text = String::from_utf8(body.to_vec()).map_err(|source| {
         Error::new(
@@ -491,7 +434,7 @@ fn decode_text_response(
             model: Some(requested_model.clone()),
         },
         usage: Usage::default(),
-        warnings,
+        warnings: Vec::new(),
         provider,
     };
     result.validate()?;
@@ -535,33 +478,6 @@ struct GroqTranscriptWord {
     end: f64,
     #[serde(default)]
     confidence: Option<f64>,
-}
-
-fn policy_warnings(decision: &ModelPolicyDecision) -> Vec<Warning> {
-    decision
-        .advisories()
-        .iter()
-        .map(|advisory| match advisory {
-            ModelAdvisory::UnknownModel => Warning::new(
-                WarningKind::UnknownModel,
-                "model is absent from the verified Groq transcription advisory catalog",
-            ),
-            ModelAdvisory::Deprecated { .. } => {
-                Warning::new(WarningKind::DeprecatedModel, "Groq model is deprecated")
-            }
-            ModelAdvisory::Retired { .. } => {
-                Warning::new(WarningKind::RetiredModel, "Groq model is retired")
-            }
-            ModelAdvisory::RollingAlias => Warning::new(
-                WarningKind::RollingModelAlias,
-                "Groq model ID is a rolling alias",
-            ),
-            _ => Warning::provider(
-                "model_advisory",
-                "Groq transcription policy returned an advisory",
-            ),
-        })
-        .collect()
 }
 
 fn option_error(source: ProviderOptionError) -> Error {
@@ -688,7 +604,7 @@ fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use siumai_core::{ApiModeId, PlatformId, ProtocolId, ProviderId};
+    use siumai_core::{ApiModeId, ProtocolId, ProviderId};
 
     use super::*;
 
@@ -711,7 +627,6 @@ mod tests {
                 scope,
                 transport,
                 defaults,
-                false,
             )),
             ModelId::new("future-whisper").unwrap(),
         );
@@ -740,7 +655,6 @@ mod tests {
             &ModelId::new("whisper-large-v3-turbo").unwrap(),
             None,
             &body,
-            Vec::new(),
             GroqTranscriptionResponseFormat::VerboseJson,
         )
         .unwrap();
@@ -758,7 +672,6 @@ mod tests {
             &ModelId::new("whisper-large-v3-turbo").unwrap(),
             None,
             b"hello world\n",
-            Vec::new(),
             GroqTranscriptionResponseFormat::Text,
         )
         .unwrap();
@@ -766,98 +679,5 @@ mod tests {
         assert_eq!(decoded.text, "hello world\n");
         assert!(decoded.segments.is_empty());
         assert_eq!(decoded.usage, Usage::default());
-    }
-
-    #[test]
-    fn transcription_policy_requires_exact_scope_and_verified_endpoint() {
-        fn scope(
-            provider: &str,
-            platform: &str,
-            protocol: &str,
-            api_mode: &str,
-        ) -> Arc<ProviderScope> {
-            Arc::new(
-                ProviderScope::new(ProviderId::new(provider).unwrap())
-                    .with_platform(PlatformId::new(platform).unwrap())
-                    .with_protocol(ProtocolId::new(protocol).unwrap())
-                    .with_api_mode(ApiModeId::new(api_mode).unwrap()),
-            )
-        }
-
-        fn context(scope: Arc<ProviderScope>, model: &str) -> ModelPolicyContext {
-            ModelPolicyContext::new(
-                scope,
-                ModelId::new(model).unwrap(),
-                ModelOperation::Transcribe,
-            )
-        }
-
-        let official_scope = scope(
-            crate::language::PROVIDER_ID,
-            crate::language::PLATFORM_ID,
-            TRANSCRIPTION_PROTOCOL_ID,
-            TRANSCRIPTION_API_MODE_ID,
-        );
-        let official = GroqTranscriptionPolicy::new(official_scope.clone(), true);
-        assert_eq!(
-            official
-                .evaluate(&context(official_scope.clone(), "whisper-large-v3"))
-                .state(),
-            &SupportState::Supported
-        );
-        assert_eq!(
-            official
-                .evaluate(&context(official_scope, "future-whisper"))
-                .state(),
-            &SupportState::Unknown
-        );
-
-        for mismatched_scope in [
-            scope(
-                "other",
-                crate::language::PLATFORM_ID,
-                TRANSCRIPTION_PROTOCOL_ID,
-                TRANSCRIPTION_API_MODE_ID,
-            ),
-            scope(
-                crate::language::PROVIDER_ID,
-                "other",
-                TRANSCRIPTION_PROTOCOL_ID,
-                TRANSCRIPTION_API_MODE_ID,
-            ),
-            scope(
-                crate::language::PROVIDER_ID,
-                crate::language::PLATFORM_ID,
-                "other",
-                TRANSCRIPTION_API_MODE_ID,
-            ),
-            scope(
-                crate::language::PROVIDER_ID,
-                crate::language::PLATFORM_ID,
-                TRANSCRIPTION_PROTOCOL_ID,
-                "other",
-            ),
-        ] {
-            assert!(matches!(
-                official
-                    .evaluate(&context(mismatched_scope, "whisper-large-v3"))
-                    .state(),
-                SupportState::Unsupported { .. }
-            ));
-        }
-
-        let custom_scope = scope(
-            crate::language::PROVIDER_ID,
-            "custom-endpoint",
-            TRANSCRIPTION_PROTOCOL_ID,
-            TRANSCRIPTION_API_MODE_ID,
-        );
-        let custom = GroqTranscriptionPolicy::new(custom_scope.clone(), false);
-        assert_eq!(
-            custom
-                .evaluate(&context(custom_scope, "whisper-large-v3"))
-                .state(),
-            &SupportState::Unknown
-        );
     }
 }

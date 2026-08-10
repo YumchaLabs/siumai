@@ -8,9 +8,9 @@ use serde::Deserialize;
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelAdvisory,
-    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ModelPolicyContext, ProviderOptionError,
-    PublicDiagnosticText, SensitiveResponse, StreamTerminal, SupportState, Warning, WarningKind,
+    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
+    ModelFamily, ModelId, ModelOperation, ProviderOptionError, PublicDiagnosticText,
+    SensitiveResponse, StreamTerminal,
 };
 use siumai_protocol_anthropic::messages::{
     MessagesStreamDecoder, decode_response, encode_request_for_scope_with_resolver_and_rules,
@@ -46,24 +46,6 @@ impl AnthropicCompatibleLanguageModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self, operation: ModelOperation) -> Result<Vec<Warning>, Error> {
-        let decision = self.runtime.policy.evaluate(&ModelPolicyContext::new(
-            self.runtime.scope.clone(),
-            self.model_id().clone(),
-            operation,
-        ));
-        if matches!(decision.state(), SupportState::Unsupported { .. }) {
-            return Err(self.contextualize(
-                operation,
-                Error::new(
-                    ErrorKind::Unsupported,
-                    "model policy rejected the Anthropic Messages operation",
-                ),
-            ));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn request_plan(
@@ -139,7 +121,6 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = self.policy(operation)?;
         let mut call_options = self
             .runtime
             .merge_options_for(self, &options)
@@ -179,7 +160,7 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         let response = decode_response(response.body(), &self.runtime.scope, self.model_id())
             .map_err(Error::from)
             .map_err(|error| self.contextualize(operation, error))?;
-        Ok(append_warnings(response, &warnings))
+        Ok(response)
     }
 
     async fn stream(
@@ -188,7 +169,6 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = self.policy(operation)?;
         let mut call_options = self
             .runtime
             .merge_options_for(self, &options)
@@ -239,64 +219,8 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             body,
             self.runtime.transport.limits().clone(),
             decoder,
-            warnings,
             self.error_context(operation),
         ))
-    }
-}
-
-fn append_warnings(mut response: LanguageResponse, warnings: &[Warning]) -> LanguageResponse {
-    if warnings.is_empty() {
-        return response;
-    }
-    let mut combined = response.warnings().to_vec();
-    combined.extend_from_slice(warnings);
-    response = response.with_warnings(combined);
-    response
-}
-
-fn attach_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
-    if warnings.is_empty() {
-        return;
-    }
-    match event {
-        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-            response: Some(response),
-            ..
-        })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-            response: Some(response),
-            ..
-        }) => {
-            **response = append_warnings(response.as_ref().clone(), warnings);
-        }
-        _ => {}
-    }
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the verified advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "model is deprecated; inspect the compatible profile for its replacement",
-        ),
-        ModelAdvisory::Retired { .. } => Warning::new(
-            WarningKind::RetiredModel,
-            "model is retired in the compatible profile",
-        ),
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "model ID is a rolling alias whose behavior may change",
-        ),
-        _ => Warning::provider(
-            "model_advisory",
-            "compatible profile returned a model advisory",
-        ),
     }
 }
 
@@ -305,7 +229,6 @@ fn decode_sse_stream(
     body: TransportByteStream,
     limits: TransportLimits,
     mut protocol: MessagesStreamDecoder,
-    warnings: Vec<Warning>,
     context: ErrorContext,
 ) -> LanguageStream {
     established_stream(cancellation, move |_| {
@@ -323,7 +246,6 @@ fn decode_sse_stream(
                         .map_err(|error| error.with_context(context.clone()))?;
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
-                        attach_warnings(&mut event, &warnings);
                         let terminal = event.terminal().is_some();
                         yield event;
                         if terminal {
@@ -340,7 +262,6 @@ fn decode_sse_stream(
                 .map_err(|error| error.with_context(context.clone()))?;
             for mut event in events {
                 contextualize_terminal_error(&mut event, &context);
-                attach_warnings(&mut event, &warnings);
                 let terminal = event.terminal().is_some();
                 yield event;
                 if terminal {

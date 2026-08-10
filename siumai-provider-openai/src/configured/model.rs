@@ -8,9 +8,8 @@ use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelAdvisory,
-    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyDecision,
-    ProviderOptionError, ProviderScope, StreamTerminal, SupportState, Warning, WarningKind,
+    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
+    ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderScope, StreamTerminal,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
@@ -45,7 +44,6 @@ const RESPONSES_TARGET: &str = "responses";
 #[cfg(feature = "openai-responses-websocket")]
 pub(crate) struct PreparedOpenAiResponsesWebSocketCall {
     pub(crate) body: Value,
-    pub(crate) warnings: Vec<Warning>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -190,13 +188,6 @@ impl OpenAiResponsesModel {
         generate: bool,
     ) -> Result<PreparedOpenAiResponsesWebSocketCall, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, options)
@@ -213,7 +204,7 @@ impl OpenAiResponsesModel {
                 merged,
             )
             .map_err(|error| self.contextualize(operation, error))?;
-        Ok(PreparedOpenAiResponsesWebSocketCall { body, warnings })
+        Ok(PreparedOpenAiResponsesWebSocketCall { body })
     }
 
     pub(crate) fn contextualize(&self, operation: ModelOperation, error: Error) -> Error {
@@ -227,13 +218,6 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiBackgroundResponse, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -259,7 +243,7 @@ impl OpenAiResponsesModel {
         }
         let resource = siumai_protocol_openai::responses::decode_response_resource(response.body())
             .map_err(|error| self.contextualize(operation, error))?;
-        Ok(OpenAiBackgroundResponse::new(resource, warnings))
+        Ok(OpenAiBackgroundResponse::new(resource))
     }
 
     /// Generate one Responses result while retaining the provider-native resource.
@@ -269,13 +253,6 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesResponse, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -306,10 +283,7 @@ impl OpenAiResponsesModel {
         )
         .map_err(|error| self.contextualize(operation, error))?;
         let (native, portable) = decoded.into_parts();
-        Ok(OpenAiResponsesResponse::new(
-            native,
-            with_policy_warnings(portable, &warnings),
-        ))
+        Ok(OpenAiResponsesResponse::new(native, portable))
     }
 
     /// Establish one native Responses stream.
@@ -322,13 +296,6 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesStream, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -366,7 +333,6 @@ impl OpenAiResponsesModel {
             body,
             self.runtime.transport.limits().clone(),
             decoder,
-            warnings,
             context,
         ))
     }
@@ -487,13 +453,6 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::ChatCompletions,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -527,7 +486,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
             &official_chat_dialect(),
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        Ok(with_policy_warnings(response, &warnings))
+        Ok(response)
     }
 
     async fn stream(
@@ -536,13 +495,6 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = policy_warnings(
-            &self.runtime,
-            OpenAiApiMode::ChatCompletions,
-            self.model_id(),
-            operation,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -581,7 +533,6 @@ impl LanguageModel for OpenAiChatCompletionsModel {
                 official_chat_dialect(),
             )
             .with_response_diagnostics(diagnostics),
-            warnings,
             OpenAiApiMode::ChatCompletions,
             model_error_context(self, operation),
         ))
@@ -680,108 +631,11 @@ pub(crate) fn model_error_context(model: &impl Model, operation: ModelOperation)
     }
 }
 
-fn policy_warnings(
-    runtime: &OpenAiRuntime,
-    mode: OpenAiApiMode,
-    model: &ModelId,
-    operation: ModelOperation,
-) -> Result<Vec<Warning>, Error> {
-    let decision = runtime
-        .policy
-        .evaluate(&siumai_core::ModelPolicyContext::new(
-            runtime.scope_arc(mode),
-            model.clone(),
-            operation,
-        ));
-    reject_unsupported(mode, &decision)?;
-    Ok(decision.advisories().iter().map(advisory_warning).collect())
-}
-
-fn reject_unsupported(mode: OpenAiApiMode, decision: &ModelPolicyDecision) -> Result<(), Error> {
-    if matches!(decision.state(), SupportState::Unsupported { .. }) {
-        return Err(Error::new(
-            ErrorKind::Unsupported,
-            match mode {
-                OpenAiApiMode::Responses => {
-                    "model policy rejected the requested OpenAI Responses operation"
-                }
-                OpenAiApiMode::ChatCompletions => {
-                    "model policy rejected the requested OpenAI Chat Completions operation"
-                }
-            },
-        ));
-    }
-    Ok(())
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the verified OpenAI advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "OpenAI marks this model as deprecated; inspect the provider profile for its replacement",
-        ),
-        ModelAdvisory::Retired { .. } => Warning::new(
-            WarningKind::RetiredModel,
-            "OpenAI marks this model as retired",
-        ),
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "the OpenAI model ID is a rolling alias whose routed snapshot may change",
-        ),
-        _ => Warning::provider(
-            "model_advisory",
-            "the OpenAI provider profile returned an additional model advisory",
-        ),
-    }
-}
-
-fn with_policy_warnings(mut response: LanguageResponse, warnings: &[Warning]) -> LanguageResponse {
-    if warnings.is_empty() {
-        return response;
-    }
-    let mut combined = response.warnings().to_vec();
-    combined.extend_from_slice(warnings);
-    response = response.with_warnings(combined);
-    response
-}
-
-pub(crate) fn attach_policy_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
-    if warnings.is_empty() {
-        return;
-    }
-    match event {
-        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => {
-            replace_response_warnings(response, warnings);
-        }
-        LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-            response: Some(response),
-            ..
-        })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-            response: Some(response),
-            ..
-        }) => {
-            replace_response_warnings(response, warnings);
-        }
-        _ => {}
-    }
-}
-
-fn replace_response_warnings(response: &mut Box<LanguageResponse>, warnings: &[Warning]) {
-    let updated = with_policy_warnings(response.as_ref().clone(), warnings);
-    **response = updated;
-}
-
 fn decode_responses_sse_stream(
     cancellation: siumai_core::Cancellation,
     body: TransportByteStream,
     limits: TransportLimits,
     mut protocol: ResponsesStreamDecoder,
-    warnings: Vec<Warning>,
     context: ErrorContext,
 ) -> OpenAiResponsesStream {
     let cancellation_error =
@@ -818,7 +672,6 @@ fn decode_responses_sse_stream(
                 }
                 for event in &mut portable_events {
                     contextualize_terminal_error(event, &context);
-                    attach_policy_warnings(event, &warnings);
                 }
                 let canonical_terminal_response = portable_events
                     .iter()
@@ -865,7 +718,6 @@ fn decode_sse_stream<D>(
     body: TransportByteStream,
     limits: TransportLimits,
     mut protocol: D,
-    warnings: Vec<Warning>,
     mode: OpenAiApiMode,
     context: ErrorContext,
 ) -> LanguageStream
@@ -903,7 +755,6 @@ where
                     terminal_in_batch |= terminal_position.is_some();
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
-                        attach_policy_warnings(&mut event, &warnings);
                         pending_events.push(event);
                     }
                 }
@@ -922,7 +773,6 @@ where
                 .map_err(|error| error.with_context(context.clone()))?;
             for mut event in events {
                 contextualize_terminal_error(&mut event, &context);
-                attach_policy_warnings(&mut event, &warnings);
                 let terminal = event.terminal().is_some();
                 yield event;
                 if terminal {

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use siumai_core::{
     CallOptions, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
-    ModelPolicy, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers,
-    ProviderRegistration, ProviderScope,
+    Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers, ProviderRegistration,
+    ProviderScope,
 };
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
@@ -16,7 +16,6 @@ use thiserror::Error;
 use crate::auth::{AnthropicCompatibleCredential, CredentialError};
 use crate::model::AnthropicCompatibleLanguageModel;
 use crate::options::{MessagesCallOptions, MessagesOptionMerger};
-use crate::policy::AnthropicCompatibleModelPolicy;
 use crate::profile::AnthropicCompatibleProfile;
 
 /// Long-lived, synchronously configured Anthropic Messages-compatible runtime.
@@ -60,7 +59,6 @@ impl AnthropicCompatibleProvider {
         let provider = self.clone();
         ProviderRegistration::from_language(
             self.runtime.scope.clone(),
-            self.runtime.policy.clone(),
             Arc::new(move |model| {
                 Ok(Arc::new(provider.create_language_model(model)?) as Arc<dyn LanguageModel>)
             }),
@@ -229,17 +227,12 @@ impl AnthropicCompatibleProviderBuilder {
         }
         let transport = transport.build()?;
         let scope = self.profile.scope_arc();
-        let policy: Arc<dyn ModelPolicy> = Arc::new(AnthropicCompatibleModelPolicy::new(
-            self.profile.provider_profile_arc(),
-            self.profile.support_scope().clone(),
-        ));
         let instance_id = self.instance_id.unwrap_or_default();
         Ok(AnthropicCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
                 profile: self.profile,
                 scope,
                 instance_id,
-                policy,
                 transport,
                 option_merger,
                 replay_safety: self.replay_safety,
@@ -252,7 +245,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) profile: AnthropicCompatibleProfile,
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
-    pub(crate) policy: Arc<dyn ModelPolicy>,
     pub(crate) transport: ProviderTransport,
     option_merger: MessagesOptionMerger,
     pub(crate) replay_safety: ReplaySafety,

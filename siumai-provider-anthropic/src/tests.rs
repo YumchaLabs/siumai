@@ -33,19 +33,12 @@ fn request(text: &str, max_tokens: u64) -> LanguageRequest {
     request
 }
 
-#[tokio::test]
-async fn retired_models_fail_before_network_while_future_ids_remain_open() {
+#[test]
+fn retired_and_future_model_ids_remain_callable() {
     let provider = AnthropicProvider::builder(AnthropicCredential::api_key("offline-test-key"))
         .build()
         .expect("provider");
-    let error = provider
-        .language(CLAUDE_OPUS_4_1_20250805)
-        .expect("retired model handle")
-        .generate(request("hello", 64), CallOptions::default())
-        .await
-        .expect_err("retired model");
-    assert_eq!(error.kind(), ErrorKind::Unsupported);
-
+    assert!(provider.language(CLAUDE_OPUS_4_1_20250805).is_ok());
     assert!(provider.language("claude-future-2030").is_ok());
 }
 
@@ -352,7 +345,7 @@ fn local_provider(server: &MockServer, credential: AnthropicCredential) -> Anthr
 }
 
 #[test]
-fn official_provider_is_network_free_and_catalog_is_advisory() {
+fn official_provider_is_network_free_and_catalog_is_introspection_only() {
     let provider = AnthropicProvider::builder(AnthropicCredential::api_key("offline-test-key"))
         .build()
         .expect("network-free provider construction");
@@ -414,6 +407,18 @@ fn official_provider_is_network_free_and_catalog_is_advisory() {
             replacement: Some(ModelId::new(crate::CLAUDE_MYTHOS_5).expect("replacement")),
         }
     );
+    assert!(provider.language(crate::CLAUDE_MYTHOS_PREVIEW).is_ok());
+
+    let retired = ModelId::new(crate::CLAUDE_OPUS_4_1_20250805).expect("model id");
+    let retired_profile = catalog
+        .iter()
+        .find(|entry| entry.model() == &retired)
+        .expect("retired model profile");
+    assert!(matches!(
+        retired_profile.lifecycle(),
+        ModelLifecycle::Retired { .. }
+    ));
+    assert!(provider.language(crate::CLAUDE_OPUS_4_1_20250805).is_ok());
 
     let unknown = provider
         .language("claude-future-2030")

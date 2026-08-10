@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -12,18 +11,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
-    ImageRequest, ImageResponse, MediaData, Model, ModelAdvisory, ModelDescriptor, ModelFamily,
-    ModelId, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ResponseMetadata, SupportState, TypedProviderOptions,
-    Usage, Warning, WarningKind,
+    ImageRequest, ImageResponse, MediaData, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ResponseMetadata,
+    TypedProviderOptions, Usage,
 };
 use siumai_transport::{ReplaySafety, RequestBody};
 
-use crate::models::{
-    DOLA_SEEDREAM_5_0_PRO_260628, SEEDREAM_4_0_250828, SEEDREAM_4_5_251128, SEEDREAM_5_0_260128,
-    SEEDREAM_5_0_LITE_260128,
-};
 use crate::native::{SharedArkNativeRuntime, execute_json, target};
 
 pub const ARK_IMAGE_API_MODE: &str = "images-generations";
@@ -466,7 +460,6 @@ impl TypedProviderOptions for ArkImageOptions {
 pub struct ArkImageModel {
     images: ArkImages,
     descriptor: ModelDescriptor,
-    policy: Arc<dyn ModelPolicy>,
     defaults: ArkImageOptions,
 }
 
@@ -474,13 +467,11 @@ impl ArkImageModel {
     pub(crate) fn new(
         runtime: SharedArkNativeRuntime,
         descriptor: ModelDescriptor,
-        policy: Arc<dyn ModelPolicy>,
         defaults: ArkImageOptions,
     ) -> Self {
         Self {
             images: ArkImages::new(runtime),
             descriptor,
-            policy,
             defaults,
         }
     }
@@ -501,21 +492,6 @@ impl ArkImageModel {
                 },
             )
             .map_err(option_error)
-    }
-
-    fn policy_warnings(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.policy.evaluate(&ModelPolicyContext::new(
-            Arc::new(self.descriptor.scope().clone()),
-            self.model_id().clone(),
-            ModelOperation::GenerateImage,
-        ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected the ARK image operation",
-            )));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn contextualize(&self, error: Error) -> Error {
@@ -550,7 +526,6 @@ impl ImageModel for ArkImageModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let mut warnings = self.policy_warnings()?;
         let options = self
             .options(&call)
             .map_err(|error| self.contextualize(error))?;
@@ -594,7 +569,7 @@ impl ImageModel for ArkImageModel {
                 model: Some(self.model_id().clone()),
             },
             usage: Usage::default(),
-            warnings: std::mem::take(&mut warnings),
+            warnings: Vec::new(),
             provider: response.extra,
         };
         output
@@ -610,32 +585,6 @@ impl fmt::Debug for ArkImageModel {
             .debug_struct("ArkImageModel")
             .field("descriptor", &self.descriptor)
             .finish()
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ArkImagePolicy {
-    pub(crate) verified_endpoint: bool,
-}
-
-impl ModelPolicy for ArkImagePolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        if context.operation() != ModelOperation::GenerateImage {
-            return ModelPolicyDecision::unsupported(
-                siumai_core::UnsupportedReason::OperationNotImplemented,
-            );
-        }
-        if !self.verified_endpoint {
-            return ModelPolicyDecision::unknown_model();
-        }
-        match context.model().as_str() {
-            DOLA_SEEDREAM_5_0_PRO_260628
-            | SEEDREAM_5_0_260128
-            | SEEDREAM_5_0_LITE_260128
-            | SEEDREAM_4_5_251128
-            | SEEDREAM_4_0_250828 => ModelPolicyDecision::supported(),
-            _ => ModelPolicyDecision::unknown_model(),
-        }
     }
 }
 
@@ -718,27 +667,6 @@ fn parse_portable_format(format: &str) -> Result<ArkImageOutputFormat, Error> {
             ErrorKind::Unsupported,
             "ARK portable image generation supports png or jpeg output",
         )),
-    }
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the current ARK image advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "ARK image model is deprecated",
-        ),
-        ModelAdvisory::Retired { .. } => {
-            Warning::new(WarningKind::RetiredModel, "ARK image model is retired")
-        }
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "ARK image model ID is a rolling alias",
-        ),
-        _ => Warning::provider("model_advisory", "ARK returned a model advisory"),
     }
 }
 

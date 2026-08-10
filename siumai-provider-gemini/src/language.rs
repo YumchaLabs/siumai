@@ -8,10 +8,10 @@ use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelAdvisory,
-    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ModelPolicy, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, StreamTerminal, SupportState, Warning, WarningKind,
+    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
+    ModelFamily, ModelId, ModelOperation, ProviderOptionContext, ProviderOptionError,
+    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
+    StreamTerminal,
 };
 use siumai_protocol_gemini::interactions::{
     DecodedInteraction, InteractionLanguageConfig, InteractionStorage, InteractionThinkingLevel,
@@ -51,27 +51,6 @@ impl GeminiLanguageModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self, operation: ModelOperation) -> Result<Vec<Warning>, Error> {
-        let decision =
-            self.runtime
-                .interactions_policy
-                .evaluate(&siumai_core::ModelPolicyContext::new(
-                    self.runtime.interactions_scope.clone(),
-                    self.model_id().clone(),
-                    operation,
-                ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(
-                operation,
-                Error::new(
-                    ErrorKind::Unsupported,
-                    "model policy rejected the Gemini Interactions language operation",
-                ),
-            ));
-        }
-        Ok(decision.advisories().iter().map(advisory_warning).collect())
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiInteractionsOptions, Error> {
@@ -140,7 +119,6 @@ impl GeminiLanguageModel {
         options: CallOptions,
     ) -> Result<DecodedInteraction, Error> {
         let operation = ModelOperation::Generate;
-        let warnings = self.policy(operation)?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -165,9 +143,7 @@ impl GeminiLanguageModel {
         let (_, headers, body) = response.into_parts();
         decode_language_response(&body, self.descriptor.scope(), self.model_id())
             .map(|decoded| {
-                decoded.map_canonical(|canonical| {
-                    with_response_context(canonical, &headers, &warnings)
-                })
+                decoded.map_canonical(|canonical| with_response_context(canonical, &headers))
             })
             .map_err(|error| self.contextualize(operation, error))
     }
@@ -208,7 +184,6 @@ impl LanguageModel for GeminiLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let warnings = self.policy(operation)?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -250,7 +225,6 @@ impl LanguageModel for GeminiLanguageModel {
             self.runtime.limits.clone(),
             decoder,
             headers,
-            warnings,
             context,
         ))
     }
@@ -262,7 +236,6 @@ pub(crate) fn decode_sse_stream<D>(
     limits: siumai_transport::TransportLimits,
     mut protocol: D,
     headers: siumai_transport::ResponseHeaders,
-    warnings: Vec<Warning>,
     context: ErrorContext,
 ) -> LanguageStream
 where
@@ -283,7 +256,7 @@ where
                         .map_err(|error| error.with_context(context.clone()))?;
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
-                        attach_response_context(&mut event, &headers, &warnings);
+                        attach_response_context(&mut event, &headers);
                         let terminal = event.terminal().is_some();
                         yield event;
                         if terminal {
@@ -300,7 +273,7 @@ where
                 .map_err(|error| error.with_context(context.clone()))?;
             for mut event in events {
                 contextualize_terminal_error(&mut event, &context);
-                attach_response_context(&mut event, &headers, &warnings);
+                attach_response_context(&mut event, &headers);
                 let terminal = event.terminal().is_some();
                 yield event;
                 if terminal {
@@ -314,7 +287,6 @@ where
 pub(crate) fn with_response_context(
     response: LanguageResponse,
     headers: &siumai_transport::ResponseHeaders,
-    warnings: &[Warning],
 ) -> LanguageResponse {
     let mut provider = response.provider_metadata().clone();
     if let Some(request_id) = response_request_id(headers) {
@@ -326,17 +298,12 @@ pub(crate) fn with_response_context(
             Value::String(service_tier),
         );
     }
-    let mut combined_warnings = response.warnings().to_vec();
-    combined_warnings.extend_from_slice(warnings);
-    response
-        .with_provider_metadata(provider)
-        .with_warnings(combined_warnings)
+    response.with_provider_metadata(provider)
 }
 
 fn attach_response_context(
     event: &mut LanguageStreamEvent,
     headers: &siumai_transport::ResponseHeaders,
-    warnings: &[Warning],
 ) {
     let response = match event {
         LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })
@@ -350,7 +317,7 @@ fn attach_response_context(
         }) => response,
         _ => return,
     };
-    **response = with_response_context(response.as_ref().clone(), headers, warnings);
+    **response = with_response_context(response.as_ref().clone(), headers);
 }
 
 fn contextualize_terminal_error(event: &mut LanguageStreamEvent, context: &ErrorContext) {
@@ -443,28 +410,6 @@ fn decode_options(
             reason: "options do not match the Gemini Interactions language schema".to_string(),
         }
     })
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the current Gemini Interactions advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "Gemini Interactions model is deprecated",
-        ),
-        ModelAdvisory::Retired { .. } => Warning::new(
-            WarningKind::RetiredModel,
-            "Gemini Interactions model is retired",
-        ),
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "Gemini model ID is a rolling alias",
-        ),
-        _ => Warning::provider("model_advisory", "Gemini returned a model advisory"),
-    }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

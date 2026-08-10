@@ -231,17 +231,7 @@ async fn runtime_facade_reexports_one_call_language_execution() {
 #[cfg(feature = "registry")]
 #[tokio::test]
 async fn direct_and_registry_image_paths_share_one_family_contract() {
-    use siumai::core::{ModelPolicy, ModelPolicyContext, ModelPolicyDecision};
     use siumai::registry::Registry;
-
-    #[derive(Debug)]
-    struct UnknownPolicy;
-
-    impl ModelPolicy for UnknownPolicy {
-        fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
 
     let calls = Arc::new(AtomicUsize::new(0));
     let direct = fake_image(ModelId::new("image-v1").unwrap(), calls.clone());
@@ -249,7 +239,6 @@ async fn direct_and_registry_image_paths_share_one_family_contract() {
     let factory_calls = calls.clone();
     let registration = ProviderRegistration::from_image(
         scope,
-        Arc::new(UnknownPolicy),
         Arc::new(move |model| {
             Ok(Arc::new(fake_image(model, factory_calls.clone())) as Arc<dyn ImageModel>)
         }),
@@ -270,17 +259,7 @@ async fn direct_and_registry_image_paths_share_one_family_contract() {
 #[cfg(feature = "registry")]
 #[tokio::test]
 async fn direct_and_registry_paths_use_the_same_family_contract() {
-    use siumai::core::{ModelPolicy, ModelPolicyContext, ModelPolicyDecision};
     use siumai::registry::Registry;
-
-    #[derive(Debug)]
-    struct UnknownPolicy;
-
-    impl ModelPolicy for UnknownPolicy {
-        fn evaluate(&self, _context: &ModelPolicyContext) -> ModelPolicyDecision {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
 
     let calls = Arc::new(AtomicUsize::new(0));
     let direct = fake(ModelId::new("embed-v1").unwrap(), calls.clone());
@@ -288,7 +267,6 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
     let factory_calls = calls.clone();
     let registration = ProviderRegistration::from_embedding(
         scope,
-        Arc::new(UnknownPolicy),
         Arc::new(move |model| {
             Ok(Arc::new(fake(model, factory_calls.clone())) as Arc<dyn EmbeddingModel>)
         }),

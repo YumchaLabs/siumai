@@ -6,10 +6,9 @@ use http::header::{ACCEPT, HeaderValue};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
-    ImageResponse, Model, ModelAdvisory, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
-    ModelPolicy, ModelPolicyDecision, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
-    SupportState, Warning, WarningKind,
+    ImageResponse, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
+    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
+    ProviderOptionOrigin, ProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     ImageAspectRatio as ProtocolImageAspectRatio, ImageMimeType as ProtocolImageMimeType,
@@ -44,25 +43,6 @@ impl GeminiImageModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<(ModelPolicyDecision, Vec<Warning>), Error> {
-        let decision = self
-            .runtime
-            .image_policy
-            .evaluate(&siumai_core::ModelPolicyContext::new(
-                self.runtime.image_scope.clone(),
-                self.model_id().clone(),
-                ModelOperation::GenerateImage,
-            ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "model policy rejected the Gemini Interactions image operation",
-            )));
-        }
-        let warnings = decision.advisories().iter().map(advisory_warning).collect();
-        Ok((decision, warnings))
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiImageOptions, Error> {
@@ -161,7 +141,6 @@ impl ImageModel for GeminiImageModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let (_, warnings) = self.policy()?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(error))?;
@@ -183,7 +162,7 @@ impl ImageModel for GeminiImageModel {
         let (_, headers, body) = response.into_parts();
         let request_id = response_request_id(&headers);
         let decoded =
-            decode_image_response(&body, self.model_id(), request_id.as_deref(), warnings)
+            decode_image_response(&body, self.model_id(), request_id.as_deref(), Vec::new())
                 .map_err(|error| self.contextualize(error))?;
         decoded
             .validate(&request)
@@ -317,27 +296,6 @@ fn decode_options(options: &ProviderOptions) -> Result<GeminiImageOptions, Provi
             reason: "options do not match the Gemini Interactions image schema".to_string(),
         }
     })
-}
-
-fn advisory_warning(advisory: &ModelAdvisory) -> Warning {
-    match advisory {
-        ModelAdvisory::UnknownModel => Warning::new(
-            WarningKind::UnknownModel,
-            "model is absent from the current Gemini image advisory catalog",
-        ),
-        ModelAdvisory::Deprecated { .. } => Warning::new(
-            WarningKind::DeprecatedModel,
-            "Gemini image model is deprecated",
-        ),
-        ModelAdvisory::Retired { .. } => {
-            Warning::new(WarningKind::RetiredModel, "Gemini image model is retired")
-        }
-        ModelAdvisory::RollingAlias => Warning::new(
-            WarningKind::RollingModelAlias,
-            "Gemini image model ID is a rolling alias",
-        ),
-        _ => Warning::provider("model_advisory", "Gemini returned a model advisory"),
-    }
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

@@ -8,9 +8,8 @@ use siumai_anthropic_compatible::{MessagesCallOptions, MessagesRequestPolicy};
 use siumai_core::{
     CallOptions, ContentAnnotationTarget, ContentPart, Error, ErrorKind, LanguageModel,
     LanguageRequest, LanguageStreamEvent, MediaData, MediaPart, Message, MessagePart, MessageRole,
-    Model, ModelAdvisory, ModelId, ModelOperation, Provider, ReplayDomain, ReplayDomainId,
-    StreamTerminal, StructuredOutputSpec, SupportState, ToolSpec, TypedProviderAnnotation,
-    VerifiedFidelity,
+    Model, ModelId, Provider, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec,
+    ToolSpec, TypedProviderAnnotation, VerifiedFidelity,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, MessagesRequestOptions, OutputEffort, ServerFallback, ServerFallbacks,
@@ -27,10 +26,7 @@ use super::annotations::{
 };
 use super::auth::{GoogleVertexCredential, GoogleVertexTokenSource};
 use super::endpoint::{endpoint_host, official_endpoint};
-use super::models::{
-    CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_5_20251101, CLAUDE_OPUS_5, CLAUDE_SONNET_5,
-    current_models,
-};
+use super::models::{CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_5, CLAUDE_SONNET_5, current_models};
 use super::provider::{GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicProvider};
 use super::request_policy::GoogleVertexAnthropicRequestPolicy;
 
@@ -161,31 +157,16 @@ fn provider_identity_catalog_and_custom_profile_are_explicit() {
         replay_domain.caller_scope().map(ReplayDomainId::as_str),
         Some("vertex-test-project")
     );
-    let unknown = ModelId::new("claude-future-2030").expect("model");
-    assert!(matches!(
+    assert!(provider.language("claude-future-2030").is_ok());
+    assert!(
         provider
-            .registration()
-            .evaluate(unknown, ModelOperation::Generate)
-            .state(),
-        SupportState::Unknown
-    ));
-    let current = ModelId::new(CLAUDE_OPUS_4_5_20251101).expect("model");
-    assert!(matches!(
-        provider
-            .registration()
-            .evaluate(current, ModelOperation::Generate)
-            .state(),
-        SupportState::Supported
-    ));
-    let deprecated = provider.registration().evaluate(
-        ModelId::new(CLAUDE_OPUS_4_1_20250805).expect("model"),
-        ModelOperation::Generate,
+            .profile()
+            .provider_profile()
+            .catalog()
+            .expect("verified catalog")
+            .iter()
+            .any(|entry| entry.model().as_str() == CLAUDE_OPUS_4_1_20250805)
     );
-    assert!(matches!(deprecated.state(), SupportState::Supported));
-    assert!(matches!(
-        deprecated.advisories(),
-        [ModelAdvisory::Deprecated { .. }]
-    ));
 
     let endpoint =
         EndpointConfig::local_explicit("http://127.0.0.1:9/v1/models/").expect("local endpoint");

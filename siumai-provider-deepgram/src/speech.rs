@@ -9,9 +9,8 @@ use http::{Method, StatusCode};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, PublicDiagnosticText, ResponseDiagnostics,
-    ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
-    SupportState, Usage, Warning,
+    ModelOperation, PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata, SensitiveResponse,
+    SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, Usage,
 };
 use siumai_transport::{
     ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan, RequestTarget,
@@ -42,21 +41,6 @@ impl DeepgramSpeechModel {
             runtime,
             descriptor,
         }
-    }
-
-    fn policy(&self) -> Result<Vec<Warning>, Error> {
-        let decision = self.runtime.policy.evaluate(&ModelPolicyContext::new(
-            self.runtime.scope.clone(),
-            self.model_id().clone(),
-            ModelOperation::SynthesizeSpeech,
-        ));
-        if let SupportState::Unsupported { .. } = decision.state() {
-            return Err(self.contextualize(Error::new(
-                ErrorKind::Unsupported,
-                "Deepgram model policy rejected speech synthesis",
-            )));
-        }
-        Ok(Vec::new())
     }
 
     fn plan(&self, request: &SpeechRequest) -> Result<PreparedSpeechRequest, Error> {
@@ -155,7 +139,6 @@ impl SpeechModel for DeepgramSpeechModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let warnings = self.policy()?;
         let prepared = self
             .plan(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -190,7 +173,7 @@ impl SpeechModel for DeepgramSpeechModel {
                 model: Some(self.model_id().clone()),
             },
             usage: Usage::default(),
-            warnings,
+            warnings: Vec::new(),
             provider,
         };
         response

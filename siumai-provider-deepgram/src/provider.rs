@@ -4,11 +4,10 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
-    ModelPolicyContext, ModelPolicyDecision, Provider, ProviderInstanceId, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptions,
-    ProviderRegistration, ProviderRegistrationError, ProviderScope, SpeechModelProvider,
-    TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
+    InvalidId, ModelFamily, ModelId, ModelLookupError, Provider, ProviderInstanceId,
+    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
+    ProviderOptions, ProviderRegistration, ProviderRegistrationError, ProviderScope,
+    SpeechModelProvider, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
@@ -19,10 +18,7 @@ use thiserror::Error;
 use crate::credential::{DeepgramCredential, DeepgramCredentialError};
 use crate::model::DeepgramTranscriptionModel;
 use crate::options::DeepgramTranscriptionOptions;
-use crate::profile::{
-    API_MODE_ID, DeepgramProfile, DeepgramProfileError, PROTOCOL_ID, PROVIDER_ID,
-    SPEECH_API_MODE_ID, SPEECH_PROTOCOL_ID,
-};
+use crate::profile::{DeepgramProfile, DeepgramProfileError};
 use crate::speech::DeepgramSpeechModel;
 
 const DEEPGRAM_ORIGIN: &str = "https://api.deepgram.com";
@@ -222,12 +218,10 @@ impl DeepgramProviderBuilder {
         }
         let transport = transport.build()?;
         let instance_id = ProviderInstanceId::new();
-        let policy = Arc::new(DeepgramModelPolicy { verified_endpoint });
         let runtime = Arc::new(ProviderRuntime {
             scope: profile.scope(),
             instance_id: instance_id.clone(),
             transport: transport.clone(),
-            policy,
             default_options,
             option_merger: DeepgramOptionMerger,
         });
@@ -235,12 +229,9 @@ impl DeepgramProviderBuilder {
             scope: profile.speech_scope(),
             instance_id,
             transport,
-            policy: Arc::new(DeepgramSpeechModelPolicy { verified_endpoint }),
         });
-        let transcription_registration = ProviderRegistration::from_transcription(
-            runtime.scope.clone(),
-            runtime.policy.clone(),
-            {
+        let transcription_registration =
+            ProviderRegistration::from_transcription(runtime.scope.clone(), {
                 let runtime = runtime.clone();
                 Arc::new(move |model| {
                     Ok(
@@ -248,19 +239,15 @@ impl DeepgramProviderBuilder {
                             as Arc<dyn siumai_core::TranscriptionModel>,
                     )
                 })
-            },
-        );
-        let speech_registration = ProviderRegistration::from_speech(
-            speech_runtime.scope.clone(),
-            speech_runtime.policy.clone(),
-            {
+            });
+        let speech_registration =
+            ProviderRegistration::from_speech(speech_runtime.scope.clone(), {
                 let runtime = speech_runtime.clone();
                 Arc::new(move |model| {
                     Ok(Arc::new(DeepgramSpeechModel::new(runtime.clone(), model))
                         as Arc<dyn siumai_core::SpeechModel>)
                 })
-            },
-        );
+            });
         Ok(DeepgramProvider {
             runtime,
             speech_runtime,
@@ -293,7 +280,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<DeepgramModelPolicy>,
     default_options: ProviderOptions,
     option_merger: DeepgramOptionMerger,
 }
@@ -302,7 +288,6 @@ pub(crate) struct DeepgramSpeechRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<DeepgramSpeechModelPolicy>,
 }
 
 impl ProviderRuntime {
@@ -332,52 +317,6 @@ impl fmt::Debug for ProviderRuntime {
             .field("transport", &"shared")
             .field("default_options", &self.default_options)
             .finish()
-    }
-}
-
-pub(crate) struct DeepgramModelPolicy {
-    verified_endpoint: bool,
-}
-
-pub(crate) struct DeepgramSpeechModelPolicy {
-    verified_endpoint: bool,
-}
-
-impl ModelPolicy for DeepgramSpeechModelPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str()) == Some(SPEECH_PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str()) == Some(SPEECH_API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::SynthesizeSpeech {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && crate::models::is_current_speech(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
-    }
-}
-
-impl ModelPolicy for DeepgramModelPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        let matches_scope = context.scope().provider_id().as_str() == PROVIDER_ID
-            && context.scope().protocol().map(|value| value.as_str()) == Some(PROTOCOL_ID)
-            && context.scope().api_mode().map(|value| value.as_str()) == Some(API_MODE_ID);
-        if !matches_scope {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-        }
-        if context.operation() != ModelOperation::Transcribe {
-            return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-        }
-        if self.verified_endpoint && crate::models::is_current(context.model().as_str()) {
-            ModelPolicyDecision::supported()
-        } else {
-            ModelPolicyDecision::unknown_model()
-        }
     }
 }
 

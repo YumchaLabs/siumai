@@ -11,7 +11,7 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
     ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
     ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope, SpeechLimits,
-    SpeechModel, SpeechRequest, SpeechResponse, TypedProviderOptions, Warning, WarningKind,
+    SpeechModel, SpeechRequest, SpeechResponse, TypedProviderOptions,
 };
 use siumai_protocol_openai::speech::{
     API_MODE_ID, SpeechConfig, SpeechFormat, TARGET, decode_speech_response, encode_speech_request,
@@ -241,12 +241,6 @@ impl SpeechModel for OpenAiSpeechModel {
         let mut decoded = decode_speech_response(body, self.model_id(), media_type)
             .map_err(|error| self.contextualize(error))?;
         decoded.metadata.request_id = response_request_id(&headers);
-        if !is_verified_model(self.descriptor.scope(), self.model_id()) {
-            decoded.warnings.push(Warning::new(
-                WarningKind::UnknownModel,
-                "model support is not verified for OpenAI speech synthesis",
-            ));
-        }
         Ok(decoded)
     }
 }
@@ -325,20 +319,6 @@ fn response_media_type(headers: &siumai_transport::ResponseHeaders) -> Option<&s
         .and_then(|value| value.split(';').next())
         .map(str::trim)
         .filter(|value| value.starts_with("audio/"))
-}
-
-fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
-    scope.platform().map(|value| value.as_str()) == Some("openai-api")
-        && matches!(
-            model.as_str(),
-            GPT_4O_MINI_TTS
-                | GPT_4O_MINI_TTS_2025_03_20
-                | GPT_4O_MINI_TTS_2025_12_15
-                | TTS_1
-                | TTS_1_1106
-                | TTS_1_HD
-                | TTS_1_HD_1106
-        )
 }
 
 fn is_official_legacy_tts(scope: &ProviderScope, model: &ModelId) -> bool {

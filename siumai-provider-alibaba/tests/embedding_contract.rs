@@ -1,8 +1,7 @@
 use serde_json::{Value, json};
 use siumai_core::{
     CallOptions, EmbeddingModel, EmbeddingRequest, ErrorKind, Model, ModelFamily, ModelId,
-    ModelLookupError, ModelOperation, ProviderOptions, ReplayDomain, ReplayDomainId, SupportState,
-    UsageValue, WarningKind,
+    ModelLookupError, ProviderOptions, ReplayDomain, ReplayDomainId, UsageValue,
 };
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaConfigError, AlibabaCredential, AlibabaEmbeddingOptions,
@@ -139,7 +138,7 @@ fn default_registration_keeps_language_and_embedding_bindings_distinct() {
 }
 
 #[test]
-fn model_policy_is_verified_only_for_the_explicit_legacy_official_endpoint() {
+fn embedding_support_evidence_is_verified_only_for_the_provider_owned_endpoint() {
     let caller_declared_origin = OfficialOrigin::new("https://workspace-id.example.com").unwrap();
     let caller_declared_endpoint = EndpointConfig::official(
         "https://workspace-id.example.com/api/v1",
@@ -150,11 +149,13 @@ fn model_policy_is_verified_only_for_the_explicit_legacy_official_endpoint() {
         .with_embedding_endpoint(caller_declared_endpoint)
         .build()
         .unwrap();
-    let custom_decision = custom.embedding_registration().unwrap().evaluate(
-        ModelId::new("text-embedding-v4").unwrap(),
-        ModelOperation::Embed,
+    assert!(
+        custom
+            .support_manifest()
+            .profiles()
+            .iter()
+            .any(|profile| profile.generic_claim().is_some())
     );
-    assert_eq!(custom_decision.state(), &SupportState::Unknown);
     assert_eq!(
         custom
             .embedding("text-embedding-v4")
@@ -168,11 +169,13 @@ fn model_policy_is_verified_only_for_the_explicit_legacy_official_endpoint() {
         .with_legacy_singapore_embedding()
         .build()
         .unwrap();
-    let legacy_decision = legacy.embedding_registration().unwrap().evaluate(
-        ModelId::new("text-embedding-v4").unwrap(),
-        ModelOperation::Embed,
+    assert!(
+        legacy
+            .support_manifest()
+            .profiles()
+            .iter()
+            .any(|profile| profile.verified_claims().is_some())
     );
-    assert_eq!(legacy_decision.state(), &SupportState::Supported);
 }
 
 #[tokio::test]
@@ -230,10 +233,7 @@ async fn native_embedding_maps_options_orders_results_and_preserves_sparse_metad
     );
     assert_eq!(response.usage.input_tokens, UsageValue::Known(0));
     assert_eq!(response.usage.total_tokens, UsageValue::Known(0));
-    assert!(matches!(
-        response.warnings.first().map(siumai_core::Warning::kind),
-        Some(&WarningKind::UnknownModel)
-    ));
+    assert!(response.warnings.is_empty());
     assert_eq!(
         response.provider["alibaba"]["sparse_embeddings"][0],
         json!([{"index": 3, "value": 0.5}])
@@ -293,7 +293,7 @@ async fn text_embedding_v3_accepts_its_documented_dense_and_sparse_mode() {
 }
 
 #[tokio::test]
-async fn unknown_embedding_models_remain_callable_with_unknown_usage_and_warning() {
+async fn unknown_embedding_models_remain_callable_with_unknown_usage() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(EMBEDDING_PATH))
@@ -318,10 +318,7 @@ async fn unknown_embedding_models_remain_callable_with_unknown_usage_and_warning
 
     assert_eq!(response.usage.input_tokens, UsageValue::Unknown);
     assert_eq!(response.usage.total_tokens, UsageValue::Unknown);
-    assert!(matches!(
-        response.warnings.first().map(siumai_core::Warning::kind),
-        Some(&WarningKind::UnknownModel)
-    ));
+    assert!(response.warnings.is_empty());
 }
 
 #[tokio::test]

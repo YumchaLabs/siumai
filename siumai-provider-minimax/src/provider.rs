@@ -13,7 +13,7 @@ use siumai_core::{
     ApiModeId, ApiStability, CallOptions, Error, GenericSupportClaim, ImageModel,
     ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
     LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
-    ModelLookupError, ModelPolicy, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolId,
     Provider, ProviderId, ProviderInstanceId, ProviderOptionError, ProviderProfile,
     ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
@@ -39,9 +39,7 @@ use crate::language::{
 use crate::options::{
     MinimaxChatCompletionsOptions, MinimaxMessagesOptions, MinimaxResponsesOptions,
 };
-use crate::portable::{
-    MinimaxImageModel, MinimaxImagePolicy, MinimaxSpeechModel, MinimaxSpeechPolicy,
-};
+use crate::portable::{MinimaxImageModel, MinimaxSpeechModel};
 use crate::resources::{
     MinimaxFiles, MinimaxImages, MinimaxMusic, MinimaxResponses, MinimaxSpeech, MinimaxVideo,
     MinimaxVoices, NativeRuntime, VOICE_CLONE_API_SOURCE, VOICE_DELETE_API_SOURCE,
@@ -88,9 +86,7 @@ pub struct MinimaxProvider {
     responses_native: Arc<NativeRuntime>,
     responses_scope: Arc<ProviderScope>,
     image_scope: Arc<ProviderScope>,
-    image_policy: Arc<dyn ModelPolicy>,
     speech_scope: Arc<ProviderScope>,
-    speech_policy: Arc<dyn ModelPolicy>,
     registration: ProviderRegistration,
     messages_registration: ProviderRegistration,
     chat_registration: ProviderRegistration,
@@ -223,7 +219,6 @@ impl MinimaxProvider {
                 ModelFamily::Image,
                 self.native.instance_id.clone(),
             ),
-            self.image_policy.clone(),
         ))
     }
 
@@ -257,7 +252,6 @@ impl MinimaxProvider {
                 ModelFamily::Speech,
                 self.native.instance_id.clone(),
             ),
-            self.speech_policy.clone(),
         ))
     }
 }
@@ -523,12 +517,6 @@ impl MinimaxProviderBuilder {
             openai_profile(openai_endpoint, openai_replay_domain, openai_is_verified)?;
         let image_scope = Arc::new(media_scope(IMAGE_PROTOCOL_ID, IMAGE_API_MODE_ID)?);
         let speech_scope = Arc::new(media_scope(SPEECH_PROTOCOL_ID, SPEECH_API_MODE_ID)?);
-        let image_policy: Arc<dyn ModelPolicy> = Arc::new(MinimaxImagePolicy {
-            verified_endpoint: resource_is_verified,
-        });
-        let speech_policy: Arc<dyn ModelPolicy> = Arc::new(MinimaxSpeechPolicy {
-            verified_endpoint: resource_is_verified,
-        });
         let image_profile = media_support_profile(
             resource_is_verified,
             ModelFamily::Image,
@@ -619,11 +607,9 @@ impl MinimaxProviderBuilder {
         let native = Arc::new(NativeRuntime::new(instance_id, resource_builder.build()?));
         let image_registration = ProviderRegistration::from_image(
             image_scope.clone(),
-            image_policy.clone(),
             Arc::new({
                 let native = native.clone();
                 let image_scope = image_scope.clone();
-                let image_policy = image_policy.clone();
                 move |model| {
                     Ok(Arc::new(MinimaxImageModel::new(
                         native.clone(),
@@ -633,18 +619,15 @@ impl MinimaxProviderBuilder {
                             ModelFamily::Image,
                             native.instance_id.clone(),
                         ),
-                        image_policy.clone(),
                     )) as Arc<dyn ImageModel>)
                 }
             }),
         );
         let speech_registration = ProviderRegistration::from_speech(
             speech_scope.clone(),
-            speech_policy.clone(),
             Arc::new({
                 let native = native.clone();
                 let speech_scope = speech_scope.clone();
-                let speech_policy = speech_policy.clone();
                 move |model| {
                     Ok(Arc::new(MinimaxSpeechModel::new(
                         native.clone(),
@@ -654,7 +637,6 @@ impl MinimaxProviderBuilder {
                             ModelFamily::Speech,
                             native.instance_id.clone(),
                         ),
-                        speech_policy.clone(),
                     )) as Arc<dyn SpeechModel>)
                 }
             }),
@@ -678,9 +660,7 @@ impl MinimaxProviderBuilder {
             responses_native,
             responses_scope,
             image_scope,
-            image_policy,
             speech_scope,
-            speech_policy,
             registration,
             messages_registration,
             chat_registration,

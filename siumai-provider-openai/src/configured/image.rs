@@ -11,8 +11,7 @@ use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
     ImageResponse, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
     ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions, Warning,
-    WarningKind,
+    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions,
 };
 use siumai_protocol_openai::image::{
     API_MODE_ID, ImageBackground, ImageGenerationConfig, ImageModeration, ImageOutputFormat,
@@ -369,12 +368,6 @@ impl ImageModel for OpenAiImageModel {
         let mut decoded = decode_image_response(&body, &request, self.model_id(), output_format)
             .map_err(|error| self.contextualize(error))?;
         decoded.metadata.request_id = response_request_id(&headers);
-        if !is_verified_model(self.descriptor.scope(), self.model_id()) {
-            decoded.warnings.push(Warning::new(
-                WarningKind::UnknownModel,
-                "model support is not verified for OpenAI image generation",
-            ));
-        }
         Ok(decoded)
     }
 }
@@ -626,10 +619,6 @@ fn protocol_style(value: OpenAiImageStyle) -> ImageStyle {
         OpenAiImageStyle::Natural => ImageStyle::Natural,
         OpenAiImageStyle::Vivid => ImageStyle::Vivid,
     }
-}
-
-fn is_verified_model(scope: &ProviderScope, model: &ModelId) -> bool {
-    known_image_model(scope, model).is_some()
 }
 
 fn rejected(path: &str, reason: &str) -> ProviderOptionError {

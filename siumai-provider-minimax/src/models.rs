@@ -1,7 +1,7 @@
 //! Dated MiniMax model advisories.
 //!
 //! Model identifiers remain open input. These constants improve discovery and
-//! drive exact-match request policy; they are not an allowlist.
+//! preserve dated support evidence; they are not an execution allowlist.
 
 /// Official source used for the current language-model advisory catalog.
 pub const MODEL_CATALOG_SOURCE: &str =
@@ -28,23 +28,6 @@ pub const ALL_LANGUAGE: &[&str] = &[
     MINIMAX_M2_1_HIGHSPEED,
     MINIMAX_M2,
 ];
-
-pub(crate) fn is_m3(model: &str) -> bool {
-    model == MINIMAX_M3
-}
-
-pub(crate) fn is_known_m2(model: &str) -> bool {
-    matches!(
-        model,
-        MINIMAX_M2_7
-            | MINIMAX_M2_7_HIGHSPEED
-            | MINIMAX_M2_5
-            | MINIMAX_M2_5_HIGHSPEED
-            | MINIMAX_M2_1
-            | MINIMAX_M2_1_HIGHSPEED
-            | MINIMAX_M2
-    )
-}
 
 pub mod speech {
     pub const SPEECH_2_8_HD: &str = "speech-2.8-hd";

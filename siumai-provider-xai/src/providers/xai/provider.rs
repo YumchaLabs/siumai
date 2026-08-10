@@ -166,6 +166,7 @@ impl XaiProvider {
     /// Create the fixed xAI TTS endpoint handle.
     pub fn speech(&self) -> XaiSpeechModel {
         self.create_speech_model(ModelId::new(models::speech::TTS).expect("valid xAI TTS handle"))
+            .expect("the static xAI TTS handle matches the fixed endpoint")
     }
 
     /// Create the fixed xAI final-result STT endpoint handle.
@@ -173,6 +174,7 @@ impl XaiProvider {
         self.create_transcription_model(
             ModelId::new(models::transcription::STT).expect("valid xAI STT handle"),
         )
+        .expect("the static xAI STT handle matches the fixed endpoint")
     }
 
     pub fn files(&self) -> XaiFiles {
@@ -208,11 +210,14 @@ impl XaiProvider {
         XaiImageModel::new(self.image.clone(), model)
     }
 
-    fn create_speech_model(&self, model: ModelId) -> XaiSpeechModel {
+    fn create_speech_model(&self, model: ModelId) -> Result<XaiSpeechModel, ModelLookupError> {
         XaiSpeechModel::new(self.speech.clone(), model)
     }
 
-    fn create_transcription_model(&self, model: ModelId) -> XaiTranscriptionModel {
+    fn create_transcription_model(
+        &self,
+        model: ModelId,
+    ) -> Result<XaiTranscriptionModel, ModelLookupError> {
         XaiTranscriptionModel::new(self.transcription.clone(), model)
     }
 }
@@ -243,7 +248,7 @@ impl SpeechModelProvider for XaiProvider {
     type Model = XaiSpeechModel;
 
     fn speech_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
-        Ok(self.create_speech_model(model))
+        self.create_speech_model(model)
     }
 }
 
@@ -251,7 +256,7 @@ impl TranscriptionModelProvider for XaiProvider {
     type Model = XaiTranscriptionModel;
 
     fn transcription_model(&self, model: ModelId) -> Result<Self::Model, ModelLookupError> {
-        Ok(self.create_transcription_model(model))
+        self.create_transcription_model(model)
     }
 }
 
@@ -482,48 +487,41 @@ impl XaiProviderBuilder {
             instance_id.clone(),
             image_scope,
             media_transport.clone(),
-            verified_endpoint,
         ));
         let speech = Arc::new(XaiSpeechRuntime::new(
             instance_id.clone(),
             speech_scope,
             media_transport.clone(),
-            verified_endpoint,
         ));
         let transcription = Arc::new(XaiTranscriptionRuntime::new(
             instance_id,
             transcription_scope,
             media_transport.clone(),
-            verified_endpoint,
         ));
         let video_jobs = XaiVideoJobs::new(media_transport.clone());
         let files = XaiFiles::new(media_transport);
-        let image_registration =
-            ProviderRegistration::from_image(image.scope.clone(), image.policy.clone(), {
-                let runtime = image.clone();
-                Arc::new(move |model| {
-                    Ok(Arc::new(XaiImageModel::new(runtime.clone(), model)) as Arc<dyn ImageModel>)
-                })
-            });
-        let speech_registration =
-            ProviderRegistration::from_speech(speech.scope.clone(), speech.policy.clone(), {
-                let runtime = speech.clone();
-                Arc::new(move |model| {
-                    Ok(Arc::new(XaiSpeechModel::new(runtime.clone(), model))
-                        as Arc<dyn SpeechModel>)
-                })
-            });
-        let transcription_registration = ProviderRegistration::from_transcription(
-            transcription.scope.clone(),
-            transcription.policy.clone(),
-            {
+        let image_registration = ProviderRegistration::from_image(image.scope.clone(), {
+            let runtime = image.clone();
+            Arc::new(move |model| {
+                Ok(Arc::new(XaiImageModel::new(runtime.clone(), model)) as Arc<dyn ImageModel>)
+            })
+        });
+        let speech_registration = ProviderRegistration::from_speech(speech.scope.clone(), {
+            let runtime = speech.clone();
+            Arc::new(move |model| {
+                Ok(Arc::new(XaiSpeechModel::new(runtime.clone(), model)?) as Arc<dyn SpeechModel>)
+            })
+        });
+        let transcription_registration =
+            ProviderRegistration::from_transcription(transcription.scope.clone(), {
                 let runtime = transcription.clone();
                 Arc::new(move |model| {
-                    Ok(Arc::new(XaiTranscriptionModel::new(runtime.clone(), model))
-                        as Arc<dyn TranscriptionModel>)
+                    Ok(
+                        Arc::new(XaiTranscriptionModel::new(runtime.clone(), model)?)
+                            as Arc<dyn TranscriptionModel>,
+                    )
                 })
-            },
-        );
+            });
         let media_registration = image_registration
             .merge(speech_registration)?
             .merge(transcription_registration)?;
@@ -791,8 +789,7 @@ pub enum XaiConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::xai::models;
-    use siumai_core::{ModelAdvisory, ModelFamily, ModelOperation, SupportState};
+    use siumai_core::ModelFamily;
 
     #[test]
     fn model_construction_is_synchronous_and_future_model_safe() {
@@ -859,53 +856,6 @@ mod tests {
     fn credential_debug_is_redacted() {
         let debug = format!("{:?}", XaiCredential::api_key("secret-value"));
         assert!(!debug.contains("secret-value"));
-    }
-
-    #[test]
-    fn official_profile_classifies_exact_ids_aliases_and_mode_specific_models() {
-        let provider = XaiProvider::builder(XaiCredential::api_key("test-key"))
-            .build()
-            .expect("build xAI provider");
-
-        for registration in [
-            provider.chat_completions_registration(),
-            provider.responses_registration(),
-        ] {
-            let exact = registration.evaluate(
-                ModelId::new(models::language::GROK_4_5).expect("exact model id"),
-                ModelOperation::Generate,
-            );
-            assert_eq!(exact.state(), &SupportState::Supported);
-            assert!(exact.advisories().is_empty());
-
-            let alias = registration.evaluate(
-                ModelId::new(models::language::GROK_LATEST).expect("rolling alias"),
-                ModelOperation::Stream,
-            );
-            assert_eq!(alias.state(), &SupportState::Supported);
-            assert_eq!(alias.advisories(), &[ModelAdvisory::RollingAlias]);
-        }
-
-        let multi_agent =
-            ModelId::new(models::language::GROK_4_20_MULTI_AGENT).expect("multi-agent model id");
-        let chat = provider
-            .chat_completions_registration()
-            .evaluate(multi_agent.clone(), ModelOperation::Generate);
-        assert_eq!(chat.state(), &SupportState::Unknown);
-        assert_eq!(chat.advisories(), &[ModelAdvisory::UnknownModel]);
-
-        let responses = provider
-            .responses_registration()
-            .evaluate(multi_agent, ModelOperation::Generate);
-        assert_eq!(responses.state(), &SupportState::Supported);
-        assert_eq!(responses.advisories(), &[ModelAdvisory::RollingAlias]);
-
-        let future = provider.responses_registration().evaluate(
-            ModelId::new("future-grok-model").expect("future model id"),
-            ModelOperation::Generate,
-        );
-        assert_eq!(future.state(), &SupportState::Unknown);
-        assert_eq!(future.advisories(), &[ModelAdvisory::UnknownModel]);
     }
 
     #[test]

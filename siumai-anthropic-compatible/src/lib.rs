@@ -9,7 +9,6 @@
 mod auth;
 mod model;
 mod options;
-mod policy;
 mod profile;
 mod projection;
 mod provider;

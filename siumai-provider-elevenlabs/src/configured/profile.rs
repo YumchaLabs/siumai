@@ -28,8 +28,6 @@ pub const TRANSCRIPTION_SOURCE: &str =
 #[derive(Clone)]
 pub struct ElevenLabsProfile {
     profile: Arc<ProviderProfile>,
-    support_scope: SupportScope,
-    transcription_support_scope: SupportScope,
     scope: Arc<ProviderScope>,
     transcription_scope: Arc<ProviderScope>,
     endpoint: EndpointConfig,
@@ -227,8 +225,6 @@ impl ElevenLabsProfile {
         );
         Ok(Self {
             profile: Arc::new(profile),
-            support_scope,
-            transcription_support_scope,
             scope,
             transcription_scope,
             endpoint,
@@ -256,18 +252,6 @@ impl ElevenLabsProfile {
             max_text_bytes: None,
             max_text_chars: models::max_text_chars(model.as_str()),
         }
-    }
-
-    pub(crate) fn support_scope(&self) -> &SupportScope {
-        &self.support_scope
-    }
-
-    pub(crate) fn transcription_support_scope(&self) -> &SupportScope {
-        &self.transcription_support_scope
-    }
-
-    pub(crate) fn profile_arc(&self) -> Arc<ProviderProfile> {
-        self.profile.clone()
     }
 
     pub(crate) fn endpoint(&self) -> &EndpointConfig {

@@ -1,7 +1,7 @@
-//! Small advisory catalog for the current GPT-5.5 and GPT-5.6 families.
+//! Small dated catalog for the current GPT-5.5 and GPT-5.6 families.
 //!
-//! Model IDs remain open. These constants drive policy advice only and never
-//! form an execution allowlist.
+//! Model IDs remain open. These constants support explicit introspection only
+//! and never form an execution allowlist.
 
 /// Rolling GPT-5.5 model ID.
 pub const GPT_5_5: &str = "gpt-5.5";
@@ -16,7 +16,7 @@ pub const GPT_5_6_TERRA: &str = "gpt-5.6-terra";
 /// Efficient high-volume GPT-5.6 tier.
 pub const GPT_5_6_LUNA: &str = "gpt-5.6-luna";
 
-/// Provider-owned advisory classification for current OpenAI model policy.
+/// Provider-owned exact-ID classification for catalog introspection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum OpenAiModelClass {

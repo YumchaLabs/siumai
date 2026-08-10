@@ -64,55 +64,20 @@ pub const CURRENT_SPEECH_MODELS: &[&str] = speech::KNOWN;
 
 pub const VERIFIED_ON: &str = "2026-08-05";
 
-pub(crate) fn is_known_language(model: &str) -> bool {
-    language::KNOWN.contains(&model)
-}
-
-pub(crate) fn supports_browser_search(model: &str) -> bool {
-    language::BROWSER_SEARCH.contains(&model)
-}
-
-pub(crate) fn supports_responses_browser_search(model: &str) -> bool {
-    language::RESPONSES_BROWSER_SEARCH.contains(&model)
-}
-
-pub(crate) fn supports_responses_code_execution(model: &str) -> bool {
-    language::RESPONSES_CODE_EXECUTION.contains(&model)
-}
-
-pub(crate) fn is_compound(model: &str) -> bool {
-    matches!(model, language::COMPOUND | language::COMPOUND_MINI)
-}
-
-pub(crate) fn is_known_transcription(model: &str) -> bool {
-    transcription::KNOWN.contains(&model)
-}
-
-pub(crate) fn is_known_speech(model: &str) -> bool {
-    speech::KNOWN.contains(&model)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn catalogs_are_hints_instead_of_defaults_or_allowlists() {
-        assert!(is_known_language(language::GPT_OSS_20B));
-        assert!(is_known_language(language::COMPOUND));
-        assert!(supports_browser_search(language::GPT_OSS_120B));
-        assert!(supports_browser_search(language::GPT_OSS_SAFEGUARD_20B));
-        assert!(supports_responses_browser_search(
-            language::GPT_OSS_SAFEGUARD_20B
-        ));
-        assert!(supports_responses_code_execution(language::GPT_OSS_20B));
-        assert!(is_compound(language::COMPOUND_MINI));
-        assert!(is_known_transcription(
-            transcription::WHISPER_LARGE_V3_TURBO
-        ));
-        assert!(is_known_speech(speech::ORPHEUS_V1_ENGLISH));
-        assert!(is_known_speech(speech::ORPHEUS_ARABIC_SAUDI));
-        assert!(!is_known_language(preview::QWEN3_6_27B));
-        assert!(!is_known_language("future-groq-model"));
+        assert!(language::KNOWN.contains(&language::GPT_OSS_20B));
+        assert!(language::KNOWN.contains(&language::COMPOUND));
+        assert!(language::BROWSER_SEARCH.contains(&language::GPT_OSS_120B));
+        assert!(language::BROWSER_SEARCH.contains(&language::GPT_OSS_SAFEGUARD_20B));
+        assert!(language::RESPONSES_CODE_EXECUTION.contains(&language::GPT_OSS_20B));
+        assert!(transcription::KNOWN.contains(&transcription::WHISPER_LARGE_V3_TURBO));
+        assert!(speech::KNOWN.contains(&speech::ORPHEUS_V1_ENGLISH));
+        assert!(!language::KNOWN.contains(&preview::QWEN3_6_27B));
+        assert!(!language::KNOWN.contains(&"future-groq-model"));
     }
 }

@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use siumai_core::{
-    InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ProfileError, Provider,
-    ProviderInstanceId, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider,
-    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
+    InvalidId, ModelFamily, ModelId, ModelLookupError, ProfileError, Provider, ProviderInstanceId,
+    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
+    ProviderOptionOrigin, ProviderOptions, ProviderRegistration, ProviderRegistrationError,
+    ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider, TranscriptionModel,
+    TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointError, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
@@ -18,7 +18,6 @@ use super::credentials::{ElevenLabsCredential, ElevenLabsCredentialError};
 use super::model::ElevenLabsSpeechModel;
 use super::models;
 use super::options::ElevenLabsSpeechOptions;
-use super::policy::ElevenLabsModelPolicy;
 use super::profile::ElevenLabsProfile;
 use super::transcription::{ElevenLabsTranscriptionModel, ElevenLabsTranscriptionOptions};
 
@@ -233,22 +232,11 @@ impl ElevenLabsProviderBuilder {
         }
         let transport = transport.build()?;
         let instance_id = ProviderInstanceId::new();
-        let policy = Arc::new(ElevenLabsModelPolicy::new(
-            self.profile.profile_arc(),
-            self.profile.support_scope().clone(),
-            ModelOperation::SynthesizeSpeech,
-        ));
-        let transcription_policy = Arc::new(ElevenLabsModelPolicy::new(
-            self.profile.profile_arc(),
-            self.profile.transcription_support_scope().clone(),
-            ModelOperation::Transcribe,
-        ));
         let runtime = Arc::new(ProviderRuntime {
             scope: self.profile.scope_arc(),
             instance_id: instance_id.clone(),
             profile: self.profile.clone(),
             transport: transport.clone(),
-            policy,
             default_voice,
             option_merger: ElevenLabsOptionMerger {
                 defaults: self.default_options,
@@ -259,23 +247,19 @@ impl ElevenLabsProviderBuilder {
             scope: self.profile.transcription_scope_arc(),
             instance_id,
             transport,
-            policy: transcription_policy,
             option_merger: ElevenLabsTranscriptionOptionMerger {
                 defaults: self.default_transcription_options,
             },
         });
-        let speech_registration =
-            ProviderRegistration::from_speech(runtime.scope.clone(), runtime.policy.clone(), {
-                let runtime = runtime.clone();
-                Arc::new(move |model| {
-                    Ok(Arc::new(ElevenLabsSpeechModel::new(runtime.clone(), model))
-                        as Arc<dyn SpeechModel>)
-                })
-            });
-        let transcription_registration = ProviderRegistration::from_transcription(
-            transcription_runtime.scope.clone(),
-            transcription_runtime.policy.clone(),
-            {
+        let speech_registration = ProviderRegistration::from_speech(runtime.scope.clone(), {
+            let runtime = runtime.clone();
+            Arc::new(move |model| {
+                Ok(Arc::new(ElevenLabsSpeechModel::new(runtime.clone(), model))
+                    as Arc<dyn SpeechModel>)
+            })
+        });
+        let transcription_registration =
+            ProviderRegistration::from_transcription(transcription_runtime.scope.clone(), {
                 let runtime = transcription_runtime.clone();
                 Arc::new(move |model| {
                     Ok(
@@ -283,8 +267,7 @@ impl ElevenLabsProviderBuilder {
                             as Arc<dyn TranscriptionModel>,
                     )
                 })
-            },
-        );
+            });
         Ok(ElevenLabsProvider {
             runtime,
             transcription_runtime,
@@ -298,7 +281,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) profile: ElevenLabsProfile,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<ElevenLabsModelPolicy>,
     pub(crate) default_voice: String,
     option_merger: ElevenLabsOptionMerger,
     speech_limits: Option<SpeechLimits>,
@@ -308,7 +290,6 @@ pub(crate) struct TranscriptionRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<ElevenLabsModelPolicy>,
     option_merger: ElevenLabsTranscriptionOptionMerger,
 }
 

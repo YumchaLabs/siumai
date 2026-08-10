@@ -13,11 +13,10 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
     ImageRequest, ImageResponse, MediaData, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProviderInstanceId,
-    PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SpeechLimits,
-    SpeechModel, SpeechRequest, SpeechResponse, SupportState, TranscriptSegment,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    UnsupportedReason, Usage,
+    ModelLookupError, ModelOperation, ProviderInstanceId, PublicDiagnosticText,
+    ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel,
+    SpeechRequest, SpeechResponse, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse, Usage,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
@@ -50,7 +49,6 @@ pub(crate) struct XaiImageRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<XaiImagePolicy>,
 }
 
 impl XaiImageRuntime {
@@ -58,14 +56,9 @@ impl XaiImageRuntime {
         instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
-        verified_endpoint: bool,
     ) -> Self {
         Self {
             instance_id,
-            policy: Arc::new(XaiImagePolicy {
-                expected_scope: scope.clone(),
-                verified_endpoint,
-            }),
             scope,
             transport,
         }
@@ -76,7 +69,6 @@ pub(crate) struct XaiSpeechRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<XaiSpeechPolicy>,
 }
 
 impl XaiSpeechRuntime {
@@ -84,14 +76,9 @@ impl XaiSpeechRuntime {
         instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
-        verified_endpoint: bool,
     ) -> Self {
         Self {
             instance_id,
-            policy: Arc::new(XaiSpeechPolicy {
-                expected_scope: scope.clone(),
-                verified_endpoint,
-            }),
             scope,
             transport,
         }
@@ -102,7 +89,6 @@ pub(crate) struct XaiTranscriptionRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) policy: Arc<XaiTranscriptionPolicy>,
 }
 
 impl XaiTranscriptionRuntime {
@@ -110,14 +96,9 @@ impl XaiTranscriptionRuntime {
         instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
-        verified_endpoint: bool,
     ) -> Self {
         Self {
             instance_id,
-            policy: Arc::new(XaiTranscriptionPolicy {
-                expected_scope: scope.clone(),
-                verified_endpoint,
-            }),
             scope,
             transport,
         }
@@ -141,84 +122,6 @@ macro_rules! runtime_debug {
 runtime_debug!(XaiImageRuntime, "XaiImageRuntime");
 runtime_debug!(XaiSpeechRuntime, "XaiSpeechRuntime");
 runtime_debug!(XaiTranscriptionRuntime, "XaiTranscriptionRuntime");
-
-pub(crate) struct XaiImagePolicy {
-    expected_scope: Arc<siumai_core::ProviderScope>,
-    verified_endpoint: bool,
-}
-
-pub(crate) struct XaiSpeechPolicy {
-    expected_scope: Arc<siumai_core::ProviderScope>,
-    verified_endpoint: bool,
-}
-
-pub(crate) struct XaiTranscriptionPolicy {
-    expected_scope: Arc<siumai_core::ProviderScope>,
-    verified_endpoint: bool,
-}
-
-impl ModelPolicy for XaiImagePolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        evaluate_policy(
-            context,
-            &self.expected_scope,
-            self.verified_endpoint,
-            ModelOperation::GenerateImage,
-            |model| models::image::HINTS.contains(&model),
-            false,
-        )
-    }
-}
-
-impl ModelPolicy for XaiSpeechPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        evaluate_policy(
-            context,
-            &self.expected_scope,
-            self.verified_endpoint,
-            ModelOperation::SynthesizeSpeech,
-            |model| model == models::speech::TTS,
-            true,
-        )
-    }
-}
-
-impl ModelPolicy for XaiTranscriptionPolicy {
-    fn evaluate(&self, context: &ModelPolicyContext) -> ModelPolicyDecision {
-        evaluate_policy(
-            context,
-            &self.expected_scope,
-            self.verified_endpoint,
-            ModelOperation::Transcribe,
-            |model| model == models::transcription::STT,
-            true,
-        )
-    }
-}
-
-fn evaluate_policy(
-    context: &ModelPolicyContext,
-    expected_scope: &siumai_core::ProviderScope,
-    verified_endpoint: bool,
-    operation: ModelOperation,
-    known: impl Fn(&str) -> bool,
-    fixed_endpoint: bool,
-) -> ModelPolicyDecision {
-    if context.scope() != expected_scope {
-        return ModelPolicyDecision::unsupported(UnsupportedReason::ApiModeMismatch);
-    }
-    if context.operation() != operation {
-        return ModelPolicyDecision::unsupported(UnsupportedReason::OperationNotImplemented);
-    }
-    if fixed_endpoint && !known(context.model().as_str()) {
-        return ModelPolicyDecision::unsupported(UnsupportedReason::ProviderRestriction);
-    }
-    if verified_endpoint && known(context.model().as_str()) {
-        ModelPolicyDecision::supported()
-    } else {
-        ModelPolicyDecision::unknown_model()
-    }
-}
 
 /// Lightweight text-to-image model over xAI Images.
 #[derive(Clone)]
@@ -305,12 +208,6 @@ impl ImageModel for XaiImageModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        require_supported(
-            &*self.runtime.policy,
-            self.descriptor(),
-            ModelOperation::GenerateImage,
-            "xAI model policy rejected image generation",
-        )?;
         let plan = self
             .plan(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -340,17 +237,25 @@ pub struct XaiSpeechModel {
 }
 
 impl XaiSpeechModel {
-    pub(crate) fn new(runtime: Arc<XaiSpeechRuntime>, model: ModelId) -> Self {
+    pub(crate) fn new(
+        runtime: Arc<XaiSpeechRuntime>,
+        model: ModelId,
+    ) -> Result<Self, ModelLookupError> {
         let descriptor = ModelDescriptor::from_scope(
             runtime.scope.clone(),
             model,
             ModelFamily::Speech,
             runtime.instance_id.clone(),
         );
-        Self {
+        require_fixed_handle(
+            &descriptor,
+            models::speech::TTS,
+            ModelOperation::SynthesizeSpeech,
+        )?;
+        Ok(Self {
             runtime,
             descriptor,
-        }
+        })
     }
 
     fn plan(&self, request: &SpeechRequest) -> Result<(RequestPlan, SpeechFormat), Error> {
@@ -431,12 +336,6 @@ impl SpeechModel for XaiSpeechModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        require_supported(
-            &*self.runtime.policy,
-            self.descriptor(),
-            ModelOperation::SynthesizeSpeech,
-            "xAI speech uses a fixed endpoint handle",
-        )?;
         let voice = request.voice().unwrap_or("eve").to_string();
         let (plan, format) = self
             .plan(&request)
@@ -490,17 +389,25 @@ pub struct XaiTranscriptionModel {
 }
 
 impl XaiTranscriptionModel {
-    pub(crate) fn new(runtime: Arc<XaiTranscriptionRuntime>, model: ModelId) -> Self {
+    pub(crate) fn new(
+        runtime: Arc<XaiTranscriptionRuntime>,
+        model: ModelId,
+    ) -> Result<Self, ModelLookupError> {
         let descriptor = ModelDescriptor::from_scope(
             runtime.scope.clone(),
             model,
             ModelFamily::Transcription,
             runtime.instance_id.clone(),
         );
-        Self {
+        require_fixed_handle(
+            &descriptor,
+            models::transcription::STT,
+            ModelOperation::Transcribe,
+        )?;
+        Ok(Self {
             runtime,
             descriptor,
-        }
+        })
     }
 
     fn plan(&self, request: &TranscriptionRequest) -> Result<RequestPlan, Error> {
@@ -581,12 +488,6 @@ impl TranscriptionModel for XaiTranscriptionModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        require_supported(
-            &*self.runtime.policy,
-            self.descriptor(),
-            ModelOperation::Transcribe,
-            "xAI transcription uses a fixed endpoint handle",
-        )?;
         let plan = self
             .plan(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -606,23 +507,22 @@ impl TranscriptionModel for XaiTranscriptionModel {
     }
 }
 
-fn require_supported(
-    policy: &dyn ModelPolicy,
+fn require_fixed_handle(
     descriptor: &ModelDescriptor,
+    expected: &'static str,
     operation: ModelOperation,
-    message: &'static str,
-) -> Result<(), Error> {
-    let decision = policy.evaluate(&ModelPolicyContext::new(
-        Arc::new(descriptor.scope().clone()),
-        descriptor.model().clone(),
-        operation,
-    ));
-    if matches!(decision.state(), SupportState::Unsupported { .. }) {
-        return Err(contextualize(
-            Error::new(ErrorKind::Unsupported, message),
-            operation,
-            descriptor,
-        ));
+) -> Result<(), ModelLookupError> {
+    if descriptor.model().as_str() != expected {
+        return Err(ModelLookupError::Construction {
+            source: contextualize(
+                Error::new(
+                    ErrorKind::Unsupported,
+                    "xAI's model-less media endpoint requires its canonical Siumai handle",
+                ),
+                operation,
+                descriptor,
+            ),
+        });
     }
     Ok(())
 }
