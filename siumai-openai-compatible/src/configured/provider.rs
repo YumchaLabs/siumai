@@ -762,6 +762,30 @@ mod tests {
     }
 
     #[test]
+    fn custom_endpoint_preserves_explicit_shared_address_policy() {
+        let endpoint =
+            EndpointConfig::shared_address_space_explicit("http://100.117.187.85:8080/v1").unwrap();
+        let profile = OpenAiCompatibleProfile::custom_endpoint(
+            ProviderId::new("caller-relay").unwrap(),
+            endpoint,
+            ReplayDomain::custom(ReplayDomainId::new("caller-relay").unwrap()),
+            OpenAiCompatibleApiMode::Responses,
+        )
+        .unwrap()
+        .with_responses_wire_dialect(ResponsesWireDialect::compatible());
+
+        let scope = profile.scope(OpenAiCompatibleApiMode::Responses).unwrap();
+        assert_eq!(scope.platform().unwrap().as_str(), "local");
+        assert!(!scope.replay_domain().unwrap().audience().is_official());
+        assert!(matches!(
+            profile.endpoint().policy(),
+            siumai_transport::EndpointPolicy::LocalExplicit(
+                siumai_transport::LocalNetworkGrant::SharedAddressSpace
+            )
+        ));
+    }
+
+    #[test]
     fn static_validation_rejects_credentials_and_protected_defaults_synchronously() {
         let profile = OpenAiCompatibleProfile::local_explicit(
             ProviderId::new("local-test").unwrap(),

@@ -150,7 +150,12 @@ impl OpenAiCompatibleProfile {
         replay_domain: ReplayDomainId,
         mode: OpenAiCompatibleApiMode,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
-        Self::generic(provider, base_url, replay_domain, false, mode)
+        Self::custom_endpoint(
+            provider,
+            EndpointConfig::public_custom(base_url)?,
+            ReplayDomain::custom(replay_domain),
+            mode,
+        )
     }
 
     pub fn local_explicit(
@@ -159,7 +164,57 @@ impl OpenAiCompatibleProfile {
         replay_domain: ReplayDomainId,
         mode: OpenAiCompatibleApiMode,
     ) -> Result<Self, OpenAiCompatibleConfigError> {
-        Self::generic(provider, base_url, replay_domain, true, mode)
+        Self::custom_endpoint(
+            provider,
+            EndpointConfig::local_explicit(base_url)?,
+            ReplayDomain::custom(replay_domain),
+            mode,
+        )
+    }
+
+    /// Configure one generic OpenAI-compatible mode on a caller-validated endpoint.
+    ///
+    /// This is the advanced escape hatch for explicit transport policies such as
+    /// RFC 1918, link-local, or RFC 6598 grants. The endpoint remains generic and
+    /// never inherits a named provider claim. Responses uses the strict OpenAI wire
+    /// baseline until the caller explicitly selects a verified [`ResponsesWireDialect`].
+    pub fn custom_endpoint(
+        provider: ProviderId,
+        endpoint: EndpointConfig,
+        replay_domain: ReplayDomain,
+        mode: OpenAiCompatibleApiMode,
+    ) -> Result<Self, OpenAiCompatibleConfigError> {
+        let (protocol, api_mode) = mode_ids(mode)?;
+        let platform = PlatformId::new(
+            if matches!(endpoint.policy(), EndpointPolicy::LocalExplicit(_)) {
+                "local"
+            } else {
+                "custom-endpoint"
+            },
+        )?;
+        let support_scope = SupportScope::new(
+            provider.clone(),
+            platform,
+            ModelFamily::Language,
+            protocol,
+            api_mode,
+        );
+        let profile = ProviderProfile::generic(
+            ProfileId::new(provider.as_str())?,
+            GenericSupportClaim::new(support_scope.clone(), ApiStability::Experimental),
+        );
+        let profile = match mode {
+            OpenAiCompatibleApiMode::ChatCompletions => Self::from_parts(
+                profile,
+                endpoint,
+                Some((support_scope, ChatCompletionsDialect::generic())),
+                None,
+            ),
+            OpenAiCompatibleApiMode::Responses => {
+                Self::from_parts(profile, endpoint, None, Some(support_scope))
+            }
+        }?;
+        profile.with_replay_domain(replay_domain)
     }
 
     #[doc(hidden)]
@@ -231,44 +286,6 @@ impl OpenAiCompatibleProfile {
             Some(responses_scope),
         )?
         .with_replay_domain(replay_domain)
-    }
-
-    fn generic(
-        provider: ProviderId,
-        base_url: impl AsRef<str>,
-        replay_domain: ReplayDomainId,
-        local: bool,
-        mode: OpenAiCompatibleApiMode,
-    ) -> Result<Self, OpenAiCompatibleConfigError> {
-        let (protocol, api_mode) = mode_ids(mode)?;
-        let support_scope = SupportScope::new(
-            provider.clone(),
-            PlatformId::new(if local { "local" } else { "custom-endpoint" })?,
-            ModelFamily::Language,
-            protocol,
-            api_mode,
-        );
-        let profile = ProviderProfile::generic(
-            ProfileId::new(provider.as_str())?,
-            GenericSupportClaim::new(support_scope.clone(), ApiStability::Experimental),
-        );
-        let endpoint = if local {
-            EndpointConfig::local_explicit(base_url)
-        } else {
-            EndpointConfig::public_custom(base_url)
-        }?;
-        let profile = match mode {
-            OpenAiCompatibleApiMode::ChatCompletions => Self::from_parts(
-                profile,
-                endpoint,
-                Some((support_scope, ChatCompletionsDialect::generic())),
-                None,
-            ),
-            OpenAiCompatibleApiMode::Responses => {
-                Self::from_parts(profile, endpoint, None, Some(support_scope))
-            }
-        }?;
-        profile.with_replay_domain(ReplayDomain::custom(replay_domain))
     }
 
     fn from_parts(
