@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use siumai_core::{
-    CallOptions, InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId,
-    ModelLookupError, ModelPolicy, Provider, ProviderInstanceId, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderRegistration, ProviderScope,
+    CallOptions, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
+    ModelPolicy, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers,
+    ProviderRegistration, ProviderScope,
 };
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
@@ -259,20 +259,15 @@ pub(crate) struct ProviderRuntime {
 }
 
 impl ProviderRuntime {
-    pub(crate) fn merge_options(
+    pub(crate) fn merge_options_for<M: Model + ?Sized>(
         &self,
+        model: &M,
         options: &CallOptions,
     ) -> Result<MessagesCallOptions, ProviderOptionError> {
         let layers = options
             .apply_provider_options(self.scope.provider_id(), ProviderOptionLayers::default())?;
-        layers.merge_for(
-            ProviderOptionContext::new(
-                self.scope.provider_id(),
-                ModelFamily::Language,
-                self.scope.api_mode(),
-            ),
-            &self.option_merger,
-        )
+        let selection = options.provider_options_for(model)?;
+        self.option_merger.merge_selected(&layers, &selection)
     }
 }
 

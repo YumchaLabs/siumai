@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 use siumai_core::{
-    InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId, ModelLookupError,
-    ProfileError, Provider, ProviderInstanceId, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
+    InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
+    ProfileError, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptionSelection, ProviderOptions,
     ProviderRegistration, ProviderScope,
 };
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
@@ -356,8 +356,9 @@ impl ProviderRuntime {
         self.profile.scope_arc(mode)
     }
 
-    pub(crate) fn merge_options(
+    pub(crate) fn merge_options_for<M: Model + ?Sized>(
         &self,
+        model: &M,
         mode: OpenAiCompatibleApiMode,
         options: &siumai_core::CallOptions,
     ) -> Result<BTreeMap<String, Value>, ProviderOptionError> {
@@ -369,18 +370,12 @@ impl ProviderRuntime {
             })?;
         let layers =
             options.apply_provider_options(scope.provider_id(), ProviderOptionLayers::default())?;
+        let selection = options.provider_options_for(model)?;
         let merger = match mode {
             OpenAiCompatibleApiMode::Responses => &self.responses_options,
             OpenAiCompatibleApiMode::ChatCompletions => &self.chat_options,
         };
-        layers.merge_for(
-            ProviderOptionContext::new(
-                scope.provider_id(),
-                ModelFamily::Language,
-                scope.api_mode(),
-            ),
-            merger,
-        )
+        merger.merge_selected(&layers, &selection)
     }
 }
 
@@ -420,6 +415,41 @@ impl CompatibleOptionMerger {
     fn new(mode: OpenAiCompatibleApiMode, defaults: BTreeMap<String, Value>) -> Self {
         Self { mode, defaults }
     }
+
+    fn merge_selected(
+        &self,
+        layers: &ProviderOptionLayers,
+        selection: &ProviderOptionSelection<'_>,
+    ) -> Result<BTreeMap<String, Value>, ProviderOptionError> {
+        let mut merged = self.defaults.clone();
+        let mut has_raw = false;
+        for (origin, options) in layers.in_precedence_order() {
+            self.validate_layer(origin, options)?;
+            has_raw |= origin == ProviderOptionOrigin::RawOverride;
+            overlay_options(&mut merged, options);
+        }
+        for options in selection.typed() {
+            self.validate_layer(ProviderOptionOrigin::Call, options)?;
+            overlay_options(&mut merged, options);
+        }
+        if let Some(options) = selection.raw_override() {
+            if has_raw {
+                return Err(ProviderOptionError::DuplicateRawTarget);
+            }
+            self.validate_layer(ProviderOptionOrigin::RawOverride, options)?;
+            overlay_options(&mut merged, options);
+        }
+        Ok(merged)
+    }
+}
+
+fn overlay_options(merged: &mut BTreeMap<String, Value>, options: &ProviderOptions) {
+    merged.extend(
+        options
+            .value()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
 }
 
 impl ProviderOptionMerger for CompatibleOptionMerger {
@@ -568,6 +598,7 @@ mod tests {
     use chrono::NaiveDate;
     use futures_util::StreamExt;
     use http::header::{HeaderName, HeaderValue};
+    use serde_json::json;
     use siumai_core::{
         ApiModeId, ApiStability, CallOptions, ContentPart, Error, ErrorKind, LanguageModel,
         LanguageRequest, Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId,
@@ -894,6 +925,55 @@ mod tests {
             first_model.descriptor().instance_id(),
             second_model.descriptor().instance_id()
         );
+    }
+
+    #[test]
+    fn exact_raw_options_reach_only_the_selected_compatible_instance() {
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("local-test").unwrap(),
+            "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("local-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap();
+        let first = OpenAiCompatibleProvider::builder(
+            profile.clone(),
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+        let second = OpenAiCompatibleProvider::builder(
+            profile,
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+        let first_model = first.language("future:model").unwrap();
+        let second_model = second.language("future:model").unwrap();
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(
+                &first_model,
+                json!({"future_compatible_field": "enabled"}),
+            )
+            .unwrap();
+
+        let merged = first
+            .runtime
+            .merge_options_for(
+                &first_model,
+                OpenAiCompatibleApiMode::ChatCompletions,
+                &options,
+            )
+            .unwrap();
+        assert_eq!(merged["future_compatible_field"], "enabled");
+        assert!(matches!(
+            second.runtime.merge_options_for(
+                &second_model,
+                OpenAiCompatibleApiMode::ChatCompletions,
+                &options,
+            ),
+            Err(ProviderOptionError::ExactTargetMismatch { .. })
+        ));
     }
 
     #[tokio::test]

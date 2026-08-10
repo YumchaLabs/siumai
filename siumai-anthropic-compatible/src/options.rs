@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai_core::{
     LanguageRequest, Message, MessageRole, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptionSelection, ProviderOptions,
 };
 use siumai_protocol_anthropic::messages::{
     CacheControl, ContextManagement, InferenceGeo, InferenceSpeed, McpServer, MessagesContainer,
@@ -17,7 +17,8 @@ use siumai_protocol_anthropic::messages::{
 /// This type intentionally does not implement `TypedProviderOptions`: branded providers
 /// own their namespaces and may expose their own typed option structs. After erasure, the
 /// engine accepts the same typed Messages schema from provider-owned options and applies the
-/// canonical precedence stack. Checked raw layers may only supply bounded, unprotected extras.
+/// canonical precedence stack. Checked raw layers are retained as a bounded final body overlay;
+/// canonical request fields and provider or transport security fields remain protected.
 #[derive(Debug, Clone, Default)]
 pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
@@ -34,6 +35,7 @@ pub struct MessagesCallOptions {
     context_management: Option<ContextManagement>,
     mcp_servers: Option<Vec<McpServer>>,
     extra: BTreeMap<String, Value>,
+    raw_body_overlay: BTreeMap<String, Value>,
 }
 
 impl MessagesCallOptions {
@@ -211,6 +213,23 @@ impl MessagesCallOptions {
         options
     }
 
+    pub(crate) fn apply_raw_body_overlay(
+        &self,
+        body: &mut Value,
+    ) -> Result<(), ProviderOptionError> {
+        if self.raw_body_overlay.is_empty() {
+            return Ok(());
+        }
+        let object = body.as_object_mut().ok_or_else(|| {
+            rejected(
+                "request",
+                "Anthropic Messages encoding must produce a JSON object",
+            )
+        })?;
+        object.extend(self.raw_body_overlay.clone());
+        Ok(())
+    }
+
     fn apply(&mut self, patch: OptionsPatch) {
         if let Some(metadata) = patch.metadata {
             self.metadata = metadata;
@@ -252,6 +271,7 @@ impl MessagesCallOptions {
             self.mcp_servers = mcp_servers;
         }
         self.extra.extend(patch.extra);
+        self.raw_body_overlay.extend(patch.raw_body_overlay);
     }
 
     fn validate_static(&self) -> Result<(), ProviderOptionError> {
@@ -273,6 +293,32 @@ impl MessagesOptionMerger {
     pub(crate) fn new(defaults: MessagesCallOptions) -> Result<Self, ProviderOptionError> {
         defaults.validate_static()?;
         Ok(Self { defaults })
+    }
+
+    pub(crate) fn merge_selected(
+        &self,
+        layers: &ProviderOptionLayers,
+        selection: &ProviderOptionSelection<'_>,
+    ) -> Result<MessagesCallOptions, ProviderOptionError> {
+        let mut merged = self.defaults.clone();
+        let mut has_raw = false;
+        for (origin, options) in layers.in_precedence_order() {
+            self.validate_layer(origin, options)?;
+            has_raw |= origin == ProviderOptionOrigin::RawOverride;
+            merged.apply(parse_patch(options)?);
+        }
+        for options in selection.typed() {
+            self.validate_layer(ProviderOptionOrigin::Call, options)?;
+            merged.apply(parse_patch(options)?);
+        }
+        if let Some(options) = selection.raw_override() {
+            if has_raw {
+                return Err(ProviderOptionError::DuplicateRawTarget);
+            }
+            self.validate_layer(ProviderOptionOrigin::RawOverride, options)?;
+            merged.apply(parse_patch(options)?);
+        }
+        Ok(merged)
     }
 }
 
@@ -315,11 +361,17 @@ struct OptionsPatch {
     context_management: Option<Option<ContextManagement>>,
     mcp_servers: Option<Option<Vec<McpServer>>>,
     extra: BTreeMap<String, Value>,
+    raw_body_overlay: BTreeMap<String, Value>,
 }
 
 fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOptionError> {
     let mut patch = OptionsPatch::default();
     for (name, value) in options.value() {
+        if options.is_raw() {
+            validate_raw_body_field(name, value, name)?;
+            insert_extra(&mut patch.raw_body_overlay, name, value)?;
+            continue;
+        }
         match compact_name(name).as_str() {
             "metadata" => {
                 patch.metadata = Some(parse_metadata(value)?);
@@ -331,7 +383,6 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                 patch.output_effort = Some(parse_output_effort(value)?);
             }
             "taskbudget" => {
-                reject_raw_typed_field(options, name)?;
                 patch.task_budget = Some(parse_typed(value, "task_budget")?);
             }
             "fallbacks" => {
@@ -341,31 +392,24 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                 patch.top_k = Some(parse_top_k(value)?);
             }
             "servicetier" => {
-                reject_raw_typed_field(options, name)?;
                 patch.service_tier = Some(parse_service_tier(value)?);
             }
             "cachecontrol" => {
-                reject_raw_typed_field(options, name)?;
                 patch.cache_control = Some(parse_typed(value, "cache_control")?);
             }
             "speed" => {
-                reject_raw_typed_field(options, name)?;
                 patch.speed = Some(parse_typed(value, "speed")?);
             }
             "inferencegeo" => {
-                reject_raw_typed_field(options, name)?;
                 patch.inference_geo = Some(parse_typed(value, "inference_geo")?);
             }
             "container" => {
-                reject_raw_typed_field(options, name)?;
                 patch.container = Some(parse_typed(value, "container")?);
             }
             "contextmanagement" => {
-                reject_raw_typed_field(options, name)?;
                 patch.context_management = Some(parse_typed(value, "context_management")?);
             }
             "mcpservers" => {
-                reject_raw_typed_field(options, name)?;
                 patch.mcp_servers = Some(parse_typed(value, "mcp_servers")?);
             }
             "extra" => {
@@ -472,18 +516,6 @@ fn parse_typed<T: DeserializeOwned>(
         .map_err(|_| rejected(field, "must use the canonical typed option shape"))
 }
 
-fn reject_raw_typed_field(
-    options: &ProviderOptions,
-    name: &str,
-) -> Result<(), ProviderOptionError> {
-    if options.is_raw() {
-        return Err(ProviderOptionError::ProtectedField {
-            path: name.to_string(),
-        });
-    }
-    Ok(())
-}
-
 fn validate_extra_field(name: &str, value: &Value, path: &str) -> Result<(), ProviderOptionError> {
     if is_engine_protected(name) || is_protected_option_field(name) || is_security_sensitive(name) {
         return Err(rejected(
@@ -492,6 +524,39 @@ fn validate_extra_field(name: &str, value: &Value, path: &str) -> Result<(), Pro
         ));
     }
     validate_nested_extra(value, path)
+}
+
+fn validate_raw_body_field(
+    name: &str,
+    value: &Value,
+    path: &str,
+) -> Result<(), ProviderOptionError> {
+    if is_canonical_body_field(name) || is_security_sensitive(name) {
+        return Err(rejected(
+            path,
+            "field is owned by the canonical request, provider, or transport",
+        ));
+    }
+    validate_nested_extra(value, path)
+}
+
+fn is_canonical_body_field(name: &str) -> bool {
+    matches!(
+        compact_name(name).as_str(),
+        "model"
+            | "messages"
+            | "system"
+            | "maxtokens"
+            | "maxoutputtokens"
+            | "stream"
+            | "tools"
+            | "toolchoice"
+            | "temperature"
+            | "topp"
+            | "stopsequence"
+            | "stopsequences"
+            | "diagnostics"
+    )
 }
 
 fn validate_nested_extra(value: &Value, path: &str) -> Result<(), ProviderOptionError> {
@@ -647,4 +712,51 @@ fn safe_path(path: &str) -> String {
         value.push_str("...");
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use siumai_core::ProviderId;
+
+    use super::*;
+
+    #[test]
+    fn raw_provider_values_bypass_closed_typed_decoding() {
+        let raw = ProviderOptions::checked_raw(
+            ProviderId::new("anthropic").expect("provider"),
+            json!({
+                "service_tier": "priority_v2",
+                "output_config": {"effort": "ultra"}
+            }),
+        )
+        .expect("raw options");
+        let mut options = MessagesCallOptions::new();
+        options.apply(parse_patch(&raw).expect("raw patch"));
+        let mut body = json!({"model": "future-model", "messages": []});
+
+        options
+            .apply_raw_body_overlay(&mut body)
+            .expect("raw overlay");
+
+        assert_eq!(body["service_tier"], "priority_v2");
+        assert_eq!(body["output_config"]["effort"], "ultra");
+    }
+
+    #[test]
+    fn raw_provider_values_cannot_override_canonical_or_security_fields() {
+        let canonical = ProviderOptions::checked_raw(
+            ProviderId::new("anthropic").expect("provider"),
+            json!({"model": "override"}),
+        )
+        .expect("bounded raw options");
+        assert!(parse_patch(&canonical).is_err());
+
+        let nested_secret = ProviderOptions::checked_raw(
+            ProviderId::new("anthropic").expect("provider"),
+            json!({"future_feature": {"authorization_token": "secret"}}),
+        )
+        .expect("bounded raw options");
+        assert!(parse_patch(&nested_secret).is_err());
+    }
 }

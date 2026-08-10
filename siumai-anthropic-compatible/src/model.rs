@@ -142,7 +142,7 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         let warnings = self.policy(operation)?;
         let mut call_options = self
             .runtime
-            .merge_options(&options)
+            .merge_options_for(self, &options)
             .map_err(|source| self.contextualize(operation, option_error(source)))?;
         let requirements = self
             .runtime
@@ -150,8 +150,8 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             .request_policy()
             .prepare(self.model_id(), &request, &mut call_options)
             .map_err(|error| self.contextualize(operation, error))?;
-        let protocol_options = call_options.into_protocol(false);
-        let body = encode_request_for_scope_with_resolver_and_rules(
+        let protocol_options = call_options.clone().into_protocol(false);
+        let mut body = encode_request_for_scope_with_resolver_and_rules(
             &self.runtime.scope,
             self.model_id(),
             &request,
@@ -161,6 +161,9 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         )
         .map_err(Error::from)
         .map_err(|error| self.contextualize(operation, error))?;
+        call_options
+            .apply_raw_body_overlay(&mut body)
+            .map_err(|source| self.contextualize(operation, option_error(source)))?;
         let plan = self
             .request_plan(body, false, &requirements)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -188,7 +191,7 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         let warnings = self.policy(operation)?;
         let mut call_options = self
             .runtime
-            .merge_options(&options)
+            .merge_options_for(self, &options)
             .map_err(|source| self.contextualize(operation, option_error(source)))?;
         let requirements = self
             .runtime
@@ -196,8 +199,8 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             .request_policy()
             .prepare(self.model_id(), &request, &mut call_options)
             .map_err(|error| self.contextualize(operation, error))?;
-        let protocol_options = call_options.into_protocol(true);
-        let body = encode_request_for_scope_with_resolver_and_rules(
+        let protocol_options = call_options.clone().into_protocol(true);
+        let mut body = encode_request_for_scope_with_resolver_and_rules(
             &self.runtime.scope,
             self.model_id(),
             &request,
@@ -207,6 +210,9 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         )
         .map_err(Error::from)
         .map_err(|error| self.contextualize(operation, error))?;
+        call_options
+            .apply_raw_body_overlay(&mut body)
+            .map_err(|source| self.contextualize(operation, option_error(source)))?;
         let plan = self
             .request_plan(body, true, &requirements)
             .map_err(|error| self.contextualize(operation, error))?;

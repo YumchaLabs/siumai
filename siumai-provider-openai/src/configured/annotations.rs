@@ -80,10 +80,6 @@ pub(crate) struct OpenAiPromptCacheSummary {
 }
 
 impl OpenAiPromptCacheSummary {
-    pub(crate) const fn has_markers(self) -> bool {
-        self.marker_count != 0
-    }
-
     #[cfg(test)]
     pub(crate) const fn marker_count(self) -> usize {
         self.marker_count

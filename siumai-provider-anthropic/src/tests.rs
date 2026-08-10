@@ -50,59 +50,99 @@ async fn retired_models_fail_before_network_while_future_ids_remain_open() {
 }
 
 #[tokio::test]
-async fn current_model_rules_fail_before_transport() {
+async fn explicit_options_are_encoded_without_model_name_gating() {
     let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": CLAUDE_OPUS_4_7,
+            "max_tokens": 4_096,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "caller intent"}]
+            }],
+            "stream": false,
+            "temperature": 0.4,
+            "top_p": 0.5,
+            "top_k": 32,
+            "thinking": {"type": "enabled", "budget_tokens": 2_048},
+            "output_config": {"effort": "max"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            CLAUDE_OPUS_4_7,
+            "msg_caller_intent",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
+    let mut explicit = request("caller intent", 4_096);
+    explicit.generation.temperature = Some(0.4);
+    explicit.generation.top_p = Some(0.5);
 
-    let manual_thinking = provider
-        .language(CLAUDE_OPUS_5)
+    let response = provider
+        .language(CLAUDE_OPUS_4_7)
         .expect("model")
         .generate(
-            request("manual thinking", 4_096),
+            explicit,
             CallOptions::default().with_provider_options(
                 AnthropicMessagesOptions::new()
                     .with_enabled_thinking(2_048)
+                    .with_output_effort(OutputEffort::Max)
+                    .with_top_k(32)
                     .provider_options()
                     .expect("options"),
             ),
         )
         .await
-        .expect_err("Opus 5 must reject legacy manual thinking");
-    assert_eq!(manual_thinking.kind(), ErrorKind::InvalidInput);
+        .expect("explicit caller options must reach the wire");
+    assert_eq!(response.id(), Some("msg_caller_intent"));
+}
 
-    let mut sampled = request("sampling", 64);
-    sampled.generation.temperature = Some(0.4);
-    let sampling = provider
-        .language(CLAUDE_OPUS_4_7)
-        .expect("model")
-        .generate(sampled, CallOptions::default())
-        .await
-        .expect_err("Opus 4.7 must reject non-default temperature");
-    assert_eq!(sampling.kind(), ErrorKind::InvalidInput);
+#[tokio::test]
+async fn future_raw_provider_values_reach_the_request_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "future-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "future values"}]
+            }],
+            "stream": false,
+            "service_tier": "priority_v2",
+            "output_config": {"effort": "ultra"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-model",
+            "msg_future_options",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = local_provider(&server, AnthropicCredential::unauthenticated());
+    let raw = ProviderOptions::checked_raw(
+        siumai_core::ProviderId::new("anthropic").expect("provider"),
+        json!({
+            "service_tier": "priority_v2",
+            "output_config": {"effort": "ultra"}
+        }),
+    )
+    .expect("bounded raw options");
 
-    let disabled_fable = provider
-        .language(CLAUDE_FABLE_5)
+    provider
+        .language("future-model")
         .expect("model")
         .generate(
-            request("fable", 64),
-            CallOptions::default().with_provider_options(
-                AnthropicMessagesOptions::new()
-                    .without_thinking()
-                    .provider_options()
-                    .expect("options"),
-            ),
+            request("future values", 64),
+            CallOptions::default().with_provider_options(raw),
         )
         .await
-        .expect_err("Fable 5 must not disable thinking");
-    assert_eq!(disabled_fable.kind(), ErrorKind::InvalidInput);
-
-    assert!(
-        server
-            .received_requests()
-            .await
-            .expect("requests")
-            .is_empty()
-    );
+        .expect("future raw values must reach the wire");
 }
 
 #[tokio::test]

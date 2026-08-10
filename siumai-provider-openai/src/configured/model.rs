@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -28,10 +27,7 @@ use siumai_transport::{
     TransportResponse, TransportStreamResponse,
 };
 
-use super::annotations::{
-    OpenAiAnnotationResolver, OpenAiPromptCacheSummary, validate_prompt_cache_annotations,
-};
-use super::catalog::classify_model;
+use super::annotations::{OpenAiAnnotationResolver, validate_prompt_cache_annotations};
 use super::http_error;
 use super::mode::OpenAiApiMode;
 use super::provider::{OpenAiMergedOptions, OpenAiRuntime};
@@ -194,27 +190,21 @@ impl OpenAiResponsesModel {
         generate: bool,
     ) -> Result<PreparedOpenAiResponsesWebSocketCall, Error> {
         let operation = ModelOperation::Stream;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::Responses,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let body = self
             .encode_body(
                 scope,
@@ -237,27 +227,21 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiBackgroundResponse, Error> {
         let operation = ModelOperation::Generate;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::Responses,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .background_plan(&request, merged)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -285,27 +269,21 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesResponse, Error> {
         let operation = ModelOperation::Generate;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::Responses,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, false, merged)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -344,27 +322,21 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesStream, Error> {
         let operation = ModelOperation::Stream;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::Responses,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::Responses,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, true, merged)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -515,14 +487,14 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         let operation = ModelOperation::Generate;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::ChatCompletions,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
             .map_err(|source| {
@@ -531,14 +503,8 @@ impl LanguageModel for OpenAiChatCompletionsModel {
                     option_error(OpenAiApiMode::ChatCompletions, source),
                 )
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::ChatCompletions,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::ChatCompletions, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, false, merged)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -570,14 +536,14 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
-        let mut warnings = policy_warnings(
+        let warnings = policy_warnings(
             &self.runtime,
             OpenAiApiMode::ChatCompletions,
             self.model_id(),
             operation,
         )
         .map_err(|error| self.contextualize(operation, error))?;
-        let mut merged = self
+        let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
             .map_err(|source| {
@@ -586,14 +552,8 @@ impl LanguageModel for OpenAiChatCompletionsModel {
                     option_error(OpenAiApiMode::ChatCompletions, source),
                 )
             })?;
-        let (request, compatibility_warnings) = normalize_request(
-            OpenAiApiMode::ChatCompletions,
-            self.model_id(),
-            request,
-            &mut merged,
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        warnings.extend(compatibility_warnings);
+        let request = normalize_request(OpenAiApiMode::ChatCompletions, request, &merged)
+            .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, true, merged)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -637,138 +597,38 @@ fn official_chat_dialect() -> ChatCompletionsDialect {
 
 fn normalize_request(
     mode: OpenAiApiMode,
-    model: &ModelId,
-    mut request: LanguageRequest,
-    merged: &mut OpenAiMergedOptions,
-) -> Result<(LanguageRequest, Vec<Warning>), Error> {
-    let mut warnings = Vec::new();
+    request: LanguageRequest,
+    merged: &OpenAiMergedOptions,
+) -> Result<LanguageRequest, Error> {
     if mode == OpenAiApiMode::Responses {
-        if request.generation.seed.take().is_some() {
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "OpenAI Responses does not support the neutral seed control; the field was omitted",
+        if request.generation.seed.is_some() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI Responses cannot encode the neutral seed control",
             ));
         }
         if !request.generation.stop_sequences.is_empty() {
-            request.generation.stop_sequences.clear();
-            warnings.push(Warning::new(
-                WarningKind::UnsupportedOption,
-                "OpenAI Responses does not support neutral stop sequences; the field was omitted",
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI Responses cannot encode neutral stop sequences",
             ));
         }
     }
 
-    let model_class = classify_model(model.as_str());
     let cache_mode = prompt_cache_mode(&merged.wire);
-    let cache_summary =
-        validate_prompt_cache_annotations(&request, cache_mode).map_err(|source| {
-            Error::new(
-                ErrorKind::InvalidInput,
-                "OpenAI prompt-cache annotations are invalid",
-            )
-            .with_source(source)
-        })?;
-    validate_prompt_cache_model_policy(model_class, merged, cache_summary)?;
-
-    if !model_class.is_gpt_5_6() {
-        return Ok((request, warnings));
-    }
-
-    let effort = selected_reasoning_effort(mode, &merged.wire);
-    if effort == Some("minimal") {
-        return Err(Error::new(
+    validate_prompt_cache_annotations(&request, cache_mode).map_err(|source| {
+        Error::new(
             ErrorKind::InvalidInput,
-            "GPT-5.6 does not support the minimal reasoning effort",
-        ));
-    }
-    if effort == Some("none") {
-        return Ok((request, warnings));
-    }
-
-    if request.generation.temperature.take().is_some() {
-        warnings.push(Warning::new(
-            WarningKind::UnsupportedOption,
-            "GPT-5.6 temperature is only supported with reasoning effort none; the field was omitted",
-        ));
-    }
-    if request.generation.top_p.take().is_some() {
-        warnings.push(Warning::new(
-            WarningKind::UnsupportedOption,
-            "GPT-5.6 top_p is only supported with reasoning effort none; the field was omitted",
-        ));
-    }
-
-    match mode {
-        OpenAiApiMode::Responses => {
-            let removed_top_logprobs = merged.wire.remove("top_logprobs").is_some();
-            let mut removed_logprobs_include = false;
-            let mut remove_empty_include = false;
-            if let Some(Value::Array(include)) = merged.wire.get_mut("include") {
-                let original_len = include.len();
-                include.retain(|value| value.as_str() != Some("message.output_text.logprobs"));
-                removed_logprobs_include = include.len() != original_len;
-                remove_empty_include = include.is_empty();
-            }
-            if remove_empty_include {
-                merged.wire.remove("include");
-            }
-            if removed_top_logprobs || removed_logprobs_include {
-                warnings.push(Warning::new(
-                    WarningKind::UnsupportedOption,
-                    "GPT-5.6 log probabilities are only supported with reasoning effort none; the field was omitted",
-                ));
-            }
-        }
-        OpenAiApiMode::ChatCompletions => {
-            let removed_logprobs = merged.wire.remove("logprobs").is_some();
-            let removed_top_logprobs = merged.wire.remove("top_logprobs").is_some();
-            if removed_logprobs || removed_top_logprobs {
-                warnings.push(Warning::new(
-                    WarningKind::UnsupportedOption,
-                    "GPT-5.6 log probabilities are only supported with reasoning effort none; the fields were omitted",
-                ));
-            }
-            if merged.wire.remove("logit_bias").is_some() {
-                warnings.push(Warning::new(
-                    WarningKind::UnsupportedOption,
-                    "GPT-5.6 logit bias is unavailable while reasoning is enabled; the field was omitted",
-                ));
-            }
-        }
-    }
-    Ok((request, warnings))
+            "OpenAI prompt-cache annotations are invalid",
+        )
+        .with_source(source)
+    })?;
+    Ok(request)
 }
 
-fn validate_prompt_cache_model_policy(
-    model_class: super::catalog::OpenAiModelClass,
-    merged: &OpenAiMergedOptions,
-    cache_summary: OpenAiPromptCacheSummary,
-) -> Result<(), Error> {
-    let retention = merged.wire.get("prompt_cache_retention");
-    if model_class.is_gpt_5_6() && retention.and_then(Value::as_str) == Some("in_memory") {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "GPT-5.6 prompt-cache retention supports only 24h",
-        ));
-    }
-    if model_class.is_gpt_5_5() && retention.and_then(Value::as_str) == Some("in_memory") {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "GPT-5.5 only supports 24h prompt-cache retention",
-        ));
-    }
-    if model_class.is_gpt_5_5()
-        && (merged.wire.contains_key("prompt_cache_options") || cache_summary.has_markers())
-    {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "GPT-5.5 does not support GPT-5.6 prompt-cache TTL or content cache markers",
-        ));
-    }
-    Ok(())
-}
-
-fn prompt_cache_mode(wire: &BTreeMap<String, Value>) -> super::options::OpenAiPromptCacheMode {
+fn prompt_cache_mode(
+    wire: &std::collections::BTreeMap<String, Value>,
+) -> super::options::OpenAiPromptCacheMode {
     if wire
         .get("prompt_cache_options")
         .and_then(Value::as_object)
@@ -779,17 +639,6 @@ fn prompt_cache_mode(wire: &BTreeMap<String, Value>) -> super::options::OpenAiPr
         super::options::OpenAiPromptCacheMode::Explicit
     } else {
         super::options::OpenAiPromptCacheMode::Implicit
-    }
-}
-
-fn selected_reasoning_effort(mode: OpenAiApiMode, wire: &BTreeMap<String, Value>) -> Option<&str> {
-    match mode {
-        OpenAiApiMode::Responses => wire
-            .get("reasoning")
-            .and_then(Value::as_object)
-            .and_then(|reasoning| reasoning.get("effort"))
-            .and_then(Value::as_str),
-        OpenAiApiMode::ChatCompletions => wire.get("reasoning_effort").and_then(Value::as_str),
     }
 }
 
@@ -1406,58 +1255,84 @@ mod tests {
     }
 
     #[test]
-    fn checked_raw_options_forward_unknown_wire_fields_but_not_model_identity() {
+    fn checked_raw_options_forward_future_values_but_not_canonical_fields() {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
-        let future = ProviderOptions::checked_raw(
-            model.provider_id().clone(),
-            json!({"future_feature": {"mode": "next"}}),
-        )
-        .unwrap();
-        let call_options = CallOptions::default().with_provider_options(future);
+        let call_options = CallOptions::default()
+            .with_raw_provider_options_for(
+                &model,
+                json!({
+                    "future_feature": {"mode": "next"},
+                    "service_tier": "future-priority",
+                    "reasoning": {"effort": "future-max", "summary": "future-brief"},
+                    "include": ["future.output.metadata"]
+                }),
+            )
+            .unwrap();
         let merged = model
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let plan = model.plan(&request(), false, merged).unwrap();
         let body = body_json(&plan);
         assert_eq!(body["future_feature"], json!({"mode": "next"}));
+        assert_eq!(body["service_tier"], "future-priority");
+        assert_eq!(body["reasoning"]["effort"], "future-max");
+        assert_eq!(body["reasoning"]["summary"], "future-brief");
+        assert_eq!(body["include"], json!(["future.output.metadata"]));
 
-        let identity_override = ProviderOptions::checked_raw(
-            model.provider_id().clone(),
-            json!({"model": "gpt-5.6-luna"}),
-        )
-        .unwrap();
-        let result = model.runtime.merge_options(
-            OpenAiApiMode::Responses,
-            &CallOptions::default().with_provider_options(identity_override),
-        );
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"model": "gpt-5.6-luna"}))
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
         assert!(
             matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "model")
         );
 
-        let background =
-            ProviderOptions::checked_raw(model.provider_id().clone(), json!({"background": true}))
-                .unwrap();
-        let result = model.runtime.merge_options(
-            OpenAiApiMode::Responses,
-            &CallOptions::default().with_provider_options(background),
-        );
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"background": true}))
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
         assert!(
             matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "background")
         );
 
-        let cache_override = ProviderOptions::checked_raw(
-            model.provider_id().clone(),
-            json!({"prompt_cache_options": {"mode": "explicit"}}),
-        )
-        .unwrap();
-        let result = model.runtime.merge_options(
-            OpenAiApiMode::Responses,
-            &CallOptions::default().with_provider_options(cache_override),
-        );
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(
+                &model,
+                json!({"prompt_cache_options": {"mode": "explicit"}}),
+            )
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
         assert!(
             matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "prompt_cache_options")
+        );
+
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"service_tier": {"future": true}}))
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
+        assert!(
+            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "service_tier")
+        );
+
+        let chat = provider.chat_completions("future-chat-model").unwrap();
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&chat, json!({"top_logprobs": 5}))
+            .unwrap();
+        let result =
+            chat.runtime
+                .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &options);
+        assert!(
+            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "top_logprobs")
         );
     }
 
@@ -1469,17 +1344,11 @@ mod tests {
             .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
         let responses_call = CallOptions::default()
             .with_provider_options(ProviderOptions::typed(&responses_options).unwrap());
-        let mut merged = responses
+        let merged = responses
             .runtime
             .merge_options(OpenAiApiMode::Responses, &responses_call)
             .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::Responses,
-            responses.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap();
+        let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
         let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
         assert_eq!(responses_body["reasoning"]["effort"], "max");
         assert!(responses_body["reasoning"].get("summary").is_none());
@@ -1493,145 +1362,53 @@ mod tests {
         };
         let chat_call = CallOptions::default()
             .with_provider_options(ProviderOptions::typed(&chat_options).unwrap());
-        let mut merged = chat
+        let merged = chat
             .runtime
             .merge_options(OpenAiApiMode::ChatCompletions, &chat_call)
             .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::ChatCompletions,
-            chat.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap();
+        let normalized =
+            normalize_request(OpenAiApiMode::ChatCompletions, request(), &merged).unwrap();
         let chat_body = body_json(&chat.plan(&normalized, false, merged).unwrap());
         assert_eq!(chat_body["reasoning_effort"], "max");
     }
 
     #[test]
-    fn known_models_enforce_prompt_cache_generation_rules() {
+    fn prompt_cache_controls_are_not_filtered_by_model_identity() {
         let provider = provider();
 
         let responses_5_6 = provider.responses(GPT_5_6_SOL).unwrap();
-        let combined_5_6 = OpenAiResponsesOptions {
-            prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
-            ..OpenAiResponsesOptions::default()
-        };
-        let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&combined_5_6).unwrap());
-        let mut merged = responses_5_6
-            .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
-            .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::Responses,
-            responses_5_6.model_id(),
-            request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-            &mut merged,
-        )
-        .unwrap();
-        let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
-        assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
-        assert_eq!(body["prompt_cache_retention"], "24h");
-
-        let invalid_5_6 = OpenAiResponsesOptions {
+        let formerly_rejected_5_6 = OpenAiResponsesOptions {
             prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&invalid_5_6).unwrap());
-        let mut merged = responses_5_6
+            .with_provider_options(ProviderOptions::typed(&formerly_rejected_5_6).unwrap());
+        let merged = responses_5_6
             .runtime
             .merge_options(OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let error = normalize_request(
-            OpenAiApiMode::Responses,
-            responses_5_6.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
+        let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
+        assert_eq!(body["prompt_cache_retention"], "in_memory");
 
         let responses_5_5 = provider.responses(GPT_5_5).unwrap();
-        let legacy_responses = OpenAiResponsesOptions {
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
-            ..OpenAiResponsesOptions::default()
-        };
-        let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&legacy_responses).unwrap());
-        let mut merged = responses_5_5
-            .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
-            .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::Responses,
-            responses_5_5.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap();
-        let body = body_json(&responses_5_5.plan(&normalized, false, merged).unwrap());
-        assert_eq!(body["prompt_cache_retention"], "24h");
-
-        let chat_5_5 = provider.chat_completions(GPT_5_5).unwrap();
-        let legacy_chat = OpenAiChatCompletionsOptions {
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
-            ..OpenAiChatCompletionsOptions::default()
-        };
-        let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&legacy_chat).unwrap());
-        let mut merged = chat_5_5
-            .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &call_options)
-            .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::ChatCompletions,
-            chat_5_5.model_id(),
-            request(),
-            &mut merged,
-        )
-        .unwrap();
-        let body = body_json(&chat_5_5.plan(&normalized, false, merged).unwrap());
-        assert_eq!(body["prompt_cache_retention"], "24h");
-
-        let unsupported = OpenAiResponsesOptions {
+        let formerly_rejected_5_5 = OpenAiResponsesOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&unsupported).unwrap());
-        let mut merged = responses_5_5
+            .with_provider_options(ProviderOptions::typed(&formerly_rejected_5_5).unwrap());
+        let merged = responses_5_5
             .runtime
             .merge_options(OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let error = normalize_request(
+        let normalized = normalize_request(
             OpenAiApiMode::Responses,
-            responses_5_5.model_id(),
             request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-            &mut merged,
-        )
-        .unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::InvalidInput);
-
-        let future = provider.responses("future-cache-model").unwrap();
-        let future_options = OpenAiResponsesOptions::default()
-            .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes());
-        let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&future_options).unwrap());
-        let mut merged = future
-            .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
-            .unwrap();
-        let (normalized, _) = normalize_request(
-            OpenAiApiMode::Responses,
-            future.model_id(),
-            request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-            &mut merged,
+            &merged,
         )
         .unwrap();
-        let body = body_json(&future.plan(&normalized, false, merged).unwrap());
+        let body = body_json(&responses_5_5.plan(&normalized, false, merged).unwrap());
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
         assert_eq!(
             body["input"][0]["content"][0]["prompt_cache_breakpoint"],
@@ -1855,38 +1632,47 @@ mod tests {
     }
 
     #[test]
-    fn gpt_5_6_omits_non_reasoning_controls_unless_effort_is_none() {
+    fn responses_preserve_encodable_intent_and_reject_unencodable_fields() {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
-        let mut request = request();
-        request.generation.temperature = Some(0.7);
-        request.generation.top_p = Some(0.9);
-        request.generation.seed = Some(42);
-        request.generation.stop_sequences = vec!["stop".to_string()];
+        let mut caller_request = request();
+        caller_request.generation.temperature = Some(0.7);
+        caller_request.generation.top_p = Some(0.9);
         let typed = OpenAiResponsesOptions {
             top_logprobs: Some(5),
             ..OpenAiResponsesOptions::default()
         };
         let call_options =
             CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
-        let mut merged = model
+        let merged = model
             .runtime
             .merge_options(OpenAiApiMode::Responses, &call_options)
             .unwrap();
 
-        let (request, warnings) = normalize_request(
-            OpenAiApiMode::Responses,
-            model.model_id(),
-            request,
-            &mut merged,
-        )
-        .unwrap();
+        let normalized_request =
+            normalize_request(OpenAiApiMode::Responses, caller_request, &merged).unwrap();
 
-        assert_eq!(request.generation.temperature, None);
-        assert_eq!(request.generation.top_p, None);
-        assert_eq!(request.generation.seed, None);
-        assert!(request.generation.stop_sequences.is_empty());
-        assert!(!merged.wire.contains_key("top_logprobs"));
-        assert!(warnings.len() >= 5);
+        assert_eq!(normalized_request.generation.temperature, Some(0.7));
+        assert_eq!(normalized_request.generation.top_p, Some(0.9));
+        assert_eq!(merged.wire["top_logprobs"], 5);
+
+        let mut with_seed = request();
+        with_seed.generation.seed = Some(42);
+        let error = normalize_request(OpenAiApiMode::Responses, with_seed, &merged).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+
+        let mut with_stop = request();
+        with_stop.generation.stop_sequences = vec!["stop".to_string()];
+        let error = normalize_request(OpenAiApiMode::Responses, with_stop, &merged).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+
+        let body = body_json(
+            &model
+                .plan(&normalized_request, false, merged)
+                .expect("encodable caller intent reaches the Responses request"),
+        );
+        assert_eq!(body["temperature"], 0.7);
+        assert_eq!(body["top_p"], 0.9);
+        assert_eq!(body["top_logprobs"], 5);
     }
 }

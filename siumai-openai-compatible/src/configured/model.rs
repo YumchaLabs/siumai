@@ -208,7 +208,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         let mode = self.api_mode();
         let extra = self
             .runtime
-            .merge_options(mode, &options)
+            .merge_options_for(self, mode, &options)
             .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
 
         let response = match &self.mode {
@@ -282,7 +282,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         let mode = self.api_mode();
         let extra = self
             .runtime
-            .merge_options(mode, &options)
+            .merge_options_for(self, mode, &options)
             .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
 
         let (plan, mut decoder) = match &self.mode {

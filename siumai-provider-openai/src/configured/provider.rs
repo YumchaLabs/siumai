@@ -1193,7 +1193,7 @@ impl OpenAiOptionMerger {
                 reason: "field is owned by the canonical language request".to_string(),
             });
         }
-        validate_known_projection(self.mode, value)
+        validate_forward_compatible_wire(self.mode, value)
     }
 
     fn merge_selected(
@@ -1251,7 +1251,7 @@ impl OpenAiOptionMerger {
             );
         }
         let validation_wire = wire.clone().into_iter().collect::<Map<_, _>>();
-        validate_final_wire(self.mode, &validation_wire)?;
+        validate_forward_compatible_wire(self.mode, &validation_wire)?;
         Ok(OpenAiMergedOptions {
             wire,
             native_tools,
@@ -1343,38 +1343,178 @@ fn merge_typed_layer(base: &mut Map<String, Value>, higher: &Map<String, Value>)
     }
 }
 
-fn validate_final_wire(
+fn validate_forward_compatible_wire(
     mode: OptionMode,
     wire: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
-    let mut projection = Map::new();
-    let fields = match mode {
-        OptionMode::Responses => RESPONSES_OPTION_FIELDS,
-        OptionMode::ChatCompletions => CHAT_COMPLETIONS_OPTION_FIELDS,
-    };
-    for field in fields {
-        if let Some(value) = wire.get(*field) {
-            projection.insert((*field).to_string(), value.clone());
-        }
-    }
+    // Raw options are a forward-compatibility escape hatch. Keep this validator limited to
+    // stable JSON shapes, fixed numeric bounds, and cross-field relationships; unknown fields
+    // and future string enum values intentionally pass through.
     match mode {
-        OptionMode::Responses => {
-            deserialize_options::<OpenAiResponsesOptions>(&projection)?.validate_values()
-        }
-        OptionMode::ChatCompletions => {
-            if let Some(verbosity) = wire.get("verbosity") {
-                projection.insert("text_verbosity".to_string(), verbosity.clone());
-            }
-            deserialize_options::<OpenAiChatCompletionsOptions>(&projection)?.validate_values()
-        }
+        OptionMode::Responses => validate_forward_compatible_responses_wire(wire),
+        OptionMode::ChatCompletions => validate_forward_compatible_chat_wire(wire),
     }
 }
 
-fn validate_known_projection(
-    mode: OptionMode,
-    value: &Map<String, Value>,
+fn validate_forward_compatible_responses_wire(
+    wire: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
-    validate_final_wire(mode, value)
+    validate_string_field(wire, "service_tier")?;
+    validate_unsigned_field(wire, "max_tool_calls", Some(1), Some(u32::MAX as u64))?;
+    validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
+    validate_string_array_field(wire, "include", true)?;
+    validate_reasoning_field(wire)?;
+
+    if wire.contains_key("conversation") && wire.contains_key("previous_response_id") {
+        return Err(rejected_wire(
+            "conversation",
+            "conversation and previous_response_id are mutually exclusive",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_forward_compatible_chat_wire(
+    wire: &Map<String, Value>,
+) -> Result<(), ProviderOptionError> {
+    validate_string_field(wire, "service_tier")?;
+    validate_bool_field(wire, "logprobs")?;
+    validate_string_field(wire, "reasoning_effort")?;
+    validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
+    validate_logit_bias_field(wire)?;
+
+    if wire.contains_key("top_logprobs")
+        && wire.get("logprobs").and_then(Value::as_bool) != Some(true)
+    {
+        return Err(rejected_wire(
+            "top_logprobs",
+            "top_logprobs requires logprobs=true",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_string_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get(field) else {
+        return Ok(());
+    };
+    if !value.is_string() {
+        return Err(rejected_wire(field, "field must be a JSON string"));
+    }
+    Ok(())
+}
+
+fn validate_bool_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+) -> Result<(), ProviderOptionError> {
+    if wire.get(field).is_some_and(|value| !value.is_boolean()) {
+        return Err(rejected_wire(field, "field must be a JSON boolean"));
+    }
+    Ok(())
+}
+
+fn validate_unsigned_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+    minimum: Option<u64>,
+    maximum: Option<u64>,
+) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get(field) else {
+        return Ok(());
+    };
+    let Some(value) = value.as_u64() else {
+        return Err(rejected_wire(
+            field,
+            "field must be an unsigned JSON integer",
+        ));
+    };
+    if minimum.is_some_and(|minimum| value < minimum)
+        || maximum.is_some_and(|maximum| value > maximum)
+    {
+        return Err(rejected_wire(
+            field,
+            "numeric value is outside the supported structural bounds",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_string_array_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+    unique: bool,
+) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get(field) else {
+        return Ok(());
+    };
+    let Some(values) = value.as_array() else {
+        return Err(rejected_wire(field, "field must be a JSON array"));
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for value in values {
+        let Some(value) = value.as_str() else {
+            return Err(rejected_wire(field, "array entries must be JSON strings"));
+        };
+        if unique && !seen.insert(value) {
+            return Err(rejected_wire(field, "array entries must be unique"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_reasoning_field(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get("reasoning") else {
+        return Ok(());
+    };
+    let Some(reasoning) = value.as_object() else {
+        return Err(rejected_wire(
+            "reasoning",
+            "reasoning must be a JSON object",
+        ));
+    };
+    for field in ["effort", "mode", "context", "summary"] {
+        if reasoning.get(field).is_some_and(|value| !value.is_string()) {
+            return Err(rejected_wire(
+                format!("reasoning.{field}"),
+                "known reasoning fields must be JSON strings",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_logit_bias_field(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get("logit_bias") else {
+        return Ok(());
+    };
+    let Some(logit_bias) = value.as_object() else {
+        return Err(rejected_wire(
+            "logit_bias",
+            "logit_bias must be a JSON object",
+        ));
+    };
+    if logit_bias.values().any(|value| {
+        value
+            .as_i64()
+            .is_none_or(|value| !(-100..=100).contains(&value))
+    }) {
+        return Err(rejected_wire(
+            "logit_bias",
+            "logit bias values must be integers between -100 and 100",
+        ));
+    }
+    Ok(())
+}
+
+fn rejected_wire(path: impl Into<String>, reason: impl Into<String>) -> ProviderOptionError {
+    ProviderOptionError::Rejected {
+        path: path.into(),
+        reason: reason.into(),
+    }
 }
 
 fn is_protected_field(mode: OptionMode, field: &str) -> bool {

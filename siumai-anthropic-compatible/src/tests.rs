@@ -151,6 +151,48 @@ fn configured_instance_identity_is_shared_within_one_build_and_fresh_across_buil
     );
 }
 
+#[test]
+fn exact_raw_options_reach_only_the_selected_compatible_instance() {
+    let profile = AnthropicCompatibleProfile::public_custom(
+        ProfileId::new("exact-options-profile").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "https://compatible.example/v1",
+        ReplayDomainId::new("compatible-exact-options").unwrap(),
+        API_VERSION,
+    )
+    .unwrap();
+    let first = AnthropicCompatibleProvider::builder(
+        profile.clone(),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let second = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let first_model = first.language("future-model-v9").unwrap();
+    let second_model = second.language("future-model-v9").unwrap();
+    let options = CallOptions::default()
+        .with_raw_provider_options_for(&first_model, json!({"future_service_tier": "priority_v2"}))
+        .unwrap();
+
+    let merged = first
+        .runtime
+        .merge_options_for(&first_model, &options)
+        .unwrap();
+    let mut body = json!({"model": "future-model-v9", "messages": []});
+    merged.apply_raw_body_overlay(&mut body).unwrap();
+    assert_eq!(body["future_service_tier"], "priority_v2");
+    assert!(matches!(
+        second.runtime.merge_options_for(&second_model, &options),
+        Err(siumai_core::ProviderOptionError::ExactTargetMismatch { .. })
+    ));
+}
+
 #[tokio::test]
 async fn direct_and_erased_models_have_identical_api_key_wire_behavior() {
     let server = MockServer::start().await;
@@ -537,7 +579,7 @@ async fn typed_and_checked_raw_layers_merge_into_messages_request_options() {
 }
 
 #[tokio::test]
-async fn typed_service_tier_preference_uses_precedence_and_raw_remains_protected() {
+async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
@@ -554,6 +596,26 @@ async fn typed_service_tier_preference_uses_precedence_and_raw_remains_protected
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "tier-model",
             "msg_tier",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "tier-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "tier"}]
+            }],
+            "stream": false,
+            "service_tier": "priority_v2"
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "tier-model",
+            "msg_tier_raw",
             "ok",
         )))
         .expect(1)
@@ -584,10 +646,10 @@ async fn typed_service_tier_preference_uses_precedence_and_raw_remains_protected
 
     let raw = ProviderOptions::checked_raw(
         ProviderId::new(PROVIDER_ID).unwrap(),
-        json!({"service_tier": "auto"}),
+        json!({"service_tier": "priority_v2"}),
     )
     .unwrap();
-    let error = provider
+    provider
         .language("tier-model")
         .unwrap()
         .generate(
@@ -595,9 +657,8 @@ async fn typed_service_tier_preference_uses_precedence_and_raw_remains_protected
             CallOptions::default().with_provider_options(raw),
         )
         .await
-        .unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        .unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
 }
 
 #[tokio::test]

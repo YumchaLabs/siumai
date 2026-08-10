@@ -560,16 +560,37 @@ impl TypedProviderOptions for AnthropicMessagesOptions {
 
 fn is_security_sensitive(name: &str) -> bool {
     let compact = name
-        .bytes()
-        .filter(|byte| byte.is_ascii_alphanumeric())
-        .map(|byte| byte.to_ascii_lowercase())
-        .collect::<Vec<_>>();
-    let compact = String::from_utf8_lossy(&compact);
-    compact.contains("apikey")
-        || compact.contains("authorization")
-        || compact.contains("credential")
-        || compact.contains("endpoint")
-        || compact.contains("baseurl")
-        || compact.contains("anthropicversion")
-        || compact.contains("header")
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        compact.as_str(),
+        "apikey"
+            | "xapikey"
+            | "authorization"
+            | "auth"
+            | "token"
+            | "bearer"
+            | "credential"
+            | "credentials"
+            | "endpoint"
+            | "baseurl"
+            | "url"
+            | "host"
+            | "header"
+            | "headers"
+            | "anthropicversion"
+            | "anthropicbeta"
+            | "proxy"
+            | "tls"
+            | "audience"
+    ) || compact.ends_with("apikey")
+        || compact.ends_with("token")
+        || compact.ends_with("credential")
+        || compact.ends_with("credentials")
+        || compact.ends_with("authorization")
+        || compact.ends_with("endpoint")
+        || compact.ends_with("baseurl")
+        || compact.ends_with("headers")
 }
