@@ -14,7 +14,7 @@ use siumai_protocol_openai::chat_completions::{
 };
 use siumai_protocol_openai::responses::{
     FunctionToolEncodingOptions, RequestEncodingOptions, ResponsesStreamDecoder,
-    ResponsesTerminalPolicy, decode_response as decode_responses_response,
+    ResponsesWireDialect, decode_response as decode_responses_response,
     encode_request_with_options as encode_responses_request,
 };
 use siumai_transport::{RequestHeaders, ResponseHeaders};
@@ -156,11 +156,13 @@ pub trait ResponsesCodecPolicy: Send + Sync {
         Ok(response)
     }
 
-    fn stream_decoder(&self, scope: ProviderScope, model: ModelId) -> CompatibleStreamDecoder {
-        Box::new(
-            ResponsesStreamDecoder::new(scope, model)
-                .with_terminal_policy(ResponsesTerminalPolicy::Compatible),
-        )
+    fn stream_decoder(
+        &self,
+        scope: ProviderScope,
+        model: ModelId,
+        wire_dialect: ResponsesWireDialect,
+    ) -> CompatibleStreamDecoder {
+        Box::new(ResponsesStreamDecoder::new(scope, model).with_wire_dialect(wire_dialect))
     }
 }
 

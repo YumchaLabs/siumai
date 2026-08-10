@@ -21,3 +21,4 @@ pub use profile::OpenAiCompatibleProfile;
 pub use provider::{
     OpenAiCompatibleConfigError, OpenAiCompatibleProvider, OpenAiCompatibleProviderBuilder,
 };
+pub use siumai_protocol_openai::responses::ResponsesWireDialect;

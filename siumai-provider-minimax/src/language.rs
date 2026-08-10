@@ -29,7 +29,8 @@ use siumai_protocol_openai::chat_completions::{
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, RequestEncodingOptions,
-    ResponsesMediaDialect, encode_request_with_options as encode_responses_request,
+    ResponsesMediaDialect, ResponsesWireDialect,
+    encode_request_with_options as encode_responses_request,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
@@ -111,7 +112,8 @@ pub(crate) fn openai_profile(
     };
     Ok(profile
         .with_chat_codec_policy(Arc::new(MinimaxChatPolicy { reasoning_details }))
-        .with_responses_codec_policy(Arc::new(MinimaxResponsesPolicy)))
+        .with_responses_codec_policy(Arc::new(MinimaxResponsesPolicy))
+        .with_responses_wire_dialect(ResponsesWireDialect::openai()))
 }
 
 fn verified_messages_profile(

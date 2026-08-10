@@ -522,10 +522,11 @@ The following is the concrete initial workset from the current workspace audit. 
 - Delete `ResponsesTerminalPolicy`, decoder policy state, public setters, provider selection helpers, and tests whose only purpose is distinguishing official versus compatible strictness.
 - Introduce a provider-owned `ResponsesWireDialect` descriptor before the shared reconciler. Official, maintained compatibility, and explicit custom codecs each declare their permitted omissions, aliases, and identity fallbacks without consulting support claims or model catalogs.
 - Replace strict/compatible comparison branches with one field classification: portable semantic, executable identity, replay-critical native state, and provider bookkeeping.
+- Keep the normative per-item/per-field authority matrix in ADR-0015 and make protocol fixtures exercise one representative transition for each portable/executable and replay-required class.
 - Implement the Responses Reconciliation Rules table exactly: unique alignment, whole-item completion only, no field-by-field executable repair, terminal-only acceptance after canonical validation, and present-but-empty treated as present.
 - Keep hard equality only for portable/executable semantics proven necessary for agent execution or canonical history.
 - Preserve provider-native event payloads and terminal resources without requiring status, phase, optional metadata, fingerprint, encrypted bookkeeping, or sequence-number equality for portable success.
-- Retain duplicate/backwards incremental sequence validation when sequence numbers are present, without requiring contiguous numbers or terminal snapshots to repeat them. Track per-item delta order where the wire provides no global sequence and reject duplicate/reordered text, reasoning, refusal, or tool-input deltas.
+- Retain duplicate/backwards incremental sequence validation when sequence numbers are present, without requiring contiguous numbers or terminal snapshots to repeat them. When a dialect provides a per-lane ordinal, validate it in the same way. When the wire provides no ordering identity beyond transport order, treat arrival order as canonical and enforce the lane lifecycle without inventing duplicate detection that cannot distinguish repeated content from repeated delivery.
 - Define replay authority separately from portable parity: if encrypted reasoning material, item identity, call relation, or another replay-required field conflicts, preserve observations and mark native replay unavailable rather than merging them.
 - Route raw native drift only to native resources or the existing bounded sensitive-response channel. Public protocol errors and diagnostics expose field kind/count summaries, never metadata values, fingerprints, encrypted content, or event payloads.
 
@@ -534,7 +535,7 @@ The following is the concrete initial workset from the current workspace audit. 
 - Official and custom endpoints decode an identical event sequence identically.
 - Official, maintained compatible, and explicit custom dialect fixtures normalize their documented omissions before the common reconciler.
 - Terminal status/phase/metadata/sequence differences do not fail an equal portable response.
-- Duplicate or backwards incremental sequence numbers, duplicate deltas, and reordered per-item deltas fail.
+- Duplicate or backwards incremental sequence numbers fail; duplicate lane completion and events after lane completion fail. Dialects with explicit per-lane ordinals also reject duplicate or reordered ordinals.
 - Function call ID, owner, name, or canonical JSON mismatch still fails.
 - Absent terminal, duplicate terminal, and event-after-terminal still fail.
 - SSE and Responses WebSocket share the same reconciler behavior.

@@ -113,6 +113,21 @@ unavailable; it is never silently merged into portable execution authority. Publ
 contain bounded structural summaries only, while sensitive native data remains redacted and behind
 an explicit native or sensitive-response boundary.
 
+The initial Responses field matrix is:
+
+| Item | Portable/executable fields | Replay-required fields | Diagnostic-only fields | Canonical replay source |
+| --- | --- | --- | --- | --- |
+| `message` | role, content part kinds, text, refusal, portable citation coordinates | item ID when it differs between observations | status, phase, provider annotation extras, logprobs | terminal whole item after portable comparison; unavailable on ID conflict |
+| `reasoning` | summary/content text and part kinds | item ID, encrypted content | status and per-text extra fields | terminal whole item; unavailable on identity or encrypted-state conflict |
+| `function_call` | call ID, name, namespace, caller kind/ID, canonical arguments | provider item ID | status and unknown fields | terminal whole item; executable mismatches are protocol errors |
+| `custom_tool_call` | none in the portable caller-executed surface | item ID, call ID, name, caller, opaque input | status and unknown fields | native item only; disagreement marks replay unavailable and never creates a local tool call |
+| `program`, `program_output`, provider tools, unknown items | none in the portable execution surface | item/call relation and provider-declared fingerprints | all remaining fields | native item only; conflict marks replay unavailable |
+
+An observation may be filled from the terminal whole item only when its alignment is unique and
+the portable/executable fields pass this matrix. A replay-required mismatch is retained in native
+state as a bounded conflict count; it is not repaired by choosing whichever observation arrived
+last.
+
 ### Portable language settlement
 
 A portable language response represents only completed or incomplete generation. Provider failure

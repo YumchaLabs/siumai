@@ -93,7 +93,7 @@ pub mod resources {
 
 pub mod responses {
     pub use siumai_provider_openai::responses::{
-        ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
+        ResponsesReplayStatus, ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
     };
     pub use siumai_provider_openai::{
         OpenAiApplyPatchTool, OpenAiApproximateLocation, OpenAiCodeInterpreterAutoContainer,

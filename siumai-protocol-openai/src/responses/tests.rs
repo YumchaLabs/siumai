@@ -934,10 +934,12 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
         LanguageStreamEvent::ToolCall(call)
             if call.id() == "call_stream" && call.arguments() == &json!({"q": "tea"})
     )));
-    assert!(done.portable_events().iter().any(|event| matches!(
-        event,
-        LanguageStreamEvent::ProviderOpaque(item) if item.item_id() == Some("fc_stream")
-    )));
+    assert!(
+        !done
+            .portable_events()
+            .iter()
+            .any(|event| matches!(event, LanguageStreamEvent::ProviderOpaque(_)))
+    );
 
     let terminal = decoder
         .decode(
@@ -1072,11 +1074,7 @@ fn provider_owned_custom_tool_stream_stays_out_of_portable_tool_events() {
             .to_string(),
         )
         .unwrap();
-    assert!(matches!(
-        item_done.as_slice(),
-        [LanguageStreamEvent::ProviderOpaque(item)]
-            if item.item_id() == Some("ctc_1")
-    ));
+    assert!(item_done.is_empty());
 }
 
 #[test]
@@ -1179,6 +1177,8 @@ fn completed_function_input_is_bounded_without_deltas() {
 #[test]
 fn usage_only_terminal_still_emits_started_usage_and_one_terminal() {
     let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    assert!(decoder.replay_status().is_pending());
+    assert!(!decoder.replay_status().is_available());
     let events = decoder
         .decode(
             &json!({
@@ -1418,7 +1418,7 @@ fn terminal_reconciliation_compares_function_calls_semantically() {
 }
 
 #[test]
-fn strict_terminal_policy_fills_verified_missing_function_and_message_fields() {
+fn wire_dialect_normalizes_optional_function_identity_and_message_fields() {
     let mut function = completed_function_decoder("{\"q\":\"tea\"}");
     let events = function
         .decode(&completed_function_response(
@@ -1466,7 +1466,7 @@ fn strict_terminal_policy_fills_verified_missing_function_and_message_fields() {
 }
 
 #[test]
-fn terminal_policy_controls_missing_message_identity_recovery() {
+fn wire_dialect_controls_missing_message_identity_recovery() {
     let terminal = completed_function_response(
         3,
         json!([{
@@ -1487,7 +1487,7 @@ fn terminal_policy_controls_missing_message_identity_recovery() {
     );
 
     let mut compatible =
-        completed_message_decoder().with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        completed_message_decoder().with_wire_dialect(ResponsesWireDialect::compatible());
     let events = compatible.decode(&terminal).unwrap();
     assert!(matches!(
         events.last(),
@@ -1503,7 +1503,7 @@ fn terminal_policy_controls_missing_message_identity_recovery() {
 }
 
 #[test]
-fn compatible_terminal_restores_omitted_message_provider_metadata() {
+fn compatible_terminal_preserves_native_metadata_boundaries() {
     let terminal = completed_function_response(
         3,
         json!([{
@@ -1516,14 +1516,8 @@ fn compatible_terminal_restores_omitted_message_provider_metadata() {
         }]),
     );
 
-    let mut strict = completed_message_decoder_with_provider_metadata();
-    assert_eq!(
-        strict.decode(&terminal).unwrap_err().kind(),
-        ErrorKind::Protocol
-    );
-
     let mut compatible = completed_message_decoder_with_provider_metadata()
-        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        .with_wire_dialect(ResponsesWireDialect::compatible());
     compatible.decode(&terminal).unwrap();
     let OutputItem::Message(message) = &compatible.terminal_response().unwrap().output[0] else {
         panic!("expected one reconciled message item");
@@ -1533,8 +1527,8 @@ fn compatible_terminal_restores_omitted_message_provider_metadata() {
     };
     assert_eq!(text.text, "done");
     assert_eq!(text.annotations.len(), 1);
-    assert!(text.logprobs.is_some());
-    assert_eq!(message.phase.as_deref(), Some("final_answer"));
+    assert!(text.logprobs.is_none());
+    assert_eq!(message.phase, None);
 }
 
 #[test]
@@ -1559,7 +1553,7 @@ fn terminal_reconciliation_rejects_present_message_semantic_conflicts() {
     assert_eq!(error.kind(), ErrorKind::Protocol);
 
     let mut compatible =
-        completed_message_decoder().with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        completed_message_decoder().with_wire_dialect(ResponsesWireDialect::compatible());
     let error = compatible
         .decode(&completed_function_response(
             3,
@@ -1586,10 +1580,26 @@ fn terminal_reconciliation_rejects_executable_identity_mutations() {
         "name": "lookup",
         "arguments": "{\"q\":\"tea\"}"
     });
-    let mut variants = Vec::new();
     let mut changed_item_id = base.clone();
     changed_item_id["id"] = json!("fc_changed");
-    variants.push(changed_item_id);
+    let mut changed_provider_identity = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = changed_provider_identity
+        .decode(&completed_function_response(3, json!([changed_item_id])))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed { .. }
+        ))
+    ));
+    assert_eq!(
+        changed_provider_identity
+            .replay_status()
+            .item_identity_conflicts(),
+        1
+    );
+
+    let mut variants = Vec::new();
     let mut changed_call_id = base.clone();
     changed_call_id["call_id"] = json!("call_changed");
     variants.push(changed_call_id);
@@ -1613,7 +1623,7 @@ fn terminal_reconciliation_rejects_executable_identity_mutations() {
     }
 
     let mut compatible = completed_function_decoder("{\"q\":\"tea\"}")
-        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        .with_wire_dialect(ResponsesWireDialect::compatible());
     let error = compatible
         .decode(&completed_function_response(
             3,
@@ -1631,18 +1641,287 @@ fn terminal_reconciliation_rejects_executable_identity_mutations() {
 }
 
 #[test]
-fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot() {
-    let mut strict = completed_function_decoder("{\"q\":\"tea\"}");
-    assert_eq!(
-        strict
-            .decode_native(&completed_function_response(3, json!([])))
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Protocol
+fn wire_dialects_produce_the_same_portable_result_for_a_complete_sequence() {
+    let terminal = completed_function_response(
+        3,
+        json!([{
+            "id": "msg_reconcile",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": "done",
+                "annotations": []
+            }]
+        }]),
     );
+    let mut openai = completed_message_decoder();
+    let mut compatible =
+        completed_message_decoder().with_wire_dialect(ResponsesWireDialect::compatible());
 
-    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}")
-        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+    let openai = openai.decode(&terminal).unwrap();
+    let compatible = compatible.decode(&terminal).unwrap();
+    let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response: openai })) =
+        openai.last()
+    else {
+        panic!("expected an OpenAI terminal response");
+    };
+    let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+        response: compatible,
+    })) = compatible.last()
+    else {
+        panic!("expected a compatible terminal response");
+    };
+    assert_eq!(openai, compatible);
+}
+
+#[test]
+fn terminal_whole_item_completion_finishes_a_partial_text_lane() {
+    let mut decoder = partial_message_decoder("hel");
+    let events = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_partial",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "hello",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::TextDelta { delta, .. } if delta == "lo"
+    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, LanguageStreamEvent::TextEnd { .. }))
+    );
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().any(
+                |part| matches!(part, ContentPart::Text { text } if text == "hello")
+            )
+    ));
+
+    let mut conflicting = partial_message_decoder("hel");
+    let error = conflicting
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_partial",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "hallo",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+}
+
+#[test]
+fn incremental_ordering_rejects_backward_sequence_and_events_after_lane_completion() {
+    let mut sequence = ResponsesStreamDecoder::new(scope(), model());
+    sequence
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 1,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    let error = sequence
+        .decode(
+            &json!({
+                "type": "response.in_progress",
+                "sequence_number": 1,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+
+    let mut lane = partial_message_decoder("hel");
+    let done = json!({
+        "type": "response.output_text.done",
+        "item_id": "msg_partial",
+        "output_index": 0,
+        "content_index": 0,
+        "text": "hel"
+    })
+    .to_string();
+    lane.decode(&done).unwrap();
+    assert_eq!(lane.decode(&done).unwrap_err().kind(), ErrorKind::Protocol);
+    let error = lane
+        .decode(
+            &json!({
+                "type": "response.output_text.delta",
+                "item_id": "msg_partial",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "lo"
+            })
+            .to_string(),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+}
+
+#[test]
+fn reasoning_replay_conflict_is_structural_and_does_not_fail_portable_output() {
+    const STREAM_SECRET: &str = "stream-encrypted-sentinel";
+    const TERMINAL_SECRET: &str = "terminal-encrypted-sentinel";
+
+    let mut decoder = completed_reasoning_decoder(STREAM_SECRET);
+    let frame = decoder
+        .decode_native(&completed_function_response(
+            3,
+            json!([{
+                "id": "reasoning_reconcile",
+                "type": "reasoning",
+                "status": "completed",
+                "summary": [{
+                    "type": "summary_text",
+                    "text": "checked inventory",
+                    "provider_marker": "terminal-metadata-sentinel"
+                }],
+                "content": [],
+                "encrypted_content": TERMINAL_SECRET
+            }]),
+        ))
+        .unwrap();
+    assert!(frame.is_terminal());
+    assert_eq!(frame.replay_status().reasoning_state_conflicts(), 1);
+    assert!(!frame.replay_status().is_available());
+    let debug = format!("{frame:?}");
+    for sentinel in [STREAM_SECRET, TERMINAL_SECRET, "terminal-metadata-sentinel"] {
+        assert!(!debug.contains(sentinel));
+    }
+    assert!(matches!(
+        frame.portable_events().last(),
+        Some(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed { .. }
+        ))
+    ));
+    let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })) =
+        frame.portable_events().last()
+    else {
+        panic!("expected a completed terminal response");
+    };
+    assert!(
+        !response
+            .content()
+            .iter()
+            .any(|part| matches!(part, ContentPart::ProviderOpaque(_)))
+    );
+}
+
+#[test]
+fn terminal_alignment_keeps_portable_message_semantics_when_identity_drifts() {
+    let mut decoder = completed_message_decoder();
+    let events = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_other",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "done",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.content().iter().filter(|part| matches!(part, ContentPart::Text { text } if text == "done")).count() == 1
+    ));
+    assert_eq!(decoder.replay_status().item_identity_conflicts(), 1);
+    assert!(!decoder.replay_status().is_available());
+}
+
+#[test]
+fn terminal_alignment_rejects_uncovered_partial_message_lanes() {
+    let mut decoder = partial_message_decoder("hel");
+    let error = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_partial",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": []
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+}
+
+#[test]
+fn terminal_sequence_drift_is_not_an_incremental_ordering_error() {
+    let mut decoder = completed_message_decoder();
+    let events = decoder
+        .decode(&completed_function_response(
+            0,
+            json!([{
+                "id": "msg_reconcile",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "done",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap();
+    assert!(events.iter().any(|event| event.terminal().is_some()));
+}
+
+#[test]
+fn function_arguments_use_canonical_json_equality_at_terminal_boundaries() {
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
+    let events = decoder
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{ \"q\" : \"tea\" }"
+            }]),
+        ))
+        .unwrap();
+    assert!(events.iter().any(|event| event.terminal().is_some()));
+}
+
+#[test]
+fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot() {
+    let mut decoder = completed_function_decoder("{\"q\":\"tea\"}");
     let frame = decoder
         .decode_native(&completed_function_response(3, json!([])))
         .unwrap();
@@ -1699,7 +1978,7 @@ fn terminal_reconciliation_merges_a_completed_stream_item_missing_from_snapshot(
 #[test]
 fn terminal_reconciliation_merges_a_function_omitted_before_a_retained_item() {
     let mut decoder = completed_function_decoder("{\"q\":\"tea\"}")
-        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        .with_wire_dialect(ResponsesWireDialect::compatible());
     decoder
         .decode(
             &json!({
@@ -1823,10 +2102,46 @@ fn terminal_reconciliation_accepts_provider_native_metadata_changes() {
             StreamTerminal::Completed { .. }
         ))
     ));
+    assert!(!decoder.replay_status().is_available());
+
+    let mut message = completed_message_decoder_with_provider_metadata();
+    let events = message
+        .decode(&completed_function_response(
+            3,
+            json!([{
+                "id": "msg_reconcile",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "phase": "provider_changed_phase",
+                "content": [{
+                    "type": "output_text",
+                    "text": "done",
+                    "annotations": [{
+                        "type": "url_citation",
+                        "url": "https://example.com/source",
+                        "title": "Source",
+                        "start_index": 0,
+                        "end_index": 4,
+                        "provider_marker": "terminal-only"
+                    }],
+                    "logprobs": [{"token": "done", "logprob": -9.0}]
+                }]
+            }]),
+        ))
+        .unwrap();
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed { .. }
+        ))
+    ));
+    assert_eq!(message.replay_status().provider_item_conflicts(), 1);
+    assert!(!message.replay_status().is_available());
 }
 
 #[test]
-fn terminal_reconciliation_rejects_typed_native_semantic_mutations() {
+fn terminal_reconciliation_marks_typed_native_mutations_non_replayable() {
     for (added, done, terminal) in [
         (
             json!({
@@ -1902,10 +2217,17 @@ fn terminal_reconciliation_rejects_typed_native_semantic_mutations() {
         ),
     ] {
         let mut decoder = completed_native_item_decoder(added, done);
-        let error = decoder
+        let events = decoder
             .decode(&completed_function_response(3, json!([terminal])))
-            .unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Protocol);
+            .unwrap();
+        assert!(matches!(
+            events.last(),
+            Some(LanguageStreamEvent::Terminal(
+                StreamTerminal::Completed { .. }
+            ))
+        ));
+        assert!(!decoder.replay_status().is_available());
+        assert_eq!(decoder.replay_status().provider_item_conflicts(), 1);
     }
 }
 
@@ -1936,7 +2258,7 @@ fn terminal_reconciliation_keeps_related_native_items_out_of_function_identity()
         .unwrap();
 
     let mut omitted = completed_function_decoder("{\"q\":\"tea\"}")
-        .with_terminal_policy(ResponsesTerminalPolicy::Compatible);
+        .with_wire_dialect(ResponsesWireDialect::compatible());
     let events = omitted
         .decode(&completed_function_response(3, json!([related_output])))
         .unwrap();
@@ -2037,6 +2359,83 @@ fn progress_response(status: &str) -> Value {
 
 fn completed_function_decoder(arguments: &str) -> ResponsesStreamDecoder {
     completed_function_decoder_with_caller(arguments, None)
+}
+
+fn partial_message_decoder(prefix: &str) -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    for event in [
+        json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": progress_response("in_progress")
+        }),
+        json!({
+            "type": "response.output_item.added",
+            "sequence_number": 1,
+            "output_index": 0,
+            "item": {
+                "id": "msg_partial",
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": []
+            }
+        }),
+        json!({
+            "type": "response.output_text.delta",
+            "sequence_number": 2,
+            "item_id": "msg_partial",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": prefix
+        }),
+    ] {
+        decoder.decode(&event.to_string()).unwrap();
+    }
+    decoder
+}
+
+fn completed_reasoning_decoder(encrypted_content: &str) -> ResponsesStreamDecoder {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    for event in [
+        json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": progress_response("in_progress")
+        }),
+        json!({
+            "type": "response.output_item.added",
+            "sequence_number": 1,
+            "output_index": 0,
+            "item": {
+                "id": "reasoning_reconcile",
+                "type": "reasoning",
+                "status": "in_progress",
+                "summary": [],
+                "content": []
+            }
+        }),
+        json!({
+            "type": "response.output_item.done",
+            "sequence_number": 2,
+            "output_index": 0,
+            "item": {
+                "id": "reasoning_reconcile",
+                "type": "reasoning",
+                "status": "completed",
+                "summary": [{
+                    "type": "summary_text",
+                    "text": "checked inventory",
+                    "provider_marker": "stream-metadata-sentinel"
+                }],
+                "content": [],
+                "encrypted_content": encrypted_content
+            }
+        }),
+    ] {
+        decoder.decode(&event.to_string()).unwrap();
+    }
+    decoder
 }
 
 fn completed_message_decoder() -> ResponsesStreamDecoder {

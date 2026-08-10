@@ -8,15 +8,13 @@ use http::header::{HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 use siumai_core::{
     ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageRequest,
-    LanguageResponse, LanguageStreamDecoder, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
-    ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ResponseDiagnostics,
-    SupportScope, TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
-    VerifiedSupportClaim,
+    LanguageResponse, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
+    ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId,
+    ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope, TypedProviderOptions,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::extension::v1::{
-    ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
-    ResponsesCodecPolicy,
+    ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
 };
 use siumai_openai_compatible::{OpenAiCompatibleConfigError, OpenAiCompatibleProfile};
 use siumai_protocol_openai::chat_completions::{
@@ -24,8 +22,8 @@ use siumai_protocol_openai::chat_completions::{
     PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
 use siumai_protocol_openai::responses::{
-    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesStreamDecoder,
-    ResponsesTerminalPolicy, decode_response as decode_responses_response,
+    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
+    decode_response as decode_responses_response,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
@@ -68,7 +66,8 @@ pub(crate) fn profile(
 
     Ok(profile
         .with_chat_codec_policy(Arc::new(XaiChatCodecPolicy))
-        .with_responses_codec_policy(Arc::new(XaiResponsesCodecPolicy)))
+        .with_responses_codec_policy(Arc::new(XaiResponsesCodecPolicy))
+        .with_responses_wire_dialect(ResponsesWireDialect::compatible()))
 }
 
 fn verified_profile(
@@ -366,44 +365,6 @@ impl ResponsesCodecPolicy for XaiResponsesCodecPolicy {
         let decoded = decode_responses_response(body, scope, model)?;
         let (_, response) = decoded.into_parts();
         Ok(response)
-    }
-
-    fn stream_decoder(
-        &self,
-        scope: siumai_core::ProviderScope,
-        model: ModelId,
-    ) -> CompatibleStreamDecoder {
-        Box::new(XaiResponsesStreamDecoder {
-            inner: ResponsesStreamDecoder::new(scope, model)
-                .with_terminal_policy(ResponsesTerminalPolicy::Compatible),
-        })
-    }
-}
-
-struct XaiResponsesStreamDecoder {
-    inner: ResponsesStreamDecoder,
-}
-
-impl LanguageStreamDecoder for XaiResponsesStreamDecoder {
-    type ProtocolFrame = str;
-
-    fn set_response_diagnostics(&mut self, diagnostics: ResponseDiagnostics) {
-        self.inner.set_response_diagnostics(diagnostics);
-    }
-
-    fn decode(
-        &mut self,
-        frame: &Self::ProtocolFrame,
-    ) -> Result<Vec<siumai_core::LanguageStreamEvent>, Error> {
-        self.inner.decode(frame)
-    }
-
-    fn finish(&mut self) -> Result<Vec<siumai_core::LanguageStreamEvent>, Error> {
-        self.inner.finish()
-    }
-
-    fn terminal_seen(&self) -> bool {
-        self.inner.terminal_seen()
     }
 }
 

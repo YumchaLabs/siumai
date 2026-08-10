@@ -27,7 +27,7 @@ use siumai_protocol_openai::chat_completions::{
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesStreamDecoder,
-    ResponsesTerminalPolicy, decode_response as decode_responses_response,
+    ResponsesWireDialect, decode_response as decode_responses_response,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
@@ -67,7 +67,8 @@ pub(crate) fn profile(
     };
     Ok(profile
         .with_chat_codec_policy(Arc::new(GroqChatCodecPolicy))
-        .with_responses_codec_policy(Arc::new(GroqResponsesCodecPolicy)))
+        .with_responses_codec_policy(Arc::new(GroqResponsesCodecPolicy))
+        .with_responses_wire_dialect(ResponsesWireDialect::compatible()))
 }
 
 fn verified_profile(
@@ -549,10 +550,10 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
         &self,
         scope: siumai_core::ProviderScope,
         model: ModelId,
+        wire_dialect: ResponsesWireDialect,
     ) -> CompatibleStreamDecoder {
         Box::new(GroqResponsesStreamDecoder {
-            inner: ResponsesStreamDecoder::new(scope, model)
-                .with_terminal_policy(ResponsesTerminalPolicy::Compatible),
+            inner: ResponsesStreamDecoder::new(scope, model).with_wire_dialect(wire_dialect),
             metadata: Map::new(),
         })
     }
@@ -806,32 +807,32 @@ fn extract_metadata(value: &Value) -> Map<String, Value> {
             Value::String(timestamp.to_rfc3339()),
         );
     }
-    if let Some(x_groq) = value.get("x_groq").filter(|value| value.is_object()) {
-        metadata.insert("xGroq".to_string(), x_groq.clone());
+    if let Some(x_groq) = bounded_x_groq_metadata(value.get("x_groq")) {
+        metadata.insert("xGroq".to_string(), x_groq);
     }
     let choice = value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|values| values.first());
-    if let Some(logprobs) = choice
+    if choice
         .and_then(|choice| choice.get("logprobs"))
-        .filter(|v| !v.is_null())
+        .is_some_and(|value| !value.is_null())
     {
-        metadata.insert("logprobs".to_string(), logprobs.clone());
+        metadata.insert("hasLogprobs".to_string(), Value::Bool(true));
     }
     let message = choice.and_then(|choice| choice.get("message"));
-    if let Some(executed_tools) = message
+    if message
         .and_then(|message| message.get("executed_tools"))
-        .filter(|value| !value.is_null())
+        .is_some_and(|value| !value.is_null())
     {
-        metadata.insert("executedTools".to_string(), executed_tools.clone());
+        metadata.insert("hasExecutedTools".to_string(), Value::Bool(true));
     }
-    if let Some(citations) = message
+    if message
         .and_then(|message| message.get("citations"))
         .or_else(|| value.get("citations"))
-        .filter(|value| !value.is_null())
+        .is_some_and(|value| !value.is_null())
     {
-        metadata.insert("citations".to_string(), citations.clone());
+        metadata.insert("hasCitations".to_string(), Value::Bool(true));
     }
     metadata
 }
@@ -854,21 +855,64 @@ fn extract_responses_metadata(value: &Value) -> Map<String, Value> {
             Value::String(timestamp.to_rfc3339()),
         );
     }
-    for (source, target) in [
-        ("metadata", "metadata"),
-        ("reasoning", "reasoning"),
-        ("incomplete_details", "incompleteDetails"),
-        ("error", "error"),
-        ("parallel_tool_calls", "parallelToolCalls"),
-        ("max_tool_calls", "maxToolCalls"),
-        ("background", "background"),
-        ("x_groq", "xGroq"),
-    ] {
-        if let Some(value) = response.get(source).filter(|value| !value.is_null()) {
-            metadata.insert(target.to_string(), value.clone());
+    if let Some(value) = response.get("metadata") {
+        metadata.insert("hasMetadata".to_string(), Value::Bool(!value.is_null()));
+        if let Some(object) = value.as_object() {
+            metadata.insert(
+                "metadataFieldCount".to_string(),
+                Value::from(object.len().min(64) as u64),
+            );
         }
     }
+    if response
+        .get("reasoning")
+        .is_some_and(|value| !value.is_null())
+    {
+        metadata.insert("hasReasoning".to_string(), Value::Bool(true));
+    }
+    if response
+        .get("incomplete_details")
+        .is_some_and(|value| !value.is_null())
+    {
+        metadata.insert("hasIncompleteDetails".to_string(), Value::Bool(true));
+    }
+    if response.get("error").is_some_and(|value| !value.is_null()) {
+        metadata.insert("hasError".to_string(), Value::Bool(true));
+    }
+    for (source, target) in [
+        ("parallel_tool_calls", "parallelToolCalls"),
+        ("background", "background"),
+    ] {
+        if let Some(value) = response.get(source).and_then(Value::as_bool) {
+            metadata.insert(target.to_string(), Value::Bool(value));
+        }
+    }
+    if let Some(value) = response.get("max_tool_calls").and_then(Value::as_u64) {
+        metadata.insert("maxToolCalls".to_string(), Value::from(value.min(4096)));
+    }
+    if let Some(x_groq) = bounded_x_groq_metadata(response.get("x_groq")) {
+        metadata.insert("xGroq".to_string(), x_groq);
+    }
     metadata
+}
+
+fn bounded_x_groq_metadata(value: Option<&Value>) -> Option<Value> {
+    let usage = value
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("usage"))
+        .and_then(Value::as_object)?;
+    let mut bounded = Map::new();
+    for (name, value) in usage.iter().take(32) {
+        if name.len() <= 64 && (value.is_u64() || value.is_i64() || value.is_f64()) {
+            bounded.insert(name.clone(), value.clone());
+        }
+    }
+    (!bounded.is_empty()).then(|| {
+        Value::Object(Map::from_iter([(
+            "usage".to_string(),
+            Value::Object(bounded),
+        )]))
+    })
 }
 
 fn copy_string(
@@ -1233,10 +1277,12 @@ mod tests {
                 .get(OPENAI_RESPONSES_PROTOCOL)
                 .is_none()
         );
+        assert_eq!(response.provider_metadata()["groq"]["hasMetadata"], true);
         assert_eq!(
-            response.provider_metadata()["groq"]["responses"]["extra"]["metadata"]["trace"],
-            "test"
+            response.provider_metadata()["groq"]["metadataFieldCount"],
+            1
         );
+        assert!(!format!("{response:?}").contains("test"));
         let mcp = response.groq_mcp_outputs();
         assert_eq!(mcp.len(), 1);
         assert_eq!(mcp[0].kind(), crate::GroqMcpOutputKind::ApprovalRequest);

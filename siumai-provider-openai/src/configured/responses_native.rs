@@ -10,7 +10,9 @@ use siumai_core::{
     Cancellation, Error, ErrorKind, LanguageResponse, LanguageStream, LanguageStreamEvent,
     StreamTerminal,
 };
-use siumai_protocol_openai::responses::{ResponseWire, ResponsesStreamEvent};
+use siumai_protocol_openai::responses::{
+    ResponseWire, ResponsesReplayStatus, ResponsesStreamEvent,
+};
 
 /// A native OpenAI Responses result paired with its portable projection.
 #[derive(Clone)]
@@ -59,6 +61,7 @@ pub struct OpenAiResponsesStreamFrame {
     native: ResponsesStreamEvent,
     portable_events: Vec<LanguageStreamEvent>,
     canonical_terminal_response: Option<ResponseWire>,
+    replay_status: ResponsesReplayStatus,
 }
 
 impl fmt::Debug for OpenAiResponsesStreamFrame {
@@ -72,6 +75,7 @@ impl fmt::Debug for OpenAiResponsesStreamFrame {
                 "has_canonical_terminal_response",
                 &self.canonical_terminal_response.is_some(),
             )
+            .field("replay_status", &self.replay_status)
             .finish()
     }
 }
@@ -81,11 +85,13 @@ impl OpenAiResponsesStreamFrame {
         native: ResponsesStreamEvent,
         portable_events: Vec<LanguageStreamEvent>,
         canonical_terminal_response: Option<ResponseWire>,
+        replay_status: ResponsesReplayStatus,
     ) -> Self {
         Self {
             native,
             portable_events,
             canonical_terminal_response,
+            replay_status,
         }
     }
 
@@ -104,6 +110,11 @@ impl OpenAiResponsesStreamFrame {
     /// exact provider event and is never rewritten.
     pub fn canonical_terminal_response(&self) -> Option<&ResponseWire> {
         self.canonical_terminal_response.as_ref()
+    }
+
+    /// Return whether the native turn remains safe to replay after stream reconciliation.
+    pub const fn replay_status(&self) -> ResponsesReplayStatus {
+        self.replay_status
     }
 
     pub fn terminal(&self) -> Option<&StreamTerminal> {
@@ -126,11 +137,13 @@ impl OpenAiResponsesStreamFrame {
         ResponsesStreamEvent,
         Vec<LanguageStreamEvent>,
         Option<ResponseWire>,
+        ResponsesReplayStatus,
     ) {
         (
             self.native,
             self.portable_events,
             self.canonical_terminal_response,
+            self.replay_status,
         )
     }
 }

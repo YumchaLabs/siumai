@@ -12,7 +12,7 @@ pub use configured::{
     BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
     OpenAiCompatibleApiMode, OpenAiCompatibleConfigError, OpenAiCompatibleCredential,
     OpenAiCompatibleLanguageModel, OpenAiCompatibleProfile, OpenAiCompatibleProvider,
-    OpenAiCompatibleProviderBuilder,
+    OpenAiCompatibleProviderBuilder, ResponsesWireDialect,
 };
 
 /// Versioned, provider-neutral composition hooks for branded provider crates.

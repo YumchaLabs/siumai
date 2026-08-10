@@ -18,8 +18,8 @@ use siumai_core::{
     StreamTerminal, Warning,
 };
 use siumai_protocol_openai::responses::{
-    DecodedResponsesStreamFrame, ResponseWire, ResponsesStreamDecoder, ResponsesStreamEvent,
-    ResponsesTerminalPolicy,
+    DecodedResponsesStreamFrame, ResponseWire, ResponsesReplayStatus, ResponsesStreamDecoder,
+    ResponsesStreamEvent,
 };
 use siumai_transport::framing::WebSocketFrame;
 use siumai_transport::{
@@ -31,8 +31,7 @@ use uuid::Uuid;
 
 use super::mode::OpenAiApiMode;
 use super::model::{
-    OpenAiResponsesModel, attach_policy_warnings, contextualize_terminal_error,
-    model_error_context, responses_terminal_policy,
+    OpenAiResponsesModel, attach_policy_warnings, contextualize_terminal_error, model_error_context,
 };
 
 /// Current provider-owned endpoint for persistent Responses sessions.
@@ -339,7 +338,6 @@ impl OpenAiResponsesWebSocketConfig {
             terminal: terminal.clone(),
             scope,
             model: self.model.clone(),
-            terminal_policy: responses_terminal_policy(&self.model.runtime),
             turn_timeout: self.turn_timeout,
             session_cancellation,
             session_deadline,
@@ -403,6 +401,7 @@ pub struct OpenAiResponsesWarmUpFrame {
     native: ResponsesStreamEvent,
     outcome: Option<OpenAiResponsesWarmUpOutcome>,
     warnings: Arc<[Warning]>,
+    replay_status: ResponsesReplayStatus,
 }
 
 impl OpenAiResponsesWarmUpFrame {
@@ -418,6 +417,11 @@ impl OpenAiResponsesWarmUpFrame {
         self.warnings.as_ref()
     }
 
+    /// Return whether the native warm-up result remains safe to replay.
+    pub const fn replay_status(&self) -> ResponsesReplayStatus {
+        self.replay_status
+    }
+
     pub fn is_terminal(&self) -> bool {
         self.outcome.is_some()
     }
@@ -430,6 +434,7 @@ impl fmt::Debug for OpenAiResponsesWarmUpFrame {
             .field("native", &self.native)
             .field("terminal", &self.is_terminal())
             .field("warning_count", &self.warnings.len())
+            .field("replay_status", &self.replay_status)
             .finish()
     }
 }
@@ -706,7 +711,6 @@ struct SessionActor {
     terminal: Arc<Mutex<Option<SessionTerminal>>>,
     scope: Arc<ProviderScope>,
     model: OpenAiResponsesModel,
-    terminal_policy: ResponsesTerminalPolicy,
     turn_timeout: Duration,
     session_cancellation: Cancellation,
     session_deadline: Option<Instant>,
@@ -922,7 +926,7 @@ impl SessionActor {
                 self.scope.as_ref().clone(),
                 self.model.model_id().clone(),
             )
-            .with_terminal_policy(self.terminal_policy),
+            .with_wire_dialect(self.model.runtime.responses_wire_dialect),
             response_id: None,
             warnings: command.warnings.into(),
             context,
@@ -1216,7 +1220,7 @@ fn generated_event(
     warnings: &[Warning],
     context: &ErrorContext,
 ) -> Result<OpenAiResponsesWebSocketEvent, Error> {
-    let (native, mut portable_events) = decoded.into_parts();
+    let (native, mut portable_events, replay_status) = decoded.into_parts();
     for event in &mut portable_events {
         contextualize_terminal_error(event, context);
         attach_policy_warnings(event, warnings);
@@ -1226,6 +1230,7 @@ fn generated_event(
             native,
             portable_events,
             canonical_terminal_response,
+            replay_status,
         ),
     ))
 }
@@ -1236,7 +1241,7 @@ fn warm_up_event(
     warnings: Arc<[Warning]>,
     context: &ErrorContext,
 ) -> Result<OpenAiResponsesWebSocketEvent, Error> {
-    let (native, portable_events) = decoded.into_parts();
+    let (native, portable_events, replay_status) = decoded.into_parts();
     let mut outcome = None;
     for event in portable_events {
         if let LanguageStreamEvent::Terminal(mut terminal) = event {
@@ -1281,6 +1286,7 @@ fn warm_up_event(
             native,
             outcome,
             warnings,
+            replay_status,
         },
     ))
 }
@@ -1762,6 +1768,7 @@ mod tests {
             panic!("generated turn must expose a response frame");
         };
         assert_eq!(frame.canonical_terminal_response().unwrap().id, "resp_1");
+        assert!(frame.replay_status().is_available());
 
         let options = OpenAiResponsesOptions {
             previous_response_id: Some("resp_1".to_string()),
@@ -1868,6 +1875,7 @@ mod tests {
             Some(OpenAiResponsesWarmUpOutcome::Completed { response })
                 if response.id == "resp_warm"
         ));
+        assert!(frame.replay_status().is_available());
         assert!(session.terminal().is_none());
     }
 

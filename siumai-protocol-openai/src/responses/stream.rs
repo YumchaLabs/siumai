@@ -1,6 +1,7 @@
 //! Transport-neutral decoder for OpenAI Responses server events.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound::{Excluded, Unbounded};
 
 use serde_json::{Map, Value};
 use siumai_core::{
@@ -11,9 +12,8 @@ use siumai_core::{
 
 use crate::openai_error::classify_stream_error;
 
-use super::OPENAI_RESPONSES_OPAQUE_KIND;
 use super::response::{
-    decode_response_wire, decode_usage, failed_response_error, opaque_item, project_citation,
+    decode_response_wire_with_replay, decode_usage, failed_response_error, project_citation,
     protocol_error,
 };
 use super::wire::{
@@ -25,7 +25,7 @@ const DEFAULT_RESPONSES_TURN_EVENT_BYTES_LIMIT: usize = 64 * 1024 * 1024;
 const DEFAULT_RESPONSES_TURN_OUTPUT_ITEM_LIMIT: usize = 16_384;
 
 /// Typed classification for one native Responses streaming event.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResponsesStreamEventKind {
     ResponseCreated,
@@ -54,15 +54,172 @@ pub enum ResponsesStreamEventKind {
     Unknown(String),
 }
 
-/// Controls which abbreviated terminal response shapes may be reconstructed.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Describes the documented wire contractions a configured Responses codec may normalize.
+///
+/// This descriptor is selected by the concrete protocol/dialect owner. It is deliberately
+/// independent of support claims, model catalogs, endpoint labels, and lifecycle metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ResponsesTerminalPolicy {
-    /// Enforce the verified OpenAI terminal contract.
-    #[default]
-    Strict,
-    /// Permit bounded contractions used by explicitly compatible endpoints.
-    Compatible,
+pub struct ResponsesWireDialect {
+    allow_message_position_identity: bool,
+    allow_omitted_message_annotations: bool,
+}
+
+impl ResponsesWireDialect {
+    /// The official OpenAI Responses wire shape.
+    pub const fn openai() -> Self {
+        Self {
+            allow_message_position_identity: false,
+            allow_omitted_message_annotations: false,
+        }
+    }
+
+    /// A maintained OpenAI-compatible dialect with the documented abbreviated message shape.
+    pub const fn compatible() -> Self {
+        Self {
+            allow_message_position_identity: true,
+            allow_omitted_message_annotations: true,
+        }
+    }
+
+    /// Allow a missing optional message identity to be recovered from one unique output position.
+    pub const fn with_message_position_identity(mut self, enabled: bool) -> Self {
+        self.allow_message_position_identity = enabled;
+        self
+    }
+
+    /// Allow omitted output-text annotations to be recovered from the completed stream item.
+    pub const fn with_omitted_message_annotations(mut self, enabled: bool) -> Self {
+        self.allow_omitted_message_annotations = enabled;
+        self
+    }
+
+    pub const fn allows_message_position_identity(self) -> bool {
+        self.allow_message_position_identity
+    }
+
+    pub const fn allows_omitted_message_annotations(self) -> bool {
+        self.allow_omitted_message_annotations
+    }
+}
+
+impl Default for ResponsesWireDialect {
+    fn default() -> Self {
+        Self::openai()
+    }
+}
+
+/// Bounded public summary of native replay conflicts observed during reconciliation.
+///
+/// The summary intentionally contains counts and field classes only. Raw provider values,
+/// encrypted reasoning material, fingerprints, and event payloads remain native or sensitive.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResponsesReplayStatus {
+    settled: bool,
+    terminal_resource_available: bool,
+    item_identity_conflicts: usize,
+    reasoning_state_conflicts: usize,
+    provider_item_conflicts: usize,
+}
+
+impl ResponsesReplayStatus {
+    /// Return whether the turn has not reached a terminal provider outcome yet.
+    pub const fn is_pending(self) -> bool {
+        !self.settled
+    }
+
+    /// Return whether a settled terminal resource remains safe for native replay.
+    pub const fn is_available(self) -> bool {
+        self.settled
+            && self.terminal_resource_available
+            && self.item_identity_conflicts == 0
+            && self.reasoning_state_conflicts == 0
+            && self.provider_item_conflicts == 0
+    }
+
+    pub const fn total_conflicts(self) -> usize {
+        self.item_identity_conflicts + self.reasoning_state_conflicts + self.provider_item_conflicts
+    }
+
+    pub const fn item_identity_conflicts(self) -> usize {
+        self.item_identity_conflicts
+    }
+
+    pub const fn reasoning_state_conflicts(self) -> usize {
+        self.reasoning_state_conflicts
+    }
+
+    pub const fn provider_item_conflicts(self) -> usize {
+        self.provider_item_conflicts
+    }
+
+    fn record_item_identity_conflict(&mut self) {
+        self.item_identity_conflicts = self.item_identity_conflicts.saturating_add(1);
+    }
+
+    fn record_reasoning_state_conflict(&mut self) {
+        self.reasoning_state_conflicts = self.reasoning_state_conflicts.saturating_add(1);
+    }
+
+    fn record_provider_item_conflict(&mut self) {
+        self.provider_item_conflicts = self.provider_item_conflicts.saturating_add(1);
+    }
+
+    fn settle_with_terminal_resource(&mut self) {
+        self.settled = true;
+        self.terminal_resource_available = true;
+    }
+
+    fn settle_without_terminal_resource(&mut self) {
+        self.settled = true;
+        self.terminal_resource_available = false;
+    }
+}
+
+impl std::fmt::Debug for ResponsesReplayStatus {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResponsesReplayStatus")
+            .field("pending", &self.is_pending())
+            .field("available", &self.is_available())
+            .field("item_identity_conflicts", &self.item_identity_conflicts)
+            .field("reasoning_state_conflicts", &self.reasoning_state_conflicts)
+            .field("provider_item_conflicts", &self.provider_item_conflicts)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+struct TerminalAlignment {
+    terminal_to_streamed: Vec<Option<u64>>,
+    streamed_to_terminal: BTreeMap<u64, usize>,
+}
+
+impl TerminalAlignment {
+    fn terminal_index(&self, output_index: u64) -> Option<usize> {
+        self.streamed_to_terminal.get(&output_index).copied()
+    }
+
+    fn streamed_index(&self, terminal_index: usize) -> Option<u64> {
+        self.terminal_to_streamed
+            .get(terminal_index)
+            .copied()
+            .flatten()
+    }
+
+    fn previous_terminal_index(&self, output_index: u64) -> Option<usize> {
+        self.streamed_to_terminal
+            .range(..output_index)
+            .next_back()
+            .map(|(_, terminal_index)| *terminal_index)
+    }
+
+    fn next_terminal_index(&self, output_index: u64) -> Option<usize> {
+        self.streamed_to_terminal
+            .range((Excluded(output_index), Unbounded))
+            .next()
+            .map(|(_, terminal_index)| *terminal_index)
+    }
 }
 
 impl ResponsesStreamEventKind {
@@ -107,6 +264,49 @@ impl ResponsesStreamEventKind {
     }
 }
 
+impl std::fmt::Debug for ResponsesStreamEventKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unknown(kind) => formatter
+                .debug_struct("Unknown")
+                .field("kind_bytes", &kind.len())
+                .finish(),
+            known => formatter.write_str(known.debug_name()),
+        }
+    }
+}
+
+impl ResponsesStreamEventKind {
+    fn debug_name(&self) -> &'static str {
+        match self {
+            Self::ResponseCreated => "ResponseCreated",
+            Self::ResponseQueued => "ResponseQueued",
+            Self::ResponseInProgress => "ResponseInProgress",
+            Self::OutputItemAdded => "OutputItemAdded",
+            Self::OutputItemDone => "OutputItemDone",
+            Self::OutputTextDelta => "OutputTextDelta",
+            Self::OutputTextDone => "OutputTextDone",
+            Self::RefusalDelta => "RefusalDelta",
+            Self::RefusalDone => "RefusalDone",
+            Self::OutputTextAnnotationAdded => "OutputTextAnnotationAdded",
+            Self::ReasoningSummaryTextDelta => "ReasoningSummaryTextDelta",
+            Self::ReasoningSummaryTextDone => "ReasoningSummaryTextDone",
+            Self::ReasoningTextDelta => "ReasoningTextDelta",
+            Self::ReasoningTextDone => "ReasoningTextDone",
+            Self::FunctionCallArgumentsDelta => "FunctionCallArgumentsDelta",
+            Self::FunctionCallArgumentsDone => "FunctionCallArgumentsDone",
+            Self::CustomToolCallInputDelta => "CustomToolCallInputDelta",
+            Self::CustomToolCallInputDone => "CustomToolCallInputDone",
+            Self::ResponseCompleted => "ResponseCompleted",
+            Self::ResponseIncomplete => "ResponseIncomplete",
+            Self::ResponseCancelled => "ResponseCancelled",
+            Self::ResponseFailed => "ResponseFailed",
+            Self::Error => "Error",
+            Self::Unknown(_) => "Unknown",
+        }
+    }
+}
+
 /// One lossless native Responses event with a typed event kind.
 #[derive(Clone, PartialEq)]
 pub struct ResponsesStreamEvent {
@@ -130,7 +330,7 @@ impl std::fmt::Debug for ResponsesStreamEvent {
             .debug_struct("ResponsesStreamEvent")
             .field("kind", &self.kind)
             .field("sequence_number", &self.wire.sequence_number)
-            .field("field_names", &self.wire.fields.keys().collect::<Vec<_>>())
+            .field("field_count", &self.wire.fields.len())
             .finish()
     }
 }
@@ -292,6 +492,7 @@ impl ResponsesStreamEvent {
 pub struct DecodedResponsesStreamFrame {
     native: ResponsesStreamEvent,
     portable_events: Vec<LanguageStreamEvent>,
+    replay_status: ResponsesReplayStatus,
 }
 
 impl std::fmt::Debug for DecodedResponsesStreamFrame {
@@ -300,6 +501,7 @@ impl std::fmt::Debug for DecodedResponsesStreamFrame {
             .debug_struct("DecodedResponsesStreamFrame")
             .field("native", &self.native)
             .field("portable_event_count", &self.portable_events.len())
+            .field("replay_status", &self.replay_status)
             .finish()
     }
 }
@@ -311,6 +513,10 @@ impl DecodedResponsesStreamFrame {
 
     pub fn portable_events(&self) -> &[LanguageStreamEvent] {
         &self.portable_events
+    }
+
+    pub fn replay_status(&self) -> ResponsesReplayStatus {
+        self.replay_status
     }
 
     pub fn terminal(&self) -> Option<&StreamTerminal> {
@@ -327,8 +533,14 @@ impl DecodedResponsesStreamFrame {
         self.portable_events
     }
 
-    pub fn into_parts(self) -> (ResponsesStreamEvent, Vec<LanguageStreamEvent>) {
-        (self.native, self.portable_events)
+    pub fn into_parts(
+        self,
+    ) -> (
+        ResponsesStreamEvent,
+        Vec<LanguageStreamEvent>,
+        ResponsesReplayStatus,
+    ) {
+        (self.native, self.portable_events, self.replay_status)
     }
 }
 
@@ -347,18 +559,22 @@ pub struct ResponsesStreamDecoder {
     items: BTreeMap<u64, OutputItem>,
     item_indices: BTreeMap<String, u64>,
     completed_items: BTreeSet<u64>,
-    text_started: BTreeSet<String>,
-    text_ended: BTreeSet<String>,
-    reasoning_started: BTreeSet<String>,
-    reasoning_ended: BTreeSet<String>,
+    text_started: BTreeSet<ContentLaneId>,
+    text_ended: BTreeSet<ContentLaneId>,
+    text_values: BTreeMap<ContentLaneId, String>,
+    reasoning_started: BTreeSet<ContentLaneId>,
+    reasoning_ended: BTreeSet<ContentLaneId>,
+    reasoning_values: BTreeMap<ContentLaneId, String>,
     tool_inputs: BTreeMap<String, ToolInputAssembly>,
-    refusals: BTreeMap<String, String>,
-    emitted_refusals: BTreeSet<String>,
-    emitted_citations: BTreeSet<String>,
+    refusals: BTreeMap<ContentLaneId, String>,
+    refusal_ended: BTreeSet<ContentLaneId>,
+    emitted_refusals: BTreeSet<ContentLaneId>,
+    citations: BTreeMap<CitationId, AnnotationWire>,
     turn_budget: ResponsesTurnBudget,
-    terminal_policy: ResponsesTerminalPolicy,
+    wire_dialect: ResponsesWireDialect,
     terminal_response: Option<ResponseWire>,
     response_diagnostics: ResponseDiagnostics,
+    replay_status: ResponsesReplayStatus,
 }
 
 impl std::fmt::Debug for ResponsesStreamDecoder {
@@ -372,7 +588,8 @@ impl std::fmt::Debug for ResponsesStreamDecoder {
             .field("finished", &self.lifecycle.finish_seen())
             .field("item_count", &self.items.len())
             .field("turn_event_bytes", &self.turn_budget.event_bytes)
-            .field("terminal_policy", &self.terminal_policy)
+            .field("wire_dialect", &self.wire_dialect)
+            .field("replay_status", &self.replay_status)
             .finish()
     }
 }
@@ -428,6 +645,98 @@ struct ToolInputAssembly {
     name: String,
     input: String,
     custom: bool,
+    done: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamItemKind {
+    Message,
+    Reasoning,
+    FunctionCall,
+    CustomToolCall,
+}
+
+impl StreamItemKind {
+    const fn matches(self, item: &OutputItem) -> bool {
+        matches!(
+            (self, item),
+            (Self::Message, OutputItem::Message(_))
+                | (Self::Reasoning, OutputItem::Reasoning(_))
+                | (Self::FunctionCall, OutputItem::FunctionCall(_))
+                | (Self::CustomToolCall, OutputItem::CustomToolCall(_))
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ContentLaneKind {
+    Text,
+    Refusal,
+    ReasoningSummary,
+    ReasoningContent,
+}
+
+impl ContentLaneKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Refusal => "refusal",
+            Self::ReasoningSummary => "summary",
+            Self::ReasoningContent => "content",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ContentLaneId {
+    item_id: String,
+    kind: ContentLaneKind,
+    index: u64,
+}
+
+impl ContentLaneId {
+    fn new(item_id: &str, kind: ContentLaneKind, index: u64) -> Self {
+        Self {
+            item_id: item_id.to_string(),
+            kind,
+            index,
+        }
+    }
+
+    fn event_id(&self) -> String {
+        format!("{}:{}:{}", self.item_id, self.kind.label(), self.index)
+    }
+
+    fn bounds(item_id: &str) -> (Self, Self) {
+        (
+            Self::new(item_id, ContentLaneKind::Text, 0),
+            Self::new(item_id, ContentLaneKind::ReasoningContent, u64::MAX),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct CitationId {
+    item_id: String,
+    content_index: u64,
+    annotation_index: u64,
+}
+
+impl CitationId {
+    fn bounds(item_id: &str) -> (Self, Self) {
+        (
+            Self {
+                item_id: item_id.to_string(),
+                content_index: 0,
+                annotation_index: 0,
+            },
+            Self {
+                item_id: item_id.to_string(),
+                content_index: u64::MAX,
+                annotation_index: u64::MAX,
+            },
+        )
+    }
 }
 
 impl ResponsesStreamDecoder {
@@ -445,22 +754,26 @@ impl ResponsesStreamDecoder {
             completed_items: BTreeSet::new(),
             text_started: BTreeSet::new(),
             text_ended: BTreeSet::new(),
+            text_values: BTreeMap::new(),
             reasoning_started: BTreeSet::new(),
             reasoning_ended: BTreeSet::new(),
+            reasoning_values: BTreeMap::new(),
             tool_inputs: BTreeMap::new(),
             refusals: BTreeMap::new(),
+            refusal_ended: BTreeSet::new(),
             emitted_refusals: BTreeSet::new(),
-            emitted_citations: BTreeSet::new(),
+            citations: BTreeMap::new(),
             turn_budget: ResponsesTurnBudget::default(),
-            terminal_policy: ResponsesTerminalPolicy::Strict,
+            wire_dialect: ResponsesWireDialect::default(),
             terminal_response: None,
             response_diagnostics: ResponseDiagnostics::default(),
+            replay_status: ResponsesReplayStatus::default(),
         }
     }
 
-    /// Select the endpoint-specific terminal reconciliation policy.
-    pub fn with_terminal_policy(mut self, policy: ResponsesTerminalPolicy) -> Self {
-        self.terminal_policy = policy;
+    /// Select the provider-owned wire normalization descriptor.
+    pub fn with_wire_dialect(mut self, dialect: ResponsesWireDialect) -> Self {
+        self.wire_dialect = dialect;
         self
     }
 
@@ -490,7 +803,9 @@ impl ResponsesStreamDecoder {
             .with_source(source)
         })?;
         let event = ResponsesStreamEvent::decode(wire)?;
-        self.observe_sequence(event.sequence_number())?;
+        if !event.kind().is_terminal() {
+            self.observe_sequence(event.sequence_number())?;
+        }
         let portable_events = self.decode_event(&event)?;
         self.lifecycle
             .record(&portable_events)
@@ -498,6 +813,7 @@ impl ResponsesStreamDecoder {
         Ok(DecodedResponsesStreamFrame {
             native: event,
             portable_events,
+            replay_status: self.replay_status,
         })
     }
 
@@ -512,6 +828,11 @@ impl ResponsesStreamDecoder {
     /// Return the reconstructed canonical terminal response resource.
     pub fn terminal_response(&self) -> Option<&ResponseWire> {
         self.terminal_response.as_ref()
+    }
+
+    /// Return the bounded native replay status observed for this turn.
+    pub fn replay_status(&self) -> ResponsesReplayStatus {
+        self.replay_status
     }
 
     fn decode_event(
@@ -719,12 +1040,16 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses output item changed its type",
             ));
         }
+        let added = self.items.get(&output_index).cloned().ok_or_else(|| {
+            protocol_error("OpenAI Responses completed an item that was never added")
+        })?;
+        compare_item_transition(&added, &item, false, &mut self.replay_status)?;
 
         let mut events = Vec::new();
         match &item {
-            OutputItem::Message(message) => self.finish_message(message, &mut events),
+            OutputItem::Message(message) => self.finish_message(message, &mut events)?,
             OutputItem::Reasoning(reasoning) => {
-                self.finish_reasoning_item(item_id, reasoning, &mut events);
+                self.finish_reasoning_item(item_id, reasoning, &mut events)?;
             }
             OutputItem::FunctionCall(call) => {
                 self.emit_function_call(item_id, call, &mut events)?;
@@ -735,13 +1060,6 @@ impl ResponsesStreamDecoder {
             OutputItem::Program(_) | OutputItem::ProgramOutput(_) => {}
             OutputItem::ProviderTool(_) | OutputItem::Unknown(_) => {}
         }
-        events.push(LanguageStreamEvent::ProviderOpaque(opaque_item(
-            &item,
-            &self.scope,
-            self.response_model
-                .as_ref()
-                .unwrap_or(&self.requested_model),
-        )?));
         self.items.insert(output_index, item);
         self.completed_items.insert(output_index);
         Ok(events)
@@ -749,38 +1067,67 @@ impl ResponsesStreamDecoder {
 
     fn text_delta(&mut self, event: &StreamEventWire) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Message)?;
         let content_index = optional_u64(event, "content_index").unwrap_or(0);
-        let id = content_id(item_id, "text", content_index);
-        let delta = required_str(event, "delta")?.to_string();
-        let mut events = Vec::new();
-        if self.text_started.insert(id.clone()) {
-            events.push(LanguageStreamEvent::TextStart { id: id.clone() });
+        let lane = ContentLaneId::new(item_id, ContentLaneKind::Text, content_index);
+        if self.text_ended.contains(&lane) {
+            return Err(protocol_error(
+                "OpenAI text delta arrived after the content lane completed",
+            ));
         }
-        events.push(LanguageStreamEvent::TextDelta { id, delta });
+        let delta = required_str(event, "delta")?.to_string();
+        self.text_values
+            .entry(lane.clone())
+            .or_default()
+            .push_str(&delta);
+        let mut events = Vec::new();
+        let event_id = lane.event_id();
+        if self.text_started.insert(lane) {
+            events.push(LanguageStreamEvent::TextStart {
+                id: event_id.clone(),
+            });
+        }
+        events.push(LanguageStreamEvent::TextDelta {
+            id: event_id,
+            delta,
+        });
         Ok(events)
     }
 
     fn text_done(&mut self, event: &StreamEventWire) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Message)?;
         let content_index = optional_u64(event, "content_index").unwrap_or(0);
-        let id = content_id(item_id, "text", content_index);
+        let lane = ContentLaneId::new(item_id, ContentLaneKind::Text, content_index);
+        if self.text_ended.contains(&lane) {
+            return Err(protocol_error(
+                "OpenAI text completion repeated a completed content lane",
+            ));
+        }
         let mut events = Vec::new();
-        if self.text_started.insert(id.clone()) {
-            let text = event
-                .field("text")
-                .and_then(Value::as_str)
+        let completed = event.field("text").and_then(Value::as_str);
+        if let (Some(streamed), Some(completed)) = (self.text_values.get(&lane), completed)
+            && streamed != completed
+        {
+            return Err(protocol_error(
+                "OpenAI text completion disagreed with its streamed deltas",
+            ));
+        }
+        let event_id = lane.event_id();
+        if self.text_started.insert(lane.clone()) {
+            let text = completed
                 .ok_or_else(|| protocol_error("OpenAI text completion omitted its final text"))?;
-            events.push(LanguageStreamEvent::TextStart { id: id.clone() });
+            self.text_values.insert(lane.clone(), text.to_string());
+            events.push(LanguageStreamEvent::TextStart {
+                id: event_id.clone(),
+            });
             events.push(LanguageStreamEvent::TextDelta {
-                id: id.clone(),
+                id: event_id.clone(),
                 delta: text.to_string(),
             });
         }
-        if self.text_ended.insert(id.clone()) {
-            events.push(LanguageStreamEvent::TextEnd { id });
-        }
+        self.text_ended.insert(lane);
+        events.push(LanguageStreamEvent::TextEnd { id: event_id });
         Ok(events)
     }
 
@@ -789,20 +1136,32 @@ impl ResponsesStreamDecoder {
         event: &StreamEventWire,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Reasoning)?;
         let index = optional_u64(event, "summary_index")
             .or_else(|| optional_u64(event, "content_index"))
             .unwrap_or(0);
-        let lane = if event.kind.contains("summary") {
-            "summary"
+        let kind = if event.kind.contains("summary") {
+            ContentLaneKind::ReasoningSummary
         } else {
-            "content"
+            ContentLaneKind::ReasoningContent
         };
-        let id = content_id(item_id, lane, index);
+        let lane = ContentLaneId::new(item_id, kind, index);
+        if self.reasoning_ended.contains(&lane) {
+            return Err(protocol_error(
+                "OpenAI reasoning delta arrived after the content lane completed",
+            ));
+        }
         let delta = required_str(event, "delta")?.to_string();
+        self.reasoning_values
+            .entry(lane.clone())
+            .or_default()
+            .push_str(&delta);
         let mut events = Vec::new();
-        self.start_reasoning(&id, &mut events);
-        events.push(LanguageStreamEvent::ReasoningDelta { id, delta });
+        self.start_reasoning(&lane, &mut events);
+        events.push(LanguageStreamEvent::ReasoningDelta {
+            id: lane.event_id(),
+            delta,
+        });
         Ok(events)
     }
 
@@ -811,39 +1170,57 @@ impl ResponsesStreamDecoder {
         event: &StreamEventWire,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Reasoning)?;
         let index = optional_u64(event, "summary_index")
             .or_else(|| optional_u64(event, "content_index"))
             .unwrap_or(0);
-        let lane = if event.kind.contains("summary") {
-            "summary"
+        let kind = if event.kind.contains("summary") {
+            ContentLaneKind::ReasoningSummary
         } else {
-            "content"
+            ContentLaneKind::ReasoningContent
         };
-        let id = content_id(item_id, lane, index);
+        let lane = ContentLaneId::new(item_id, kind, index);
+        if self.reasoning_ended.contains(&lane) {
+            return Err(protocol_error(
+                "OpenAI reasoning completion repeated a completed content lane",
+            ));
+        }
         let mut events = Vec::new();
-        if !self.reasoning_started.contains(&id)
-            && let Some(text) = event.field("text").and_then(Value::as_str)
+        let completed = event.field("text").and_then(Value::as_str);
+        if let (Some(streamed), Some(completed)) = (self.reasoning_values.get(&lane), completed)
+            && streamed != completed
         {
-            self.start_reasoning(&id, &mut events);
+            return Err(protocol_error(
+                "OpenAI reasoning completion disagreed with its streamed deltas",
+            ));
+        }
+        if !self.reasoning_started.contains(&lane)
+            && let Some(text) = completed
+        {
+            self.reasoning_values.insert(lane.clone(), text.to_string());
+            self.start_reasoning(&lane, &mut events);
             events.push(LanguageStreamEvent::ReasoningDelta {
-                id: id.clone(),
+                id: lane.event_id(),
                 delta: text.to_string(),
             });
         }
-        self.end_reasoning(&id, &mut events);
+        self.end_reasoning(&lane, &mut events);
         Ok(events)
     }
 
-    fn start_reasoning(&mut self, id: &str, events: &mut Vec<LanguageStreamEvent>) {
-        if self.reasoning_started.insert(id.to_string()) {
-            events.push(LanguageStreamEvent::ReasoningStart { id: id.to_string() });
+    fn start_reasoning(&mut self, lane: &ContentLaneId, events: &mut Vec<LanguageStreamEvent>) {
+        if self.reasoning_started.insert(lane.clone()) {
+            events.push(LanguageStreamEvent::ReasoningStart {
+                id: lane.event_id(),
+            });
         }
     }
 
-    fn end_reasoning(&mut self, id: &str, events: &mut Vec<LanguageStreamEvent>) {
-        if self.reasoning_started.contains(id) && self.reasoning_ended.insert(id.to_string()) {
-            events.push(LanguageStreamEvent::ReasoningEnd { id: id.to_string() });
+    fn end_reasoning(&mut self, lane: &ContentLaneId, events: &mut Vec<LanguageStreamEvent>) {
+        if self.reasoning_started.contains(lane) && self.reasoning_ended.insert(lane.clone()) {
+            events.push(LanguageStreamEvent::ReasoningEnd {
+                id: lane.event_id(),
+            });
         }
     }
 
@@ -852,32 +1229,68 @@ impl ResponsesStreamDecoder {
         item_id: &str,
         reasoning: &super::wire::ReasoningItemWire,
         events: &mut Vec<LanguageStreamEvent>,
-    ) {
+    ) -> Result<(), Error> {
+        self.validate_reasoning_lanes(item_id, reasoning)?;
         for (index, part) in reasoning.summary.iter().enumerate() {
-            self.finish_reasoning_part(item_id, "summary", index as u64, &part.text, events);
+            self.finish_reasoning_part(
+                item_id,
+                ContentLaneKind::ReasoningSummary,
+                index as u64,
+                &part.text,
+                events,
+            )?;
         }
         for (index, part) in reasoning.content.iter().enumerate() {
-            self.finish_reasoning_part(item_id, "content", index as u64, &part.text, events);
+            self.finish_reasoning_part(
+                item_id,
+                ContentLaneKind::ReasoningContent,
+                index as u64,
+                &part.text,
+                events,
+            )?;
         }
+        Ok(())
     }
 
     fn finish_reasoning_part(
         &mut self,
         item_id: &str,
-        lane: &str,
+        kind: ContentLaneKind,
         index: u64,
         text: &str,
         events: &mut Vec<LanguageStreamEvent>,
-    ) {
-        let id = content_id(item_id, lane, index);
-        if !self.reasoning_started.contains(&id) {
-            self.start_reasoning(&id, events);
+    ) -> Result<(), Error> {
+        let lane = ContentLaneId::new(item_id, kind, index);
+        let streamed = self.reasoning_values.get(&lane).map(String::as_str);
+        if self.reasoning_ended.contains(&lane) && streamed != Some(text) {
+            return Err(protocol_error(
+                "OpenAI reasoning output item disagreed with a completed content lane",
+            ));
+        }
+        if let Some(streamed) = streamed
+            && !text.starts_with(streamed)
+        {
+            return Err(protocol_error(
+                "OpenAI reasoning output item disagreed with its streamed deltas",
+            ));
+        }
+        if !self.reasoning_started.contains(&lane) {
+            self.start_reasoning(&lane, events);
             events.push(LanguageStreamEvent::ReasoningDelta {
-                id: id.clone(),
+                id: lane.event_id(),
                 delta: text.to_string(),
             });
+        } else if let Some(streamed) = streamed
+            && streamed.len() < text.len()
+        {
+            events.push(LanguageStreamEvent::ReasoningDelta {
+                id: lane.event_id(),
+                delta: text[streamed.len()..].to_string(),
+            });
         }
-        self.end_reasoning(&id, events);
+        self.reasoning_values.insert(lane.clone(), text.to_string());
+        self.end_reasoning(&lane, events);
+        Ok(())
     }
 
     fn refusal_delta(
@@ -885,11 +1298,16 @@ impl ResponsesStreamDecoder {
         event: &StreamEventWire,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Message)?;
         let content_index = optional_u64(event, "content_index").unwrap_or(0);
-        let id = content_id(item_id, "refusal", content_index);
+        let lane = ContentLaneId::new(item_id, ContentLaneKind::Refusal, content_index);
+        if self.refusal_ended.contains(&lane) {
+            return Err(protocol_error(
+                "OpenAI refusal delta arrived after the content lane completed",
+            ));
+        }
         self.refusals
-            .entry(id)
+            .entry(lane)
             .or_default()
             .push_str(required_str(event, "delta")?);
         Ok(Vec::new())
@@ -897,19 +1315,27 @@ impl ResponsesStreamDecoder {
 
     fn refusal_done(&mut self, event: &StreamEventWire) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Message)?;
         let content_index = optional_u64(event, "content_index").unwrap_or(0);
-        let id = content_id(item_id, "refusal", content_index);
-        let reason = event
-            .field("refusal")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| self.refusals.remove(&id));
-        if self.emitted_refusals.insert(id) {
-            Ok(vec![LanguageStreamEvent::Refusal { reason }])
-        } else {
-            Ok(Vec::new())
+        let lane = ContentLaneId::new(item_id, ContentLaneKind::Refusal, content_index);
+        if !self.refusal_ended.insert(lane.clone()) {
+            return Err(protocol_error(
+                "OpenAI refusal completion repeated a completed content lane",
+            ));
         }
+        let completed = event.field("refusal").and_then(Value::as_str);
+        if let (Some(streamed), Some(completed)) = (self.refusals.get(&lane), completed)
+            && streamed != completed
+        {
+            return Err(protocol_error(
+                "OpenAI refusal completion disagreed with its streamed deltas",
+            ));
+        }
+        let reason = completed
+            .map(str::to_string)
+            .or_else(|| self.refusals.get(&lane).cloned());
+        self.emitted_refusals.insert(lane);
+        Ok(vec![LanguageStreamEvent::Refusal { reason }])
     }
 
     fn annotation_added(
@@ -917,7 +1343,8 @@ impl ResponsesStreamDecoder {
         event: &ResponsesStreamEvent,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event.wire(), "item_id")?;
-        self.ensure_known_item(item_id)?;
+        self.ensure_known_item_kind(item_id, StreamItemKind::Message)?;
+        let content_index = optional_u64(event.wire(), "content_index").unwrap_or(0);
         let annotation_index = required_u64(event.wire(), "annotation_index")?;
         let annotation_position = usize::try_from(annotation_index).map_err(|_| {
             protocol_error("OpenAI Responses annotation index exceeded the platform limit")
@@ -925,10 +1352,17 @@ impl ResponsesStreamDecoder {
         let annotation = event
             .annotation()
             .ok_or_else(|| protocol_error("OpenAI citation event omitted its annotation"))?;
-        let key = format!("{item_id}:{annotation_index}");
-        if !self.emitted_citations.insert(key) {
-            return Ok(Vec::new());
+        let id = CitationId {
+            item_id: item_id.to_string(),
+            content_index,
+            annotation_index,
+        };
+        if self.citations.contains_key(&id) {
+            return Err(protocol_error(
+                "OpenAI citation event repeated an annotation identity",
+            ));
         }
+        self.citations.insert(id, annotation.clone());
         Ok(vec![LanguageStreamEvent::Citation(project_citation(
             item_id,
             annotation_position,
@@ -942,6 +1376,14 @@ impl ResponsesStreamDecoder {
         custom: bool,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
+        self.ensure_known_item_kind(
+            item_id,
+            if custom {
+                StreamItemKind::CustomToolCall
+            } else {
+                StreamItemKind::FunctionCall
+            },
+        )?;
         let delta = required_str(event, "delta")?.to_string();
         let assembly = self
             .tool_inputs
@@ -950,6 +1392,11 @@ impl ResponsesStreamDecoder {
         if assembly.custom != custom {
             return Err(protocol_error(
                 "OpenAI tool-input event changed its tool kind",
+            ));
+        }
+        if assembly.done {
+            return Err(protocol_error(
+                "OpenAI tool-input delta arrived after completion",
             ));
         }
         append_tool_input(&mut assembly.input, &delta)?;
@@ -968,20 +1415,58 @@ impl ResponsesStreamDecoder {
         custom: bool,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
         let item_id = required_str(event, "item_id")?;
+        self.ensure_known_item_kind(
+            item_id,
+            if custom {
+                StreamItemKind::CustomToolCall
+            } else {
+                StreamItemKind::FunctionCall
+            },
+        )?;
         let field = if custom { "input" } else { "arguments" };
         let completed = required_str(event, field)?.to_string();
         ensure_tool_input_limit(&completed)?;
         let assembly = self.tool_inputs.get_mut(item_id).ok_or_else(|| {
             protocol_error("OpenAI tool-input completion preceded its output item")
         })?;
-        if assembly.custom != custom || (!assembly.input.is_empty() && assembly.input != completed)
-        {
+        if assembly.done {
+            return Err(protocol_error(
+                "OpenAI tool-input completion was emitted more than once",
+            ));
+        }
+        if assembly.custom != custom {
+            return Err(protocol_error(
+                "OpenAI tool-input completion changed its tool kind",
+            ));
+        }
+        let mut custom_conflict = false;
+        let suffix = if assembly.input == completed {
+            None
+        } else if let Some(suffix) = completed.strip_prefix(&assembly.input) {
+            (!suffix.is_empty()).then(|| suffix.to_string())
+        } else if !custom && function_arguments_equal(&assembly.input, &completed)? {
+            None
+        } else if custom {
+            custom_conflict = true;
+            None
+        } else {
             return Err(protocol_error(
                 "OpenAI tool-input completion disagreed with its streamed deltas",
             ));
+        };
+        let mut events = Vec::new();
+        if !custom && let Some(delta) = suffix {
+            events.push(LanguageStreamEvent::ToolInputDelta {
+                id: assembly.call_id.clone(),
+                delta,
+            });
         }
         assembly.input = completed;
-        Ok(Vec::new())
+        assembly.done = true;
+        if custom_conflict {
+            self.replay_status.record_provider_item_conflict();
+        }
+        Ok(events)
     }
 
     fn start_tool_input(
@@ -1006,6 +1491,7 @@ impl ResponsesStreamDecoder {
                 name: name.to_string(),
                 input: initial_input.to_string(),
                 custom,
+                done: false,
             },
         );
         if !custom {
@@ -1026,17 +1512,41 @@ impl ResponsesStreamDecoder {
     ) -> Result<(), Error> {
         let assembly = self
             .tool_inputs
-            .get(item_id)
+            .get_mut(item_id)
             .ok_or_else(|| protocol_error("OpenAI function call completed before it was added"))?;
         if assembly.call_id != call.call_id || assembly.name != call.name {
             return Err(protocol_error("OpenAI function call changed its identity"));
         }
         ensure_tool_input_limit(&call.arguments)?;
-        if !assembly.input.is_empty() && assembly.input != call.arguments {
+        let suffix = if assembly.input == call.arguments {
+            None
+        } else if !assembly.done {
+            if let Some(suffix) = call.arguments.strip_prefix(&assembly.input) {
+                (!suffix.is_empty()).then(|| suffix.to_string())
+            } else if function_arguments_equal(&assembly.input, &call.arguments)? {
+                None
+            } else {
+                return Err(protocol_error(
+                    "OpenAI function call arguments disagreed with streamed deltas",
+                ));
+            }
+        } else if function_arguments_equal(&assembly.input, &call.arguments)? {
+            None
+        } else {
             return Err(protocol_error(
                 "OpenAI function call arguments disagreed with streamed deltas",
             ));
+        };
+        if !assembly.custom
+            && let Some(delta) = suffix
+        {
+            events.push(LanguageStreamEvent::ToolInputDelta {
+                id: assembly.call_id.clone(),
+                delta,
+            });
         }
+        assembly.input.clone_from(&call.arguments);
+        assembly.done = true;
         let arguments = serde_json::from_str(&call.arguments).map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
@@ -1058,66 +1568,252 @@ impl ResponsesStreamDecoder {
     }
 
     fn validate_custom_tool_call(
-        &self,
+        &mut self,
         item_id: &str,
         call: &super::wire::CustomToolCallItemWire,
     ) -> Result<(), Error> {
-        let assembly = self.tool_inputs.get(item_id).ok_or_else(|| {
+        ensure_tool_input_limit(&call.input)?;
+        let assembly = self.tool_inputs.get_mut(item_id).ok_or_else(|| {
             protocol_error("OpenAI custom tool call completed before it was added")
         })?;
-        if assembly.call_id != call.call_id
-            || assembly.name != call.name
-            || (!assembly.input.is_empty() && assembly.input != call.input)
-        {
+        if !assembly.custom {
             return Err(protocol_error(
-                "OpenAI custom tool call disagreed with its streamed state",
+                "OpenAI custom tool call changed its established tool kind",
             ));
         }
+        let input_conflict = (assembly.done && assembly.input != call.input)
+            || (!assembly.done && !call.input.starts_with(&assembly.input));
+        assembly.input.clone_from(&call.input);
+        assembly.done = true;
+        if input_conflict {
+            self.replay_status.record_provider_item_conflict();
+        }
         Ok(())
+    }
+
+    fn validate_message_lanes(&self, message: &super::wire::MessageItemWire) -> Result<(), Error> {
+        let mut expected = BTreeSet::new();
+        for (content_index, part) in message.content.iter().enumerate() {
+            let content_index = u64::try_from(content_index).map_err(|_| {
+                protocol_error("OpenAI message content index exceeded the platform limit")
+            })?;
+            match part {
+                OutputContentPart::Text(_) => {
+                    expected.insert(ContentLaneId::new(
+                        &message.id,
+                        ContentLaneKind::Text,
+                        content_index,
+                    ));
+                }
+                OutputContentPart::Refusal(_) => {
+                    expected.insert(ContentLaneId::new(
+                        &message.id,
+                        ContentLaneKind::Refusal,
+                        content_index,
+                    ));
+                }
+                OutputContentPart::Unknown(_) => {}
+            }
+        }
+
+        let (lower, upper) = ContentLaneId::bounds(&message.id);
+        ensure_observed_lanes_are_covered(
+            self.text_started.range(lower.clone()..=upper.clone()),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(
+            self.text_ended.range(lower.clone()..=upper.clone()),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(
+            self.text_values
+                .range(lower.clone()..=upper.clone())
+                .map(|(lane, _)| lane),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(
+            self.refusals
+                .range(lower.clone()..=upper.clone())
+                .map(|(lane, _)| lane),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(self.refusal_ended.range(lower..=upper), &expected)?;
+
+        let (lower, upper) = CitationId::bounds(&message.id);
+        for (identity, streamed) in self.citations.range(lower..=upper) {
+            let content_index = usize::try_from(identity.content_index).map_err(|_| {
+                protocol_error("OpenAI citation content index exceeded the platform limit")
+            })?;
+            let annotation_index = usize::try_from(identity.annotation_index).map_err(|_| {
+                protocol_error("OpenAI citation annotation index exceeded the platform limit")
+            })?;
+            let Some(OutputContentPart::Text(text)) = message.content.get(content_index) else {
+                return Err(protocol_error(
+                    "OpenAI message item omitted a content lane with streamed citations",
+                ));
+            };
+            if text.annotations.get(annotation_index) != Some(streamed) {
+                return Err(protocol_error(
+                    "OpenAI message item omitted or changed a streamed citation",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_reasoning_lanes(
+        &self,
+        item_id: &str,
+        reasoning: &super::wire::ReasoningItemWire,
+    ) -> Result<(), Error> {
+        let mut expected = BTreeSet::new();
+        for (index, _) in reasoning.summary.iter().enumerate() {
+            expected.insert(ContentLaneId::new(
+                item_id,
+                ContentLaneKind::ReasoningSummary,
+                u64::try_from(index).map_err(|_| {
+                    protocol_error("OpenAI reasoning index exceeded the platform limit")
+                })?,
+            ));
+        }
+        for (index, _) in reasoning.content.iter().enumerate() {
+            expected.insert(ContentLaneId::new(
+                item_id,
+                ContentLaneKind::ReasoningContent,
+                u64::try_from(index).map_err(|_| {
+                    protocol_error("OpenAI reasoning index exceeded the platform limit")
+                })?,
+            ));
+        }
+        let (lower, upper) = ContentLaneId::bounds(item_id);
+        ensure_observed_lanes_are_covered(
+            self.reasoning_started.range(lower.clone()..=upper.clone()),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(
+            self.reasoning_ended.range(lower.clone()..=upper.clone()),
+            &expected,
+        )?;
+        ensure_observed_lanes_are_covered(
+            self.reasoning_values
+                .range(lower..=upper)
+                .map(|(lane, _)| lane),
+            &expected,
+        )
     }
 
     fn finish_message(
         &mut self,
         message: &super::wire::MessageItemWire,
         events: &mut Vec<LanguageStreamEvent>,
-    ) {
+    ) -> Result<(), Error> {
+        self.validate_message_lanes(message)?;
         for (content_index, part) in message.content.iter().enumerate() {
+            let content_index = u64::try_from(content_index).map_err(|_| {
+                protocol_error("OpenAI message content index exceeded the platform limit")
+            })?;
             match part {
                 OutputContentPart::Text(text) => {
-                    let id = content_id(&message.id, "text", content_index as u64);
-                    if self.text_started.insert(id.clone()) {
-                        events.push(LanguageStreamEvent::TextStart { id: id.clone() });
+                    let lane =
+                        ContentLaneId::new(&message.id, ContentLaneKind::Text, content_index);
+                    let streamed = self.text_values.get(&lane).map(String::as_str);
+                    if self.text_ended.contains(&lane) && streamed != Some(text.text.as_str()) {
+                        return Err(protocol_error(
+                            "OpenAI message item disagreed with a completed text lane",
+                        ));
+                    }
+                    let suffix = match streamed {
+                        Some(streamed) => {
+                            Some(text.text.strip_prefix(streamed).ok_or_else(|| {
+                                protocol_error(
+                                    "OpenAI message item disagreed with its streamed text deltas",
+                                )
+                            })?)
+                        }
+                        None => None,
+                    };
+                    let event_id = lane.event_id();
+                    if self.text_started.insert(lane.clone()) {
+                        events.push(LanguageStreamEvent::TextStart {
+                            id: event_id.clone(),
+                        });
                         events.push(LanguageStreamEvent::TextDelta {
-                            id: id.clone(),
+                            id: event_id.clone(),
                             delta: text.text.clone(),
                         });
+                    } else if let Some(suffix) = suffix
+                        && !suffix.is_empty()
+                    {
+                        events.push(LanguageStreamEvent::TextDelta {
+                            id: event_id.clone(),
+                            delta: suffix.to_string(),
+                        });
                     }
-                    if self.text_ended.insert(id.clone()) {
-                        events.push(LanguageStreamEvent::TextEnd { id });
+                    self.text_values.insert(lane.clone(), text.text.clone());
+                    if self.text_ended.insert(lane) {
+                        events.push(LanguageStreamEvent::TextEnd { id: event_id });
                     }
                     for (annotation_index, annotation) in text.annotations.iter().enumerate() {
-                        let key = format!("{}:{annotation_index}", message.id);
-                        if self.emitted_citations.insert(key) {
+                        let annotation_index = u64::try_from(annotation_index).map_err(|_| {
+                            protocol_error(
+                                "OpenAI message annotation index exceeded the platform limit",
+                            )
+                        })?;
+                        let identity = CitationId {
+                            item_id: message.id.clone(),
+                            content_index,
+                            annotation_index,
+                        };
+                        if let Some(streamed) = self.citations.get(&identity) {
+                            if streamed != annotation {
+                                return Err(protocol_error(
+                                    "OpenAI message item changed a streamed citation",
+                                ));
+                            }
+                        } else {
+                            self.citations.insert(identity, annotation.clone());
                             events.push(LanguageStreamEvent::Citation(project_citation(
                                 &message.id,
-                                annotation_index,
+                                usize::try_from(annotation_index).map_err(|_| {
+                                    protocol_error(
+                                        "OpenAI message annotation index exceeded the platform limit",
+                                    )
+                                })?,
                                 annotation,
                             )));
                         }
                     }
                 }
                 OutputContentPart::Refusal(refusal) => {
-                    let id = content_id(&message.id, "refusal", content_index as u64);
-                    if !self.emitted_refusals.insert(id) {
-                        continue;
+                    let lane =
+                        ContentLaneId::new(&message.id, ContentLaneKind::Refusal, content_index);
+                    let streamed = self.refusals.get(&lane).map(String::as_str);
+                    if self.refusal_ended.contains(&lane)
+                        && streamed != Some(refusal.refusal.as_str())
+                    {
+                        return Err(protocol_error(
+                            "OpenAI message item disagreed with a completed refusal lane",
+                        ));
                     }
-                    events.push(LanguageStreamEvent::Refusal {
-                        reason: Some(refusal.refusal.clone()),
-                    });
+                    if let Some(streamed) = streamed
+                        && refusal.refusal.strip_prefix(streamed).is_none()
+                    {
+                        return Err(protocol_error(
+                            "OpenAI message item disagreed with its streamed refusal deltas",
+                        ));
+                    }
+                    self.refusals.insert(lane.clone(), refusal.refusal.clone());
+                    self.refusal_ended.insert(lane.clone());
+                    if self.emitted_refusals.insert(lane) {
+                        events.push(LanguageStreamEvent::Refusal {
+                            reason: Some(refusal.refusal.clone()),
+                        });
+                    }
                 }
                 OutputContentPart::Unknown(_) => {}
             }
         }
+        Ok(())
     }
 
     fn terminal_event(
@@ -1127,7 +1823,7 @@ impl ResponsesStreamDecoder {
         let mut projected_value = event.raw_response().cloned().ok_or_else(|| {
             protocol_error("OpenAI Responses terminal event omitted its response")
         })?;
-        self.reconcile_terminal_value(&mut projected_value)?;
+        let alignment = self.reconcile_terminal_value(&mut projected_value)?;
         let mut projected =
             serde_json::from_value::<ResponseWire>(projected_value).map_err(|source| {
                 Error::new(
@@ -1148,9 +1844,18 @@ impl ResponsesStreamDecoder {
                 "OpenAI Responses terminal event disagreed with response status",
             ));
         }
-        self.reconcile_terminal_items(&mut projected)?;
+        let terminal_status = projected.status.clone();
+        let completion_events =
+            self.reconcile_terminal_items(&mut projected, &alignment, &terminal_status)?;
         let mut events = self.observe_identity(&projected)?;
-        let decoded = decode_response_wire(projected.clone(), &self.scope, &self.requested_model)?;
+        events.extend(completion_events);
+        self.replay_status.settle_with_terminal_resource();
+        let decoded = decode_response_wire_with_replay(
+            projected.clone(),
+            &self.scope,
+            &self.requested_model,
+            self.replay_status.is_available(),
+        )?;
         if let Some(usage) = &projected.usage {
             events.push(LanguageStreamEvent::Usage(decode_usage(usage)));
         }
@@ -1183,7 +1888,10 @@ impl ResponsesStreamDecoder {
         Ok(events)
     }
 
-    fn reconcile_terminal_value(&self, response: &mut Value) -> Result<(), Error> {
+    fn reconcile_terminal_value(
+        &mut self,
+        response: &mut Value,
+    ) -> Result<TerminalAlignment, Error> {
         let object = response.as_object_mut().ok_or_else(|| {
             protocol_error("OpenAI Responses terminal response must be a JSON object")
         })?;
@@ -1194,79 +1902,198 @@ impl ResponsesStreamDecoder {
             .ok_or_else(|| protocol_error("OpenAI Responses terminal output must be an array"))?;
         self.turn_budget.ensure_output_items(output.len())?;
 
+        let alignment = self.align_terminal_output(output)?;
         for (position, terminal) in output.iter_mut().enumerate() {
+            let Some(output_index) = alignment.streamed_index(position) else {
+                continue;
+            };
             let terminal_object = terminal.as_object_mut().ok_or_else(|| {
                 protocol_error("OpenAI Responses terminal output item must be an object")
             })?;
-            let Some((_, streamed)) =
-                self.terminal_streamed_candidate(terminal_object, position)?
-            else {
-                continue;
-            };
-            reconcile_terminal_item_value(terminal_object, streamed, self.terminal_policy)?;
+            let streamed = self.items.get(&output_index).ok_or_else(|| {
+                protocol_error("OpenAI terminal alignment referenced an unknown streamed item")
+            })?;
+            reconcile_terminal_item_value(
+                terminal_object,
+                streamed,
+                self.completed_items.contains(&output_index),
+                self.wire_dialect,
+            )?;
         }
-        Ok(())
+        Ok(alignment)
     }
 
-    fn terminal_streamed_candidate<'a>(
-        &'a self,
-        terminal: &Map<String, Value>,
-        position: usize,
-    ) -> Result<Option<(u64, &'a OutputItem)>, Error> {
-        let kind = terminal
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                protocol_error("OpenAI Responses terminal output item omitted its type")
-            })?;
-        let id = terminal
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty());
-        let call_id = terminal
-            .get("call_id")
-            .and_then(Value::as_str)
-            .filter(|call_id| !call_id.is_empty());
-
-        let mut matches = self.items.iter().filter(|(output_index, streamed)| {
-            if streamed.kind() != kind || !self.completed_items.contains(output_index) {
-                return false;
+    fn align_terminal_output(&mut self, output: &[Value]) -> Result<TerminalAlignment, Error> {
+        let mut call_indices = BTreeMap::<(String, String), Option<u64>>::new();
+        for (output_index, item) in &self.items {
+            let Some(call_id) = item.call_id() else {
+                continue;
+            };
+            if !has_stable_call_identity(item.kind()) {
+                continue;
             }
-            id.is_some_and(|id| streamed.id() == Some(id))
-                || (has_stable_call_identity(kind)
-                    && call_id.is_some_and(|call_id| streamed.call_id() == Some(call_id)))
-        });
-        let first = matches.next();
-        if matches.next().is_some() {
-            return Err(protocol_error(
-                "OpenAI terminal response matched multiple completed output items",
-            ));
-        }
-        if let Some((index, item)) = first {
-            return Ok(Some((*index, item)));
+            call_indices
+                .entry((item.kind().to_string(), call_id.to_string()))
+                .and_modify(|candidate| *candidate = None)
+                .or_insert(Some(*output_index));
         }
 
-        let position = u64::try_from(position).map_err(|_| {
-            protocol_error("OpenAI terminal output position exceeded the platform limit")
-        })?;
-        if has_stable_call_identity(kind)
-            && let Some(item) = self.items.get(&position)
-            && item.kind() == kind
-            && self.completed_items.contains(&position)
-        {
-            return Ok(Some((position, item)));
+        let mut alignment = TerminalAlignment {
+            terminal_to_streamed: vec![None; output.len()],
+            streamed_to_terminal: BTreeMap::new(),
+        };
+
+        // First bind only explicit item and call identities. Position fallback runs after every
+        // explicit anchor is known, so omitted leading items cannot shift a later message onto the
+        // wrong streamed output index.
+        for (position, terminal) in output.iter().enumerate() {
+            let terminal = terminal.as_object().ok_or_else(|| {
+                protocol_error("OpenAI Responses terminal output item must be an object")
+            })?;
+            let kind = terminal
+                .get("type")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    protocol_error("OpenAI Responses terminal output item omitted its type")
+                })?;
+            let id = terminal
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
+            let call_id = terminal
+                .get("call_id")
+                .and_then(Value::as_str)
+                .filter(|call_id| !call_id.is_empty());
+
+            let by_id = id.and_then(|id| self.item_indices.get(id).copied());
+            if let Some(output_index) = by_id
+                && self
+                    .items
+                    .get(&output_index)
+                    .is_none_or(|item| item.kind() != kind)
+            {
+                return Err(protocol_error(
+                    "OpenAI terminal response changed a streamed output item type",
+                ));
+            }
+            let by_call = if has_stable_call_identity(kind) {
+                call_id
+                    .and_then(|call_id| call_indices.get(&(kind.to_string(), call_id.to_string())))
+                    .copied()
+                    .flatten()
+            } else {
+                None
+            };
+            if by_id.is_some() && by_call.is_some() && by_id != by_call {
+                return Err(protocol_error(
+                    "OpenAI terminal response combined conflicting output identities",
+                ));
+            }
+
+            let Some(output_index) = by_id.or(by_call) else {
+                continue;
+            };
+            record_terminal_alignment(&mut alignment, output_index, position)?;
         }
 
-        if self.terminal_policy == ResponsesTerminalPolicy::Compatible
-            && kind == "message"
-            && id.is_none()
-            && let Some(item) = self.items.get(&position)
-            && item.kind() == kind
-            && self.completed_items.contains(&position)
-        {
-            return Ok(Some((position, item)));
+        self.validate_terminal_alignment_order(&alignment)?;
+
+        for (position, terminal) in output.iter().enumerate() {
+            if alignment.streamed_index(position).is_some() {
+                continue;
+            }
+            let terminal = terminal.as_object().ok_or_else(|| {
+                protocol_error("OpenAI Responses terminal output item must be an object")
+            })?;
+            let kind = terminal
+                .get("type")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    protocol_error("OpenAI Responses terminal output item omitted its type")
+                })?;
+            let id = terminal
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
+            let lower = alignment.terminal_to_streamed[..position]
+                .iter()
+                .rev()
+                .flatten()
+                .next()
+                .copied();
+            let upper = alignment.terminal_to_streamed[position.saturating_add(1)..]
+                .iter()
+                .flatten()
+                .next()
+                .copied();
+            let candidates = self
+                .items
+                .iter()
+                .filter(|(output_index, item)| {
+                    !alignment.streamed_to_terminal.contains_key(output_index)
+                        && item.kind() == kind
+                        && lower.is_none_or(|lower| **output_index > lower)
+                        && upper.is_none_or(|upper| **output_index < upper)
+                })
+                .map(|(output_index, _)| *output_index)
+                .collect::<Vec<_>>();
+            let has_unaligned_same_kind = self.items.iter().any(|(output_index, item)| {
+                !alignment.streamed_to_terminal.contains_key(output_index) && item.kind() == kind
+            });
+
+            let allows_position_identity = (kind == "message"
+                && (id.is_some() || self.wire_dialect.allows_message_position_identity()))
+                || kind == "reasoning";
+            if !allows_position_identity {
+                if is_portable_kind(kind) && (has_unaligned_same_kind || !candidates.is_empty()) {
+                    return Err(protocol_error(
+                        "OpenAI terminal response could not uniquely align a portable output item",
+                    ));
+                }
+                continue;
+            }
+
+            match candidates.as_slice() {
+                [] => {}
+                [output_index] => {
+                    record_terminal_alignment(&mut alignment, *output_index, position)?;
+                }
+                _ => {
+                    return Err(protocol_error(
+                        "OpenAI terminal response had an ambiguous positional output identity",
+                    ));
+                }
+            }
         }
-        Ok(None)
+
+        self.validate_terminal_alignment_order(&alignment)?;
+        Ok(alignment)
+    }
+
+    fn validate_terminal_alignment_order(
+        &mut self,
+        alignment: &TerminalAlignment,
+    ) -> Result<(), Error> {
+        let mut previous = None::<(u64, usize)>;
+        for (output_index, terminal_index) in &alignment.streamed_to_terminal {
+            if let Some((previous_output, previous_terminal)) = previous
+                && *terminal_index <= previous_terminal
+            {
+                let portable = self
+                    .items
+                    .get(&previous_output)
+                    .is_some_and(is_portable_item)
+                    || self.items.get(output_index).is_some_and(is_portable_item);
+                if portable {
+                    return Err(protocol_error(
+                        "OpenAI terminal response reordered portable output items",
+                    ));
+                }
+                self.replay_status.record_provider_item_conflict();
+            }
+            previous = Some((*output_index, *terminal_index));
+        }
+        Ok(())
     }
 
     fn error_event(
@@ -1282,6 +2109,7 @@ impl ResponsesStreamDecoder {
             self.response_diagnostics.clone(),
             "OpenAI emitted an error after establishing the Responses stream",
         );
+        self.replay_status.settle_without_terminal_resource();
         Ok(vec![LanguageStreamEvent::Terminal(
             StreamTerminal::Failed {
                 error,
@@ -1292,129 +2120,197 @@ impl ResponsesStreamDecoder {
 
     fn opaque_stream_event(
         &mut self,
-        event: &StreamEventWire,
+        _event: &StreamEventWire,
     ) -> Result<Vec<LanguageStreamEvent>, Error> {
-        let data = event.to_value().map_err(|source| {
-            Error::new(
-                ErrorKind::Protocol,
-                "failed to preserve an OpenAI Responses stream event",
-            )
-            .with_source(source)
-        })?;
-        let model = self
-            .response_model
-            .clone()
-            .unwrap_or_else(|| self.requested_model.clone());
-        let provenance =
-            siumai_core::ProviderProvenance::from_scope(&self.scope, model).map_err(|source| {
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "OpenAI Responses replay requires an explicit provider replay domain",
-                )
-                .with_source(source)
-            })?;
-        let item = siumai_core::OpaqueProviderItem::new(
-            provenance,
-            format!("{OPENAI_RESPONSES_OPAQUE_KIND}.stream_event"),
-            data,
-        )
-        .map_err(|source| {
-            Error::new(
-                ErrorKind::ResponseLimit,
-                "OpenAI Responses stream event exceeded the opaque replay limit",
-            )
-            .with_source(source)
-        })?;
-        Ok(vec![LanguageStreamEvent::ProviderOpaque(item)])
+        // Native stream consumers already receive the exact bounded event. Portable streams do not
+        // publish replay fragments before the turn's replay eligibility is known.
+        Ok(Vec::new())
     }
 
-    fn ensure_known_item(&self, item_id: &str) -> Result<(), Error> {
-        if self
-            .item_indices
-            .get(item_id)
-            .is_some_and(|index| !self.completed_items.contains(index))
-        {
-            Ok(())
-        } else {
-            Err(protocol_error(
-                "OpenAI Responses delta referenced an unknown or completed output item",
-            ))
-        }
-    }
-
-    fn reconcile_terminal_items(&self, response: &mut ResponseWire) -> Result<(), Error> {
-        let mut missing_functions = Vec::new();
-        for (output_index, streamed) in &self.items {
-            if let Some(index) = terminal_item_index(&response.output, streamed)? {
-                let terminal = &response.output[index];
-                compare_terminal_item(
-                    streamed,
-                    terminal,
-                    self.completed_items.contains(output_index),
-                )?;
-            } else if self.completed_items.contains(output_index) {
-                match streamed {
-                    OutputItem::FunctionCall(_)
-                        if self.terminal_policy == ResponsesTerminalPolicy::Compatible =>
-                    {
-                        missing_functions.push((*output_index, streamed.clone()));
-                    }
-                    OutputItem::FunctionCall(_)
-                    | OutputItem::Message(_)
-                    | OutputItem::Reasoning(_) => {
-                        return Err(protocol_error(
-                            "OpenAI terminal response omitted a completed portable output item",
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        for (output_index, function) in missing_functions {
-            let insert_at = response
-                .output
-                .iter()
-                .position(|terminal| {
-                    self.streamed_output_index(terminal)
-                        .is_some_and(|terminal_index| terminal_index > output_index)
-                })
-                .unwrap_or(response.output.len());
-            response.output.insert(insert_at, function);
-        }
-        self.turn_budget
-            .ensure_output_items(response.output.len())?;
-        if matches!(&response.status, ResponseStatus::Completed)
-            && self.completed_items.len() != self.items.len()
-        {
+    fn ensure_known_item_kind(&self, item_id: &str, expected: StreamItemKind) -> Result<(), Error> {
+        let output_index = self.item_indices.get(item_id).ok_or_else(|| {
+            protocol_error("OpenAI Responses delta referenced an unknown output item")
+        })?;
+        if self.completed_items.contains(output_index) {
             return Err(protocol_error(
-                "OpenAI terminal response arrived before all output items completed",
+                "OpenAI Responses delta referenced a completed output item",
+            ));
+        }
+        let item = self.items.get(output_index).ok_or_else(|| {
+            protocol_error("OpenAI Responses delta referenced an untracked output item")
+        })?;
+        if !expected.matches(item) {
+            return Err(protocol_error(
+                "OpenAI Responses event targeted an incompatible output item type",
             ));
         }
         Ok(())
     }
 
-    fn streamed_output_index(&self, terminal: &OutputItem) -> Option<u64> {
-        terminal
-            .id()
-            .and_then(|item_id| self.item_indices.get(item_id).copied())
-            .or_else(|| {
-                let OutputItem::FunctionCall(terminal) = terminal else {
-                    return None;
+    fn reconcile_terminal_items(
+        &mut self,
+        response: &mut ResponseWire,
+        alignment: &TerminalAlignment,
+        status: &ResponseStatus,
+    ) -> Result<Vec<LanguageStreamEvent>, Error> {
+        let mut missing_portable_items = Vec::new();
+        let mut completion_events = Vec::new();
+        let tracked = std::mem::take(&mut self.items);
+
+        for (output_index, streamed) in tracked {
+            let streamed_complete = self.completed_items.contains(&output_index);
+            if let Some(index) = alignment.terminal_index(output_index) {
+                let terminal = response.output.get(index).ok_or_else(|| {
+                    protocol_error("OpenAI terminal alignment exceeded the output array")
+                })?;
+                if streamed_complete {
+                    compare_terminal_item(&streamed, terminal, true, &mut self.replay_status)?;
+                } else if is_portable_item(&streamed) {
+                    self.complete_portable_item(&streamed, terminal, &mut completion_events)?;
+                } else {
+                    compare_item_transition(&streamed, terminal, true, &mut self.replay_status)?;
+                }
+            } else if streamed_complete {
+                match streamed {
+                    item @ (OutputItem::FunctionCall(_)
+                    | OutputItem::Message(_)
+                    | OutputItem::Reasoning(_)) => {
+                        missing_portable_items.push((output_index, item));
+                    }
+                    OutputItem::CustomToolCall(_)
+                    | OutputItem::Program(_)
+                    | OutputItem::ProgramOutput(_)
+                    | OutputItem::ProviderTool(_)
+                    | OutputItem::Unknown(_) => {
+                        self.replay_status.record_provider_item_conflict();
+                    }
+                }
+            } else if is_portable_item(&streamed) {
+                if matches!(status, ResponseStatus::Failed | ResponseStatus::Cancelled) {
+                    self.replay_status.record_provider_item_conflict();
+                } else {
+                    return Err(protocol_error(
+                        "OpenAI terminal response omitted an in-progress portable output item",
+                    ));
+                }
+            } else {
+                self.replay_status.record_provider_item_conflict();
+            }
+        }
+
+        let mut insertions = BTreeMap::<usize, Vec<OutputItem>>::new();
+        if !missing_portable_items.is_empty() {
+            let mut terminal_only_prefix = Vec::with_capacity(response.output.len() + 1);
+            terminal_only_prefix.push(0usize);
+            let mut related_positions = BTreeMap::<String, Option<usize>>::new();
+            for (position, item) in response.output.iter().enumerate() {
+                let terminal_only = alignment.streamed_index(position).is_none();
+                terminal_only_prefix.push(
+                    terminal_only_prefix[position].saturating_add(usize::from(terminal_only)),
+                );
+                if terminal_only && let Some(call_id) = item.call_id() {
+                    related_positions
+                        .entry(call_id.to_string())
+                        .and_modify(|candidate| *candidate = None)
+                        .or_insert(Some(position));
+                }
+            }
+
+            let mut gaps = BTreeMap::<(usize, usize), Vec<(u64, OutputItem)>>::new();
+            for (output_index, item) in missing_portable_items {
+                let start = alignment
+                    .previous_terminal_index(output_index)
+                    .map_or(0, |position| position.saturating_add(1));
+                let end = alignment
+                    .next_terminal_index(output_index)
+                    .unwrap_or(response.output.len());
+                let gap = if start <= end {
+                    (start, end)
+                } else {
+                    self.replay_status.record_provider_item_conflict();
+                    (0, response.output.len())
                 };
-                self.items.iter().find_map(|(output_index, streamed)| {
-                    let OutputItem::FunctionCall(streamed) = streamed else {
-                        return None;
-                    };
-                    (streamed.call_id == terminal.call_id).then_some(*output_index)
-                })
-            })
+                gaps.entry(gap).or_default().push((output_index, item));
+            }
+
+            for ((start, end), mut items) in gaps {
+                items.sort_unstable_by_key(|(output_index, _)| *output_index);
+                let terminal_only_count =
+                    terminal_only_prefix[end].saturating_sub(terminal_only_prefix[start]);
+                let related_position = match items.as_slice() {
+                    [(_, item)] => item
+                        .call_id()
+                        .and_then(|call_id| related_positions.get(call_id))
+                        .copied()
+                        .flatten()
+                        .filter(|position| (start..end).contains(position)),
+                    _ => None,
+                };
+                let insert_at = related_position.unwrap_or(end);
+                if terminal_only_count > usize::from(related_position.is_some()) {
+                    self.replay_status.record_provider_item_conflict();
+                }
+                insertions
+                    .entry(insert_at)
+                    .or_default()
+                    .extend(items.into_iter().map(|(_, item)| item));
+            }
+        }
+        if !insertions.is_empty() {
+            let terminal_output = std::mem::take(&mut response.output);
+            let terminal_len = terminal_output.len();
+            let inserted = insertions.values().map(Vec::len).sum::<usize>();
+            let mut merged = Vec::with_capacity(terminal_output.len().saturating_add(inserted));
+            for (position, terminal) in terminal_output.into_iter().enumerate() {
+                if let Some(items) = insertions.remove(&position) {
+                    merged.extend(items);
+                }
+                merged.push(terminal);
+            }
+            if let Some(items) = insertions.remove(&terminal_len) {
+                merged.extend(items);
+            }
+            debug_assert!(insertions.is_empty());
+            response.output = merged;
+        }
+        self.turn_budget
+            .ensure_output_items(response.output.len())?;
+        Ok(completion_events)
+    }
+
+    fn complete_portable_item(
+        &mut self,
+        streamed: &OutputItem,
+        terminal: &OutputItem,
+        events: &mut Vec<LanguageStreamEvent>,
+    ) -> Result<(), Error> {
+        let item_id = streamed
+            .id()
+            .ok_or_else(|| protocol_error("OpenAI portable output item omitted its identity"))?
+            .to_string();
+        if streamed.kind() != terminal.kind() {
+            return Err(protocol_error(
+                "OpenAI terminal response changed an in-progress output item type",
+            ));
+        }
+        compare_item_transition(streamed, terminal, true, &mut self.replay_status)?;
+        match terminal {
+            OutputItem::Message(message) => self.finish_message(message, events)?,
+            OutputItem::Reasoning(reasoning) => {
+                self.finish_reasoning_item(&item_id, reasoning, events)?;
+            }
+            OutputItem::FunctionCall(call) => self.emit_function_call(&item_id, call, events)?,
+            _ => unreachable!("complete_portable_item only accepts portable items"),
+        }
+        Ok(())
     }
 }
 
 fn reconcile_terminal_item_value(
     terminal: &mut Map<String, Value>,
     streamed: &OutputItem,
-    policy: ResponsesTerminalPolicy,
+    streamed_complete: bool,
+    dialect: ResponsesWireDialect,
 ) -> Result<(), Error> {
     let streamed_value = streamed.to_value().map_err(|source| {
         Error::new(
@@ -1430,48 +2326,26 @@ fn reconcile_terminal_item_value(
 
     match terminal.get("type").and_then(Value::as_str) {
         Some("message") => {
-            reconcile_missing_terminal_field(
+            normalize_missing_terminal_field(
                 terminal,
                 streamed,
                 "id",
-                policy == ResponsesTerminalPolicy::Compatible,
+                dialect.allows_message_position_identity(),
             )?;
-            reconcile_missing_terminal_field(terminal, streamed, "status", true)?;
             compare_required_terminal_field(terminal, streamed, "role")?;
-            reconcile_message_content_field(terminal, streamed, policy)?;
-            reconcile_missing_terminal_field(
-                terminal,
-                streamed,
-                "phase",
-                policy == ResponsesTerminalPolicy::Compatible,
-            )?;
+            if streamed_complete {
+                reconcile_message_content_field(terminal, streamed, dialect)?;
+            }
         }
         Some("function_call") => {
-            reconcile_missing_terminal_field(terminal, streamed, "id", true)?;
-            reconcile_missing_terminal_field(terminal, streamed, "status", true)?;
+            normalize_optional_terminal_identity(terminal, streamed, "id");
             for field in ["call_id", "name"] {
                 compare_required_terminal_field(terminal, streamed, field)?;
             }
-            compare_function_arguments_field(terminal, streamed)?;
-            compare_optional_terminal_field(terminal, streamed, "namespace")?;
-            compare_tool_caller_field(terminal, streamed)?;
-        }
-        Some("custom_tool_call") => {
-            for field in ["id", "call_id", "name", "input"] {
-                compare_required_terminal_field(terminal, streamed, field)?;
-            }
-            compare_optional_terminal_field(terminal, streamed, "status")?;
-            compare_optional_terminal_field(terminal, streamed, "namespace")?;
-            compare_tool_caller_field(terminal, streamed)?;
-        }
-        Some("program") => {
-            for field in ["id", "call_id", "code", "fingerprint"] {
-                compare_required_terminal_field(terminal, streamed, field)?;
-            }
-        }
-        Some("program_output") => {
-            for field in ["id", "status", "call_id", "result"] {
-                compare_required_terminal_field(terminal, streamed, field)?;
+            if streamed_complete {
+                compare_function_arguments_field(terminal, streamed)?;
+                compare_optional_terminal_field(terminal, streamed, "namespace")?;
+                compare_tool_caller_field(terminal, streamed)?;
             }
         }
         _ => {}
@@ -1479,15 +2353,23 @@ fn reconcile_terminal_item_value(
     Ok(())
 }
 
+fn normalize_optional_terminal_identity(
+    terminal: &mut Map<String, Value>,
+    streamed: &Map<String, Value>,
+    field: &'static str,
+) {
+    if !terminal.contains_key(field)
+        && let Some(streamed) = streamed.get(field)
+    {
+        terminal.insert(field.to_string(), streamed.clone());
+    }
+}
+
 fn reconcile_message_content_field(
     terminal: &mut Map<String, Value>,
     streamed: &Map<String, Value>,
-    policy: ResponsesTerminalPolicy,
+    dialect: ResponsesWireDialect,
 ) -> Result<(), Error> {
-    if policy == ResponsesTerminalPolicy::Strict {
-        return compare_required_terminal_field(terminal, streamed, "content");
-    }
-
     let streamed_parts = streamed
         .get("content")
         .and_then(Value::as_array)
@@ -1502,12 +2384,16 @@ fn reconcile_message_content_field(
         ));
     }
     for (terminal_part, streamed_part) in terminal_parts.iter_mut().zip(streamed_parts) {
-        reconcile_message_content_part(terminal_part, streamed_part)?;
+        reconcile_message_content_part(terminal_part, streamed_part, dialect)?;
     }
     Ok(())
 }
 
-fn reconcile_message_content_part(terminal: &mut Value, streamed: &Value) -> Result<(), Error> {
+fn reconcile_message_content_part(
+    terminal: &mut Value,
+    streamed: &Value,
+    dialect: ResponsesWireDialect,
+) -> Result<(), Error> {
     let terminal = terminal
         .as_object_mut()
         .ok_or_else(|| protocol_error("OpenAI terminal message content part must be an object"))?;
@@ -1518,41 +2404,25 @@ fn reconcile_message_content_part(terminal: &mut Value, streamed: &Value) -> Res
     match terminal.get("type").and_then(Value::as_str) {
         Some("output_text") => {
             compare_required_terminal_field(terminal, streamed, "text")?;
-            restore_missing_provider_metadata(terminal, streamed, &["annotations", "logprobs"]);
-            Ok(())
+            normalize_missing_terminal_field(
+                terminal,
+                streamed,
+                "annotations",
+                dialect.allows_omitted_message_annotations(),
+            )
         }
         Some("refusal") => compare_required_terminal_field(terminal, streamed, "refusal"),
-        _ if terminal == streamed => Ok(()),
-        _ => Err(protocol_error(
-            "OpenAI terminal response changed unknown completed message content",
-        )),
+        _ => Ok(()),
     }
 }
 
-fn restore_missing_provider_metadata(
-    terminal: &mut Map<String, Value>,
-    streamed: &Map<String, Value>,
-    fields: &[&str],
-) {
-    for field in fields {
-        if !terminal.contains_key(*field)
-            && let Some(value) = streamed.get(*field)
-        {
-            terminal.insert((*field).to_string(), value.clone());
-        }
-    }
-}
-
-fn reconcile_missing_terminal_field(
+fn normalize_missing_terminal_field(
     terminal: &mut Map<String, Value>,
     streamed: &Map<String, Value>,
     field: &'static str,
     allow_missing: bool,
 ) -> Result<(), Error> {
     match (terminal.get(field), streamed.get(field)) {
-        (Some(terminal), Some(streamed)) if terminal != streamed => Err(protocol_error(
-            "OpenAI terminal response changed a completed output item field",
-        )),
         (None, Some(streamed)) if allow_missing => {
             terminal.insert(field.to_string(), streamed.clone());
             Ok(())
@@ -1634,92 +2504,295 @@ fn compare_tool_caller_field(
     }
 }
 
-fn terminal_item_index(
-    terminal: &[OutputItem],
-    streamed: &OutputItem,
-) -> Result<Option<usize>, Error> {
-    let streamed_id = streamed.id();
-    let streamed_call_id = matches!(streamed, OutputItem::FunctionCall(_))
-        .then(|| streamed.call_id())
-        .flatten();
-    let mut matches = terminal.iter().enumerate().filter_map(|(index, terminal)| {
-        let same_item_id = streamed_id.is_some() && streamed_id == terminal.id();
-        let same_call_id = streamed.kind() == terminal.kind()
-            && has_stable_call_identity(terminal.kind())
-            && streamed_call_id.is_some()
-            && streamed_call_id == terminal.call_id();
-        (same_item_id || same_call_id).then_some(index)
-    });
-    let first = matches.next();
-    if matches.next().is_some() {
-        return Err(protocol_error(
-            "OpenAI terminal response duplicated a streamed output identity",
-        ));
-    }
-    Ok(first)
-}
-
 fn compare_terminal_item(
     streamed: &OutputItem,
     terminal: &OutputItem,
     compare_semantics: bool,
+    replay_status: &mut ResponsesReplayStatus,
 ) -> Result<(), Error> {
-    if streamed.id() != terminal.id() || streamed.kind() != terminal.kind() {
+    if streamed.kind() != terminal.kind() {
         return Err(protocol_error(
             "OpenAI terminal response changed a streamed output item identity",
         ));
     }
-    if compare_semantics {
-        let matches = match (streamed, terminal) {
-            (OutputItem::FunctionCall(_), OutputItem::FunctionCall(_)) => {
-                function_calls_semantically_equal(streamed, terminal)?
+    if streamed.id() != terminal.id() {
+        match streamed {
+            OutputItem::FunctionCall(_) | OutputItem::Message(_) | OutputItem::Reasoning(_) => {
+                replay_status.record_item_identity_conflict()
             }
-            (OutputItem::Message(streamed), OutputItem::Message(terminal)) => {
-                streamed.id == terminal.id
-                    && streamed.status == terminal.status
-                    && streamed.role == terminal.role
-                    && streamed.content == terminal.content
-                    && streamed.phase == terminal.phase
+            _ => replay_status.record_provider_item_conflict(),
+        }
+    }
+    if !compare_semantics {
+        return Ok(());
+    }
+
+    match (streamed, terminal) {
+        (OutputItem::FunctionCall(_), OutputItem::FunctionCall(_)) => {
+            if !function_calls_semantically_equal(streamed, terminal)? {
+                return Err(protocol_error(
+                    "OpenAI terminal response changed completed streamed function semantics",
+                ));
             }
-            (OutputItem::Reasoning(streamed), OutputItem::Reasoning(terminal)) => {
-                streamed.id == terminal.id
-                    && streamed.status == terminal.status
-                    && streamed.summary == terminal.summary
-                    && streamed.content == terminal.content
-                    && streamed.encrypted_content == terminal.encrypted_content
+        }
+        (OutputItem::Message(streamed), OutputItem::Message(terminal)) => {
+            let (portable_equal, native_conflict) = messages_semantically_equal(streamed, terminal);
+            if !portable_equal {
+                return Err(protocol_error(
+                    "OpenAI terminal response changed completed streamed message semantics",
+                ));
             }
-            (OutputItem::CustomToolCall(streamed), OutputItem::CustomToolCall(terminal)) => {
-                streamed.id == terminal.id
-                    && streamed.status == terminal.status
-                    && streamed.call_id == terminal.call_id
-                    && streamed.name == terminal.name
-                    && streamed.input == terminal.input
-                    && streamed.namespace == terminal.namespace
-                    && tool_callers_semantically_equal(
-                        streamed.caller.as_ref(),
-                        terminal.caller.as_ref(),
-                    )
+            if native_conflict {
+                replay_status.record_provider_item_conflict();
             }
-            (OutputItem::Program(streamed), OutputItem::Program(terminal)) => {
-                streamed.id == terminal.id
-                    && streamed.call_id == terminal.call_id
-                    && streamed.code == terminal.code
-                    && streamed.fingerprint == terminal.fingerprint
+        }
+        (OutputItem::Reasoning(streamed), OutputItem::Reasoning(terminal)) => {
+            if !reasoning_text_semantically_equal(&streamed.summary, &terminal.summary)
+                || !reasoning_text_semantically_equal(&streamed.content, &terminal.content)
+            {
+                return Err(protocol_error(
+                    "OpenAI terminal response changed portable reasoning text",
+                ));
             }
-            (OutputItem::ProgramOutput(streamed), OutputItem::ProgramOutput(terminal)) => {
-                streamed.id == terminal.id
-                    && streamed.status == terminal.status
-                    && streamed.call_id == terminal.call_id
-                    && streamed.result == terminal.result
+            if streamed.encrypted_content != terminal.encrypted_content {
+                replay_status.record_reasoning_state_conflict();
             }
-            _ => true,
-        };
-        if !matches {
+        }
+        (OutputItem::CustomToolCall(streamed), OutputItem::CustomToolCall(terminal)) => {
+            if streamed != terminal {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::Program(streamed), OutputItem::Program(terminal)) => {
+            if streamed != terminal {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::ProgramOutput(streamed), OutputItem::ProgramOutput(terminal)) => {
+            if streamed != terminal {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (streamed, terminal) if streamed != terminal => {
+            replay_status.record_provider_item_conflict();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn compare_item_transition(
+    added: &OutputItem,
+    completed: &OutputItem,
+    allow_item_id_drift: bool,
+    replay_status: &mut ResponsesReplayStatus,
+) -> Result<(), Error> {
+    if added.kind() != completed.kind() {
+        return Err(protocol_error(
+            "OpenAI completed output item changed its established identity",
+        ));
+    }
+    if added.id() != completed.id() {
+        if allow_item_id_drift {
+            replay_status.record_item_identity_conflict();
+        } else {
             return Err(protocol_error(
-                "OpenAI terminal response changed completed streamed output semantics",
+                "OpenAI completed output item changed its established identity",
             ));
         }
     }
+
+    match (added, completed) {
+        (OutputItem::Message(added), OutputItem::Message(completed)) => {
+            if added.role != completed.role {
+                return Err(protocol_error(
+                    "OpenAI completed message changed its established role",
+                ));
+            }
+        }
+        (OutputItem::Reasoning(added), OutputItem::Reasoning(completed)) => {
+            if stable_optional_changed(
+                added.encrypted_content.as_deref(),
+                completed.encrypted_content.as_deref(),
+            ) {
+                replay_status.record_reasoning_state_conflict();
+            }
+        }
+        (OutputItem::FunctionCall(added), OutputItem::FunctionCall(completed)) => {
+            if added.call_id != completed.call_id || added.name != completed.name {
+                return Err(protocol_error(
+                    "OpenAI completed function call changed its executable identity",
+                ));
+            }
+            if stable_optional_changed(added.namespace.as_deref(), completed.namespace.as_deref())
+                || (added.caller.is_some()
+                    && !tool_callers_semantically_equal(
+                        added.caller.as_ref(),
+                        completed.caller.as_ref(),
+                    ))
+            {
+                return Err(protocol_error(
+                    "OpenAI completed function call changed its caller identity",
+                ));
+            }
+        }
+        (OutputItem::CustomToolCall(added), OutputItem::CustomToolCall(completed)) => {
+            if added.call_id != completed.call_id
+                || added.name != completed.name
+                || stable_optional_changed(
+                    added.namespace.as_deref(),
+                    completed.namespace.as_deref(),
+                )
+                || stable_optional_changed(added.caller.as_ref(), completed.caller.as_ref())
+                || (!added.input.is_empty() && !completed.input.starts_with(&added.input))
+            {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::Program(added), OutputItem::Program(completed)) => {
+            if added.call_id != completed.call_id
+                || added.code != completed.code
+                || added.fingerprint != completed.fingerprint
+            {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::ProgramOutput(added), OutputItem::ProgramOutput(completed)) => {
+            if added.call_id != completed.call_id {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::ProviderTool(added), OutputItem::ProviderTool(completed)) => {
+            if stable_optional_changed(added.call_id(), completed.call_id())
+                || stable_optional_changed(added.caller(), completed.caller())
+            {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        (OutputItem::Unknown(added), OutputItem::Unknown(completed)) => {
+            if stable_optional_changed(added.call_id(), completed.call_id())
+                || stable_optional_changed(added.caller(), completed.caller())
+            {
+                replay_status.record_provider_item_conflict();
+            }
+        }
+        _ => {
+            return Err(protocol_error(
+                "OpenAI completed output item changed its established type",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn stable_optional_changed<T: PartialEq>(established: Option<T>, completed: Option<T>) -> bool {
+    established.is_some() && established != completed
+}
+
+fn reasoning_text_semantically_equal(
+    streamed: &[super::wire::ReasoningTextWire],
+    terminal: &[super::wire::ReasoningTextWire],
+) -> bool {
+    streamed.len() == terminal.len()
+        && streamed.iter().zip(terminal).all(|(streamed, terminal)| {
+            streamed.kind == terminal.kind && streamed.text == terminal.text
+        })
+}
+
+fn messages_semantically_equal(
+    streamed: &super::wire::MessageItemWire,
+    terminal: &super::wire::MessageItemWire,
+) -> (bool, bool) {
+    if streamed.role != terminal.role || streamed.content.len() != terminal.content.len() {
+        return (false, false);
+    }
+    let mut native_conflict = false;
+    for (streamed, terminal) in streamed.content.iter().zip(&terminal.content) {
+        match (streamed, terminal) {
+            (OutputContentPart::Text(streamed), OutputContentPart::Text(terminal)) => {
+                if streamed.text != terminal.text {
+                    return (false, false);
+                }
+                let (annotations_equal, annotation_native_conflict) =
+                    annotations_semantically_equal(&streamed.annotations, &terminal.annotations);
+                if !annotations_equal {
+                    return (false, false);
+                }
+                native_conflict |= annotation_native_conflict;
+            }
+            (OutputContentPart::Refusal(streamed), OutputContentPart::Refusal(terminal)) => {
+                if streamed.refusal != terminal.refusal {
+                    return (false, false);
+                }
+            }
+            (OutputContentPart::Unknown(streamed), OutputContentPart::Unknown(terminal)) => {
+                if streamed.raw != terminal.raw {
+                    native_conflict = true;
+                }
+            }
+            _ => return (false, false),
+        }
+    }
+    (true, native_conflict)
+}
+
+fn annotations_semantically_equal(
+    streamed: &[AnnotationWire],
+    terminal: &[AnnotationWire],
+) -> (bool, bool) {
+    if streamed.len() != terminal.len() {
+        return (false, false);
+    }
+    let mut native_conflict = false;
+    for (streamed, terminal) in streamed.iter().zip(terminal) {
+        if streamed.kind != terminal.kind {
+            return (false, false);
+        }
+        for field in [
+            "file_id",
+            "container_id",
+            "url",
+            "title",
+            "filename",
+            "start_index",
+            "end_index",
+        ] {
+            if streamed.fields.get(field) != terminal.fields.get(field) {
+                return (false, false);
+            }
+        }
+        native_conflict |= streamed != terminal;
+    }
+    (true, native_conflict)
+}
+
+fn is_portable_item(item: &OutputItem) -> bool {
+    matches!(
+        item,
+        OutputItem::Message(_) | OutputItem::Reasoning(_) | OutputItem::FunctionCall(_)
+    )
+}
+
+fn is_portable_kind(kind: &str) -> bool {
+    matches!(kind, "message" | "reasoning" | "function_call")
+}
+
+fn record_terminal_alignment(
+    alignment: &mut TerminalAlignment,
+    output_index: u64,
+    terminal_index: usize,
+) -> Result<(), Error> {
+    if alignment.streamed_to_terminal.contains_key(&output_index)
+        || alignment.terminal_to_streamed[terminal_index].is_some()
+    {
+        return Err(protocol_error(
+            "OpenAI terminal response duplicated a streamed output identity",
+        ));
+    }
+    alignment
+        .streamed_to_terminal
+        .insert(output_index, terminal_index);
+    alignment.terminal_to_streamed[terminal_index] = Some(output_index);
     Ok(())
 }
 
@@ -1857,8 +2930,17 @@ fn encode_event_value(event: &StreamEventWire) -> Result<Value, Error> {
     })
 }
 
-fn content_id(item_id: &str, lane: &str, index: u64) -> String {
-    format!("{item_id}:{lane}:{index}")
+fn ensure_observed_lanes_are_covered<'a>(
+    observed: impl IntoIterator<Item = &'a ContentLaneId>,
+    expected: &BTreeSet<ContentLaneId>,
+) -> Result<(), Error> {
+    if observed.into_iter().any(|lane| !expected.contains(lane)) {
+        Err(protocol_error(
+            "OpenAI terminal output item omitted or changed an observed content lane",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

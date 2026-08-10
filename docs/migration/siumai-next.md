@@ -229,14 +229,22 @@ need to normalize encoded tool-argument strings or reconcile disagreeing executa
 
 `OpenAiResponsesStreamFrame::native()` remains the exact provider event. Abbreviated terminal
 events may require reconstruction from earlier completed items, so use
-`canonical_terminal_response()` for the strict terminal `ResponseWire`. Accordingly,
+`canonical_terminal_response()` for the reconciled terminal `ResponseWire`. Accordingly,
 `OpenAiResponsesStreamFrame::into_parts()` now returns
-`(ResponsesStreamEvent, Vec<LanguageStreamEvent>, Option<ResponseWire>)` instead of the former
-two-element tuple. Official OpenAI endpoints use strict terminal reconciliation; explicitly
-compatible profiles may opt into the bounded compatible policy inside the configured provider.
-That policy may restore absent message identity, status, phase, annotations, and logprobs from one
-uniquely matched completed item, but it still rejects changed text, refusal, role, type, content
-length, or unknown content semantics.
+`(ResponsesStreamEvent, Vec<LanguageStreamEvent>, Option<ResponseWire>,
+ResponsesReplayStatus)` instead of the former two-element tuple. The lower-level
+`DecodedResponsesStreamFrame::into_parts()` similarly returns the native event, portable events,
+and replay status. Replay status is pending before settlement and becomes available only when the
+settled terminal resource has no replay-critical identity, reasoning-state, or provider-item
+conflicts.
+
+The branded OpenAI provider always uses the official Responses wire baseline. Relay and compatible
+provider callers select a `ResponsesWireDialect` on `OpenAiCompatibleProfile`; the generic default
+remains the OpenAI baseline, so abbreviated terminal fields require an explicit profile decision.
+The dialect may restore only its documented missing fields from one uniquely aligned completed
+item. One shared reconciler still rejects changed portable text, refusal, role, executable
+identity, tool name, caller ownership, or canonical JSON input. Provider-native bookkeeping drift
+may keep the portable result while making native replay unavailable.
 
 Custom compatibility decoders that wrap another `LanguageStreamDecoder` should forward
 `set_response_diagnostics` to the inner decoder. The method has a default implementation for
@@ -638,6 +646,9 @@ provider provenance.
 - Move prompt-cache intent onto typed message, content, or tool annotations.
 - Update native Responses stream destructuring for the canonical terminal response returned by
   `OpenAiResponsesStreamFrame::into_parts()`.
+- Move custom Responses terminal contractions to
+  `OpenAiCompatibleProfile::with_responses_wire_dialect`; the branded OpenAI builder no longer
+  accepts a wire-dialect override.
 - Enable `openai-responses-websocket` only when the application needs persistent provider-owned
   Responses turns; configure a WebSocket endpoint explicitly for custom HTTP providers.
 - Acquire files, image, video, music, and speech APIs from `MinimaxProvider`.

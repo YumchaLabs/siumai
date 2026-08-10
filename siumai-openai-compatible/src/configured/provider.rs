@@ -567,11 +567,13 @@ mod tests {
         API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
     };
     use siumai_protocol_openai::responses::{
-        API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
+        API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
     };
     use siumai_transport::{EndpointConfig, OfficialOrigin, RequestHeaders};
 
-    use crate::configured::codec_policy::{ChatCodecPolicy, PreparedChatCall};
+    use crate::configured::codec_policy::{
+        ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
+    };
 
     #[derive(Debug)]
     struct ProtocolHeaderPolicy;
@@ -603,6 +605,31 @@ mod tests {
                 extra,
                 headers,
                 prompt_cache_resolver: None,
+                warnings: Vec::new(),
+            })
+        }
+    }
+
+    #[derive(Debug)]
+    struct CompatibleResponsesPolicy;
+
+    impl ResponsesCodecPolicy for CompatibleResponsesPolicy {
+        fn name(&self) -> &'static str {
+            "compatible-responses-test"
+        }
+
+        fn prepare(
+            &self,
+            _model: &ModelId,
+            request: LanguageRequest,
+            extra: BTreeMap<String, Value>,
+        ) -> Result<PreparedResponsesCall, Error> {
+            Ok(PreparedResponsesCall {
+                request,
+                extra,
+                headers: RequestHeaders::new(),
+                native_tools: Vec::new(),
+                function_tools: BTreeMap::new(),
                 warnings: Vec::new(),
             })
         }
@@ -983,8 +1010,11 @@ mod tests {
             .expect(1)
             .create_async()
             .await;
+        let profile = dual_mode_profile(&format!("{}/v1", server.url()))
+            .with_responses_codec_policy(Arc::new(CompatibleResponsesPolicy))
+            .with_responses_wire_dialect(ResponsesWireDialect::compatible());
         let provider = OpenAiCompatibleProvider::builder(
-            dual_mode_profile(&format!("{}/v1", server.url())),
+            profile,
             OpenAiCompatibleCredential::unauthenticated(),
         )
         .build()

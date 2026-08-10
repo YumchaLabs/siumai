@@ -108,6 +108,15 @@ pub(crate) fn decode_response_wire(
     scope: &ProviderScope,
     requested_model: &ModelId,
 ) -> Result<DecodedResponse, Error> {
+    decode_response_wire_with_replay(native, scope, requested_model, true)
+}
+
+pub(crate) fn decode_response_wire_with_replay(
+    native: ResponseWire,
+    scope: &ProviderScope,
+    requested_model: &ModelId,
+    include_native_replay: bool,
+) -> Result<DecodedResponse, Error> {
     validate_resource_identity(&native)?;
     if matches!(
         &native.status,
@@ -118,7 +127,7 @@ pub(crate) fn decode_response_wire(
         ));
     }
 
-    let canonical = project_response(&native, scope, requested_model)?;
+    let canonical = project_response(&native, scope, requested_model, include_native_replay)?;
     Ok(DecodedResponse { native, canonical })
 }
 
@@ -145,6 +154,7 @@ pub(crate) fn project_response(
     native: &ResponseWire,
     scope: &ProviderScope,
     _requested_model: &ModelId,
+    include_native_replay: bool,
 ) -> Result<LanguageResponse, Error> {
     let response_model = ModelId::new(native.model.clone()).map_err(|source| {
         Error::new(
@@ -155,7 +165,14 @@ pub(crate) fn project_response(
     })?;
     let mut content = Vec::new();
     for item in &native.output {
-        project_item(item, &native.status, scope, &response_model, &mut content)?;
+        project_item(
+            item,
+            &native.status,
+            scope,
+            &response_model,
+            include_native_replay,
+            &mut content,
+        )?;
     }
 
     let status = response_status(native);
@@ -201,6 +218,7 @@ fn project_item(
     response_status: &ResponseStatus,
     scope: &ProviderScope,
     model: &ModelId,
+    include_native_replay: bool,
     content: &mut Vec<ContentPart>,
 ) -> Result<(), Error> {
     match item {
@@ -248,9 +266,11 @@ fn project_item(
         OutputItem::ProviderTool(_) | OutputItem::Unknown(_) => {}
     }
 
-    content.push(ContentPart::ProviderOpaque(opaque_item(
-        item, scope, model,
-    )?));
+    if include_native_replay {
+        content.push(ContentPart::ProviderOpaque(opaque_item(
+            item, scope, model,
+        )?));
+    }
     Ok(())
 }
 
@@ -293,11 +313,6 @@ pub(crate) fn project_citation(
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| format!("{message_id}:annotation:{index}"));
-    let mut provider = BTreeMap::new();
-    provider.insert(
-        OPENAI_RESPONSES_PROTOCOL.to_string(),
-        serde_json::to_value(annotation).unwrap_or(Value::Null),
-    );
     Citation {
         source_id,
         title: annotation
@@ -313,7 +328,7 @@ pub(crate) fn project_citation(
             .map(str::to_string),
         start: annotation.fields.get("start_index").and_then(Value::as_u64),
         end: annotation.fields.get("end_index").and_then(Value::as_u64),
-        provider,
+        provider: BTreeMap::new(),
     }
 }
 
@@ -421,18 +436,11 @@ pub(crate) fn decode_usage(wire: &ResponseUsageWire) -> Usage {
         if let Some(value) = details.orchestration_input_cached_tokens {
             usage = usage.with_provider_value("orchestration_input_cached_tokens", value);
         }
-        for (key, value) in &details.extra {
-            usage = usage.with_provider_value(format!("input_tokens_details.{key}"), value.clone());
-        }
     }
     if let Some(details) = &wire.output_tokens_details {
         usage = usage.with_reasoning_tokens(details.reasoning_tokens);
         if let Some(value) = details.orchestration_output_tokens {
             usage = usage.with_provider_value("orchestration_output_tokens", value);
-        }
-        for (key, value) in &details.extra {
-            usage =
-                usage.with_provider_value(format!("output_tokens_details.{key}"), value.clone());
         }
     }
     let orchestration = wire
@@ -449,21 +457,30 @@ pub(crate) fn decode_usage(wire: &ResponseUsageWire) -> Usage {
     if orchestration > 0 {
         usage = usage.with_orchestration_tokens(orchestration);
     }
-    for (key, value) in &wire.extra {
-        usage = usage.with_provider_value(key.clone(), value.clone());
-    }
     usage
 }
 
 fn response_metadata(native: &ResponseWire) -> Value {
     json!({
-        "status": native.status.as_str(),
+        "status": public_response_status(&native.status),
         "created_at": native.created_at,
-        "incomplete_details": native.incomplete_details,
-        "error": native.error,
-        "reasoning": native.reasoning,
-        "extra": native.extra,
+        "has_incomplete_details": native.incomplete_details.is_some(),
+        "has_error": native.error.is_some(),
+        "has_reasoning": native.reasoning.is_some(),
+        "extra_field_count": native.extra.len(),
     })
+}
+
+fn public_response_status(status: &ResponseStatus) -> &'static str {
+    match status {
+        ResponseStatus::Queued => "queued",
+        ResponseStatus::InProgress => "in_progress",
+        ResponseStatus::Completed => "completed",
+        ResponseStatus::Incomplete => "incomplete",
+        ResponseStatus::Cancelled => "cancelled",
+        ResponseStatus::Failed => "failed",
+        ResponseStatus::Other(_) => "other",
+    }
 }
 
 fn finish_reason(native: &ResponseWire, content: &[ContentPart]) -> FinishReason {

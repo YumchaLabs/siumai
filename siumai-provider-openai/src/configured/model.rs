@@ -19,8 +19,7 @@ use siumai_protocol_openai::chat_completions::{
     encode_request_with_options_and_resolver as encode_chat_request_with_options,
 };
 use siumai_protocol_openai::responses::{
-    RequestEncodingOptions, ResponsesStreamDecoder, ResponsesTerminalPolicy,
-    decode_response as decode_responses_response,
+    RequestEncodingOptions, ResponsesStreamDecoder, decode_response as decode_responses_response,
     encode_request_with_options_and_resolver as encode_request_with_options,
 };
 use siumai_transport::framing::{SseDecoder, SseFrameError};
@@ -382,12 +381,11 @@ impl OpenAiResponsesModel {
         let (status, headers, body) = response.into_parts();
         let diagnostics = headers.diagnostics().with_status(status.as_u16());
         let context = model_error_context(self, operation);
-        let terminal_policy = responses_terminal_policy(&self.runtime);
         let decoder = ResponsesStreamDecoder::new(
             self.runtime.scope(OpenAiApiMode::Responses).clone(),
             self.model_id().clone(),
         )
-        .with_terminal_policy(terminal_policy)
+        .with_wire_dialect(self.runtime.responses_wire_dialect)
         .with_response_diagnostics(diagnostics);
 
         Ok(decode_responses_sse_stream(
@@ -398,29 +396,6 @@ impl OpenAiResponsesModel {
             warnings,
             context,
         ))
-    }
-}
-
-pub(crate) fn responses_terminal_policy(runtime: &OpenAiRuntime) -> ResponsesTerminalPolicy {
-    let scope = runtime.scope(OpenAiApiMode::Responses);
-    let verified = runtime
-        .profile
-        .provider_profile()
-        .verified_claims()
-        .is_some_and(|claims| {
-            claims.iter().any(|claim| {
-                let claim = claim.scope();
-                claim.provider() == scope.provider_id()
-                    && scope.platform() == Some(claim.platform())
-                    && scope.protocol() == Some(claim.protocol())
-                    && scope.api_mode() == Some(claim.api_mode())
-                    && claim.family() == ModelFamily::Language
-            })
-        });
-    if verified {
-        ResponsesTerminalPolicy::Strict
-    } else {
-        ResponsesTerminalPolicy::Compatible
     }
 }
 
@@ -970,11 +945,26 @@ fn decode_responses_sse_stream(
                 .map_err(|source| {
                     sse_error(OpenAiApiMode::Responses, source).with_context(context.clone())
                 })?;
+            let mut pending_frames = Vec::with_capacity(frames.len());
+            let mut terminal_in_batch = false;
             for frame in frames {
+                if terminal_in_batch && frame.data().trim() == "[DONE]" {
+                    continue;
+                }
                 let decoded = protocol
                     .decode_native(frame.data())
                     .map_err(|error| error.with_context(context.clone()))?;
-                let (native, mut portable_events) = decoded.into_parts();
+                let (native, mut portable_events, replay_status) = decoded.into_parts();
+                let terminal_position = portable_events
+                    .iter()
+                    .position(|event| event.terminal().is_some());
+                if terminal_position.is_some_and(|index| index + 1 != portable_events.len()) {
+                    Err(Error::new(
+                        ErrorKind::Protocol,
+                        "OpenAI Responses decoder emitted events after terminal settlement",
+                    )
+                    .with_context(context.clone()))?;
+                }
                 for event in &mut portable_events {
                     contextualize_terminal_error(event, &context);
                     attach_policy_warnings(event, &warnings);
@@ -988,12 +978,16 @@ fn decode_responses_sse_stream(
                     native,
                     portable_events,
                     canonical_terminal_response,
+                    replay_status,
                 );
-                let terminal = frame.is_terminal();
+                terminal_in_batch |= frame.is_terminal();
+                pending_frames.push(frame);
+            }
+            for frame in pending_frames {
                 yield frame;
-                if terminal {
-                    return;
-                }
+            }
+            if terminal_in_batch {
+                return;
             }
         }
         framing
@@ -1036,19 +1030,37 @@ where
                 let frames = framing
                     .push(&chunk)
                     .map_err(|source| sse_error(mode, source).with_context(context.clone()))?;
+                let mut pending_events = Vec::new();
+                let mut terminal_in_batch = false;
                 for frame in frames {
+                    if terminal_in_batch && frame.data().trim() == "[DONE]" {
+                        continue;
+                    }
                     let events = protocol
                         .decode(frame.data())
                         .map_err(|error| error.with_context(context.clone()))?;
+                    let terminal_position = events
+                        .iter()
+                        .position(|event| event.terminal().is_some());
+                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "OpenAI stream decoder emitted events after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    terminal_in_batch |= terminal_position.is_some();
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
                         attach_policy_warnings(&mut event, &warnings);
-                        let terminal = event.terminal().is_some();
-                        yield event;
-                        if terminal {
-                            return;
-                        }
+                        pending_events.push(event);
                     }
+                }
+                for event in pending_events {
+                    yield event;
+                }
+                if terminal_in_batch {
+                    return;
                 }
             }
             framing
@@ -1163,6 +1175,7 @@ mod tests {
         ContentPart, Message, MessagePart, MessageRole, ProviderOptions, ReplayDomain,
         ReplayDomainId, ToolSpec,
     };
+    use siumai_protocol_openai::responses::ResponsesWireDialect;
     use siumai_transport::EndpointConfig;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1244,11 +1257,11 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_ownership_selects_the_responses_terminal_policy() {
-        let compatible = provider().responses(GPT_5_6_SOL).unwrap();
+    fn branded_openai_responses_always_use_the_openai_baseline() {
+        let caller_selected = provider().responses(GPT_5_6_SOL).unwrap();
         assert_eq!(
-            responses_terminal_policy(&compatible.runtime),
-            ResponsesTerminalPolicy::Compatible
+            caller_selected.runtime.responses_wire_dialect,
+            ResponsesWireDialect::openai()
         );
 
         let official = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
@@ -1257,8 +1270,22 @@ mod tests {
             .responses(GPT_5_6_SOL)
             .unwrap();
         assert_eq!(
-            responses_terminal_policy(&official.runtime),
-            ResponsesTerminalPolicy::Strict
+            official.runtime.responses_wire_dialect,
+            ResponsesWireDialect::openai()
+        );
+
+        let custom = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("dialect-fixture").unwrap(),
+            ))
+            .build()
+            .unwrap()
+            .responses(GPT_5_6_SOL)
+            .unwrap();
+        assert_eq!(
+            custom.runtime.responses_wire_dialect,
+            ResponsesWireDialect::openai()
         );
     }
 
@@ -1764,13 +1791,20 @@ mod tests {
             .await;
 
         let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
-        let events = model
+        let frames = model
             .stream_native(request(), CallOptions::default())
             .await
             .unwrap()
-            .into_portable()
             .collect::<Vec<_>>()
             .await;
+        let mut events = Vec::new();
+        for frame in frames {
+            let frame = frame.unwrap();
+            if frame.is_terminal() {
+                assert!(frame.replay_status().is_available());
+            }
+            events.extend(frame.into_portable_events());
+        }
         assert_eq!(
             events
                 .iter()

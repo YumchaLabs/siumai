@@ -17,8 +17,8 @@ pub use request::{
 };
 pub use response::{DecodedResponse, decode_response, decode_response_resource};
 pub use stream::{
-    DecodedResponsesStreamFrame, ResponsesStreamDecoder, ResponsesStreamEvent,
-    ResponsesStreamEventKind, ResponsesTerminalPolicy,
+    DecodedResponsesStreamFrame, ResponsesReplayStatus, ResponsesStreamDecoder,
+    ResponsesStreamEvent, ResponsesStreamEventKind, ResponsesWireDialect,
 };
 pub use wire::{
     AnnotationWire, CustomToolCallItemWire, FunctionCallItemWire, IncompleteDetailsWire,

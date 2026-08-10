@@ -26,7 +26,7 @@ use siumai_protocol_openai::chat_completions::{
     PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
 use siumai_protocol_openai::responses::{
-    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
+    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
@@ -76,7 +76,8 @@ pub(crate) fn profile(
 
     Ok(profile
         .with_chat_codec_policy(Arc::new(ArkChatCodecPolicy))
-        .with_responses_codec_policy(Arc::new(ArkResponsesCodecPolicy)))
+        .with_responses_codec_policy(Arc::new(ArkResponsesCodecPolicy))
+        .with_responses_wire_dialect(ResponsesWireDialect::openai()))
 }
 
 fn verified_profile() -> Result<ProviderProfile, VolcengineProfileError> {

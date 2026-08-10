@@ -33,7 +33,7 @@ use siumai_protocol_openai::chat_completions::{
     decode_response as decode_chat_response,
 };
 use siumai_protocol_openai::responses::{
-    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
+    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
 };
 use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
@@ -141,7 +141,8 @@ pub(crate) fn profile(
 
     Ok(profile
         .with_chat_codec_policy(Arc::new(DeepSeekChatCodecPolicy::stable()))
-        .with_responses_codec_policy(Arc::new(DeepSeekResponsesCodecPolicy)))
+        .with_responses_codec_policy(Arc::new(DeepSeekResponsesCodecPolicy))
+        .with_responses_wire_dialect(ResponsesWireDialect::openai()))
 }
 
 pub(crate) fn beta_profile(

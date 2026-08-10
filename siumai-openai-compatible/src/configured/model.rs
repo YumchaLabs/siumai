@@ -144,6 +144,7 @@ impl OpenAiCompatibleLanguageModel {
         let LanguageModeProfile::Responses {
             scope,
             codec_policy,
+            ..
         } = &self.mode
         else {
             return Err(inconsistent_mode_error(
@@ -302,8 +303,8 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
             }
             LanguageModeProfile::Responses {
                 scope,
+                wire_dialect,
                 codec_policy,
-                ..
             } => {
                 let prepared = self
                     .prepare_responses(request, extra)
@@ -312,8 +313,11 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 let plan = self
                     .responses_plan(&prepared, true)
                     .map_err(|error| self.contextualize(operation, error))?;
-                let decoder =
-                    codec_policy.stream_decoder(scope.as_ref().clone(), self.model_id().clone());
+                let decoder = codec_policy.stream_decoder(
+                    scope.as_ref().clone(),
+                    self.model_id().clone(),
+                    *wire_dialect,
+                );
                 (plan, decoder)
             }
         };
@@ -442,19 +446,37 @@ fn decode_sse_stream(
                 let frames = framing
                     .push(&chunk)
                     .map_err(|source| sse_error(mode, source).with_context(context.clone()))?;
+                let mut pending_events = Vec::new();
+                let mut terminal_in_batch = false;
                 for frame in frames {
+                    if terminal_in_batch && frame.data().trim() == "[DONE]" {
+                        continue;
+                    }
                     let events = protocol
                         .decode(frame.data())
                         .map_err(|error| error.with_context(context.clone()))?;
+                    let terminal_position = events
+                        .iter()
+                        .position(|event| event.terminal().is_some());
+                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "compatible stream decoder emitted events after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    terminal_in_batch |= terminal_position.is_some();
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
                         attach_warnings(&mut event, &warnings);
-                        let terminal = event.terminal().is_some();
-                        yield event;
-                        if terminal {
-                            return;
-                        }
+                        pending_events.push(event);
                     }
+                }
+                for event in pending_events {
+                    yield event;
+                }
+                if terminal_in_batch {
+                    return;
                 }
             }
             framing

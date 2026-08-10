@@ -18,7 +18,7 @@ use siumai_core::{
     TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerifiedFidelity,
     VerifiedNativeSupportClaim,
 };
-use siumai_protocol_openai::responses::FunctionToolEncodingOptions;
+use siumai_protocol_openai::responses::{FunctionToolEncodingOptions, ResponsesWireDialect};
 use siumai_transport::{
     EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
     TransportConfigError, TransportLimits, TransportObserver,
@@ -695,6 +695,10 @@ impl OpenAiProviderBuilder {
             .map_err(OpenAiConfigError::InvalidTranscriptionDefaults)?;
         let endpoint = self.endpoint?;
         let provider_verified_endpoint = !self.custom_endpoint;
+        // The branded OpenAI provider owns the official Responses wire contract. Relays with
+        // abbreviated fields belong in `siumai-openai-compatible`, where the caller selects an
+        // explicit compatibility profile and dialect descriptor.
+        let responses_wire_dialect = ResponsesWireDialect::openai();
         let replay_domain = match (self.replay_domain.clone(), provider_verified_endpoint) {
             (Some(replay_domain), _) => replay_domain,
             (None, true) => ReplayDomain::official(ReplayDomainId::new("official")?),
@@ -900,6 +904,7 @@ impl OpenAiProviderBuilder {
                 support_manifest,
                 transport,
                 policy,
+                responses_wire_dialect,
                 responses_options: OpenAiOptionMerger::responses(self.responses_defaults)?,
                 chat_completions_options: OpenAiOptionMerger::chat_completions(
                     self.chat_completions_defaults,
@@ -991,6 +996,7 @@ pub(crate) struct OpenAiRuntime {
     pub(crate) support_manifest: Arc<ProviderSupportManifest>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<OpenAiModelPolicy>,
+    pub(crate) responses_wire_dialect: ResponsesWireDialect,
     responses_options: OpenAiOptionMerger,
     chat_completions_options: OpenAiOptionMerger,
     embedding_options: OpenAiEmbeddingOptions,

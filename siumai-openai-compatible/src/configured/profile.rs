@@ -9,7 +9,7 @@ use siumai_protocol_openai::chat_completions::{
     API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
 };
 use siumai_protocol_openai::responses::{
-    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL,
+    API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
 };
 use siumai_transport::{EndpointConfig, EndpointError, EndpointPolicy};
 
@@ -31,6 +31,7 @@ pub(crate) struct ChatModeProfile {
 pub(crate) struct ResponsesModeProfile {
     support_scope: SupportScope,
     scope: Arc<ProviderScope>,
+    wire_dialect: ResponsesWireDialect,
     codec_policy: Arc<dyn ResponsesCodecPolicy>,
 }
 
@@ -47,6 +48,7 @@ pub(crate) enum LanguageModeProfile {
     },
     Responses {
         scope: Arc<ProviderScope>,
+        wire_dialect: ResponsesWireDialect,
         codec_policy: Arc<dyn ResponsesCodecPolicy>,
     },
 }
@@ -295,6 +297,7 @@ impl OpenAiCompatibleProfile {
         let responses = responses.map(|support_scope| ResponsesModeProfile {
             scope: provider_scope(&support_scope),
             support_scope,
+            wire_dialect: ResponsesWireDialect::openai(),
             codec_policy: Arc::new(IdentityResponsesCodecPolicy),
         });
         let (recommended_mode, recommended_scope) = match (&chat, &responses) {
@@ -327,6 +330,17 @@ impl OpenAiCompatibleProfile {
     ) -> Self {
         if let Some(responses) = &mut self.responses {
             responses.codec_policy = codec_policy;
+        }
+        self
+    }
+
+    /// Select the documented Responses wire contractions for this compatibility profile.
+    ///
+    /// The safe default is the OpenAI wire baseline. Callers should opt into a narrower
+    /// descriptor only for a concrete relay or provider contract they maintain.
+    pub fn with_responses_wire_dialect(mut self, wire_dialect: ResponsesWireDialect) -> Self {
+        if let Some(responses) = &mut self.responses {
+            responses.wire_dialect = wire_dialect;
         }
         self
     }
@@ -450,6 +464,7 @@ impl OpenAiCompatibleProfile {
                     .as_ref()
                     .map(|profile| LanguageModeProfile::Responses {
                         scope: profile.scope.clone(),
+                        wire_dialect: profile.wire_dialect,
                         codec_policy: profile.codec_policy.clone(),
                     })
             }
@@ -478,10 +493,13 @@ impl fmt::Debug for OpenAiCompatibleProfile {
             )
             .field(
                 "responses",
-                &self
-                    .responses
-                    .as_ref()
-                    .map(|mode| (mode.scope.as_ref(), mode.codec_policy.name())),
+                &self.responses.as_ref().map(|mode| {
+                    (
+                        mode.scope.as_ref(),
+                        mode.wire_dialect,
+                        mode.codec_policy.name(),
+                    )
+                }),
             )
             .finish()
     }

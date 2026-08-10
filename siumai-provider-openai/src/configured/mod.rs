@@ -151,8 +151,8 @@ pub mod responses {
         OutputRefusalWire, OutputTextWire, OutputTokenDetailsWire, ProgramItemWire,
         ProgramOutputItemWire, ProviderToolItemWire, ReasoningItemWire, ReasoningTextWire,
         ResponseErrorWire, ResponseReasoningConfigWire, ResponseStatus, ResponseUsageWire,
-        ResponseWire, ResponsesStreamEvent, ResponsesStreamEventKind, StreamEventWire,
-        ToolCallerWire, UnknownContentPartWire, UnknownOutputItemWire,
+        ResponseWire, ResponsesReplayStatus, ResponsesStreamEvent, ResponsesStreamEventKind,
+        StreamEventWire, ToolCallerWire, UnknownContentPartWire, UnknownOutputItemWire,
     };
 }
 
