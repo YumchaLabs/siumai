@@ -317,6 +317,14 @@ fn facade_registration_sources_cover_all_six_stable_families() {
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
 }
 
+#[cfg(feature = "openai-compatible")]
+#[test]
+fn facade_exposes_explicit_responses_wire_dialects() {
+    use siumai::providers::openai_compatible::ResponsesWireDialect;
+
+    let _dialect = ResponsesWireDialect::compatible();
+}
+
 #[cfg(all(feature = "deepgram", feature = "elevenlabs"))]
 #[test]
 fn facade_exposes_deepgram_speech_and_elevenlabs_transcription() {
