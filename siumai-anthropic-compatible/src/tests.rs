@@ -110,6 +110,47 @@ fn credentials_and_configured_runtime_debug_are_secret_safe() {
     assert!(!debug.contains("compatible.example"));
 }
 
+#[test]
+fn configured_instance_identity_is_shared_within_one_build_and_fresh_across_builds() {
+    let profile = AnthropicCompatibleProfile::public_custom(
+        ProfileId::new("instance-profile").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "https://compatible.example/v1",
+        ReplayDomainId::new("compatible-instance-test").unwrap(),
+        API_VERSION,
+    )
+    .unwrap();
+    let first = AnthropicCompatibleProvider::builder(
+        profile.clone(),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let second = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+
+    let first_direct = first.language("future-model-v9").unwrap();
+    let first_registered = first
+        .registration()
+        .language_model(ModelId::new("future-model-v9").unwrap())
+        .unwrap();
+    let second_direct = second.language("future-model-v9").unwrap();
+
+    assert_eq!(
+        first_direct.descriptor().instance_id(),
+        first_registered.descriptor().instance_id()
+    );
+    assert_ne!(
+        first_direct.descriptor().instance_id(),
+        second_direct.descriptor().instance_id()
+    );
+}
+
 #[tokio::test]
 async fn direct_and_erased_models_have_identical_api_key_wire_behavior() {
     let server = MockServer::start().await;

@@ -36,8 +36,12 @@ pub struct DeepgramTranscriptionModel {
 
 impl DeepgramTranscriptionModel {
     pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Transcription);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Transcription,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

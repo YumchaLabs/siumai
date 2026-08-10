@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::error::{Error, ErrorKind, ResourceKind};
 use crate::language::{LanguageRequest, LanguageResponse, MediaData, Warning};
 use crate::options::CallOptions;
-use crate::provider::{ModelId, ProviderId, ProviderScope, ReplayDomain};
+use crate::provider::{ModelId, ProviderId, ProviderInstanceId, ProviderScope, ReplayDomain};
 use crate::stream::LanguageStream;
 use crate::usage::Usage;
 
@@ -28,27 +28,57 @@ pub enum ModelFamily {
 }
 
 /// Immutable identity captured by a lightweight model handle.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ModelDescriptor {
     scope: Arc<ProviderScope>,
     model: ModelId,
     family: ModelFamily,
+    #[serde(skip, default = "ProviderInstanceId::new")]
+    instance_id: ProviderInstanceId,
 }
+
+impl std::fmt::Debug for ModelDescriptor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ModelDescriptor")
+            .field("scope", &self.scope)
+            .field("model", &self.model)
+            .field("family", &self.family)
+            .field("instance_id", &self.instance_id)
+            .finish()
+    }
+}
+
+impl PartialEq for ModelDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.scope == other.scope && self.model == other.model && self.family == other.family
+    }
+}
+
+impl Eq for ModelDescriptor {}
 
 impl ModelDescriptor {
     pub fn new(provider: ProviderId, model: ModelId, family: ModelFamily) -> Self {
-        Self::from_scope(Arc::new(ProviderScope::new(provider)), model, family)
+        Self::from_scope(
+            Arc::new(ProviderScope::new(provider)),
+            model,
+            family,
+            ProviderInstanceId::new(),
+        )
     }
 
+    /// Construct a model handle bound to a configured provider capability.
     pub fn from_scope(
         scope: impl Into<Arc<ProviderScope>>,
         model: ModelId,
         family: ModelFamily,
+        instance_id: ProviderInstanceId,
     ) -> Self {
         Self {
             scope: scope.into(),
             model,
             family,
+            instance_id,
         }
     }
 
@@ -114,6 +144,11 @@ impl ModelDescriptor {
 
     pub fn replay_domain(&self) -> Option<&ReplayDomain> {
         self.scope.replay_domain()
+    }
+
+    /// Return the opaque configured-instance capability for this model.
+    pub fn instance_id(&self) -> &ProviderInstanceId {
+        &self.instance_id
     }
 }
 
@@ -1316,6 +1351,36 @@ fn as_u64(value: usize) -> u64 {
 mod tests {
     use super::*;
     use crate::error::ErrorDetail;
+    use crate::provider::{ApiModeId, ProviderId};
+
+    #[test]
+    fn configured_provider_identity_is_explicit_and_not_serialized() {
+        let scope = Arc::new(
+            ProviderScope::new(ProviderId::new("openai").unwrap())
+                .with_api_mode(ApiModeId::new("responses").unwrap()),
+        );
+        let shared_instance = ProviderInstanceId::new();
+        let first = ModelDescriptor::from_scope(
+            scope.clone(),
+            ModelId::new("future-a").unwrap(),
+            ModelFamily::Language,
+            shared_instance.clone(),
+        );
+        let second = ModelDescriptor::from_scope(
+            scope,
+            ModelId::new("future-b").unwrap(),
+            ModelFamily::Language,
+            shared_instance,
+        );
+
+        assert_eq!(first.instance_id(), second.instance_id());
+        let encoded = serde_json::to_value(&first).unwrap();
+        assert!(encoded.get("instance_id").is_none());
+
+        let restored: ModelDescriptor = serde_json::from_value(encoded).unwrap();
+        assert_ne!(first.instance_id(), restored.instance_id());
+        assert!(format!("{:?}", first.instance_id()).contains("opaque"));
+    }
 
     #[test]
     fn embedding_requests_cannot_encode_empty_or_token_like_inputs() {

@@ -140,6 +140,7 @@ impl GeminiGenerateContentModel {
             runtime.generate_content_scope.clone(),
             model,
             ModelFamily::Language,
+            runtime.instance_id.clone(),
         );
         Self {
             runtime,

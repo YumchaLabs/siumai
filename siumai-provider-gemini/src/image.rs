@@ -34,8 +34,12 @@ pub struct GeminiImageModel {
 
 impl GeminiImageModel {
     pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.image_scope.clone(), model, ModelFamily::Image);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.image_scope.clone(),
+            model,
+            ModelFamily::Image,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

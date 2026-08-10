@@ -37,8 +37,12 @@ pub struct GroqSpeechModel {
 
 impl GroqSpeechModel {
     pub(crate) fn new(runtime: Arc<GroqSpeechRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Speech);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Speech,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

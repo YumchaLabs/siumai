@@ -345,8 +345,8 @@ mod tests {
         ErrorContext, ErrorKind, FinishReason, ImageRequest, ImageResponse, LanguageRequest,
         LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelFamily, ModelLookupError,
         ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProtocolId, ProviderId,
-        ProviderScope, RerankRequest, RerankResponse, SpeechRequest, SpeechResponse,
-        TranscriptionRequest, TranscriptionResponse, Usage,
+        ProviderInstanceId, ProviderScope, RerankRequest, RerankResponse, SpeechRequest,
+        SpeechResponse, TranscriptionRequest, TranscriptionResponse, Usage,
     };
 
     use super::*;
@@ -546,6 +546,7 @@ mod tests {
                 .with_api_mode(ApiModeId::new(mode).unwrap()),
         );
         let factory_scope = scope.clone();
+        let instance_id = ProviderInstanceId::new();
         ProviderRegistration::from_language(
             scope,
             Arc::new(AdvisoryPolicy),
@@ -556,6 +557,7 @@ mod tests {
                         factory_scope.clone(),
                         model,
                         ModelFamily::Language,
+                        instance_id.clone(),
                     ),
                     runtime: runtime.clone(),
                 }) as Arc<dyn LanguageModel>)
@@ -565,16 +567,19 @@ mod tests {
 
     fn all_family_registration() -> ProviderRegistration {
         let scope = Arc::new(ProviderScope::new(ProviderId::new("all-families").unwrap()));
+        let instance_id = ProviderInstanceId::new();
 
         macro_rules! factory {
             ($model:ident, $trait:ident, $family:ident) => {{
                 let scope = scope.clone();
+                let instance_id = instance_id.clone();
                 Arc::new(move |model| {
                     Ok(Arc::new($model {
                         descriptor: ModelDescriptor::from_scope(
                             scope.clone(),
                             model,
                             ModelFamily::$family,
+                            instance_id.clone(),
                         ),
                     }) as Arc<dyn $trait>)
                 })
@@ -584,15 +589,20 @@ mod tests {
         ProviderRegistration::from_language(
             scope.clone(),
             Arc::new(AdvisoryPolicy),
-            Arc::new(move |model| {
-                Ok(Arc::new(FakeLanguageModel {
-                    descriptor: ModelDescriptor::new(
-                        ProviderId::new("all-families").unwrap(),
-                        model,
-                        ModelFamily::Language,
-                    ),
-                    runtime: Arc::new(1),
-                }) as Arc<dyn LanguageModel>)
+            Arc::new({
+                let scope = scope.clone();
+                let instance_id = instance_id.clone();
+                move |model| {
+                    Ok(Arc::new(FakeLanguageModel {
+                        descriptor: ModelDescriptor::from_scope(
+                            scope.clone(),
+                            model,
+                            ModelFamily::Language,
+                            instance_id.clone(),
+                        ),
+                        runtime: Arc::new(1),
+                    }) as Arc<dyn LanguageModel>)
+                }
             }),
         )
         .bind_embedding(
@@ -762,6 +772,7 @@ mod tests {
         let wraps = Arc::new(AtomicUsize::new(0));
         let scope = Arc::new(ProviderScope::new(ProviderId::new("fake").unwrap()));
         let factory_scope = scope.clone();
+        let instance_id = ProviderInstanceId::new();
         let factory_calls = calls.clone();
         let registration = ProviderRegistration::from_embedding(
             scope,
@@ -772,6 +783,7 @@ mod tests {
                         factory_scope.clone(),
                         model,
                         ModelFamily::Embedding,
+                        instance_id.clone(),
                     ),
                     calls: factory_calls.clone(),
                 }) as Arc<dyn EmbeddingModel>)

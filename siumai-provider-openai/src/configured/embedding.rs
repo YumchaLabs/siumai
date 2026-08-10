@@ -91,9 +91,15 @@ impl OpenAiEmbeddingModel {
         model: ModelId,
         defaults: OpenAiEmbeddingOptions,
     ) -> Self {
+        let instance_id = runtime.instance_id.clone();
         Self {
             runtime,
-            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Embedding),
+            descriptor: ModelDescriptor::from_scope(
+                scope,
+                model,
+                ModelFamily::Embedding,
+                instance_id,
+            ),
             defaults,
         }
     }

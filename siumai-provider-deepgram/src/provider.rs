@@ -5,10 +5,10 @@ use std::time::Duration;
 use serde_json::{Map, Value};
 use siumai_core::{
     InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
-    ModelPolicyContext, ModelPolicyDecision, Provider, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptions, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, SpeechModelProvider, TranscriptionModelProvider,
-    TypedProviderOptions, UnsupportedReason,
+    ModelPolicyContext, ModelPolicyDecision, Provider, ProviderInstanceId, ProviderOptionContext,
+    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptions,
+    ProviderRegistration, ProviderRegistrationError, ProviderScope, SpeechModelProvider,
+    TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
 };
 use siumai_transport::{
     EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
@@ -221,9 +221,11 @@ impl DeepgramProviderBuilder {
             transport = transport.with_read_timeout(timeout);
         }
         let transport = transport.build()?;
+        let instance_id = ProviderInstanceId::new();
         let policy = Arc::new(DeepgramModelPolicy { verified_endpoint });
         let runtime = Arc::new(ProviderRuntime {
             scope: profile.scope(),
+            instance_id: instance_id.clone(),
             transport: transport.clone(),
             policy,
             default_options,
@@ -231,6 +233,7 @@ impl DeepgramProviderBuilder {
         });
         let speech_runtime = Arc::new(DeepgramSpeechRuntime {
             scope: profile.speech_scope(),
+            instance_id,
             transport,
             policy: Arc::new(DeepgramSpeechModelPolicy { verified_endpoint }),
         });
@@ -288,6 +291,7 @@ impl fmt::Debug for DeepgramProviderBuilder {
 
 pub(crate) struct ProviderRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<DeepgramModelPolicy>,
     default_options: ProviderOptions,
@@ -296,6 +300,7 @@ pub(crate) struct ProviderRuntime {
 
 pub(crate) struct DeepgramSpeechRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<DeepgramSpeechModelPolicy>,
 }
@@ -475,8 +480,35 @@ mod tests {
             .unwrap();
 
         assert_eq!(direct.descriptor(), erased.descriptor());
+        assert_eq!(
+            direct.descriptor().instance_id(),
+            erased.descriptor().instance_id()
+        );
         assert_eq!(direct.descriptor().protocol(), Some("deepgram-prerecorded"));
         assert_eq!(direct.descriptor().api_mode(), Some("prerecorded"));
+    }
+
+    #[test]
+    fn configured_instance_identity_spans_families_and_is_fresh_per_build() {
+        let first = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
+            .build()
+            .unwrap();
+        let second = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
+            .build()
+            .unwrap();
+
+        let transcription = first.transcription("nova-3").unwrap();
+        let speech = first.default_speech_model().unwrap();
+        let separate = second.transcription("nova-3").unwrap();
+
+        assert_eq!(
+            transcription.descriptor().instance_id(),
+            speech.descriptor().instance_id()
+        );
+        assert_ne!(
+            transcription.descriptor().instance_id(),
+            separate.descriptor().instance_id()
+        );
     }
 
     #[test]

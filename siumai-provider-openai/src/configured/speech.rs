@@ -91,9 +91,10 @@ impl OpenAiSpeechModel {
         model: ModelId,
         defaults: OpenAiSpeechOptions,
     ) -> Self {
+        let instance_id = runtime.instance_id.clone();
         Self {
             runtime,
-            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Speech),
+            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Speech, instance_id),
             defaults,
         }
     }

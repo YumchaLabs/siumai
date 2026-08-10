@@ -5,7 +5,8 @@ use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
 use http::{Method, StatusCode};
 use serde::{Deserialize, de::DeserializeOwned};
 use siumai_core::{
-    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SensitiveResponse,
+    CallOptions, Error, ErrorKind, ProviderInstanceId, PublicDiagnosticText, ResponseDiagnostics,
+    SensitiveResponse,
 };
 use siumai_transport::{
     MultipartBody, ProviderTransport, ReplaySafety, RequestBody, RequestHeaders, RequestPlan,
@@ -17,12 +18,16 @@ use siumai_transport::{
 /// Authentication, endpoint policy, retries, and request/response bounds are
 /// configured once on the transport by the provider builder.
 pub(crate) struct NativeRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
 }
 
 impl NativeRuntime {
-    pub(crate) fn new(transport: ProviderTransport) -> Self {
-        Self { transport }
+    pub(crate) fn new(instance_id: ProviderInstanceId, transport: ProviderTransport) -> Self {
+        Self {
+            instance_id,
+            transport,
+        }
     }
 
     pub(crate) fn max_request_bytes(&self) -> usize {

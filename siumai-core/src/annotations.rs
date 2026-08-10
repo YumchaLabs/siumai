@@ -599,6 +599,10 @@ fn map_option_error(namespace: &ProviderId, error: ProviderOptionError) -> Provi
         ProviderOptionError::TooManyFields { maximum } => {
             ProviderAnnotationError::TooManyFields { maximum }
         }
+        ProviderOptionError::TooLarge { maximum } => ProviderAnnotationError::TooLarge {
+            actual: maximum.saturating_add(1),
+            maximum,
+        },
         _ => ProviderAnnotationError::Serialization {
             namespace: namespace.to_string(),
         },

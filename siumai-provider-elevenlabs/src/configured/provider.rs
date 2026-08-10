@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use siumai_core::{
     InvalidId, ModelFamily, ModelId, ModelLookupError, ModelOperation, ProfileError, Provider,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderRegistration, ProviderRegistrationError,
-    ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions,
+    ProviderInstanceId, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointError, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
@@ -232,6 +232,7 @@ impl ElevenLabsProviderBuilder {
             transport = transport.with_read_timeout(timeout);
         }
         let transport = transport.build()?;
+        let instance_id = ProviderInstanceId::new();
         let policy = Arc::new(ElevenLabsModelPolicy::new(
             self.profile.profile_arc(),
             self.profile.support_scope().clone(),
@@ -244,6 +245,7 @@ impl ElevenLabsProviderBuilder {
         ));
         let runtime = Arc::new(ProviderRuntime {
             scope: self.profile.scope_arc(),
+            instance_id: instance_id.clone(),
             profile: self.profile.clone(),
             transport: transport.clone(),
             policy,
@@ -255,6 +257,7 @@ impl ElevenLabsProviderBuilder {
         });
         let transcription_runtime = Arc::new(TranscriptionRuntime {
             scope: self.profile.transcription_scope_arc(),
+            instance_id,
             transport,
             policy: transcription_policy,
             option_merger: ElevenLabsTranscriptionOptionMerger {
@@ -292,6 +295,7 @@ impl ElevenLabsProviderBuilder {
 
 pub(crate) struct ProviderRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) profile: ElevenLabsProfile,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<ElevenLabsModelPolicy>,
@@ -302,6 +306,7 @@ pub(crate) struct ProviderRuntime {
 
 pub(crate) struct TranscriptionRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<ElevenLabsModelPolicy>,
     option_merger: ElevenLabsTranscriptionOptionMerger,
@@ -488,15 +493,33 @@ mod tests {
         ));
 
         let provider =
+            ElevenLabsProvider::builder(profile.clone(), ElevenLabsCredential::api_key("test-key"))
+                .build()
+                .unwrap();
+        let separately_built =
             ElevenLabsProvider::builder(profile, ElevenLabsCredential::api_key("test-key"))
                 .build()
                 .unwrap();
         let direct = provider.speech(models::DEFAULT).unwrap();
+        let transcription = provider.default_transcription_model().unwrap();
+        let separate = separately_built.speech(models::DEFAULT).unwrap();
         let erased = provider
             .registration()
             .speech_model(ModelId::new(models::DEFAULT).unwrap())
             .unwrap();
         assert_eq!(direct.descriptor(), erased.descriptor());
+        assert_eq!(
+            direct.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_eq!(
+            direct.descriptor().instance_id(),
+            erased.descriptor().instance_id()
+        );
+        assert_ne!(
+            direct.descriptor().instance_id(),
+            separate.descriptor().instance_id()
+        );
         assert_eq!(direct.limits(), erased.limits());
         assert_eq!(direct.family(), ModelFamily::Speech);
         assert_eq!(

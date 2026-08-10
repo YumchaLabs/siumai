@@ -45,6 +45,7 @@ impl GeminiLanguageModel {
             runtime.interactions_scope.clone(),
             model,
             ModelFamily::Language,
+            runtime.instance_id.clone(),
         );
         Self {
             runtime,

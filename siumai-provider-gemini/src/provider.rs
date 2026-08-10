@@ -11,7 +11,7 @@ use siumai_core::{
     ImageModel, ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, ModelId,
     ModelLookupError, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
     NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
-    OfficialSource, PlatformId, Provider, ProviderOptionError, ProviderOptions,
+    OfficialSource, PlatformId, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptions,
     ProviderRegistration, ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
     SpeechModel, SpeechModelProvider, SupportManifestError, UnsupportedReason, UpstreamLifecycle,
     UpstreamMaturity, UpstreamSupportStatus, VerificationDate, VerifiedFidelity,
@@ -509,6 +509,7 @@ impl GeminiProviderBuilder {
         }
         Ok(GeminiProvider {
             runtime: Arc::new(ProviderRuntime {
+                instance_id: ProviderInstanceId::new(),
                 interactions_scope: profile.interactions_scope(),
                 embedding_scope: profile.embedding_scope(),
                 image_scope: profile.image_scope(),
@@ -564,6 +565,7 @@ pub enum GeminiConfigError {
 }
 
 pub(crate) struct ProviderRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) interactions_scope: Arc<ProviderScope>,
     pub(crate) embedding_scope: Arc<ProviderScope>,
     pub(crate) image_scope: Arc<ProviderScope>,
@@ -736,8 +738,8 @@ fn native_support_claims() -> Result<Vec<VerifiedNativeSupportClaim>, GeminiConf
 mod tests {
     use base64::Engine as _;
     use siumai_core::{
-        EmbeddingModel, EmbeddingRequest, Provider, ReplayAudience, SpeechModel, SpeechRequest,
-        UsageValue,
+        EmbeddingModel, EmbeddingRequest, Model as _, Provider, ReplayAudience, SpeechModel,
+        SpeechRequest, UsageValue,
     };
 
     use crate::GEMINI_3_1_FLASH_TTS_PREVIEW;
@@ -754,6 +756,34 @@ mod tests {
         let debug = format!("{:?}", GeminiCredential::api_key("canary-secret"));
         assert!(!debug.contains("canary-secret"));
         assert!(debug.contains("REDACTED"));
+    }
+
+    #[test]
+    fn configured_provider_models_share_one_instance_capability() {
+        let first = GeminiProvider::builder(GeminiCredential::api_key("first-key"))
+            .build()
+            .unwrap();
+        let second = GeminiProvider::builder(GeminiCredential::api_key("second-key"))
+            .build()
+            .unwrap();
+
+        let language = first.language("future-language").unwrap();
+        let image = first.image("future-image").unwrap();
+        let embedding = first.embedding("future-embedding").unwrap();
+        let other = second.language("future-language").unwrap();
+
+        assert_eq!(
+            language.descriptor().instance_id(),
+            image.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            embedding.descriptor().instance_id()
+        );
+        assert_ne!(
+            language.descriptor().instance_id(),
+            other.descriptor().instance_id()
+        );
     }
 
     #[test]

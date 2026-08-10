@@ -77,6 +77,7 @@ impl OpenAiResponsesModel {
             runtime.scope_arc(OpenAiApiMode::Responses),
             model,
             ModelFamily::Language,
+            runtime.instance_id.clone(),
         );
         Self {
             runtime,
@@ -202,7 +203,7 @@ impl OpenAiResponsesModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::Responses, options)
+            .merge_options_for(self, OpenAiApiMode::Responses, options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
@@ -245,7 +246,7 @@ impl OpenAiResponsesModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &options)
+            .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
@@ -293,7 +294,7 @@ impl OpenAiResponsesModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &options)
+            .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
@@ -352,7 +353,7 @@ impl OpenAiResponsesModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &options)
+            .merge_options_for(self, OpenAiApiMode::Responses, &options)
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
@@ -449,6 +450,7 @@ impl OpenAiChatCompletionsModel {
             runtime.scope_arc(OpenAiApiMode::ChatCompletions),
             model,
             ModelFamily::Language,
+            runtime.instance_id.clone(),
         );
         Self {
             runtime,
@@ -522,7 +524,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &options)
+            .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
             .map_err(|source| {
                 self.contextualize(
                     operation,
@@ -577,7 +579,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         .map_err(|error| self.contextualize(operation, error))?;
         let mut merged = self
             .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &options)
+            .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
             .map_err(|source| {
                 self.contextualize(
                     operation,
@@ -1340,6 +1342,37 @@ mod tests {
         assert_eq!(body["tools"][1]["type"], "programmatic_tool_calling");
         assert!(body.get("native_tools").is_none());
         assert!(body.get("prompt_cache_breakpoints").is_none());
+    }
+
+    #[test]
+    fn exact_target_options_reach_wire_and_do_not_cross_provider_instances() {
+        let configured = provider();
+        let model = configured.responses("private-reasoning-model").unwrap();
+        let typed = OpenAiResponsesOptions::default()
+            .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
+        let call_options = CallOptions::default()
+            .with_typed_provider_options_for(&model, &typed)
+            .unwrap();
+
+        let merged = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        assert_eq!(merged.wire["reasoning"]["effort"], "max");
+
+        let other = provider().responses("private-reasoning-model").unwrap();
+        let error =
+            match other
+                .runtime
+                .merge_options_for(&other, OpenAiApiMode::Responses, &call_options)
+            {
+                Ok(_) => panic!("options bound to another provider instance unexpectedly matched"),
+                Err(error) => error,
+            };
+        assert!(matches!(
+            error,
+            ProviderOptionError::ExactTargetMismatch { .. }
+        ));
     }
 
     #[test]

@@ -12,9 +12,9 @@ use siumai_core::{
     ApiStability, CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider,
     LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
     ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionError,
-    ProviderRegistration, ProviderSupportManifest, ReplayDomain, ReplayDomainId,
-    SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
+    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderInstanceId,
+    ProviderOptionError, ProviderRegistration, ProviderSupportManifest, ReplayDomain,
+    ReplayDomainId, SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
     VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
@@ -275,8 +275,10 @@ impl AnthropicProviderBuilder {
             },
         )?);
 
+        let instance_id = ProviderInstanceId::new();
         let mut language_builder =
             AnthropicCompatibleProvider::builder_with_auth(profile, auth.clone())
+                .with_provider_instance(instance_id)
                 .with_default_options(self.defaults.to_engine())
                 .with_limits(self.limits.clone())
                 .with_retry_policy(self.retry_policy);

@@ -6,9 +6,9 @@ use std::time::Duration;
 use serde_json::Value;
 use siumai_core::{
     InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId, ModelLookupError,
-    ProfileError, Provider, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderRegistration,
-    ProviderScope,
+    ProfileError, Provider, ProviderInstanceId, ProviderOptionContext, ProviderOptionError,
+    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
+    ProviderRegistration, ProviderScope,
 };
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
 use siumai_protocol_openai::responses::is_protected_option_field as is_responses_protected_field;
@@ -178,6 +178,7 @@ impl fmt::Debug for OpenAiCompatibleProvider {
 pub struct OpenAiCompatibleProviderBuilder {
     profile: OpenAiCompatibleProfile,
     auth: CompatibleAuth,
+    instance_id: Option<ProviderInstanceId>,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -192,6 +193,7 @@ impl OpenAiCompatibleProviderBuilder {
         Self {
             profile,
             auth: CompatibleAuth::Credential(credential),
+            instance_id: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -206,6 +208,7 @@ impl OpenAiCompatibleProviderBuilder {
         Self {
             profile,
             auth: CompatibleAuth::Applied(auth),
+            instance_id: None,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -218,6 +221,13 @@ impl OpenAiCompatibleProviderBuilder {
 
     pub fn with_limits(mut self, limits: TransportLimits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    /// Reuse the owning branded provider's configured-instance capability.
+    #[doc(hidden)]
+    pub fn with_provider_instance(mut self, instance_id: ProviderInstanceId) -> Self {
+        self.instance_id = Some(instance_id);
         self
     }
 
@@ -297,8 +307,10 @@ impl OpenAiCompatibleProviderBuilder {
         }
         let transport = transport.build()?;
         let policy = Arc::new(OpenAiCompatibleModelPolicy::new(&self.profile));
+        let instance_id = self.instance_id.unwrap_or_default();
         Ok(OpenAiCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
+                instance_id,
                 profile: self.profile,
                 transport,
                 policy,
@@ -322,6 +334,7 @@ enum CompatibleAuth {
 }
 
 pub(crate) struct ProviderRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) profile: OpenAiCompatibleProfile,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<OpenAiCompatibleModelPolicy>,
@@ -846,6 +859,41 @@ mod tests {
             .language_model(ModelId::new("future:model").unwrap())
             .unwrap();
         assert_eq!(direct.descriptor(), erased.descriptor());
+        assert_eq!(
+            direct.descriptor().instance_id(),
+            erased.descriptor().instance_id()
+        );
+    }
+
+    #[test]
+    fn cloned_profile_builds_receive_distinct_instance_identities() {
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("local-test").unwrap(),
+            "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("local-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap();
+        let first = OpenAiCompatibleProvider::builder(
+            profile.clone(),
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+        let second = OpenAiCompatibleProvider::builder(
+            profile,
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+
+        let first_model = first.language("future:model").unwrap();
+        let second_model = second.language("future:model").unwrap();
+
+        assert_ne!(
+            first_model.descriptor().instance_id(),
+            second_model.descriptor().instance_id()
+        );
     }
 
     #[tokio::test]

@@ -5,8 +5,9 @@ use std::time::Duration;
 use secrecy::SecretString;
 use siumai_core::{
     EmbeddingModel, EmbeddingModelProvider, InvalidId, ModelId, ModelLookupError, ModelOperation,
-    ModelPolicy, ModelPolicyContext, ModelPolicyDecision, Provider, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, RerankModel, RerankModelProvider, UnsupportedReason,
+    ModelPolicy, ModelPolicyContext, ModelPolicyDecision, Provider, ProviderInstanceId,
+    ProviderRegistration, ProviderRegistrationError, ProviderScope, RerankModel,
+    RerankModelProvider, UnsupportedReason,
 };
 use siumai_transport::{
     EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, ReplaySafety,
@@ -230,6 +231,7 @@ impl CohereProviderBuilder {
         let transport = transport.build()?;
         let runtime = Arc::new(CohereRuntime {
             scope: scope.clone(),
+            instance_id: ProviderInstanceId::new(),
             transport,
             policy: Arc::new(CohereModelPolicy::new(scope, verified_endpoint)),
             replay_safety: ReplaySafety::Never,
@@ -260,6 +262,7 @@ impl fmt::Debug for CohereProviderBuilder {
 
 pub(crate) struct CohereRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<CohereModelPolicy>,
     pub(crate) replay_safety: ReplaySafety,

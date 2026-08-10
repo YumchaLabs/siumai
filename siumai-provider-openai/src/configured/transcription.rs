@@ -158,9 +158,15 @@ impl OpenAiTranscriptionModel {
         model: ModelId,
         defaults: OpenAiTranscriptionOptions,
     ) -> Self {
+        let instance_id = runtime.instance_id.clone();
         Self {
             runtime,
-            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Transcription),
+            descriptor: ModelDescriptor::from_scope(
+                scope,
+                model,
+                ModelFamily::Transcription,
+                instance_id,
+            ),
             defaults,
         }
     }

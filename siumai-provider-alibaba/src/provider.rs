@@ -14,7 +14,7 @@ use siumai_core::{
     InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
     LanguageStream, Model, ModelDescriptor, ModelFamily, ModelId, ModelLookupError,
     NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
-    OfficialSource, PlatformId, ProfileError, ProtocolId, Provider, ProviderId,
+    OfficialSource, PlatformId, ProfileError, ProtocolId, Provider, ProviderId, ProviderInstanceId,
     ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
     ReplayDomain, ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
     VerifiedNativeSupportClaim,
@@ -615,6 +615,7 @@ impl AlibabaProviderBuilder {
         };
         self.credential.0.validate_static()?;
         let auth = self.credential.0.into_auth();
+        let instance_id = ProviderInstanceId::new();
         let language = language_endpoint
             .zip(language_replay_domain)
             .map(|(configured, replay_domain)| {
@@ -623,6 +624,7 @@ impl AlibabaProviderBuilder {
                 let profile = profile(endpoint, verified_endpoint, replay_domain)?;
                 let mut builder =
                     OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
+                        .with_provider_instance(instance_id.clone())
                         .with_limits(self.limits.clone())
                         .with_retry_policy(self.retry_policy);
                 if let Some(timeout) = self.connect_timeout {
@@ -659,6 +661,7 @@ impl AlibabaProviderBuilder {
                     messages_profile(configured.endpoint, verified_endpoint, replay_domain)?;
                 let mut builder =
                     AnthropicCompatibleProvider::builder_with_auth(profile, auth.clone())
+                        .with_provider_instance(instance_id.clone())
                         .with_default_options(self.messages_defaults.to_engine())
                         .with_limits(self.limits.clone())
                         .with_retry_policy(self.retry_policy);
@@ -690,6 +693,7 @@ impl AlibabaProviderBuilder {
                 Ok::<_, AlibabaConfigError>((
                     Arc::new(AlibabaEmbeddingRuntime {
                         scope,
+                        instance_id: instance_id.clone(),
                         transport,
                         policy: Arc::new(AlibabaEmbeddingPolicy { verified_endpoint }),
                         defaults: self.embedding_defaults,

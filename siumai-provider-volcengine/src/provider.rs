@@ -14,10 +14,10 @@ use siumai_core::{
     LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
     ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderOptionError, ProviderOptions,
-    ProviderProfile, ProviderRegistration, ProviderRegistrationError, ProviderScope,
-    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError, SupportScope,
-    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId, ProviderOptionError,
+    ProviderOptions, ProviderProfile, ProviderRegistration, ProviderRegistrationError,
+    ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError,
+    SupportScope, TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
     VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
@@ -196,7 +196,12 @@ impl VolcengineProvider {
     fn create_image_model(&self, model: ModelId) -> ArkImageModel {
         ArkImageModel::new(
             self.native.clone(),
-            ModelDescriptor::from_scope(self.image_scope.clone(), model, ModelFamily::Image),
+            ModelDescriptor::from_scope(
+                self.image_scope.clone(),
+                model,
+                ModelFamily::Image,
+                self.native.instance_id.clone(),
+            ),
             self.image_policy.clone(),
             self.image_defaults.clone(),
         )
@@ -367,7 +372,9 @@ impl VolcengineProviderBuilder {
             [profile.provider_profile().clone(), image_profile],
             native_claims,
         )?);
+        let instance_id = ProviderInstanceId::new();
         let mut builder = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
+            .with_provider_instance(instance_id.clone())
             .with_limits(self.limits.clone())
             .with_retry_policy(self.retry_policy);
         let mut native_builder = ProviderTransport::builder(endpoint)
@@ -395,7 +402,7 @@ impl VolcengineProviderBuilder {
         }
 
         let language = builder.build()?;
-        let native = Arc::new(ArkNativeRuntime::new(native_builder.build()?));
+        let native = Arc::new(ArkNativeRuntime::new(instance_id, native_builder.build()?));
         let image_registration = ProviderRegistration::from_image(
             image_scope.clone(),
             image_policy.clone(),
@@ -407,7 +414,12 @@ impl VolcengineProviderBuilder {
                 move |model| {
                     Ok(Arc::new(ArkImageModel::new(
                         native.clone(),
-                        ModelDescriptor::from_scope(image_scope.clone(), model, ModelFamily::Image),
+                        ModelDescriptor::from_scope(
+                            image_scope.clone(),
+                            model,
+                            ModelFamily::Image,
+                            native.instance_id.clone(),
+                        ),
                         image_policy.clone(),
                         image_defaults.clone(),
                     )) as Arc<dyn ImageModel>)
@@ -624,6 +636,29 @@ mod tests {
         let debug = format!("{:?}", VolcengineCredential::api_key("canary-secret"));
         assert!(!debug.contains("canary-secret"));
         assert!(debug.contains("REDACTED"));
+    }
+
+    #[test]
+    fn configured_provider_image_models_share_one_instance_capability() {
+        let first = VolcengineProvider::builder(VolcengineCredential::api_key("first-key"))
+            .build()
+            .unwrap();
+        let second = VolcengineProvider::builder(VolcengineCredential::api_key("second-key"))
+            .build()
+            .unwrap();
+
+        let first_model = first.image("future-image").unwrap();
+        let same_provider = first.image("another-image").unwrap();
+        let other_provider = second.image("future-image").unwrap();
+
+        assert_eq!(
+            first_model.descriptor().instance_id(),
+            same_provider.descriptor().instance_id()
+        );
+        assert_ne!(
+            first_model.descriptor().instance_id(),
+            other_provider.descriptor().instance_id()
+        );
     }
 
     #[test]

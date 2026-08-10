@@ -10,7 +10,8 @@ use siumai_anthropic_compatible::{
 use siumai_core::{
     CallOptions, Error, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
     LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, ReplayDomain, TypedProviderOptions,
+    ProviderInstanceId, ProviderOptionError, ProviderRegistration, ReplayDomain,
+    TypedProviderOptions,
 };
 use siumai_transport::{AuthApplier, EndpointConfig, RetryPolicy, TransportLimits};
 use thiserror::Error as ThisError;
@@ -239,6 +240,7 @@ impl GoogleVertexAnthropicProviderBuilder {
         let resolver = Arc::new(GoogleVertexAnthropicAnnotationResolver);
         let profile = profile(endpoint, verified_endpoint, replay_domain, resolver)?;
         let mut builder = AnthropicCompatibleProvider::builder_with_auth(profile, auth)
+            .with_provider_instance(ProviderInstanceId::new())
             .with_default_options(self.defaults.to_engine())
             .with_limits(self.limits)
             .with_retry_policy(self.retry_policy);

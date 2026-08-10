@@ -40,8 +40,12 @@ pub struct CohereEmbeddingModel {
 
 impl CohereEmbeddingModel {
     pub(crate) fn new(runtime: Arc<CohereRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Embedding);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Embedding,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,
@@ -150,8 +154,12 @@ pub struct CohereRerankModel {
 
 impl CohereRerankModel {
     pub(crate) fn new(runtime: Arc<CohereRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Rerank);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Rerank,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

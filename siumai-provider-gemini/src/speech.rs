@@ -76,8 +76,12 @@ pub struct GeminiSpeechModel {
 
 impl GeminiSpeechModel {
     pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.speech_scope.clone(), model, ModelFamily::Speech);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.speech_scope.clone(),
+            model,
+            ModelFamily::Speech,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

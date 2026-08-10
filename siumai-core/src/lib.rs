@@ -48,8 +48,11 @@ pub use model::{
     TranscriptionRequest, TranscriptionResponse,
 };
 pub use options::{
-    CallOptions, Cancellation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RetryIntent, TypedProviderOptions,
+    CallOptions, Cancellation, MAX_PROVIDER_OPTION_ENTRIES, MAX_PROVIDER_OPTION_TARGETS,
+    MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionContext,
+    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
+    ProviderOptionSelection, ProviderOptionTarget, ProviderOptions, RetryIntent,
+    TypedProviderOptions,
 };
 pub use profile::{
     ApiStability, CatalogError, GenericSupportClaim, ModelCatalog, ModelLifecycle, ModelProfile,
@@ -63,7 +66,7 @@ pub use provider::{
     ApiModeId, EmbeddingModelProvider, ImageModelProvider, InvalidId, LanguageModelProvider,
     ModelAdvisory, ModelFactory, ModelId, ModelLookupError, ModelOperation, ModelPolicy,
     ModelPolicyContext, ModelPolicyDecision, NativeSurfaceId, PlatformId, ProfileId,
-    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderRegistration,
+    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId, ProviderRegistration,
     ProviderRegistrationError, ProviderScope, ReplayAudience, ReplayDomain, ReplayDomainId,
     RerankModelProvider, RouteId, SpeechModelProvider, SupportState, TranscriptionModelProvider,
     UnsupportedReason,

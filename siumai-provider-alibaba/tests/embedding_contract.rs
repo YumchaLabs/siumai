@@ -69,6 +69,24 @@ fn direct_and_registered_embedding_models_share_the_exact_scope() {
         .unwrap();
 
     assert_eq!(direct.descriptor(), registered.descriptor());
+    assert_eq!(
+        direct.descriptor().instance_id(),
+        registered.descriptor().instance_id()
+    );
+
+    let separately_built = AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+        .with_embedding_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/api/v1").unwrap(),
+        )
+        .build()
+        .unwrap();
+    let separate = separately_built
+        .embedding("future-embedding-model")
+        .unwrap();
+    assert_ne!(
+        direct.descriptor().instance_id(),
+        separate.descriptor().instance_id()
+    );
     assert_eq!(direct.provider_id().as_str(), "alibaba");
     assert_eq!(direct.descriptor().platform(), Some("local"));
     assert_eq!(direct.descriptor().protocol(), Some("alibaba-native"));

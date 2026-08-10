@@ -206,9 +206,10 @@ impl OpenAiImageModel {
         model: ModelId,
         defaults: OpenAiImageOptions,
     ) -> Self {
+        let instance_id = runtime.instance_id.clone();
         Self {
             runtime,
-            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Image),
+            descriptor: ModelDescriptor::from_scope(scope, model, ModelFamily::Image, instance_id),
             defaults,
         }
     }

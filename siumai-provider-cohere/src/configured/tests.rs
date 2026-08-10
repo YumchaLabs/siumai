@@ -101,6 +101,25 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
         .expect("erased rerank model");
     assert_eq!(embedding.descriptor(), erased_embedding.descriptor());
     assert_eq!(rerank.descriptor(), erased_rerank.descriptor());
+    assert_eq!(
+        embedding.descriptor().instance_id(),
+        rerank.descriptor().instance_id()
+    );
+    assert_eq!(
+        embedding.descriptor().instance_id(),
+        erased_embedding.descriptor().instance_id()
+    );
+
+    let separately_built = CohereProvider::builder("test-api-key")
+        .build()
+        .expect("separately configured Cohere provider");
+    let separate_embedding = separately_built
+        .embedding("embed-v4.0")
+        .expect("embedding model");
+    assert_ne!(
+        embedding.descriptor().instance_id(),
+        separate_embedding.descriptor().instance_id()
+    );
     assert!(matches!(
         registration
             .evaluate(

@@ -32,8 +32,12 @@ pub struct DeepgramSpeechModel {
 
 impl DeepgramSpeechModel {
     pub(crate) fn new(runtime: Arc<DeepgramSpeechRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Speech);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Speech,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

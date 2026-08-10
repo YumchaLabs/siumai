@@ -7,16 +7,18 @@ use chrono::NaiveDate;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+#[cfg(test)]
+use siumai_core::ProviderOptionContext;
 use siumai_core::{
     ApiStability, CallOptions, CatalogError, EmbeddingModel, EmbeddingModelProvider, ImageModel,
-    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId,
-    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderOptionContext,
+    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelFamily,
+    ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderInstanceId,
     ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, ProviderRegistration, ProviderScope, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerifiedFidelity,
-    VerifiedNativeSupportClaim,
+    ProviderOptionSelection, ProviderOptions, ProviderRegistration, ProviderScope,
+    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider,
+    SupportManifestError, TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
+    VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_protocol_openai::responses::{FunctionToolEncodingOptions, ResponsesWireDialect};
 use siumai_transport::{
@@ -898,8 +900,10 @@ impl OpenAiProviderBuilder {
             None
         };
         let policy = Arc::new(OpenAiModelPolicy::new(&profile));
+        let instance_id = ProviderInstanceId::new();
         Ok(OpenAiProvider {
             runtime: Arc::new(OpenAiRuntime {
+                instance_id,
                 profile,
                 support_manifest,
                 transport,
@@ -992,6 +996,7 @@ impl fmt::Debug for OpenAiProviderBuilder {
 }
 
 pub(crate) struct OpenAiRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) profile: OpenAiProfile,
     pub(crate) support_manifest: Arc<ProviderSupportManifest>,
     pub(crate) transport: ProviderTransport,
@@ -1065,6 +1070,7 @@ impl OpenAiRuntime {
             .clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn merge_options(
         &self,
         mode: OpenAiApiMode,
@@ -1085,6 +1091,23 @@ impl OpenAiRuntime {
             ),
             merger,
         )
+    }
+
+    pub(crate) fn merge_options_for<M: Model + ?Sized>(
+        &self,
+        model: &M,
+        mode: OpenAiApiMode,
+        options: &CallOptions,
+    ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
+        let scope = self.profile.provider_scope(mode);
+        let layers =
+            options.apply_provider_options(scope.provider_id(), ProviderOptionLayers::default())?;
+        let selection = options.provider_options_for(model)?;
+        let merger = match mode {
+            OpenAiApiMode::Responses => &self.responses_options,
+            OpenAiApiMode::ChatCompletions => &self.chat_completions_options,
+        };
+        merger.merge_selected(&layers, &selection)
     }
 }
 
@@ -1172,32 +1195,42 @@ impl OpenAiOptionMerger {
         }
         validate_known_projection(self.mode, value)
     }
-}
 
-impl ProviderOptionMerger for OpenAiOptionMerger {
-    type Output = OpenAiMergedOptions;
-
-    fn validate_layer(
+    fn merge_selected(
         &self,
-        origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        match origin {
-            ProviderOptionOrigin::RawOverride => self.validate_raw(options.value()),
-            _ => self.validate_typed(options.value()),
-        }
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
+        layers: &ProviderOptionLayers,
+        selection: &ProviderOptionSelection<'_>,
+    ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
         let mut typed = self.defaults.clone();
         let mut raw = None;
         for (origin, options) in layers.in_precedence_order() {
             if origin == ProviderOptionOrigin::RawOverride {
+                self.validate_raw(options.value())?;
                 raw = Some(options.value());
             } else {
+                self.validate_typed(options.value())?;
                 merge_typed_layer(&mut typed, options.value());
             }
         }
+        for options in selection.typed() {
+            self.validate_typed(options.value())?;
+            merge_typed_layer(&mut typed, options.value());
+        }
+        if let Some(selected_raw) = selection.raw_override() {
+            if raw.is_some() {
+                return Err(ProviderOptionError::DuplicateRawTarget);
+            }
+            self.validate_raw(selected_raw.value())?;
+            raw = Some(selected_raw.value());
+        }
+        self.finish_merge(typed, raw)
+    }
+
+    fn finish_merge(
+        &self,
+        typed: Map<String, Value>,
+        raw: Option<&Map<String, Value>>,
+    ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
         self.validate_typed(&typed)?;
         let (mut wire, native_tools, function_tools) = match self.mode {
             OptionMode::Responses => {
@@ -1224,6 +1257,34 @@ impl ProviderOptionMerger for OpenAiOptionMerger {
             native_tools,
             function_tools,
         })
+    }
+}
+
+impl ProviderOptionMerger for OpenAiOptionMerger {
+    type Output = OpenAiMergedOptions;
+
+    fn validate_layer(
+        &self,
+        origin: ProviderOptionOrigin,
+        options: &ProviderOptions,
+    ) -> Result<(), ProviderOptionError> {
+        match origin {
+            ProviderOptionOrigin::RawOverride => self.validate_raw(options.value()),
+            _ => self.validate_typed(options.value()),
+        }
+    }
+
+    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
+        let mut typed = self.defaults.clone();
+        let mut raw = None;
+        for (origin, options) in layers.in_precedence_order() {
+            if origin == ProviderOptionOrigin::RawOverride {
+                raw = Some(options.value());
+            } else {
+                merge_typed_layer(&mut typed, options.value());
+            }
+        }
+        self.finish_merge(typed, raw)
     }
 }
 
@@ -1438,7 +1499,7 @@ mod tests {
 
     use super::*;
     use crate::configured::{
-        TEXT_EMBEDDING_3_SMALL,
+        GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TTS, GPT_IMAGE_1, TEXT_EMBEDDING_3_SMALL,
         catalog::{GPT_5_6, GPT_5_6_SOL},
     };
 
@@ -1467,6 +1528,40 @@ mod tests {
         assert_eq!(chat.descriptor().provider().as_str(), "openai");
         assert_eq!(responses.descriptor().api_mode(), Some("responses"));
         assert_eq!(chat.descriptor().api_mode(), Some("chat-completions"));
+    }
+
+    #[test]
+    fn one_provider_runtime_shares_instance_identity_across_model_handles() {
+        let configured = provider();
+        let language = configured.responses(GPT_5_6_SOL).unwrap();
+        let chat = configured.chat_completions(GPT_5_6_SOL).unwrap();
+        let embedding = configured.embedding(TEXT_EMBEDDING_3_SMALL).unwrap();
+        let image = configured.image(GPT_IMAGE_1).unwrap();
+        let speech = configured.speech(GPT_4O_MINI_TTS).unwrap();
+        let transcription = configured.transcription(GPT_4O_MINI_TRANSCRIBE).unwrap();
+
+        for descriptor in [
+            chat.descriptor(),
+            embedding.descriptor(),
+            image.descriptor(),
+            speech.descriptor(),
+            transcription.descriptor(),
+        ] {
+            assert_eq!(
+                language.descriptor().instance_id(),
+                descriptor.instance_id()
+            );
+        }
+
+        let independently_built = provider();
+        assert_ne!(
+            language.descriptor().instance_id(),
+            independently_built
+                .responses(GPT_5_6_SOL)
+                .unwrap()
+                .descriptor()
+                .instance_id()
+        );
     }
 
     #[test]

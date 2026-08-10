@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use siumai_core::{
     CallOptions, InvalidId, LanguageModel, LanguageModelProvider, ModelFamily, ModelId,
-    ModelLookupError, ModelPolicy, Provider, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderRegistration, ProviderScope,
+    ModelLookupError, ModelPolicy, Provider, ProviderInstanceId, ProviderOptionContext,
+    ProviderOptionError, ProviderOptionLayers, ProviderRegistration, ProviderScope,
 };
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
@@ -116,6 +116,7 @@ enum ConfiguredAuth {
 pub struct AnthropicCompatibleProviderBuilder {
     profile: AnthropicCompatibleProfile,
     auth: ConfiguredAuth,
+    instance_id: Option<ProviderInstanceId>,
     defaults: MessagesCallOptions,
     replay_safety: ReplaySafety,
     limits: TransportLimits,
@@ -130,6 +131,7 @@ impl AnthropicCompatibleProviderBuilder {
         Self {
             profile,
             auth: ConfiguredAuth::Credential(credential),
+            instance_id: None,
             defaults: MessagesCallOptions::default(),
             replay_safety: ReplaySafety::Never,
             limits: TransportLimits::default(),
@@ -144,6 +146,7 @@ impl AnthropicCompatibleProviderBuilder {
         Self {
             profile,
             auth: ConfiguredAuth::Applied(auth),
+            instance_id: None,
             defaults: MessagesCallOptions::default(),
             replay_safety: ReplaySafety::Never,
             limits: TransportLimits::default(),
@@ -156,6 +159,13 @@ impl AnthropicCompatibleProviderBuilder {
 
     pub fn with_default_options(mut self, options: MessagesCallOptions) -> Self {
         self.defaults = options;
+        self
+    }
+
+    /// Reuse the owning branded provider's configured-instance capability.
+    #[doc(hidden)]
+    pub fn with_provider_instance(mut self, instance_id: ProviderInstanceId) -> Self {
+        self.instance_id = Some(instance_id);
         self
     }
 
@@ -223,10 +233,12 @@ impl AnthropicCompatibleProviderBuilder {
             self.profile.provider_profile_arc(),
             self.profile.support_scope().clone(),
         ));
+        let instance_id = self.instance_id.unwrap_or_default();
         Ok(AnthropicCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
                 profile: self.profile,
                 scope,
+                instance_id,
                 policy,
                 transport,
                 option_merger,
@@ -239,6 +251,7 @@ impl AnthropicCompatibleProviderBuilder {
 pub(crate) struct ProviderRuntime {
     pub(crate) profile: AnthropicCompatibleProfile,
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) policy: Arc<dyn ModelPolicy>,
     pub(crate) transport: ProviderTransport,
     option_merger: MessagesOptionMerger,

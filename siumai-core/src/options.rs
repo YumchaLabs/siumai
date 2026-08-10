@@ -1,6 +1,7 @@
 //! Request-scoped controls and provider-owned option serialization.
 
 use std::fmt;
+use std::io::{self, Write};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -8,8 +9,8 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
-use crate::model::ModelFamily;
-use crate::provider::{ApiModeId, ProviderId};
+use crate::model::{Model, ModelFamily};
+use crate::provider::{ApiModeId, ProviderId, ProviderInstanceId, ProviderScope, RouteId};
 
 /// Cloneable request cancellation shared by model, transport, and runtime layers.
 #[derive(Clone, Default)]
@@ -105,6 +106,20 @@ pub enum ProviderOptionError {
     TypedLayerRequired,
     #[error("provider option layer {origin:?} was configured more than once")]
     DuplicateLayer { origin: ProviderOptionOrigin },
+    #[error("provider options exceed the {maximum}-entry call limit")]
+    TooManyEntries { maximum: usize },
+    #[error("provider options exceed the {maximum}-target call limit")]
+    TooManyTargets { maximum: usize },
+    #[error("provider options exceed the {maximum}-byte aggregate call limit")]
+    AggregateTooLarge { maximum: usize },
+    #[error("instance-sensitive provider options for `{namespace}` require an exact model binding")]
+    InstanceBindingRequired { namespace: String },
+    #[error("provider options for `{provider}` do not match the selected exact target")]
+    ExactTargetMismatch { provider: String },
+    #[error("raw provider options for one exact target may be configured only once")]
+    DuplicateRawTarget,
+    #[error("raw provider options contain invalid JSON: {0}")]
+    InvalidJson(String),
     #[error("provider options exceed the {maximum}-byte limit")]
     TooLarge { maximum: usize },
     #[error("provider options exceed the maximum JSON nesting depth of {maximum}")]
@@ -131,6 +146,25 @@ pub trait TypedProviderOptions: Serialize {
     fn validate(&self) -> Result<(), ProviderOptionError> {
         Ok(())
     }
+
+    /// Return whether this value contains credentials, replay state, or other
+    /// body data that must be bound to one configured provider instance.
+    ///
+    /// The secure default is sensitive. A provider option author must opt into
+    /// reusable unbound values explicitly after reviewing its fields.
+    fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+        ProviderOptionBindingRequirement::ConfiguredInstance
+    }
+}
+
+/// Whether a typed option value may be reused across configured provider instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProviderOptionBindingRequirement {
+    /// The value contains no credentials or replay-sensitive provider body state.
+    Reusable,
+    /// The value must remain bound to one configured provider instance.
+    ConfiguredInstance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +172,7 @@ enum ProviderOptionKind {
     Typed {
         family: ModelFamily,
         api_mode: Option<ApiModeId>,
+        binding_requirement: ProviderOptionBindingRequirement,
     },
     Raw,
 }
@@ -148,6 +183,7 @@ pub struct ProviderOptions {
     namespace: ProviderId,
     value: Map<String, Value>,
     kind: ProviderOptionKind,
+    retained_bytes: usize,
 }
 
 impl fmt::Debug for ProviderOptions {
@@ -156,7 +192,8 @@ impl fmt::Debug for ProviderOptions {
             .debug_struct("ProviderOptions")
             .field("namespace", &self.namespace)
             .field("kind", &self.kind)
-            .field("fields", &self.value.keys().collect::<Vec<_>>())
+            .field("field_count", &self.value.len())
+            .field("retained_bytes", &self.retained_bytes)
             .finish()
     }
 }
@@ -165,6 +202,7 @@ impl ProviderOptions {
     /// Serialize a provider-owned typed option struct.
     pub fn typed<T: TypedProviderOptions>(value: &T) -> Result<Self, ProviderOptionError> {
         value.validate()?;
+        let binding_requirement = value.binding_requirement();
         let namespace = ProviderId::new(T::NAMESPACE)
             .map_err(|_| ProviderOptionError::InvalidNamespace(T::NAMESPACE.to_string()))?;
         let api_mode = T::API_MODE.map(ApiModeId::new).transpose().map_err(|_| {
@@ -178,12 +216,30 @@ impl ProviderOptions {
             ProviderOptionKind::Typed {
                 family: T::MODEL_FAMILY,
                 api_mode,
+                binding_requirement,
             },
         )
     }
 
     /// Build the explicit checked raw escape hatch.
     pub fn checked_raw(namespace: ProviderId, value: Value) -> Result<Self, ProviderOptionError> {
+        Self::from_value(namespace, value, ProviderOptionKind::Raw)
+    }
+
+    /// Build checked raw provider options from bounded JSON bytes.
+    ///
+    /// The encoded input limit is enforced before JSON materialization.
+    pub fn checked_raw_json(
+        namespace: ProviderId,
+        encoded: &[u8],
+    ) -> Result<Self, ProviderOptionError> {
+        if encoded.len() > MAX_PROVIDER_OPTION_BYTES {
+            return Err(ProviderOptionError::TooLarge {
+                maximum: MAX_PROVIDER_OPTION_BYTES,
+            });
+        }
+        let value = serde_json::from_slice(encoded)
+            .map_err(|error| ProviderOptionError::InvalidJson(error.to_string()))?;
         Self::from_value(namespace, value, ProviderOptionKind::Raw)
     }
 
@@ -197,12 +253,13 @@ impl ProviderOptions {
                 namespace: namespace.to_string(),
             });
         };
-        validate_option_shape(&value)?;
+        let retained_bytes = validate_option_shape(&value)?;
         reject_protected_fields(&value, "")?;
         Ok(Self {
             namespace,
             value,
             kind,
+            retained_bytes,
         })
     }
 
@@ -232,6 +289,20 @@ impl ProviderOptions {
         }
     }
 
+    pub fn retained_bytes(&self) -> usize {
+        self.retained_bytes
+    }
+
+    pub fn is_instance_sensitive(&self) -> bool {
+        matches!(
+            self.kind,
+            ProviderOptionKind::Typed {
+                binding_requirement: ProviderOptionBindingRequirement::ConfiguredInstance,
+                ..
+            } | ProviderOptionKind::Raw
+        )
+    }
+
     fn validate_target(
         &self,
         context: ProviderOptionContext<'_>,
@@ -239,6 +310,7 @@ impl ProviderOptions {
         let ProviderOptionKind::Typed {
             family: actual_family,
             api_mode: actual_api_mode,
+            ..
         } = &self.kind
         else {
             return Ok(());
@@ -258,6 +330,217 @@ impl ProviderOptions {
             actual_api_mode: actual_api_mode.as_ref().map(ApiModeId::to_string),
         })
     }
+}
+
+/// Whether one exact-target option entry is mandatory for the selected model
+/// or intentionally retained as a fallback for another route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+enum ProviderOptionApplicability {
+    Required,
+    OptionalFallback,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum ProviderOptionBinding {
+    Unbound,
+    Model {
+        route: Option<RouteId>,
+        scope: ProviderScope,
+        instance_id: ProviderInstanceId,
+    },
+}
+
+/// Exact provider, family, API-mode, route, and configured-instance target for
+/// one provider-option entry.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProviderOptionTarget {
+    provider: ProviderId,
+    family: ModelFamily,
+    api_mode: Option<ApiModeId>,
+    binding: ProviderOptionBinding,
+}
+
+impl fmt::Debug for ProviderOptionTarget {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderOptionTarget")
+            .field("provider", &self.provider)
+            .field("family", &self.family)
+            .field("api_mode", &self.api_mode)
+            .field(
+                "binding",
+                &match self.binding {
+                    ProviderOptionBinding::Unbound => "required-selected-model",
+                    ProviderOptionBinding::Model { .. } => "exact-configured-instance",
+                },
+            )
+            .finish()
+    }
+}
+
+impl ProviderOptionTarget {
+    fn typed<T: TypedProviderOptions>() -> Result<Self, ProviderOptionError> {
+        let provider = ProviderId::new(T::NAMESPACE)
+            .map_err(|_| ProviderOptionError::InvalidNamespace(T::NAMESPACE.to_string()))?;
+        let api_mode = T::API_MODE.map(ApiModeId::new).transpose().map_err(|_| {
+            ProviderOptionError::InvalidApiMode(T::API_MODE.unwrap_or_default().to_string())
+        })?;
+        Ok(Self {
+            provider,
+            family: T::MODEL_FAMILY,
+            api_mode,
+            binding: ProviderOptionBinding::Unbound,
+        })
+    }
+
+    /// Bind a target to one concrete direct or Registry-selected model.
+    pub fn for_model<M: Model + ?Sized>(model: &M) -> Self {
+        let descriptor = model.descriptor();
+        let scope = descriptor.scope().clone();
+        Self {
+            provider: model.provider_id().clone(),
+            family: model.family(),
+            api_mode: scope.api_mode().cloned(),
+            binding: ProviderOptionBinding::Model {
+                route: model.route_id().cloned(),
+                instance_id: descriptor.instance_id().clone(),
+                scope,
+            },
+        }
+    }
+
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    pub const fn family(&self) -> ModelFamily {
+        self.family
+    }
+
+    pub fn api_mode(&self) -> Option<&ApiModeId> {
+        self.api_mode.as_ref()
+    }
+
+    pub const fn is_instance_bound(&self) -> bool {
+        matches!(self.binding, ProviderOptionBinding::Model { .. })
+    }
+
+    fn matches_model<M: Model + ?Sized>(&self, model: &M) -> bool {
+        if self.provider != *model.provider_id()
+            || self.family != model.family()
+            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+        {
+            return false;
+        }
+        match &self.binding {
+            ProviderOptionBinding::Unbound => true,
+            ProviderOptionBinding::Model {
+                route,
+                scope,
+                instance_id,
+            } => {
+                route.as_ref() == model.route_id()
+                    && scope == model.descriptor().scope()
+                    && instance_id == model.descriptor().instance_id()
+            }
+        }
+    }
+
+    fn mismatch_error<M: Model + ?Sized>(&self, model: &M) -> ProviderOptionError {
+        if self.provider != *model.provider_id() {
+            return ProviderOptionError::NamespaceMismatch {
+                expected: model.provider_id().to_string(),
+                actual: self.provider.to_string(),
+            };
+        }
+        if self.family != model.family()
+            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+        {
+            return ProviderOptionError::TargetMismatch {
+                expected_family: model.family(),
+                expected_api_mode: model
+                    .descriptor()
+                    .scope()
+                    .api_mode()
+                    .map(ApiModeId::to_string),
+                actual_family: self.family,
+                actual_api_mode: self.api_mode.as_ref().map(ApiModeId::to_string),
+            };
+        }
+        ProviderOptionError::ExactTargetMismatch {
+            provider: self.provider.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ExactProviderOptionEntry {
+    applicability: ProviderOptionApplicability,
+    target: ProviderOptionTarget,
+    options: ProviderOptions,
+}
+
+/// Borrowed exact-target view consumed by one configured model.
+pub struct ProviderOptionSelection<'a> {
+    typed: Vec<&'a ProviderOptions>,
+    raw_override: Option<&'a ProviderOptions>,
+    unconsumed: Vec<&'a ProviderOptionTarget>,
+}
+
+impl fmt::Debug for ProviderOptionSelection<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderOptionSelection")
+            .field("typed_count", &self.typed.len())
+            .field("has_raw_override", &self.raw_override.is_some())
+            .field("unconsumed_count", &self.unconsumed.len())
+            .finish()
+    }
+}
+
+impl<'a> ProviderOptionSelection<'a> {
+    pub fn typed(&self) -> impl ExactSizeIterator<Item = &'a ProviderOptions> + '_ {
+        self.typed.iter().copied()
+    }
+
+    pub const fn raw_override(&self) -> Option<&'a ProviderOptions> {
+        self.raw_override
+    }
+
+    pub fn unconsumed_targets(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &'a ProviderOptionTarget> + '_ {
+        self.unconsumed.iter().copied()
+    }
+
+    pub const fn unconsumed_count(&self) -> usize {
+        self.unconsumed.len()
+    }
+}
+
+fn validate_typed_target<T: TypedProviderOptions>(
+    target: &ProviderOptionTarget,
+) -> Result<(), ProviderOptionError> {
+    let declared = ProviderOptionTarget::typed::<T>()?;
+    if declared.provider == target.provider
+        && declared.family == target.family
+        && declared.api_mode == target.api_mode
+    {
+        return Ok(());
+    }
+    if declared.provider != target.provider {
+        return Err(ProviderOptionError::NamespaceMismatch {
+            expected: target.provider.to_string(),
+            actual: declared.provider.to_string(),
+        });
+    }
+    Err(ProviderOptionError::TargetMismatch {
+        expected_family: target.family,
+        expected_api_mode: target.api_mode.as_ref().map(ApiModeId::to_string),
+        actual_family: declared.family,
+        actual_api_mode: declared.api_mode.as_ref().map(ApiModeId::to_string),
+    })
 }
 
 /// Exact model call context used to validate erased typed provider options.
@@ -463,6 +746,7 @@ pub struct CallOptions {
     cancellation: Cancellation,
     retry: RetryIntent,
     provider_options: Vec<ProviderOptionEntry>,
+    exact_provider_options: Vec<ExactProviderOptionEntry>,
 }
 
 impl fmt::Debug for CallOptions {
@@ -473,12 +757,28 @@ impl fmt::Debug for CallOptions {
             .field("cancellation", &self.cancellation)
             .field("retry", &self.retry)
             .field(
-                "provider_option_namespaces",
+                "legacy_provider_option_namespaces",
                 &self
                     .provider_options
                     .iter()
                     .map(|entry| entry.options.namespace().as_str())
                     .collect::<Vec<_>>(),
+            )
+            .field(
+                "exact_provider_option_targets",
+                &self
+                    .exact_provider_options
+                    .iter()
+                    .map(|entry| &entry.target)
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "exact_provider_option_bytes",
+                &self
+                    .exact_provider_options
+                    .iter()
+                    .map(|entry| entry.options.retained_bytes())
+                    .sum::<usize>(),
             )
             .finish()
     }
@@ -497,12 +797,230 @@ impl CallOptions {
         self.retry
     }
 
-    pub fn provider_options(&self) -> impl ExactSizeIterator<Item = &ProviderOptions> {
-        self.provider_options.iter().map(|entry| &entry.options)
+    pub fn provider_options(&self) -> impl Iterator<Item = &ProviderOptions> {
+        self.provider_options
+            .iter()
+            .map(|entry| &entry.options)
+            .chain(
+                self.exact_provider_options
+                    .iter()
+                    .map(|entry| &entry.options),
+            )
     }
 
     pub fn has_provider_options(&self) -> bool {
-        !self.provider_options.is_empty()
+        !self.provider_options.is_empty() || !self.exact_provider_options.is_empty()
+    }
+
+    /// Select the exact-target entries that belong to one configured model.
+    pub fn provider_options_for<M: Model + ?Sized>(
+        &self,
+        model: &M,
+    ) -> Result<ProviderOptionSelection<'_>, ProviderOptionError> {
+        let mut typed = Vec::new();
+        let mut raw_override = None;
+        let mut unconsumed = Vec::new();
+
+        for entry in &self.exact_provider_options {
+            if !entry.target.matches_model(model) {
+                if entry.applicability == ProviderOptionApplicability::Required {
+                    return Err(entry.target.mismatch_error(model));
+                }
+                unconsumed.push(&entry.target);
+                continue;
+            }
+            if entry.options.is_raw() {
+                if raw_override.replace(&entry.options).is_some() {
+                    return Err(ProviderOptionError::DuplicateRawTarget);
+                }
+            } else {
+                typed.push(&entry.options);
+            }
+        }
+
+        Ok(ProviderOptionSelection {
+            typed,
+            raw_override,
+            unconsumed,
+        })
+    }
+
+    /// Add reusable typed options for the model selected by this call.
+    ///
+    /// Instance-sensitive values must use
+    /// [`Self::with_typed_provider_options_for`] instead.
+    pub fn with_typed_provider_options<T: TypedProviderOptions>(
+        mut self,
+        value: &T,
+    ) -> Result<Self, ProviderOptionError> {
+        let options = ProviderOptions::typed(value)?;
+        if options.is_instance_sensitive() {
+            return Err(ProviderOptionError::InstanceBindingRequired {
+                namespace: options.namespace().to_string(),
+            });
+        }
+        let target = ProviderOptionTarget::typed::<T>()?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::Required,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    /// Add typed options bound to the concrete model receiving the call.
+    pub fn with_typed_provider_options_for<M, T>(
+        mut self,
+        model: &M,
+        value: &T,
+    ) -> Result<Self, ProviderOptionError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let options = ProviderOptions::typed(value)?;
+        let target = ProviderOptionTarget::for_model(model);
+        validate_typed_target::<T>(&target)?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::Required,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    /// Add an optional typed fallback for one exact configured model.
+    pub fn with_optional_typed_provider_options_for<M, T>(
+        mut self,
+        model: &M,
+        value: &T,
+    ) -> Result<Self, ProviderOptionError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let options = ProviderOptions::typed(value)?;
+        let target = ProviderOptionTarget::for_model(model);
+        validate_typed_target::<T>(&target)?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::OptionalFallback,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    /// Add raw provider-body options required for one exact configured model.
+    pub fn with_raw_provider_options_for<M: Model + ?Sized>(
+        mut self,
+        model: &M,
+        value: Value,
+    ) -> Result<Self, ProviderOptionError> {
+        let target = ProviderOptionTarget::for_model(model);
+        let options = ProviderOptions::checked_raw(target.provider().clone(), value)?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::Required,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    /// Add an optional raw fallback for one exact configured model.
+    pub fn with_optional_raw_provider_options_for<M: Model + ?Sized>(
+        mut self,
+        model: &M,
+        value: Value,
+    ) -> Result<Self, ProviderOptionError> {
+        let target = ProviderOptionTarget::for_model(model);
+        let options = ProviderOptions::checked_raw(target.provider().clone(), value)?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::OptionalFallback,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    /// Add bounded raw JSON required for one exact configured model.
+    pub fn with_raw_provider_json_for<M: Model + ?Sized>(
+        mut self,
+        model: &M,
+        encoded: &[u8],
+    ) -> Result<Self, ProviderOptionError> {
+        let target = ProviderOptionTarget::for_model(model);
+        let options = ProviderOptions::checked_raw_json(target.provider().clone(), encoded)?;
+        self.push_exact_provider_option(ExactProviderOptionEntry {
+            applicability: ProviderOptionApplicability::Required,
+            target,
+            options,
+        })?;
+        Ok(self)
+    }
+
+    fn push_exact_provider_option(
+        &mut self,
+        entry: ExactProviderOptionEntry,
+    ) -> Result<(), ProviderOptionError> {
+        if self.provider_options.len() + self.exact_provider_options.len()
+            >= MAX_PROVIDER_OPTION_ENTRIES
+        {
+            return Err(ProviderOptionError::TooManyEntries {
+                maximum: MAX_PROVIDER_OPTION_ENTRIES,
+            });
+        }
+
+        let target_count = self
+            .exact_provider_options
+            .iter()
+            .map(|entry| &entry.target)
+            .chain(std::iter::once(&entry.target))
+            .fold(
+                Vec::<&ProviderOptionTarget>::new(),
+                |mut targets, target| {
+                    if !targets.contains(&target) {
+                        targets.push(target);
+                    }
+                    targets
+                },
+            )
+            .len();
+        if target_count > MAX_PROVIDER_OPTION_TARGETS {
+            return Err(ProviderOptionError::TooManyTargets {
+                maximum: MAX_PROVIDER_OPTION_TARGETS,
+            });
+        }
+
+        let retained_bytes = self
+            .provider_options
+            .iter()
+            .map(|entry| entry.options.retained_bytes())
+            .chain(
+                self.exact_provider_options
+                    .iter()
+                    .map(|entry| entry.options.retained_bytes()),
+            )
+            .try_fold(entry.options.retained_bytes(), usize::checked_add)
+            .ok_or(ProviderOptionError::AggregateTooLarge {
+                maximum: MAX_PROVIDER_OPTION_TOTAL_BYTES,
+            })?;
+        if retained_bytes > MAX_PROVIDER_OPTION_TOTAL_BYTES {
+            return Err(ProviderOptionError::AggregateTooLarge {
+                maximum: MAX_PROVIDER_OPTION_TOTAL_BYTES,
+            });
+        }
+
+        if entry.options.is_raw()
+            && self
+                .exact_provider_options
+                .iter()
+                .any(|existing| existing.options.is_raw() && existing.target == entry.target)
+        {
+            return Err(ProviderOptionError::DuplicateRawTarget);
+        }
+
+        self.exact_provider_options.push(entry);
+        Ok(())
     }
 
     /// Add call-scoped typed and raw options to an existing precedence stack.
@@ -617,32 +1135,89 @@ const PROTECTED_FIELDS: &[&str] = &[
 const MAX_PROVIDER_OPTION_BYTES: usize = 64 * 1024;
 const MAX_PROVIDER_OPTION_DEPTH: usize = 32;
 const MAX_PROVIDER_OPTION_FIELDS: usize = 1024;
+pub const MAX_PROVIDER_OPTION_ENTRIES: usize = 64;
+pub const MAX_PROVIDER_OPTION_TARGETS: usize = 32;
+pub const MAX_PROVIDER_OPTION_TOTAL_BYTES: usize = 512 * 1024;
 
 pub(crate) fn validate_option_shape(
     object: &Map<String, Value>,
-) -> Result<(), ProviderOptionError> {
+) -> Result<usize, ProviderOptionError> {
     validate_option_structure(object)?;
-    let encoded = serde_json::to_vec(object)
-        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-    if encoded.len() > MAX_PROVIDER_OPTION_BYTES {
-        return Err(ProviderOptionError::TooLarge {
-            maximum: MAX_PROVIDER_OPTION_BYTES,
-        });
+    let mut writer = LimitedJsonWriter::new(MAX_PROVIDER_OPTION_BYTES);
+    if let Err(error) = serde_json::to_writer(&mut writer, object) {
+        if writer.exceeded {
+            return Err(ProviderOptionError::TooLarge {
+                maximum: MAX_PROVIDER_OPTION_BYTES,
+            });
+        }
+        return Err(ProviderOptionError::Serialization(error.to_string()));
     }
-    Ok(())
+    Ok(writer.written)
+}
+
+struct LimitedJsonWriter {
+    maximum: usize,
+    written: usize,
+    exceeded: bool,
+}
+
+impl LimitedJsonWriter {
+    const fn new(maximum: usize) -> Self {
+        Self {
+            maximum,
+            written: 0,
+            exceeded: false,
+        }
+    }
+}
+
+impl Write for LimitedJsonWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let Some(total) = self.written.checked_add(bytes.len()) else {
+            self.exceeded = true;
+            return Err(io::Error::other("provider options exceed their byte limit"));
+        };
+        if total > self.maximum {
+            self.exceeded = true;
+            return Err(io::Error::other("provider options exceed their byte limit"));
+        }
+        self.written = total;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(crate) fn validate_option_structure(
     object: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
-    let mut fields = object.len();
-    if fields > MAX_PROVIDER_OPTION_FIELDS {
+    let mut fields = 0;
+    let mut minimum_bytes = 0;
+    validate_option_object(object, 0, &mut fields, &mut minimum_bytes)
+}
+
+fn validate_option_object(
+    object: &Map<String, Value>,
+    depth: usize,
+    fields: &mut usize,
+    minimum_bytes: &mut usize,
+) -> Result<(), ProviderOptionError> {
+    ensure_option_depth(depth)?;
+    add_option_minimum_bytes(minimum_bytes, 2)?;
+    *fields = fields.saturating_add(object.len());
+    if *fields > MAX_PROVIDER_OPTION_FIELDS {
         return Err(ProviderOptionError::TooManyFields {
             maximum: MAX_PROVIDER_OPTION_FIELDS,
         });
     }
-    for value in object.values() {
-        validate_option_value(value, 1, &mut fields)?;
+    for (index, (key, value)) in object.iter().enumerate() {
+        if index > 0 {
+            add_option_minimum_bytes(minimum_bytes, 1)?;
+        }
+        add_option_minimum_bytes(minimum_bytes, key.len().saturating_add(3))?;
+        validate_option_value(value, depth + 1, fields, minimum_bytes)?;
     }
     Ok(())
 }
@@ -651,30 +1226,56 @@ fn validate_option_value(
     value: &Value,
     depth: usize,
     fields: &mut usize,
+    minimum_bytes: &mut usize,
 ) -> Result<(), ProviderOptionError> {
+    ensure_option_depth(depth)?;
+    match value {
+        Value::Object(object) => {
+            validate_option_object(object, depth, fields, minimum_bytes)?;
+        }
+        Value::Array(items) => {
+            add_option_minimum_bytes(minimum_bytes, 2)?;
+            for (index, value) in items.iter().enumerate() {
+                if index > 0 {
+                    add_option_minimum_bytes(minimum_bytes, 1)?;
+                }
+                validate_option_value(value, depth + 1, fields, minimum_bytes)?;
+            }
+        }
+        Value::Null => add_option_minimum_bytes(minimum_bytes, 4)?,
+        Value::Bool(value) => {
+            add_option_minimum_bytes(minimum_bytes, if *value { 4 } else { 5 })?;
+        }
+        Value::Number(value) => add_option_minimum_bytes(minimum_bytes, value.to_string().len())?,
+        Value::String(value) => {
+            add_option_minimum_bytes(minimum_bytes, value.len().saturating_add(2))?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_option_depth(depth: usize) -> Result<(), ProviderOptionError> {
     if depth > MAX_PROVIDER_OPTION_DEPTH {
         return Err(ProviderOptionError::TooDeep {
             maximum: MAX_PROVIDER_OPTION_DEPTH,
         });
     }
-    match value {
-        Value::Object(object) => {
-            *fields = fields.saturating_add(object.len());
-            if *fields > MAX_PROVIDER_OPTION_FIELDS {
-                return Err(ProviderOptionError::TooManyFields {
-                    maximum: MAX_PROVIDER_OPTION_FIELDS,
-                });
-            }
-            for value in object.values() {
-                validate_option_value(value, depth + 1, fields)?;
-            }
-        }
-        Value::Array(items) => {
-            for value in items {
-                validate_option_value(value, depth + 1, fields)?;
-            }
-        }
-        _ => {}
+    Ok(())
+}
+
+fn add_option_minimum_bytes(
+    total: &mut usize,
+    additional: usize,
+) -> Result<(), ProviderOptionError> {
+    *total = total
+        .checked_add(additional)
+        .ok_or(ProviderOptionError::TooLarge {
+            maximum: MAX_PROVIDER_OPTION_BYTES,
+        })?;
+    if *total > MAX_PROVIDER_OPTION_BYTES {
+        return Err(ProviderOptionError::TooLarge {
+            maximum: MAX_PROVIDER_OPTION_BYTES,
+        });
     }
     Ok(())
 }
@@ -720,7 +1321,39 @@ mod tests {
     use serde::Serialize;
     use serde_json::json;
 
+    use crate::model::{Model, ModelDescriptor};
+    use crate::provider::{ModelId, ProviderScope, RouteId};
+
     use super::*;
+
+    struct FakeModel {
+        descriptor: ModelDescriptor,
+        route: Option<RouteId>,
+    }
+
+    impl Model for FakeModel {
+        fn descriptor(&self) -> &ModelDescriptor {
+            &self.descriptor
+        }
+
+        fn route_id(&self) -> Option<&RouteId> {
+            self.route.as_ref()
+        }
+    }
+
+    fn fake_model(provider: &str, mode: &str, route: Option<&str>) -> FakeModel {
+        let scope = ProviderScope::new(ProviderId::new(provider).unwrap())
+            .with_api_mode(ApiModeId::new(mode).unwrap());
+        FakeModel {
+            descriptor: ModelDescriptor::from_scope(
+                scope,
+                ModelId::new("future-model").unwrap(),
+                ModelFamily::Language,
+                ProviderInstanceId::new(),
+            ),
+            route: route.map(|value| RouteId::new(value).unwrap()),
+        }
+    }
 
     #[derive(Serialize)]
     struct OpenAiOptions {
@@ -728,6 +1361,21 @@ mod tests {
     }
 
     impl TypedProviderOptions for OpenAiOptions {
+        const NAMESPACE: &'static str = "openai";
+        const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+        const API_MODE: Option<&'static str> = Some("responses");
+
+        fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+            ProviderOptionBindingRequirement::Reusable
+        }
+    }
+
+    #[derive(Serialize)]
+    struct SensitiveOpenAiOptions {
+        mcp_authorization: &'static str,
+    }
+
+    impl TypedProviderOptions for SensitiveOpenAiOptions {
         const NAMESPACE: &'static str = "openai";
         const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
         const API_MODE: Option<&'static str> = Some("responses");
@@ -1087,5 +1735,154 @@ mod tests {
             .unwrap_err();
             assert!(matches!(error, ProviderOptionError::ProtectedField { .. }));
         }
+    }
+
+    #[test]
+    fn typed_option_entry_infers_exact_target_and_rejects_another_model() {
+        let options = OpenAiOptions {
+            reasoning_effort: "high",
+        };
+        let call = CallOptions::default()
+            .with_typed_provider_options(&options)
+            .unwrap();
+        let selected = call
+            .provider_options_for(&fake_model("openai", "responses", None))
+            .unwrap();
+        assert_eq!(selected.typed().count(), 1);
+
+        let error = call
+            .provider_options_for(&fake_model("openai", "chat-completions", None))
+            .unwrap_err();
+        assert!(matches!(error, ProviderOptionError::TargetMismatch { .. }));
+    }
+
+    #[test]
+    fn optional_bound_options_do_not_cross_same_label_instances() {
+        let first = fake_model("openai", "responses", Some("primary"));
+        let second = fake_model("openai", "responses", Some("primary"));
+        let raw = json!({"future_provider_field": "sentinel"});
+        let call = CallOptions::default()
+            .with_optional_raw_provider_options_for(&first, raw)
+            .unwrap();
+
+        assert!(
+            call.provider_options_for(&first)
+                .unwrap()
+                .raw_override()
+                .is_some()
+        );
+        let other = call.provider_options_for(&second).unwrap();
+        assert_eq!(other.raw_override(), None);
+        assert_eq!(other.unconsumed_count(), 1);
+        assert!(!format!("{call:?}").contains("sentinel"));
+    }
+
+    #[test]
+    fn instance_sensitive_typed_options_require_and_preserve_exact_binding() {
+        let options = SensitiveOpenAiOptions {
+            mcp_authorization: "sentinel-secret",
+        };
+        let error = CallOptions::default()
+            .with_typed_provider_options(&options)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderOptionError::InstanceBindingRequired { .. }
+        ));
+
+        let first = fake_model("openai", "responses", Some("shared-label"));
+        let second = fake_model("openai", "responses", Some("shared-label"));
+        let call = CallOptions::default()
+            .with_typed_provider_options_for(&first, &options)
+            .unwrap();
+        assert_eq!(
+            call.provider_options_for(&first).unwrap().typed().count(),
+            1
+        );
+        assert!(matches!(
+            call.provider_options_for(&second),
+            Err(ProviderOptionError::ExactTargetMismatch { .. })
+        ));
+        assert!(!format!("{call:?}").contains("sentinel-secret"));
+    }
+
+    #[test]
+    fn bounded_option_entries_reject_entry_target_and_byte_overflow() {
+        let model = fake_model("openai", "responses", None);
+        let mut call = CallOptions::default();
+        for _ in 0..64 {
+            call = call
+                .with_optional_typed_provider_options_for(
+                    &model,
+                    &OpenAiOptions {
+                        reasoning_effort: "high",
+                    },
+                )
+                .unwrap();
+        }
+        let error = call
+            .with_optional_typed_provider_options_for(
+                &model,
+                &OpenAiOptions {
+                    reasoning_effort: "high",
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(error, ProviderOptionError::TooManyEntries { .. }));
+
+        let too_large = vec![b' '; MAX_PROVIDER_OPTION_BYTES + 1];
+        let error = CallOptions::default()
+            .with_raw_provider_json_for(&model, &too_large)
+            .unwrap_err();
+        assert!(matches!(error, ProviderOptionError::TooLarge { .. }));
+
+        let huge_value = json!({"items": vec![Value::Null; MAX_PROVIDER_OPTION_BYTES]});
+        let error = CallOptions::default()
+            .with_raw_provider_options_for(&model, huge_value)
+            .unwrap_err();
+        assert!(matches!(error, ProviderOptionError::TooLarge { .. }));
+
+        let mut targets = CallOptions::default();
+        for index in 0..MAX_PROVIDER_OPTION_TARGETS {
+            let target = fake_model("openai", "responses", Some(&format!("route-{index}")));
+            targets = targets
+                .with_optional_typed_provider_options_for(
+                    &target,
+                    &OpenAiOptions {
+                        reasoning_effort: "high",
+                    },
+                )
+                .unwrap();
+        }
+        let overflow = fake_model("openai", "responses", Some("route-overflow"));
+        let error = targets
+            .with_optional_typed_provider_options_for(
+                &overflow,
+                &OpenAiOptions {
+                    reasoning_effort: "high",
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(error, ProviderOptionError::TooManyTargets { .. }));
+
+        let mut aggregate = CallOptions::default();
+        let payload = "x".repeat(MAX_PROVIDER_OPTION_BYTES - 1024);
+        for index in 0..8 {
+            let target = fake_model("openai", "responses", Some(&format!("raw-{index}")));
+            aggregate = aggregate
+                .with_optional_raw_provider_options_for(
+                    &target,
+                    json!({"future_blob": payload.clone()}),
+                )
+                .unwrap();
+        }
+        let overflow = fake_model("openai", "responses", Some("raw-overflow"));
+        let error = aggregate
+            .with_optional_raw_provider_options_for(&overflow, json!({"future_blob": payload}))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderOptionError::AggregateTooLarge { .. }
+        ));
     }
 }

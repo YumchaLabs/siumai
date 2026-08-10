@@ -15,10 +15,10 @@ use siumai_core::{
     LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
     ModelLookupError, ModelPolicy, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolId,
-    Provider, ProviderId, ProviderOptionError, ProviderProfile, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
-    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    Provider, ProviderId, ProviderInstanceId, ProviderOptionError, ProviderProfile,
+    ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
+    ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError,
+    SupportScope, TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
     VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
@@ -217,7 +217,12 @@ impl MinimaxProvider {
     pub fn image_model(&self, model: ModelId) -> Result<MinimaxImageModel, ModelLookupError> {
         Ok(MinimaxImageModel::new(
             self.native.clone(),
-            ModelDescriptor::from_scope(self.image_scope.clone(), model, ModelFamily::Image),
+            ModelDescriptor::from_scope(
+                self.image_scope.clone(),
+                model,
+                ModelFamily::Image,
+                self.native.instance_id.clone(),
+            ),
             self.image_policy.clone(),
         ))
     }
@@ -246,7 +251,12 @@ impl MinimaxProvider {
     pub fn speech_model(&self, model: ModelId) -> Result<MinimaxSpeechModel, ModelLookupError> {
         Ok(MinimaxSpeechModel::new(
             self.native.clone(),
-            ModelDescriptor::from_scope(self.speech_scope.clone(), model, ModelFamily::Speech),
+            ModelDescriptor::from_scope(
+                self.speech_scope.clone(),
+                model,
+                ModelFamily::Speech,
+                self.native.instance_id.clone(),
+            ),
             self.speech_policy.clone(),
         ))
     }
@@ -547,14 +557,17 @@ impl MinimaxProviderBuilder {
             native_claims,
         )?);
 
+        let instance_id = ProviderInstanceId::new();
         let mut messages_builder =
             AnthropicCompatibleProvider::builder_with_auth(messages_profile, auth.clone())
+                .with_provider_instance(instance_id.clone())
                 .with_default_options(self.messages_defaults.to_engine())
                 .with_limits(self.limits.clone())
                 .with_retry_policy(self.retry_policy);
 
         let mut openai_builder =
             OpenAiCompatibleProvider::builder_with_auth(openai_profile, auth.clone())
+                .with_provider_instance(instance_id.clone())
                 .with_limits(self.limits.clone())
                 .with_retry_policy(self.retry_policy);
         let mut responses_resource_builder = ProviderTransport::builder(responses_endpoint)
@@ -599,8 +612,11 @@ impl MinimaxProviderBuilder {
 
         let messages = messages_builder.build()?;
         let openai = openai_builder.build()?;
-        let responses_native = Arc::new(NativeRuntime::new(responses_resource_builder.build()?));
-        let native = Arc::new(NativeRuntime::new(resource_builder.build()?));
+        let responses_native = Arc::new(NativeRuntime::new(
+            instance_id.clone(),
+            responses_resource_builder.build()?,
+        ));
+        let native = Arc::new(NativeRuntime::new(instance_id, resource_builder.build()?));
         let image_registration = ProviderRegistration::from_image(
             image_scope.clone(),
             image_policy.clone(),
@@ -611,7 +627,12 @@ impl MinimaxProviderBuilder {
                 move |model| {
                     Ok(Arc::new(MinimaxImageModel::new(
                         native.clone(),
-                        ModelDescriptor::from_scope(image_scope.clone(), model, ModelFamily::Image),
+                        ModelDescriptor::from_scope(
+                            image_scope.clone(),
+                            model,
+                            ModelFamily::Image,
+                            native.instance_id.clone(),
+                        ),
                         image_policy.clone(),
                     )) as Arc<dyn ImageModel>)
                 }
@@ -631,6 +652,7 @@ impl MinimaxProviderBuilder {
                             speech_scope.clone(),
                             model,
                             ModelFamily::Speech,
+                            native.instance_id.clone(),
                         ),
                         speech_policy.clone(),
                     )) as Arc<dyn SpeechModel>)

@@ -127,7 +127,12 @@ impl GeminiEmbeddingModel {
         model: ModelId,
         defaults: GeminiEmbeddingOptions,
     ) -> Self {
-        let descriptor = ModelDescriptor::from_scope(scope, model, ModelFamily::Embedding);
+        let descriptor = ModelDescriptor::from_scope(
+            scope,
+            model,
+            ModelFamily::Embedding,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

@@ -36,8 +36,12 @@ pub struct AnthropicCompatibleLanguageModel {
 
 impl AnthropicCompatibleLanguageModel {
     pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Language);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Language,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

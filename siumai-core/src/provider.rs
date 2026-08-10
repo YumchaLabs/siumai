@@ -198,6 +198,45 @@ canonical_id!(ProtocolContractId, "protocol contract");
 canonical_id!(NativeSurfaceId, "provider-native surface");
 canonical_id!(ReplayDomainId, "replay domain");
 
+/// Opaque capability identifying one configured provider instance.
+///
+/// The token is intentionally neither serializable nor constructible from
+/// provider labels. A configured provider runtime mints one token and shares it
+/// with every model handle it creates. Profiles and technical scopes do not own
+/// the token because they may be cloned across independently configured
+/// credentials or transports.
+#[derive(Clone)]
+pub struct ProviderInstanceId(Arc<ProviderInstanceMarker>);
+
+struct ProviderInstanceMarker;
+
+impl ProviderInstanceId {
+    /// Create a fresh configured-instance capability.
+    pub fn new() -> Self {
+        Self(Arc::new(ProviderInstanceMarker))
+    }
+}
+
+impl Default for ProviderInstanceId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for ProviderInstanceId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<opaque-provider-instance>")
+    }
+}
+
+impl PartialEq for ProviderInstanceId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ProviderInstanceId {}
+
 /// Whether replay state belongs to an audited official audience or a caller-declared custom one.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -1116,8 +1155,12 @@ impl ProviderRegistration {
             return Ok(model);
         }
 
-        let expected =
-            ModelDescriptor::from_scope(expected_scope.clone(), expected_model, expected_family);
+        let expected = ModelDescriptor::from_scope(
+            expected_scope.clone(),
+            expected_model,
+            expected_family,
+            descriptor.instance_id().clone(),
+        );
 
         Err(ModelLookupError::IdentityMismatch {
             expected: Box::new(expected),

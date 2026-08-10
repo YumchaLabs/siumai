@@ -12,7 +12,8 @@ use siumai_anthropic_compatible::{
 use siumai_core::{
     CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
     LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId, TypedProviderOptions,
+    ProviderInstanceId, ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId,
+    TypedProviderOptions,
 };
 use siumai_openai_compatible::{
     DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
@@ -445,9 +446,11 @@ impl DeepSeekProviderBuilder {
             return Err(DeepSeekConfigError::MessagesReplayAudienceMismatch);
         }
         let DeepSeekCredential { openai, messages } = self.credential;
+        let instance_id = ProviderInstanceId::new();
         let beta_credential = openai.clone();
         let profile = profile(endpoint, replay_domain, verified_endpoint)?;
         let mut builder = OpenAiCompatibleProvider::builder(profile, openai)
+            .with_provider_instance(instance_id.clone())
             .with_limits(self.limits.clone())
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
@@ -469,6 +472,7 @@ impl DeepSeekProviderBuilder {
         let language = builder.build()?;
         let beta_profile = beta_profile(beta_endpoint, beta_replay_domain, verified_beta_endpoint)?;
         let mut beta_builder = OpenAiCompatibleProvider::builder(beta_profile, beta_credential)
+            .with_provider_instance(instance_id.clone())
             .with_limits(self.limits.clone())
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
@@ -496,6 +500,7 @@ impl DeepSeekProviderBuilder {
                     verified_messages_endpoint,
                 )?;
                 let mut builder = AnthropicCompatibleProvider::builder(profile, credential)
+                    .with_provider_instance(instance_id.clone())
                     .with_limits(self.limits)
                     .with_retry_policy(self.retry_policy);
                 if let Some(timeout) = self.connect_timeout {

@@ -15,12 +15,12 @@ use siumai_core::{
     ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ModelProfile,
     NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
     OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider,
-    ProviderId, ProviderOptionError, ProviderOptions, ProviderProfile, ProviderRegistration,
-    ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
-    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, UnsupportedReason,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedNativeSupportClaim,
-    VerifiedSupportClaim,
+    ProviderId, ProviderInstanceId, ProviderOptionError, ProviderOptions, ProviderProfile,
+    ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
+    ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError,
+    SupportScope, TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
+    UnsupportedReason, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -407,8 +407,10 @@ impl GroqProviderBuilder {
             return Err(GroqConfigError::OfficialEndpointRequiresCredential);
         }
         let auth = self.credential.inner.into_auth();
+        let instance_id = ProviderInstanceId::new();
         let profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
         let mut language = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
+            .with_provider_instance(instance_id.clone())
             .with_limits(self.limits.clone())
             .with_retry_policy(self.retry_policy);
         if let Some(timeout) = self.connect_timeout {
@@ -457,6 +459,7 @@ impl GroqProviderBuilder {
             .ok_or(GroqConfigError::MissingChatCompletionsMode)?;
         let media_transport = media_transport.build()?;
         let transcription = Arc::new(GroqTranscriptionRuntime::new(
+            instance_id.clone(),
             transcription_scope,
             media_transport.clone(),
             transcription_defaults,
@@ -464,6 +467,7 @@ impl GroqProviderBuilder {
         ));
         let audio = GroqAudio::new(media_transport.clone(), verified_endpoint);
         let speech = Arc::new(GroqSpeechRuntime::new(
+            instance_id,
             speech_scope,
             media_transport,
             verified_endpoint,
@@ -581,6 +585,7 @@ impl fmt::Debug for GroqLanguageModel {
 }
 
 pub(crate) struct GroqSpeechRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<GroqSpeechPolicy>,
@@ -588,11 +593,13 @@ pub(crate) struct GroqSpeechRuntime {
 
 impl GroqSpeechRuntime {
     fn new(
+        instance_id: ProviderInstanceId,
         scope: Arc<ProviderScope>,
         transport: ProviderTransport,
         verified_endpoint: bool,
     ) -> Self {
         Self {
+            instance_id,
             policy: Arc::new(GroqSpeechPolicy {
                 expected_scope: scope.clone(),
                 verified_endpoint,
@@ -906,6 +913,29 @@ mod tests {
     use siumai_core::ModelFamily;
 
     use super::*;
+
+    #[test]
+    fn configured_provider_native_models_share_one_instance_capability() {
+        let first = GroqProvider::builder(GroqCredential::api_key("first-key"))
+            .build()
+            .unwrap();
+        let second = GroqProvider::builder(GroqCredential::api_key("second-key"))
+            .build()
+            .unwrap();
+
+        let speech = first.speech("future-speech").unwrap();
+        let transcription = first.transcription("future-transcription").unwrap();
+        let other = second.speech("future-speech").unwrap();
+
+        assert_eq!(
+            speech.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_ne!(
+            speech.descriptor().instance_id(),
+            other.descriptor().instance_id()
+        );
+    }
 
     #[test]
     fn construction_is_static_and_future_model_ids_are_open() {

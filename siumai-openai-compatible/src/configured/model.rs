@@ -41,8 +41,12 @@ impl OpenAiCompatibleLanguageModel {
         mode: LanguageModeProfile,
         model: ModelId,
     ) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(mode.scope().clone(), model, ModelFamily::Language);
+        let descriptor = ModelDescriptor::from_scope(
+            mode.scope().clone(),
+            model,
+            ModelFamily::Language,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             mode,

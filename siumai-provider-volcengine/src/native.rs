@@ -8,7 +8,8 @@ use http::Method;
 use http::header::{ACCEPT, HeaderValue, RETRY_AFTER};
 use serde::de::DeserializeOwned;
 use siumai_core::{
-    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SensitiveResponse,
+    CallOptions, Error, ErrorKind, ProviderInstanceId, PublicDiagnosticText, ResponseDiagnostics,
+    SensitiveResponse,
 };
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
 use siumai_transport::{
@@ -18,12 +19,16 @@ use siumai_transport::{
 
 #[derive(Clone)]
 pub(crate) struct ArkNativeRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     transport: ProviderTransport,
 }
 
 impl ArkNativeRuntime {
-    pub(crate) fn new(transport: ProviderTransport) -> Self {
-        Self { transport }
+    pub(crate) fn new(instance_id: ProviderInstanceId, transport: ProviderTransport) -> Self {
+        Self {
+            instance_id,
+            transport,
+        }
     }
 }
 

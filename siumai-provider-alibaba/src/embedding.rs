@@ -13,11 +13,12 @@ use siumai_core::{
     EmbeddingResponse, Error, ErrorContext, ErrorKind, GenericSupportClaim, InvalidId, Model,
     ModelAdvisory, ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle,
     ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ModelProfile,
-    OfficialSource, ProfileError, ProfileId, ProtocolContractId, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptions, ProviderProfile, ProviderScope, ResponseMetadata, SupportScope, SupportState,
-    TypedProviderOptions, UnsupportedReason, Usage, UsageValue, VerificationDate,
-    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning, WarningKind,
+    OfficialSource, ProfileError, ProfileId, ProtocolContractId, ProviderInstanceId,
+    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
+    ProviderOptionOrigin, ProviderOptions, ProviderProfile, ProviderScope, ResponseMetadata,
+    SupportScope, SupportState, TypedProviderOptions, UnsupportedReason, Usage, UsageValue,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
+    WarningKind,
 };
 use siumai_transport::{
     ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
@@ -197,6 +198,7 @@ impl TypedProviderOptions for AlibabaEmbeddingOptions {
 
 pub(crate) struct AlibabaEmbeddingRuntime {
     pub(crate) scope: Arc<ProviderScope>,
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<AlibabaEmbeddingPolicy>,
     pub(crate) defaults: AlibabaEmbeddingOptions,
@@ -222,8 +224,12 @@ pub struct AlibabaEmbeddingModel {
 
 impl AlibabaEmbeddingModel {
     pub(crate) fn new(runtime: Arc<AlibabaEmbeddingRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Embedding);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Embedding,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

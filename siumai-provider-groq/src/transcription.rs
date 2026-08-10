@@ -12,10 +12,11 @@ use serde_json::{Map, Value};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelAdvisory, ModelDescriptor,
     ModelFamily, ModelId, ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseMetadata, SensitiveResponse,
-    SupportState, TranscriptSegment, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
-    TranscriptionResponse, TypedProviderOptions, UnsupportedReason, Usage, Warning, WarningKind,
+    ProviderInstanceId, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
+    ProviderOptionMerger, ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseMetadata,
+    SensitiveResponse, SupportState, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse, TypedProviderOptions, UnsupportedReason, Usage,
+    Warning, WarningKind,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
@@ -42,8 +43,12 @@ pub struct GroqTranscriptionModel {
 
 impl GroqTranscriptionModel {
     pub(crate) fn new(runtime: Arc<GroqTranscriptionRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Transcription);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Transcription,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,
@@ -186,6 +191,7 @@ impl TranscriptionModel for GroqTranscriptionModel {
 }
 
 pub(crate) struct GroqTranscriptionRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<GroqTranscriptionPolicy>,
@@ -195,12 +201,14 @@ pub(crate) struct GroqTranscriptionRuntime {
 
 impl GroqTranscriptionRuntime {
     pub(crate) fn new(
+        instance_id: ProviderInstanceId,
         scope: Arc<ProviderScope>,
         transport: ProviderTransport,
         default_options: ProviderOptions,
         verified_endpoint: bool,
     ) -> Self {
         Self {
+            instance_id,
             policy: Arc::new(GroqTranscriptionPolicy::new(
                 scope.clone(),
                 verified_endpoint,
@@ -699,7 +707,11 @@ mod tests {
         let defaults = ProviderOptions::typed(&GroqTranscriptionOptions::new()).unwrap();
         let model = GroqTranscriptionModel::new(
             Arc::new(GroqTranscriptionRuntime::new(
-                scope, transport, defaults, false,
+                ProviderInstanceId::new(),
+                scope,
+                transport,
+                defaults,
+                false,
             )),
             ModelId::new("future-whisper").unwrap(),
         );

@@ -13,10 +13,11 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
     ImageRequest, ImageResponse, MediaData, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, PublicDiagnosticText,
-    ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SpeechLimits, SpeechModel,
-    SpeechRequest, SpeechResponse, SupportState, TranscriptSegment, TranscriptionLimits,
-    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, UnsupportedReason, Usage,
+    ModelOperation, ModelPolicy, ModelPolicyContext, ModelPolicyDecision, ProviderInstanceId,
+    PublicDiagnosticText, ResponseDiagnostics, ResponseMetadata, SensitiveResponse, SpeechLimits,
+    SpeechModel, SpeechRequest, SpeechResponse, SupportState, TranscriptSegment,
+    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
+    UnsupportedReason, Usage,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
@@ -46,6 +47,7 @@ const MIN_SPEECH_SPEED: f32 = 0.7;
 const MAX_SPEECH_SPEED: f32 = 1.5;
 
 pub(crate) struct XaiImageRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<XaiImagePolicy>,
@@ -53,11 +55,13 @@ pub(crate) struct XaiImageRuntime {
 
 impl XaiImageRuntime {
     pub(crate) fn new(
+        instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
         verified_endpoint: bool,
     ) -> Self {
         Self {
+            instance_id,
             policy: Arc::new(XaiImagePolicy {
                 expected_scope: scope.clone(),
                 verified_endpoint,
@@ -69,6 +73,7 @@ impl XaiImageRuntime {
 }
 
 pub(crate) struct XaiSpeechRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<XaiSpeechPolicy>,
@@ -76,11 +81,13 @@ pub(crate) struct XaiSpeechRuntime {
 
 impl XaiSpeechRuntime {
     pub(crate) fn new(
+        instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
         verified_endpoint: bool,
     ) -> Self {
         Self {
+            instance_id,
             policy: Arc::new(XaiSpeechPolicy {
                 expected_scope: scope.clone(),
                 verified_endpoint,
@@ -92,6 +99,7 @@ impl XaiSpeechRuntime {
 }
 
 pub(crate) struct XaiTranscriptionRuntime {
+    pub(crate) instance_id: ProviderInstanceId,
     pub(crate) scope: Arc<siumai_core::ProviderScope>,
     pub(crate) transport: ProviderTransport,
     pub(crate) policy: Arc<XaiTranscriptionPolicy>,
@@ -99,11 +107,13 @@ pub(crate) struct XaiTranscriptionRuntime {
 
 impl XaiTranscriptionRuntime {
     pub(crate) fn new(
+        instance_id: ProviderInstanceId,
         scope: Arc<siumai_core::ProviderScope>,
         transport: ProviderTransport,
         verified_endpoint: bool,
     ) -> Self {
         Self {
+            instance_id,
             policy: Arc::new(XaiTranscriptionPolicy {
                 expected_scope: scope.clone(),
                 verified_endpoint,
@@ -219,8 +229,12 @@ pub struct XaiImageModel {
 
 impl XaiImageModel {
     pub(crate) fn new(runtime: Arc<XaiImageRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Image);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Image,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,
@@ -327,8 +341,12 @@ pub struct XaiSpeechModel {
 
 impl XaiSpeechModel {
     pub(crate) fn new(runtime: Arc<XaiSpeechRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Speech);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Speech,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,
@@ -473,8 +491,12 @@ pub struct XaiTranscriptionModel {
 
 impl XaiTranscriptionModel {
     pub(crate) fn new(runtime: Arc<XaiTranscriptionRuntime>, model: ModelId) -> Self {
-        let descriptor =
-            ModelDescriptor::from_scope(runtime.scope.clone(), model, ModelFamily::Transcription);
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.scope.clone(),
+            model,
+            ModelFamily::Transcription,
+            runtime.instance_id.clone(),
+        );
         Self {
             runtime,
             descriptor,

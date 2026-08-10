@@ -15,11 +15,11 @@ use siumai_core::{
     ModelLifecycle, ModelLookupError, ModelOperation, ModelProfile, NativeSupportScope,
     NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider, ProviderId,
-    ProviderOptionError, ProviderProfile, ProviderRegistration, ProviderRegistrationError,
-    ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel,
-    SpeechModelProvider, SupportManifestError, SupportScope, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedNativeSupportClaim, VerifiedSupportClaim,
+    ProviderInstanceId, ProviderOptionError, ProviderProfile, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
+    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -379,9 +379,11 @@ impl XaiProviderBuilder {
         let verified_endpoint = self.provider_selected_endpoint;
         let replay_domain = replay_domain_for_endpoint(self.replay_domain, verified_endpoint)?;
         let auth = self.credential.0.into_auth();
+        let instance_id = ProviderInstanceId::new();
         let language_profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
         let mut builder =
             OpenAiCompatibleProvider::builder_with_auth(language_profile, auth.clone())
+                .with_provider_instance(instance_id.clone())
                 .with_limits(self.limits.clone())
                 .with_retry_policy(self.retry_policy);
 
@@ -477,16 +479,19 @@ impl XaiProviderBuilder {
         )?;
         let media_transport = media_transport.build()?;
         let image = Arc::new(XaiImageRuntime::new(
+            instance_id.clone(),
             image_scope,
             media_transport.clone(),
             verified_endpoint,
         ));
         let speech = Arc::new(XaiSpeechRuntime::new(
+            instance_id.clone(),
             speech_scope,
             media_transport.clone(),
             verified_endpoint,
         ));
         let transcription = Arc::new(XaiTranscriptionRuntime::new(
+            instance_id,
             transcription_scope,
             media_transport.clone(),
             verified_endpoint,
@@ -815,6 +820,39 @@ mod tests {
             OFFICIAL_REPLAY_DOMAIN_ID
         );
         assert_eq!(chat.descriptor().replay_domain(), Some(replay_domain));
+    }
+
+    #[test]
+    fn configured_provider_native_models_share_one_instance_capability() {
+        let first = XaiProvider::builder(XaiCredential::api_key("first-key"))
+            .build()
+            .unwrap();
+        let second = XaiProvider::builder(XaiCredential::api_key("second-key"))
+            .build()
+            .unwrap();
+
+        let image = first.image("future-image").unwrap();
+        let language = first.responses("future-language").unwrap();
+        let speech = first.speech();
+        let transcription = first.transcription();
+        let other = second.image("future-image").unwrap();
+
+        assert_eq!(
+            image.descriptor().instance_id(),
+            language.descriptor().instance_id()
+        );
+        assert_eq!(
+            image.descriptor().instance_id(),
+            speech.descriptor().instance_id()
+        );
+        assert_eq!(
+            image.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_ne!(
+            image.descriptor().instance_id(),
+            other.descriptor().instance_id()
+        );
     }
 
     #[test]
