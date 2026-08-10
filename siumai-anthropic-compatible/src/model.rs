@@ -7,10 +7,10 @@ use http::{Method, StatusCode};
 use serde::Deserialize;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ProviderOptionError, PublicDiagnosticText,
-    SensitiveResponse, StreamTerminal,
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model,
+    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ProviderOptionError,
+    PublicDiagnosticText, SensitiveResponse, StreamTerminal,
 };
 use siumai_protocol_anthropic::messages::{
     MessagesStreamDecoder, decode_response, encode_request_for_scope_with_resolver_and_rules,
@@ -119,7 +119,7 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
         let mut call_options = self
             .runtime
@@ -155,7 +155,9 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
             .await
             .map_err(|error| self.contextualize(operation, error))?;
         if !response.status().is_success() {
-            return Err(self.contextualize(operation, response_error(response)));
+            return Err(self
+                .contextualize(operation, response_error(response))
+                .into());
         }
         let response = decode_response(response.body(), &self.runtime.scope, self.model_id())
             .map_err(Error::from)
@@ -240,18 +242,40 @@ fn decode_sse_stream(
                 let frames = framing
                     .push(&chunk)
                     .map_err(|source| sse_error(source).with_context(context.clone()))?;
+                let mut pending_events = Vec::new();
+                let mut terminal_in_batch = false;
                 for frame in frames {
+                    if terminal_in_batch {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Anthropic Messages stream emitted an SSE frame after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
                     let events = protocol
                         .decode(frame.data())
                         .map_err(|error| error.with_context(context.clone()))?;
+                    let terminal_position = events
+                        .iter()
+                        .position(|event| event.terminal().is_some());
+                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Anthropic Messages stream decoder emitted events after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    terminal_in_batch |= terminal_position.is_some();
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
-                        let terminal = event.terminal().is_some();
-                        yield event;
-                        if terminal {
-                            return;
-                        }
+                        pending_events.push(event);
                     }
+                }
+                for event in pending_events {
+                    yield event;
+                }
+                if terminal_in_batch {
+                    return;
                 }
             }
             framing

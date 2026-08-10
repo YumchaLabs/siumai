@@ -8,10 +8,11 @@ use futures::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, Error, ErrorKind, FinishReason, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageResponseStatus, LanguageStream, LanguageStreamEvent,
-    Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal,
-    ToolCall, ToolOutcome, ToolSpec, Usage, UsageValue,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageCallError,
+    LanguageCompletionReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
+    PartialLanguageOutput, PartialLanguageOutputPart, ProviderId, StreamTerminal, ToolCall,
+    ToolOutcome, ToolSpec, Usage, UsageUpdate, UsageValue,
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
@@ -100,12 +101,9 @@ impl LanguageModel for ScriptedModel {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.generate_calls.fetch_add(1, Ordering::SeqCst);
-        Err(Error::new(
-            ErrorKind::Internal,
-            "tool loop must not call generate",
-        ))
+        Err(Error::new(ErrorKind::Internal, "tool loop must not call generate").into())
     }
 
     async fn stream(
@@ -165,7 +163,7 @@ fn local_call(id: &str, name: &str, arguments: Value) -> ToolCall {
 fn tool_response(calls: Vec<ToolCall>) -> LanguageResponse {
     LanguageResponse::completed(
         calls.into_iter().map(ContentPart::ToolCall).collect(),
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         Usage::default(),
     )
     .expect("valid tool response")
@@ -176,34 +174,20 @@ fn final_response(text: &str) -> LanguageResponse {
         vec![ContentPart::Text {
             text: text.to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .expect("valid final response")
 }
 
-fn failed_response(text: &str, tokens: u64) -> LanguageResponse {
-    LanguageResponse::new(
-        LanguageResponseStatus::Failed,
-        vec![ContentPart::Text {
+fn partial_output(text: &str, tokens: u64) -> PartialLanguageOutput {
+    PartialLanguageOutput::new(
+        vec![PartialLanguageOutputPart::Text {
             text: text.to_string(),
         }],
-        FinishReason::Error,
         Usage::default().with_total_tokens(tokens),
     )
-    .expect("valid failed response")
-}
-
-fn cancelled_response(text: &str, tokens: u64) -> LanguageResponse {
-    LanguageResponse::new(
-        LanguageResponseStatus::Cancelled,
-        vec![ContentPart::Text {
-            text: text.to_string(),
-        }],
-        FinishReason::Cancelled,
-        Usage::default().with_total_tokens(tokens),
-    )
-    .expect("valid cancelled response")
+    .expect("valid partial output")
 }
 
 fn terminal_step(response: LanguageResponse) -> ScriptStep {
@@ -458,7 +442,7 @@ async fn known_usage_is_aggregated_without_losing_the_first_step() {
             "lookup",
             json!({}),
         ))],
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         Usage::default().with_total_tokens(3_u64),
     )
     .unwrap();
@@ -466,7 +450,7 @@ async fn known_usage_is_aggregated_without_losing_the_first_step() {
         vec![ContentPart::Text {
             text: "done".to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default().with_total_tokens(5_u64),
     )
     .unwrap();
@@ -493,7 +477,7 @@ async fn budget_exceeded_terminal_retains_the_observed_usage() {
         vec![ContentPart::Text {
             text: "over budget".to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default().with_total_tokens(8_u64),
     )
     .expect("valid response");
@@ -518,54 +502,60 @@ async fn budget_exceeded_terminal_retains_the_observed_usage() {
 }
 
 #[tokio::test]
-async fn failed_and_cancelled_terminal_responses_are_recorded_without_continuation_history() {
-    let failed_model =
-        ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
-            StreamTerminal::Failed {
-                error: Error::new(ErrorKind::Provider, "provider failed"),
-                response: Some(Box::new(failed_response("partial failure", 7))),
-            },
-        )])]);
+async fn failed_and_cancelled_partials_never_create_steps_or_continuation_history() {
+    let failed_model = ScriptedModel::new([ScriptStep::immediate(vec![
+        LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+            Usage::default().with_total_tokens(7_u64),
+        )),
+        LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+            error: Error::new(ErrorKind::Provider, "provider failed"),
+            partial: Some(partial_output("partial failure", 7)),
+        }),
+    ])]);
     let failed_loop = ToolLoop::new(failed_model, ToolSet::default());
     let (_, failed_terminal) = collect_terminal(&failed_loop, user_request()).await;
-    assert!(matches!(&failed_terminal, RunTerminal::Failed { .. }));
+    assert!(matches!(
+        failed_terminal.partial().map(PartialLanguageOutput::content),
+        Some([PartialLanguageOutputPart::Text { text }]) if text == "partial failure"
+    ));
+    assert!(!format!("{failed_terminal:?}").contains("partial failure"));
     let failed_report = failed_terminal
         .report()
         .expect("failed terminal retains report");
-    assert_eq!(failed_report.steps().len(), 1);
+    assert!(failed_report.steps().is_empty());
     assert_eq!(failed_report.usage().total_tokens, UsageValue::Known(7));
     assert_eq!(failed_report.budget().known_tokens(), 7);
     assert_eq!(failed_report.messages().len(), 1);
-    assert!(matches!(
-        failed_report.steps()[0].response().status(),
-        LanguageResponseStatus::Failed
-    ));
 
-    let cancelled_model =
-        ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
-            StreamTerminal::Cancelled {
-                reason: "provider cancelled".to_string(),
-                response: Some(Box::new(cancelled_response("partial cancellation", 5))),
-            },
-        )])]);
+    let cancelled_model = ScriptedModel::new([ScriptStep::immediate(vec![
+        LanguageStreamEvent::Usage(UsageUpdate::delta(
+            Usage::default().with_total_tokens(5_u64),
+        )),
+        LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
+            reason: "provider cancelled".to_string(),
+            partial: Some(partial_output("partial cancellation", 5)),
+        }),
+    ])]);
     let cancelled_loop = ToolLoop::new(cancelled_model, ToolSet::default());
     let (_, cancelled_terminal) = collect_terminal(&cancelled_loop, user_request()).await;
-    assert!(matches!(&cancelled_terminal, RunTerminal::Cancelled { .. }));
+    assert!(matches!(
+        cancelled_terminal
+            .partial()
+            .map(PartialLanguageOutput::content),
+        Some([PartialLanguageOutputPart::Text { text }]) if text == "partial cancellation"
+    ));
+    assert!(!format!("{cancelled_terminal:?}").contains("partial cancellation"));
     let cancelled_report = cancelled_terminal
         .report()
         .expect("cancelled terminal retains report");
-    assert_eq!(cancelled_report.steps().len(), 1);
+    assert!(cancelled_report.steps().is_empty());
     assert_eq!(cancelled_report.usage().total_tokens, UsageValue::Known(5));
     assert_eq!(cancelled_report.budget().known_tokens(), 5);
     assert_eq!(cancelled_report.messages().len(), 1);
-    assert!(matches!(
-        cancelled_report.steps()[0].response().status(),
-        LanguageResponseStatus::Cancelled
-    ));
 }
 
 #[tokio::test]
-async fn terminal_response_usage_budget_exhaustion_preempts_provider_failure() {
+async fn partial_usage_budget_exhaustion_preempts_provider_failure() {
     let budget = RunBudget::builder()
         .max_known_tokens(Some(4))
         .build()
@@ -574,7 +564,7 @@ async fn terminal_response_usage_budget_exhaustion_preempts_provider_failure() {
     let model = ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
         StreamTerminal::Failed {
             error: Error::new(ErrorKind::Provider, "provider failed"),
-            response: Some(Box::new(failed_response("over budget", 8))),
+            partial: Some(partial_output("over budget", 8)),
         },
     )])]);
     let loop_ = ToolLoop::new(model, ToolSet::default()).with_runtime(runtime);
@@ -582,7 +572,7 @@ async fn terminal_response_usage_budget_exhaustion_preempts_provider_failure() {
     let (_, terminal) = collect_terminal(&loop_, user_request()).await;
     assert!(matches!(&terminal, RunTerminal::BudgetExceeded { .. }));
     let report = terminal.report().expect("budget terminal retains report");
-    assert_eq!(report.steps().len(), 1);
+    assert!(report.steps().is_empty());
     assert_eq!(report.usage().total_tokens, UsageValue::Known(8));
     assert_eq!(report.messages().len(), 1);
 }
@@ -1430,6 +1420,131 @@ async fn total_model_first_and_inter_chunk_timeouts_are_typed_terminals() {
         ]),
     )
     .await;
+}
+
+#[tokio::test]
+async fn inter_chunk_timeout_preserves_observed_partial_output() {
+    let long = Duration::from_secs(2);
+    let short = Duration::from_millis(25);
+    let delayed = Duration::from_millis(100);
+    let model = ScriptedModel::new([ScriptStep::delayed(vec![
+        (
+            Duration::ZERO,
+            LanguageStreamEvent::TextStart {
+                id: "text".to_string(),
+            },
+        ),
+        (
+            Duration::ZERO,
+            LanguageStreamEvent::TextDelta {
+                id: "text".to_string(),
+                delta: "partial".to_string(),
+            },
+        ),
+        (
+            delayed,
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+                response: Box::new(final_response("late")),
+            }),
+        ),
+    ])]);
+    let runtime = runtime_with_timeouts(long, long, long, short, long);
+    let loop_ = ToolLoop::new(model, ToolSet::default()).with_runtime(runtime);
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::TimedOut {
+            kind: RunTimeoutKind::InterChunk,
+            partial: Some(partial),
+            ..
+        } if matches!(
+            partial.content(),
+            [PartialLanguageOutputPart::Text { text }] if text == "partial"
+        )
+    ));
+}
+
+#[tokio::test]
+async fn provider_timeout_remains_a_failed_run_terminal() {
+    let model = ScriptedModel::new([ScriptStep::immediate(vec![LanguageStreamEvent::Terminal(
+        StreamTerminal::Failed {
+            error: Error::new(ErrorKind::Timeout, "provider stream timed out"),
+            partial: Some(partial_output("provider partial", 3)),
+        },
+    )])]);
+    let loop_ = ToolLoop::new(model, ToolSet::default());
+
+    let (_, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        terminal,
+        RunTerminal::Failed {
+            error,
+            partial: Some(partial),
+            ..
+        } if error.kind() == ErrorKind::Timeout
+            && matches!(
+                partial.content(),
+                [PartialLanguageOutputPart::Text { text }] if text == "provider partial"
+            )
+    ));
+}
+
+#[tokio::test]
+async fn caller_cancellation_preserves_observed_partial_output() {
+    let delayed = Duration::from_millis(100);
+    let model = ScriptedModel::new([ScriptStep::delayed(vec![
+        (
+            Duration::ZERO,
+            LanguageStreamEvent::TextStart {
+                id: "text".to_string(),
+            },
+        ),
+        (
+            Duration::ZERO,
+            LanguageStreamEvent::TextDelta {
+                id: "text".to_string(),
+                delta: "partial".to_string(),
+            },
+        ),
+        (
+            delayed,
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+                response: Box::new(final_response("late")),
+            }),
+        ),
+    ])]);
+    let loop_ = ToolLoop::new(model, ToolSet::default());
+    let cancellation = Cancellation::new();
+    let mut run = loop_
+        .stream(
+            user_request(),
+            CallOptions::default().with_cancellation(cancellation.clone()),
+        )
+        .await
+        .expect("stream establishes");
+    let terminal = loop {
+        match run.next().await.expect("run emits one terminal") {
+            RunEvent::Model {
+                event: LanguageStreamEvent::TextDelta { .. },
+                ..
+            } => cancellation.cancel(),
+            RunEvent::Terminal(terminal) => break terminal,
+            _ => {}
+        }
+    };
+
+    assert!(run.next().await.is_none());
+    assert!(matches!(
+        terminal,
+        RunTerminal::Cancelled {
+            partial: Some(partial),
+            ..
+        } if matches!(
+            partial.content(),
+            [PartialLanguageOutputPart::Text { text }] if text == "partial"
+        )
+    ));
 }
 
 #[tokio::test]

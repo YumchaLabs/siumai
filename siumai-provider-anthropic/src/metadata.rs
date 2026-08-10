@@ -191,28 +191,31 @@ mod tests {
     use std::collections::BTreeMap;
 
     use serde_json::json;
-    use siumai_core::{FinishReason, LanguageResponse, Usage};
+    use siumai_core::{LanguageCompletionReason, LanguageResponse, Usage};
 
     use super::*;
 
     #[test]
     fn response_metadata_preserves_typed_and_future_usage_values() {
-        let response =
-            LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default())
-                .expect("response")
-                .with_provider_metadata(BTreeMap::from([(
-                    PROTOCOL_ID.to_string(),
-                    json!({
-                        "usage": {
-                            "service_tier": "priority",
-                            "speed": "turbo",
-                            "inference_geo": "global",
-                            "future": 7
-                        },
-                        "container": { "id": "container_1" },
-                        "future": true
-                    }),
-                )]));
+        let response = LanguageResponse::completed(
+            Vec::new(),
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .expect("response")
+        .with_provider_metadata(BTreeMap::from([(
+            PROTOCOL_ID.to_string(),
+            json!({
+                "usage": {
+                    "service_tier": "priority",
+                    "speed": "turbo",
+                    "inference_geo": "global",
+                    "future": 7
+                },
+                "container": { "id": "container_1" },
+                "future": true
+            }),
+        )]));
 
         let metadata = response
             .anthropic_metadata()

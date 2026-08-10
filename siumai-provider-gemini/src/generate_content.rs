@@ -7,9 +7,9 @@ use http::header::{ACCEPT, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions,
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamDecoder, Model, ModelDescriptor, ModelFamily,
+    ModelId, ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions,
     TypedProviderOptions,
 };
 use siumai_protocol_gemini::generate_content::{
@@ -216,6 +216,15 @@ impl GeminiGenerateContentModel {
             model: Some(self.model_id().clone()),
         })
     }
+
+    fn contextualize_call_error(
+        &self,
+        operation: ModelOperation,
+        error: LanguageCallError,
+    ) -> LanguageCallError {
+        let (error, partial) = error.into_parts();
+        LanguageCallError::new(self.contextualize(operation, error), partial)
+    }
 }
 
 impl fmt::Debug for GeminiGenerateContentModel {
@@ -239,8 +248,12 @@ impl LanguageModel for GeminiGenerateContentModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
-        self.generate_native(request, options).await?.into_result()
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        let operation = ModelOperation::Generate;
+        self.generate_native(request, options)
+            .await?
+            .into_result()
+            .map_err(|error| self.contextualize_call_error(operation, error))
     }
 
     async fn stream(

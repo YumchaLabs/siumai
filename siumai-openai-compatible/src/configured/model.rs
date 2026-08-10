@@ -6,10 +6,10 @@ use http::header::{ACCEPT, HeaderValue};
 use http::{Method, StatusCode};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamEvent, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionError, PublicDiagnosticText, SensitiveResponse, StreamTerminal,
-    Warning,
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamEvent, Model, ModelDescriptor, ModelFamily,
+    ModelId, ModelOperation, ProviderOptionError, PublicDiagnosticText, SensitiveResponse,
+    StreamTerminal, Warning,
 };
 use siumai_protocol_openai::chat_completions::CHAT_COMPLETIONS_TARGET;
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
@@ -154,6 +154,15 @@ impl OpenAiCompatibleLanguageModel {
         error.with_context(self.error_context(operation))
     }
 
+    fn contextualize_call_error(
+        &self,
+        operation: ModelOperation,
+        error: LanguageCallError,
+    ) -> LanguageCallError {
+        let (error, partial) = error.into_parts();
+        LanguageCallError::new(self.contextualize(operation, error), partial)
+    }
+
     fn error_context(&self, operation: ModelOperation) -> ErrorContext {
         ErrorContext {
             operation: Some(operation),
@@ -186,7 +195,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
         let mut warnings = Vec::new();
         let mode = self.api_mode();
@@ -215,7 +224,9 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                     .await
                     .map_err(|error| self.contextualize(operation, error))?;
                 if !response.status().is_success() {
-                    return Err(self.contextualize(operation, response_error(mode, response)));
+                    return Err(self
+                        .contextualize(operation, response_error(mode, response))
+                        .into());
                 }
                 codec_policy
                     .decode_response(
@@ -246,11 +257,13 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                     .await
                     .map_err(|error| self.contextualize(operation, error))?;
                 if !response.status().is_success() {
-                    return Err(self.contextualize(operation, response_error(mode, response)));
+                    return Err(self
+                        .contextualize(operation, response_error(mode, response))
+                        .into());
                 }
                 codec_policy
                     .decode_response(scope, self.model_id(), response.headers(), response.body())
-                    .map_err(|error| self.contextualize(operation, error))?
+                    .map_err(|error| self.contextualize_call_error(operation, error))?
             }
         };
         Ok(append_warnings(response, &warnings))
@@ -375,19 +388,8 @@ fn attach_warnings(event: &mut LanguageStreamEvent, warnings: &[Warning]) {
     if warnings.is_empty() {
         return;
     }
-    match event {
-        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-            response: Some(response),
-            ..
-        })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-            response: Some(response),
-            ..
-        }) => {
-            **response = append_warnings(response.as_ref().clone(), warnings);
-        }
-        _ => {}
+    if let LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) = event {
+        **response = append_warnings(response.as_ref().clone(), warnings);
     }
 }
 

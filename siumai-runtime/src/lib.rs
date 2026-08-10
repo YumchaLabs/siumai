@@ -24,6 +24,7 @@ mod selection;
 mod single_step;
 mod structured_run;
 mod tool_loop;
+mod usage;
 
 pub use agent::{Agent, AgentConfigError, AgentInput};
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};

@@ -8,7 +8,7 @@ use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
     AssistantHistoryOmission, Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message,
-    OpaqueProviderItem, ToolCall, ToolOutcome, ToolResult, Usage,
+    OpaqueProviderItem, PartialLanguageOutput, ToolCall, ToolOutcome, ToolResult, Usage,
 };
 
 use crate::snapshot::ToolExecutionLog;
@@ -179,6 +179,8 @@ pub struct RunReport {
     steps: Vec<StepRecord>,
     model_transitions: Vec<ModelTransitionRecord>,
     usage: Usage,
+    #[serde(default)]
+    usage_settled: bool,
     budget: BudgetLedger,
     execution_log: ToolExecutionLog,
     provider_deferred: Vec<OpaqueProviderItem>,
@@ -192,6 +194,7 @@ impl RunReport {
             steps: Vec::new(),
             model_transitions: Vec::new(),
             usage: Usage::default(),
+            usage_settled: false,
             budget: BudgetLedger::default(),
             execution_log: ToolExecutionLog::new(),
             provider_deferred: Vec::new(),
@@ -259,11 +262,12 @@ impl RunReport {
     }
 
     pub(crate) fn accumulate_usage(&mut self, usage: &Usage) {
-        self.usage = if self.steps.is_empty() {
+        self.usage = if !self.usage_settled {
             usage.clone()
         } else {
             self.usage.checked_add(usage)
         };
+        self.usage_settled = true;
     }
 
     pub(crate) fn budget_mut(&mut self) -> &mut BudgetLedger {
@@ -340,6 +344,7 @@ pub enum RunTerminal {
     },
     TimedOut {
         kind: RunTimeoutKind,
+        partial: Option<PartialLanguageOutput>,
         report: Box<RunReport>,
     },
     Indeterminate {
@@ -355,10 +360,12 @@ pub enum RunTerminal {
     },
     Failed {
         error: Error,
+        partial: Option<PartialLanguageOutput>,
         report: Box<RunReport>,
     },
     Cancelled {
         reason: String,
+        partial: Option<PartialLanguageOutput>,
         report: Box<RunReport>,
     },
 }
@@ -381,6 +388,15 @@ impl RunTerminal {
 
     pub fn is_completed(&self) -> bool {
         matches!(self, Self::Completed { .. })
+    }
+
+    pub fn partial(&self) -> Option<&PartialLanguageOutput> {
+        match self {
+            Self::TimedOut { partial, .. }
+            | Self::Failed { partial, .. }
+            | Self::Cancelled { partial, .. } => partial.as_ref(),
+            _ => None,
+        }
     }
 }
 
@@ -511,6 +527,7 @@ where
                 self.terminal_seen = true;
                 Poll::Ready(Some(RunEvent::Terminal(RunTerminal::Failed {
                     error,
+                    partial: None,
                     report: Box::new(self.take_initial_report()),
                 })))
             }
@@ -518,6 +535,7 @@ where
                 self.terminal_seen = true;
                 Poll::Ready(Some(RunEvent::Terminal(RunTerminal::Failed {
                     error: Error::unexpected_eof(),
+                    partial: None,
                     report: Box::new(self.take_initial_report()),
                 })))
             }

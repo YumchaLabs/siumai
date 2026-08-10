@@ -7,11 +7,11 @@ use futures::StreamExt;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, FinishReason, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
-    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, ToolCall, ToolOutcome,
-    ToolSpec, Usage,
+    CallOptions, ContentPart, Error, ErrorKind, LanguageCallError, LanguageCompletionReason,
+    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
+    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
+    ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, ToolCall,
+    ToolOutcome, ToolSpec, Usage,
 };
 use siumai_runtime::snapshot::SnapshotFingerprint;
 use siumai_runtime::tool::{ApprovalPolicy, ToolBinding, ToolSet};
@@ -70,12 +70,13 @@ impl LanguageModel for ScriptedModel {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.generate_calls.fetch_add(1, Ordering::SeqCst);
         Err(Error::new(
             ErrorKind::Internal,
             "step engine must use streaming model calls",
-        ))
+        )
+        .into())
     }
 
     async fn stream(
@@ -137,8 +138,12 @@ fn tool_response(native: Option<OpaqueProviderItem>) -> LanguageResponse {
         content.push(ContentPart::ProviderOpaque(native));
     }
     content.push(ContentPart::ToolCall(local_call()));
-    LanguageResponse::completed(content, FinishReason::ToolCalls, Usage::default())
-        .expect("valid tool response")
+    LanguageResponse::completed(
+        content,
+        LanguageCompletionReason::ToolCalls,
+        Usage::default(),
+    )
+    .expect("valid tool response")
 }
 
 fn final_response(text: &str) -> LanguageResponse {
@@ -146,7 +151,7 @@ fn final_response(text: &str) -> LanguageResponse {
         vec![ContentPart::Text {
             text: text.to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .expect("valid final response")

@@ -13,10 +13,10 @@ use siumai_core::{
     ApiModeId, ApiStability, CatalogError, ContentPart, Error, ErrorKind, InvalidId,
     LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, MessageRole,
     ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile,
-    OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId, ProviderProfile, ProviderScope, ReplayDomain, ResponseDiagnostics, StreamTerminal,
-    SupportScope, TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedSupportClaim, Warning,
+    OfficialSource, PartialLanguageOutput, PlatformId, ProfileError, ProfileId, ProtocolContractId,
+    ProtocolId, ProviderId, ProviderProfile, ProviderScope, ReplayDomain, ResponseDiagnostics,
+    StreamTerminal, SupportScope, TypedProviderOptions, Usage, UsageUpdate, UsageValue,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim, Warning,
 };
 use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall,
@@ -957,9 +957,8 @@ fn augment_response(
         metadata.insert(PROVIDER_ID.to_string(), provider);
     }
     let mut rebuilt = LanguageResponse::new(
-        response.status().clone(),
+        response.termination().clone(),
         response.content().to_vec(),
-        response.finish_reason().clone(),
         augment_usage(response.usage(), details),
     )
     .map_err(|source| {
@@ -978,6 +977,23 @@ fn augment_response(
         rebuilt = rebuilt.with_model(model.clone());
     }
     Ok(rebuilt)
+}
+
+fn augment_partial(
+    partial: &PartialLanguageOutput,
+    details: &DeepSeekUsageDetails,
+) -> Result<PartialLanguageOutput, Error> {
+    PartialLanguageOutput::new(
+        partial.content().to_vec(),
+        augment_usage(partial.usage(), details),
+    )
+    .map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "DeepSeek usage metadata produced an invalid partial output",
+        )
+        .with_source(source)
+    })
 }
 
 struct DeepSeekChatStreamDecoder {
@@ -1016,21 +1032,21 @@ fn augment_events(
 ) -> Result<(), Error> {
     for event in events {
         match event {
-            LanguageStreamEvent::Usage(usage) => {
-                *usage = augment_usage(usage, details);
+            LanguageStreamEvent::Usage(update) => {
+                *update = UsageUpdate::new(update.kind(), augment_usage(update.usage(), details));
             }
             LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => {
                 **response = augment_response(response.as_ref(), details)?;
             }
             LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-                response: Some(response),
+                partial: Some(partial),
                 ..
             })
             | LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-                response: Some(response),
+                partial: Some(partial),
                 ..
             }) => {
-                **response = augment_response(response.as_ref(), details)?;
+                *partial = augment_partial(partial, details)?;
             }
             _ => {}
         }

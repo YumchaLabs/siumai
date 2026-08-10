@@ -14,7 +14,7 @@ use crate::annotations::{
     ProviderAnnotationBudget, ProviderAnnotationError, ProviderAnnotationUsage,
     TypedProviderAnnotation,
 };
-use crate::error::PublicDiagnosticText;
+use crate::error::{Error as SiumaiError, PublicDiagnosticText};
 use crate::provider::{ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain};
 use crate::tool::{ToolCall, ToolResult, ToolSpec};
 use crate::usage::Usage;
@@ -1142,20 +1142,17 @@ impl PartialStructuredOutput {
     }
 }
 
+/// Why a language generation completed successfully.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub enum FinishReason {
+pub enum LanguageCompletionReason {
     Stop,
-    Length,
     ToolCalls,
-    ContentFilter,
     Refusal,
-    Error,
-    Cancelled,
     Other(String),
 }
 
-/// Why a final language response ended before normal completion.
+/// Why a language generation ended before normal completion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum LanguageIncompleteReason {
@@ -1164,20 +1161,356 @@ pub enum LanguageIncompleteReason {
     Other(String),
 }
 
-/// Provider-neutral terminal state of one language response resource.
+/// The single provider-neutral termination axis for a successful language call.
 ///
-/// Queued and in-progress provider resources remain provider extensions. The
-/// stable language family returns only terminal response states.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Provider failures and cancellations are call outcomes rather than response
+/// states. Queued and in-progress resources remain provider-native.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub enum LanguageResponseStatus {
-    #[default]
-    Completed,
-    Incomplete {
-        reason: Option<LanguageIncompleteReason>,
+pub enum LanguageTermination {
+    Completed(LanguageCompletionReason),
+    Incomplete(LanguageIncompleteReason),
+}
+
+/// Default maximum number of observational content items in one partial output.
+pub const DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT: usize = 128;
+/// Default maximum encoded size of one observational partial-output item.
+pub const DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT: usize = 1024 * 1024;
+/// Default maximum encoded size of one partial output, including its usage.
+pub const DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Aggregate limits for a failed or cancelled call's observational output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartialLanguageOutputBudget {
+    max_items: usize,
+    max_item_bytes: usize,
+    max_total_bytes: usize,
+}
+
+impl PartialLanguageOutputBudget {
+    pub const fn new(max_items: usize, max_item_bytes: usize, max_total_bytes: usize) -> Self {
+        Self {
+            max_items,
+            max_item_bytes,
+            max_total_bytes,
+        }
+    }
+
+    pub const fn max_items(self) -> usize {
+        self.max_items
+    }
+
+    pub const fn max_item_bytes(self) -> usize {
+        self.max_item_bytes
+    }
+
+    pub const fn max_total_bytes(self) -> usize {
+        self.max_total_bytes
+    }
+}
+
+impl Default for PartialLanguageOutputBudget {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT,
+            DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT,
+            DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT,
+        )
+    }
+}
+
+/// Non-executable content observed before a language call failed or was cancelled.
+///
+/// This deliberately cannot represent tool calls, tool results, provider-native
+/// state, replay material, media, citations, or executable annotations.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum PartialLanguageOutputPart {
+    Text { text: String },
+    Reasoning { text: String },
+    Refusal { reason: Option<String> },
+}
+
+impl fmt::Debug for PartialLanguageOutputPart {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Text { text } => formatter
+                .debug_struct("Text")
+                .field("utf8_bytes", &text.len())
+                .finish_non_exhaustive(),
+            Self::Reasoning { text } => formatter
+                .debug_struct("Reasoning")
+                .field("utf8_bytes", &text.len())
+                .finish_non_exhaustive(),
+            Self::Refusal { reason } => formatter
+                .debug_struct("Refusal")
+                .field("has_reason", &reason.is_some())
+                .field("reason_utf8_bytes", &reason.as_ref().map(String::len))
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+/// Bounded observational output retained for a failed or cancelled language call.
+#[derive(Clone, PartialEq, Serialize)]
+pub struct PartialLanguageOutput {
+    content: Vec<PartialLanguageOutputPart>,
+    usage: Usage,
+    #[serde(skip)]
+    encoded_json_bytes: usize,
+}
+
+impl fmt::Debug for PartialLanguageOutput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PartialLanguageOutput")
+            .field("items", &self.content.len())
+            .field("encoded_json_bytes", &self.encoded_json_bytes)
+            .field("usage_provider_fields", &self.usage.provider.len())
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum PartialLanguageOutputError {
+    #[error("partial language output contains {actual} items; maximum is {maximum}")]
+    TooManyItems { actual: usize, maximum: usize },
+    #[error("partial language output item {index} is {actual} encoded bytes; maximum is {maximum}")]
+    ItemTooLarge {
+        index: usize,
+        actual: usize,
+        maximum: usize,
     },
-    Failed,
-    Cancelled,
+    #[error("partial language output is {actual} encoded bytes; maximum is {maximum}")]
+    TooLarge { actual: usize, maximum: usize },
+    #[error("failed to measure partial language output")]
+    Encoding,
+}
+
+impl PartialLanguageOutput {
+    pub fn new(
+        content: Vec<PartialLanguageOutputPart>,
+        usage: Usage,
+    ) -> Result<Self, PartialLanguageOutputError> {
+        Self::with_budget(content, usage, PartialLanguageOutputBudget::default())
+    }
+
+    pub fn with_budget(
+        content: Vec<PartialLanguageOutputPart>,
+        mut usage: Usage,
+        budget: PartialLanguageOutputBudget,
+    ) -> Result<Self, PartialLanguageOutputError> {
+        // Provider-owned usage metadata may contain replay or tenant details.
+        // Partial output intentionally retains only the stable portable counts.
+        usage.provider.clear();
+        let encoded_json_bytes = validate_partial_language_output(&content, &usage, budget)?;
+        Ok(Self {
+            content,
+            usage,
+            encoded_json_bytes,
+        })
+    }
+
+    pub fn content(&self) -> &[PartialLanguageOutputPart] {
+        &self.content
+    }
+
+    pub fn usage(&self) -> &Usage {
+        &self.usage
+    }
+
+    pub fn encoded_json_bytes(&self) -> usize {
+        self.encoded_json_bytes
+    }
+
+    pub fn into_parts(self) -> (Vec<PartialLanguageOutputPart>, Usage) {
+        (self.content, self.usage)
+    }
+
+    pub fn validate(&self) -> Result<(), PartialLanguageOutputError> {
+        self.validate_with_budget(PartialLanguageOutputBudget::default())
+    }
+
+    pub fn validate_with_budget(
+        &self,
+        budget: PartialLanguageOutputBudget,
+    ) -> Result<(), PartialLanguageOutputError> {
+        validate_partial_language_output(&self.content, &self.usage, budget).map(|_| ())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartialLanguageOutputWire {
+    content: Vec<PartialLanguageOutputPart>,
+    usage: Usage,
+}
+
+#[derive(Serialize)]
+struct PartialLanguageOutputWireRef<'a> {
+    content: &'a [PartialLanguageOutputPart],
+    usage: &'a Usage,
+}
+
+impl<'de> Deserialize<'de> for PartialLanguageOutput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = PartialLanguageOutputWire::deserialize(deserializer)?;
+        Self::new(wire.content, wire.usage).map_err(serde::de::Error::custom)
+    }
+}
+
+fn validate_partial_language_output(
+    content: &[PartialLanguageOutputPart],
+    usage: &Usage,
+    budget: PartialLanguageOutputBudget,
+) -> Result<usize, PartialLanguageOutputError> {
+    if content.len() > budget.max_items {
+        return Err(PartialLanguageOutputError::TooManyItems {
+            actual: content.len(),
+            maximum: budget.max_items,
+        });
+    }
+
+    for (index, item) in content.iter().enumerate() {
+        let actual = serde_json::to_vec(item)
+            .map_err(|_| PartialLanguageOutputError::Encoding)?
+            .len();
+        if actual > budget.max_item_bytes {
+            return Err(PartialLanguageOutputError::ItemTooLarge {
+                index,
+                actual,
+                maximum: budget.max_item_bytes,
+            });
+        }
+    }
+
+    let actual = serde_json::to_vec(&PartialLanguageOutputWireRef { content, usage })
+        .map_err(|_| PartialLanguageOutputError::Encoding)?
+        .len();
+    if actual > budget.max_total_bytes {
+        return Err(PartialLanguageOutputError::TooLarge {
+            actual,
+            maximum: budget.max_total_bytes,
+        });
+    }
+    Ok(actual)
+}
+
+/// A direct language-call failure plus optional bounded observational output.
+pub struct LanguageCallError {
+    inner: Box<LanguageCallErrorInner>,
+}
+
+struct LanguageCallErrorInner {
+    error: SiumaiError,
+    partial: Option<PartialLanguageOutput>,
+}
+
+impl LanguageCallError {
+    pub fn new(error: SiumaiError, partial: Option<PartialLanguageOutput>) -> Self {
+        Self {
+            inner: Box::new(LanguageCallErrorInner { error, partial }),
+        }
+    }
+
+    pub fn error(&self) -> &SiumaiError {
+        &self.inner.error
+    }
+
+    pub fn kind(&self) -> crate::ErrorKind {
+        self.inner.error.kind()
+    }
+
+    pub fn message(&self) -> &str {
+        self.inner.error.message()
+    }
+
+    pub fn context(&self) -> &crate::ErrorContext {
+        self.inner.error.context()
+    }
+
+    pub fn detail(&self) -> Option<&crate::ErrorDetail> {
+        self.inner.error.detail()
+    }
+
+    pub fn diagnostics(&self) -> Option<&crate::ResponseDiagnostics> {
+        self.inner.error.diagnostics()
+    }
+
+    pub fn sensitive_response(&self) -> Option<&crate::SensitiveResponse> {
+        self.inner.error.sensitive_response()
+    }
+
+    pub fn sensitive_source(&self) -> Option<&crate::SensitiveErrorSource> {
+        self.inner.error.sensitive_source()
+    }
+
+    pub fn partial(&self) -> Option<&PartialLanguageOutput> {
+        self.inner.partial.as_ref()
+    }
+
+    /// Add Registry route context without changing the partial observation.
+    pub fn with_route(mut self, route: crate::RouteId) -> Self {
+        self.inner.error = self.inner.error.with_route(route);
+        self
+    }
+
+    /// Discard the partial observation and return the underlying sanitized error.
+    pub fn into_error(self) -> SiumaiError {
+        self.inner.error
+    }
+
+    pub fn into_parts(self) -> (SiumaiError, Option<PartialLanguageOutput>) {
+        (self.inner.error, self.inner.partial)
+    }
+}
+
+impl From<SiumaiError> for LanguageCallError {
+    fn from(error: SiumaiError) -> Self {
+        Self::new(error, None)
+    }
+}
+
+impl fmt::Display for LanguageCallError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.error.fmt(formatter)
+    }
+}
+
+impl fmt::Debug for LanguageCallError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LanguageCallError")
+            .field("error", &self.inner.error)
+            .field("has_partial", &self.inner.partial.is_some())
+            .field(
+                "partial_items",
+                &self
+                    .inner
+                    .partial
+                    .as_ref()
+                    .map(|partial| partial.content.len()),
+            )
+            .field(
+                "partial_encoded_json_bytes",
+                &self
+                    .inner
+                    .partial
+                    .as_ref()
+                    .map(|partial| partial.encoded_json_bytes),
+            )
+            .finish()
+    }
+}
+
+impl std::error::Error for LanguageCallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.inner.error)
+    }
 }
 
 /// Stable warning categories emitted without changing call success semantics.
@@ -1228,9 +1561,8 @@ impl Warning {
 pub struct LanguageResponse {
     id: Option<String>,
     model: Option<ModelId>,
-    status: LanguageResponseStatus,
+    termination: LanguageTermination,
     content: Vec<ContentPart>,
-    finish_reason: FinishReason,
     usage: Usage,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<Warning>,
@@ -1241,8 +1573,8 @@ pub struct LanguageResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum LanguageResponseError {
-    #[error("language response status and finish reason are inconsistent")]
-    StatusFinishReasonMismatch,
+    #[error("custom completion reason must not be empty")]
+    EmptyCompletionReason,
     #[error("custom incomplete reason must not be empty")]
     EmptyIncompleteReason,
     #[error(transparent)]
@@ -1251,17 +1583,15 @@ pub enum LanguageResponseError {
 
 impl LanguageResponse {
     pub fn new(
-        status: LanguageResponseStatus,
+        termination: LanguageTermination,
         content: Vec<ContentPart>,
-        finish_reason: FinishReason,
         usage: Usage,
     ) -> Result<Self, LanguageResponseError> {
         let response = Self {
             id: None,
             model: None,
-            status,
+            termination,
             content,
-            finish_reason,
             usage,
             warnings: Vec::new(),
             provider: BTreeMap::new(),
@@ -1272,15 +1602,18 @@ impl LanguageResponse {
 
     pub fn completed(
         content: Vec<ContentPart>,
-        finish_reason: FinishReason,
+        reason: LanguageCompletionReason,
         usage: Usage,
     ) -> Result<Self, LanguageResponseError> {
-        Self::new(
-            LanguageResponseStatus::Completed,
-            content,
-            finish_reason,
-            usage,
-        )
+        Self::new(LanguageTermination::Completed(reason), content, usage)
+    }
+
+    pub fn incomplete(
+        content: Vec<ContentPart>,
+        reason: LanguageIncompleteReason,
+        usage: Usage,
+    ) -> Result<Self, LanguageResponseError> {
+        Self::new(LanguageTermination::Incomplete(reason), content, usage)
     }
 
     pub fn with_id(mut self, id: impl Into<String>) -> Self {
@@ -1311,16 +1644,12 @@ impl LanguageResponse {
         self.model.as_ref()
     }
 
-    pub fn status(&self) -> &LanguageResponseStatus {
-        &self.status
+    pub fn termination(&self) -> &LanguageTermination {
+        &self.termination
     }
 
     pub fn content(&self) -> &[ContentPart] {
         &self.content
-    }
-
-    pub fn finish_reason(&self) -> &FinishReason {
-        &self.finish_reason
     }
 
     pub fn usage(&self) -> &Usage {
@@ -1379,7 +1708,7 @@ impl LanguageResponse {
         &self,
         opaque_budget: OpaqueProviderBudget,
     ) -> Result<(), LanguageResponseError> {
-        validate_response_status(&self.status, &self.finish_reason)?;
+        validate_language_termination(&self.termination)?;
         opaque_budget.validate(self.content.iter().filter_map(|part| match part {
             ContentPart::ProviderOpaque(item) => Some(item),
             _ => None,
@@ -1392,10 +1721,8 @@ impl LanguageResponse {
 struct LanguageResponseWire {
     id: Option<String>,
     model: Option<ModelId>,
-    #[serde(default)]
-    status: LanguageResponseStatus,
+    termination: LanguageTermination,
     content: Vec<ContentPart>,
-    finish_reason: FinishReason,
     usage: Usage,
     #[serde(default)]
     warnings: Vec<Warning>,
@@ -1409,7 +1736,7 @@ impl<'de> Deserialize<'de> for LanguageResponse {
         D: Deserializer<'de>,
     {
         let wire = LanguageResponseWire::deserialize(deserializer)?;
-        let mut response = Self::new(wire.status, wire.content, wire.finish_reason, wire.usage)
+        let mut response = Self::new(wire.termination, wire.content, wire.usage)
             .map_err(serde::de::Error::custom)?;
         response.id = wire.id;
         response.model = wire.model;
@@ -1419,46 +1746,21 @@ impl<'de> Deserialize<'de> for LanguageResponse {
     }
 }
 
-fn validate_response_status(
-    status: &LanguageResponseStatus,
-    finish_reason: &FinishReason,
+fn validate_language_termination(
+    termination: &LanguageTermination,
 ) -> Result<(), LanguageResponseError> {
-    let valid = match status {
-        LanguageResponseStatus::Completed => !matches!(
-            finish_reason,
-            FinishReason::Length
-                | FinishReason::ContentFilter
-                | FinishReason::Error
-                | FinishReason::Cancelled
-        ),
-        LanguageResponseStatus::Incomplete { reason } => match reason {
-            Some(LanguageIncompleteReason::MaxOutputTokens) => {
-                matches!(finish_reason, FinishReason::Length)
-            }
-            Some(LanguageIncompleteReason::ContentFilter) => {
-                matches!(finish_reason, FinishReason::ContentFilter)
-            }
-            Some(LanguageIncompleteReason::Other(reason)) => {
-                if reason.trim().is_empty() {
-                    return Err(LanguageResponseError::EmptyIncompleteReason);
-                }
-                matches!(
-                    finish_reason,
-                    FinishReason::Length | FinishReason::ContentFilter | FinishReason::Other(_)
-                )
-            }
-            None => matches!(
-                finish_reason,
-                FinishReason::Length | FinishReason::ContentFilter | FinishReason::Other(_)
-            ),
-        },
-        LanguageResponseStatus::Failed => matches!(finish_reason, FinishReason::Error),
-        LanguageResponseStatus::Cancelled => matches!(finish_reason, FinishReason::Cancelled),
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(LanguageResponseError::StatusFinishReasonMismatch)
+    match termination {
+        LanguageTermination::Completed(LanguageCompletionReason::Other(reason))
+            if reason.trim().is_empty() =>
+        {
+            Err(LanguageResponseError::EmptyCompletionReason)
+        }
+        LanguageTermination::Incomplete(LanguageIncompleteReason::Other(reason))
+            if reason.trim().is_empty() =>
+        {
+            Err(LanguageResponseError::EmptyIncompleteReason)
+        }
+        LanguageTermination::Completed(_) | LanguageTermination::Incomplete(_) => Ok(()),
     }
 }
 
@@ -1759,49 +2061,135 @@ mod tests {
     }
 
     #[test]
-    fn response_status_is_terminal_and_strictly_matches_finish_reason() {
-        let incomplete = LanguageResponse::new(
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::MaxOutputTokens),
-            },
+    fn language_response_has_one_completed_or_incomplete_termination() {
+        let completed = LanguageResponse::completed(
             Vec::new(),
-            FinishReason::Length,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
-        let decoded: LanguageResponse =
-            serde_json::from_value(serde_json::to_value(&incomplete).unwrap()).unwrap();
-        assert!(matches!(
-            decoded.status(),
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::MaxOutputTokens)
-            }
-        ));
-
         assert_eq!(
-            LanguageResponse::new(
-                LanguageResponseStatus::Failed,
+            completed.termination(),
+            &LanguageTermination::Completed(LanguageCompletionReason::Stop)
+        );
+
+        let incomplete = LanguageResponse::incomplete(
+            Vec::new(),
+            LanguageIncompleteReason::MaxOutputTokens,
+            Usage::default(),
+        )
+        .unwrap();
+        let encoded = serde_json::to_value(&incomplete).unwrap();
+        assert!(encoded.get("termination").is_some());
+        assert!(encoded.get("status").is_none());
+        assert!(encoded.get("finish_reason").is_none());
+
+        let decoded: LanguageResponse = serde_json::from_value(encoded).unwrap();
+        assert_eq!(
+            decoded.termination(),
+            &LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
+        );
+        assert_eq!(
+            LanguageResponse::completed(
                 Vec::new(),
-                FinishReason::Stop,
+                LanguageCompletionReason::Other("  ".to_string()),
                 Usage::default(),
             ),
-            Err(LanguageResponseError::StatusFinishReasonMismatch)
+            Err(LanguageResponseError::EmptyCompletionReason)
         );
         assert_eq!(
-            LanguageResponse::completed(Vec::new(), FinishReason::Length, Usage::default()),
-            Err(LanguageResponseError::StatusFinishReasonMismatch)
-        );
-        assert_eq!(
-            LanguageResponse::new(
-                LanguageResponseStatus::Cancelled,
+            LanguageResponse::incomplete(
                 Vec::new(),
-                FinishReason::Cancelled,
+                LanguageIncompleteReason::Other(String::new()),
                 Usage::default(),
-            )
-            .unwrap()
-            .status(),
-            &LanguageResponseStatus::Cancelled
+            ),
+            Err(LanguageResponseError::EmptyIncompleteReason)
         );
+    }
+
+    #[test]
+    fn partial_language_output_is_bounded_and_preserves_unknown_usage() {
+        let part = PartialLanguageOutputPart::Text {
+            text: "partial".to_string(),
+        };
+        let item_bytes = serde_json::to_vec(&part).unwrap().len();
+        let usage = Usage::default()
+            .with_input_tokens(0_u64)
+            .with_provider_value("private_usage_detail", "tenant-secret");
+        let partial = PartialLanguageOutput::new(vec![part.clone()], usage.clone()).unwrap();
+        let encoded_bytes = partial.encoded_json_bytes();
+
+        let decoded: PartialLanguageOutput =
+            serde_json::from_value(serde_json::to_value(&partial).unwrap()).unwrap();
+        assert_eq!(decoded.usage().input_tokens, crate::UsageValue::Known(0));
+        assert_eq!(decoded.usage().output_tokens, crate::UsageValue::Unknown);
+        assert!(decoded.usage().provider.is_empty());
+        assert_eq!(decoded.encoded_json_bytes(), encoded_bytes);
+
+        assert!(matches!(
+            PartialLanguageOutput::with_budget(
+                vec![part.clone()],
+                usage.clone(),
+                PartialLanguageOutputBudget::new(0, item_bytes, encoded_bytes),
+            ),
+            Err(PartialLanguageOutputError::TooManyItems { .. })
+        ));
+        assert!(matches!(
+            PartialLanguageOutput::with_budget(
+                vec![part.clone()],
+                usage.clone(),
+                PartialLanguageOutputBudget::new(1, item_bytes - 1, encoded_bytes),
+            ),
+            Err(PartialLanguageOutputError::ItemTooLarge { index: 0, .. })
+        ));
+        assert!(matches!(
+            PartialLanguageOutput::with_budget(
+                vec![part],
+                usage,
+                PartialLanguageOutputBudget::new(1, item_bytes, encoded_bytes - 1),
+            ),
+            Err(PartialLanguageOutputError::TooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn partial_language_output_cannot_deserialize_executable_content() {
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Refusal {
+                reason: Some("not available".to_string()),
+            }],
+            Usage::default(),
+        )
+        .unwrap();
+        let mut encoded = serde_json::to_value(partial).unwrap();
+        encoded["content"] = json!([{"ToolCall": {}}]);
+
+        assert!(serde_json::from_value::<PartialLanguageOutput>(encoded).is_err());
+    }
+
+    #[test]
+    fn language_call_error_keeps_partial_output_out_of_default_diagnostics() {
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "private generated text".to_string(),
+            }],
+            Usage::default(),
+        )
+        .unwrap();
+        let error = LanguageCallError::new(
+            SiumaiError::new(crate::ErrorKind::Provider, "generation failed"),
+            Some(partial),
+        );
+
+        assert_eq!(error.error().kind(), crate::ErrorKind::Provider);
+        assert!(error.partial().is_some());
+        assert!(
+            !format!("{:?}", error.partial().unwrap().content()[0])
+                .contains("private generated text")
+        );
+        assert!(!format!("{:?}", error.partial().unwrap()).contains("private generated text"));
+        assert!(!format!("{error:?}").contains("private generated text"));
+        assert!(!error.to_string().contains("private generated text"));
     }
 
     #[test]
@@ -1816,7 +2204,7 @@ mod tests {
                         .unwrap(),
                 ),
             ],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -1966,7 +2354,7 @@ mod tests {
                     .unwrap(),
                 ),
             ],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();

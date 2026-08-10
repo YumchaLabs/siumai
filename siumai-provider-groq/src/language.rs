@@ -7,9 +7,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use http::header::{HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 use siumai_core::{
-    ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageRequest,
-    LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog, ModelFamily,
-    ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
+    ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageCallError,
+    LanguageRequest, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelCatalog,
+    ModelFamily, ModelId, ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId,
     ProfileError, ProfileId, ProtocolContractId, ProtocolId, ProviderId, ProviderProfile,
     ProviderScope, PublicDiagnosticText, ReplayDomain, ResponseDiagnostics, StreamTerminal,
     SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
@@ -466,7 +466,7 @@ impl ResponsesCodecPolicy for GroqResponsesCodecPolicy {
         model: &ModelId,
         headers: &ResponseHeaders,
         body: &[u8],
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         decode_groq_responses_response(scope, model, Some(headers), body)
     }
 
@@ -488,7 +488,7 @@ fn decode_groq_responses_response(
     model: &ModelId,
     headers: Option<&ResponseHeaders>,
     body: &[u8],
-) -> Result<LanguageResponse, Error> {
+) -> Result<LanguageResponse, LanguageCallError> {
     let value = serde_json::from_slice::<Value>(body).map_err(|source| {
         Error::new(
             ErrorKind::Protocol,
@@ -502,7 +502,7 @@ fn decode_groq_responses_response(
     }
     let decoded = decode_responses_response(body, scope, model)?;
     let (_, response) = decoded.into_parts();
-    Ok(with_groq_responses_metadata(response, &metadata))
+    response.map(|response| with_groq_responses_metadata(response, &metadata))
 }
 
 struct GroqResponsesStreamDecoder {
@@ -927,15 +927,8 @@ fn annotate_events(events: &mut [LanguageStreamEvent], metadata: &Map<String, Va
         let LanguageStreamEvent::Terminal(terminal) = event else {
             continue;
         };
-        match terminal {
-            StreamTerminal::Completed { response } => annotate_response(response, metadata),
-            StreamTerminal::Failed { response, .. }
-            | StreamTerminal::Cancelled { response, .. } => {
-                if let Some(response) = response {
-                    annotate_response(response, metadata);
-                }
-            }
-            _ => {}
+        if let StreamTerminal::Completed { response } = terminal {
+            annotate_response(response, metadata);
         }
     }
 }
@@ -949,17 +942,8 @@ fn annotate_responses_events(events: &mut [LanguageStreamEvent], metadata: &Map<
         let LanguageStreamEvent::Terminal(terminal) = event else {
             continue;
         };
-        match terminal {
-            StreamTerminal::Completed { response } => {
-                annotate_responses_response(response, metadata);
-            }
-            StreamTerminal::Failed { response, .. }
-            | StreamTerminal::Cancelled { response, .. } => {
-                if let Some(response) = response {
-                    annotate_responses_response(response, metadata);
-                }
-            }
-            _ => {}
+        if let StreamTerminal::Completed { response } = terminal {
+            annotate_responses_response(response, metadata);
         }
     }
 }
@@ -1306,7 +1290,7 @@ mod tests {
                 r#"{"id":"chat-1","model":"future-groq-model","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}],"x_groq":{"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}}"#,
             )
             .unwrap();
-        assert!(events.iter().any(|event| matches!(event, LanguageStreamEvent::Usage(usage) if usage.total_tokens.value() == Some(3))));
+        assert!(events.iter().any(|event| matches!(event, LanguageStreamEvent::Usage(update) if update.usage().total_tokens.value() == Some(3))));
         let terminal = decoder.decode("[DONE]").unwrap();
         let response = terminal
             .iter()

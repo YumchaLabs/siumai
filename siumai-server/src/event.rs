@@ -290,32 +290,24 @@ impl GatewayEvent {
                     losses,
                 ))
             }
-            StreamTerminal::Failed { error, response } => {
-                let (response, losses) =
-                    project_optional_response(response.as_deref(), loss_policy)?;
-                Ok(Self::terminal(
-                    "model.failed",
-                    json!({
-                        "status": "failed",
-                        "error": public_error(&error),
-                        "response": response,
-                    }),
-                    losses,
-                ))
-            }
-            StreamTerminal::Cancelled { reason, response } => {
-                let (response, losses) =
-                    project_optional_response(response.as_deref(), loss_policy)?;
-                Ok(Self::terminal(
-                    "model.cancelled",
-                    json!({
-                        "status": "cancelled",
-                        "reason": reason,
-                        "response": response,
-                    }),
-                    losses,
-                ))
-            }
+            StreamTerminal::Failed { error, partial } => Ok(Self::terminal(
+                "model.failed",
+                json!({
+                    "status": "failed",
+                    "error": public_error(&error),
+                    "partial": partial,
+                }),
+                Vec::new(),
+            )),
+            StreamTerminal::Cancelled { reason, partial } => Ok(Self::terminal(
+                "model.cancelled",
+                json!({
+                    "status": "cancelled",
+                    "reason": reason,
+                    "partial": partial,
+                }),
+                Vec::new(),
+            )),
             _ => loss_event(
                 loss_policy,
                 "unknown_language_terminal",
@@ -368,11 +360,20 @@ impl GatewayEvent {
                     losses,
                 ))
             }
-            RunTerminal::TimedOut { kind, report } => {
+            RunTerminal::TimedOut {
+                kind,
+                partial,
+                report,
+            } => {
                 let (report, losses) = project_run_report(&report, loss_policy)?;
                 Ok(Self::terminal(
                     "run.timed-out",
-                    json!({ "status": "timed_out", "kind": kind, "report": report }),
+                    json!({
+                        "status": "timed_out",
+                        "kind": kind,
+                        "partial": partial,
+                        "report": report,
+                    }),
                     losses,
                 ))
             }
@@ -405,23 +406,37 @@ impl GatewayEvent {
                 json!({ "status": "resume_conflict", "reason": reason }),
                 Vec::new(),
             )),
-            RunTerminal::Failed { error, report } => {
+            RunTerminal::Failed {
+                error,
+                partial,
+                report,
+            } => {
                 let (report, losses) = project_run_report(&report, loss_policy)?;
                 Ok(Self::terminal(
                     "run.failed",
                     json!({
                         "status": "failed",
                         "error": public_error(&error),
+                        "partial": partial,
                         "report": report,
                     }),
                     losses,
                 ))
             }
-            RunTerminal::Cancelled { reason, report } => {
+            RunTerminal::Cancelled {
+                reason,
+                partial,
+                report,
+            } => {
                 let (report, losses) = project_run_report(&report, loss_policy)?;
                 Ok(Self::terminal(
                     "run.cancelled",
-                    json!({ "status": "cancelled", "reason": reason, "report": report }),
+                    json!({
+                        "status": "cancelled",
+                        "reason": reason,
+                        "partial": partial,
+                        "report": report,
+                    }),
                     losses,
                 ))
             }
@@ -463,9 +478,8 @@ impl GatewayEvent {
 struct LanguageResponseProjection<'a> {
     id: Option<&'a str>,
     model: Option<&'a ModelId>,
-    status: &'a siumai_core::LanguageResponseStatus,
+    termination: &'a siumai_core::LanguageTermination,
     content: Vec<Value>,
-    finish_reason: &'a siumai_core::FinishReason,
     usage: &'a Usage,
     warnings: &'a [siumai_core::Warning],
 }
@@ -499,26 +513,12 @@ fn project_language_response(
     let projection = LanguageResponseProjection {
         id: response.id(),
         model: response.model(),
-        status: response.status(),
+        termination: response.termination(),
         content,
-        finish_reason: response.finish_reason(),
         usage: response.usage(),
         warnings: response.warnings(),
     };
     Ok((to_value(&projection, "language response")?, losses))
-}
-
-fn project_optional_response(
-    response: Option<&LanguageResponse>,
-    loss_policy: GatewayLossPolicy,
-) -> Result<(Option<Value>, Vec<GatewayLoss>), GatewayProjectionError> {
-    match response {
-        Some(response) => {
-            let (response, losses) = project_language_response(response, loss_policy)?;
-            Ok((Some(response), losses))
-        }
-        None => Ok((None, Vec::new())),
-    }
 }
 
 fn project_step_record(
@@ -634,7 +634,7 @@ fn public_error(error: &siumai_core::Error) -> Value {
 #[cfg(test)]
 mod tests {
     use siumai_core::{
-        AssistantHistoryOmissionKind, FinishReason, LanguageResponseStatus, ModelId,
+        AssistantHistoryOmissionKind, LanguageCompletionReason, LanguageTermination, ModelId,
         OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
         ReplayDomain, ReplayDomainId,
     };
@@ -669,6 +669,85 @@ mod tests {
     }
 
     #[test]
+    fn usage_projection_preserves_snapshot_or_delta_semantics() {
+        let event = GatewayEvent::from_language(
+            LanguageStreamEvent::Usage(siumai_core::UsageUpdate::delta(
+                Usage::default().with_output_tokens(2_u64),
+            )),
+            &GatewayPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(event.kind(), "model.usage");
+        assert_eq!(event.data()["usage"]["kind"], "Delta");
+        assert_eq!(event.data()["usage"]["usage"]["output_tokens"], 2);
+    }
+
+    #[test]
+    fn failed_terminal_projects_only_bounded_partial_output() {
+        let partial = siumai_core::PartialLanguageOutput::new(
+            vec![siumai_core::PartialLanguageOutputPart::Text {
+                text: "visible partial".to_string(),
+            }],
+            Usage::default()
+                .with_output_tokens(2_u64)
+                .with_provider_value("private", "never-export"),
+        )
+        .unwrap();
+        let event = GatewayEvent::from_language(
+            LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                error: siumai_core::Error::new(
+                    siumai_core::ErrorKind::Provider,
+                    "generation failed",
+                ),
+                partial: Some(partial),
+            }),
+            &GatewayPolicy::default(),
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&event).unwrap();
+
+        assert_eq!(event.kind(), "model.failed");
+        assert!(event.data().get("response").is_none());
+        assert_eq!(
+            event.data()["partial"]["content"][0]["Text"]["text"],
+            "visible partial"
+        );
+        assert!(!serialized.contains("never-export"));
+    }
+
+    #[test]
+    fn timed_out_run_projects_bounded_partial_output() {
+        let partial = siumai_core::PartialLanguageOutput::new(
+            vec![siumai_core::PartialLanguageOutputPart::Text {
+                text: "visible timeout partial".to_string(),
+            }],
+            Usage::default().with_output_tokens(2_u64),
+        )
+        .unwrap();
+        let target = ModelTarget::new(
+            ProviderId::new("test").unwrap(),
+            ModelId::new("test-model").unwrap(),
+        );
+        let event = GatewayEvent::from_run_terminal(
+            RunTerminal::TimedOut {
+                kind: siumai_runtime::RunTimeoutKind::InterChunk,
+                partial: Some(partial),
+                report: Box::new(RunReport::new(target, Vec::new())),
+            },
+            &GatewayPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(event.kind(), "run.timed-out");
+        assert_eq!(
+            event.data()["partial"]["content"][0]["Text"]["text"],
+            "visible timeout partial"
+        );
+        assert_eq!(event.data()["kind"], "InterChunk");
+    }
+
+    #[test]
     fn provider_opaque_response_data_is_reported_and_omitted() {
         let item = OpaqueProviderItem::new(
             test_provenance(),
@@ -677,9 +756,8 @@ mod tests {
         )
         .unwrap();
         let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
             vec![ContentPart::ProviderOpaque(item)],
-            FinishReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -689,6 +767,7 @@ mod tests {
         let serialized = serde_json::to_string(&event).unwrap();
 
         assert_eq!(event.losses()[0].code(), "provider_opaque_omitted");
+        assert_eq!(event.data()["response"]["termination"]["Completed"], "Stop");
         assert!(!serialized.contains("never-export"));
     }
 
@@ -701,9 +780,8 @@ mod tests {
         )
         .unwrap();
         let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
             vec![ContentPart::ProviderOpaque(item)],
-            FinishReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -718,11 +796,10 @@ mod tests {
     #[test]
     fn step_projection_preserves_assistant_history_omissions() {
         let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+            LanguageTermination::Completed(LanguageCompletionReason::Refusal),
             vec![ContentPart::Refusal {
                 reason: Some("policy".to_string()),
             }],
-            FinishReason::Refusal,
             Usage::default(),
         )
         .unwrap();

@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, FinishReason, GenerationConfig, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole,
-    Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId,
-    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec,
-    ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
+    CallOptions, ContentPart, Error, ErrorKind, GenerationConfig, LanguageCallError,
+    LanguageCompletionReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
+    OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId,
+    StreamTerminal, StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -72,11 +72,12 @@ impl LanguageModel for DeferredModel {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         Err(Error::new(
             ErrorKind::Internal,
             "deferred test model must use streaming",
-        ))
+        )
+        .into())
     }
 
     async fn stream(
@@ -138,11 +139,12 @@ impl LanguageModel for ScriptedModel {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         Err(Error::new(
             ErrorKind::Internal,
             "durable tool loop must use streaming model steps",
-        ))
+        )
+        .into())
     }
 
     async fn stream(
@@ -296,7 +298,7 @@ fn second_tool_call() -> ToolCall {
 fn tool_response() -> LanguageResponse {
     LanguageResponse::completed(
         vec![ContentPart::ToolCall(tool_call())],
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         Usage::default(),
     )
     .expect("valid tool response")
@@ -308,7 +310,7 @@ fn two_tool_response() -> LanguageResponse {
             ContentPart::ToolCall(tool_call()),
             ContentPart::ToolCall(second_tool_call()),
         ],
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         Usage::default(),
     )
     .expect("valid two-tool response")
@@ -319,7 +321,7 @@ fn final_response() -> LanguageResponse {
         vec![ContentPart::Text {
             text: "done".to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .expect("valid final response")
@@ -644,7 +646,7 @@ async fn dispatching_unapproved_work_preserves_other_pending_approval_budget() {
             ),
             ContentPart::ToolCall(tool_call()),
         ],
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         Usage::default(),
     )
     .expect("valid mixed tool response");

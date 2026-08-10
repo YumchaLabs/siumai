@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use base64::Engine as _;
 use serde_json::{Map, Value};
 use siumai_core::{
-    Citation, ContentPart, FinishReason, LanguageIncompleteReason, LanguageResponse,
-    LanguageResponseStatus, MediaData, MediaPart, ModelId, OpaqueProviderItem, ProviderProvenance,
+    Citation, ContentPart, LanguageCompletionReason, LanguageIncompleteReason, LanguageResponse,
+    LanguageTermination, MediaData, MediaPart, ModelId, OpaqueProviderItem, ProviderProvenance,
     ProviderScope, ToolCall, Usage, UsageValue,
 };
 
@@ -47,7 +47,10 @@ pub(crate) fn decode_response_wire(
     // Anthropic marks any partial output preceding `refusal` as invalid. Keep
     // the raw stop details as provider metadata, but expose only the canonical
     // refusal in the terminal response.
-    let content = if matches!(&stop.finish_reason, FinishReason::Refusal) {
+    let content = if matches!(
+        &stop,
+        LanguageTermination::Completed(LanguageCompletionReason::Refusal)
+    ) {
         refusal_content(refusal_reason)
     } else {
         let mut content = Vec::new();
@@ -63,7 +66,7 @@ pub(crate) fn decode_response_wire(
         wire.stop_details,
         &wire.usage,
     );
-    let response = LanguageResponse::new(stop.status, content, stop.finish_reason, usage)
+    let response = LanguageResponse::new(stop, content, usage)
         .map_err(MessagesCodecError::InvalidCanonicalResponse)?
         .with_id(wire.id)
         .with_model(model)
@@ -89,7 +92,10 @@ pub(crate) fn build_stream_response(
     let refusal_reason = decode_refusal_reason(parts.stop_details.as_ref())?;
     // Stream deltas are provisional. The terminal response must not promote
     // content that Anthropic invalidated with a refusal stop reason.
-    let content = if matches!(&stop.finish_reason, FinishReason::Refusal) {
+    let content = if matches!(
+        &stop,
+        LanguageTermination::Completed(LanguageCompletionReason::Refusal)
+    ) {
         refusal_content(refusal_reason)
     } else {
         parts.content
@@ -101,7 +107,7 @@ pub(crate) fn build_stream_response(
         parts.stop_details,
         parts.usage_wire,
     );
-    LanguageResponse::new(stop.status, content, stop.finish_reason, usage)
+    LanguageResponse::new(stop, content, usage)
         .map_err(MessagesCodecError::InvalidCanonicalResponse)
         .map(|response| {
             response
@@ -314,54 +320,23 @@ fn retain_native_block(
         .map_err(MessagesCodecError::InvalidOpaqueItem)
 }
 
-pub(crate) struct StopMapping {
-    pub status: LanguageResponseStatus,
-    pub finish_reason: FinishReason,
-}
-
 pub(crate) fn map_stop_reason(
     stop_reason: Option<&str>,
-) -> Result<StopMapping, MessagesCodecError> {
+) -> Result<LanguageTermination, MessagesCodecError> {
     let stop_reason = stop_reason.ok_or(MessagesCodecError::ProtocolViolation {
         reason: "terminal response omitted its stop reason",
     })?;
     let mapping = match stop_reason {
-        "end_turn" | "stop_sequence" => StopMapping {
-            status: LanguageResponseStatus::Completed,
-            finish_reason: FinishReason::Stop,
-        },
-        "tool_use" => StopMapping {
-            status: LanguageResponseStatus::Completed,
-            finish_reason: FinishReason::ToolCalls,
-        },
-        "max_tokens" => StopMapping {
-            status: LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::MaxOutputTokens),
-            },
-            finish_reason: FinishReason::Length,
-        },
-        "refusal" => StopMapping {
-            status: LanguageResponseStatus::Completed,
-            finish_reason: FinishReason::Refusal,
-        },
-        "pause_turn" => StopMapping {
-            status: LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::Other("pause_turn".to_string())),
-            },
-            finish_reason: FinishReason::Other("pause_turn".to_string()),
-        },
-        "model_context_window_exceeded" => StopMapping {
-            status: LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::Other(
-                    "model_context_window_exceeded".to_string(),
-                )),
-            },
-            finish_reason: FinishReason::Other("model_context_window_exceeded".to_string()),
-        },
-        other => StopMapping {
-            status: LanguageResponseStatus::Completed,
-            finish_reason: FinishReason::Other(other.to_string()),
-        },
+        "end_turn" | "stop_sequence" => {
+            LanguageTermination::Completed(LanguageCompletionReason::Stop)
+        }
+        "tool_use" => LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
+        "max_tokens" => LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens),
+        "refusal" => LanguageTermination::Completed(LanguageCompletionReason::Refusal),
+        "pause_turn" | "model_context_window_exceeded" => LanguageTermination::Incomplete(
+            LanguageIncompleteReason::Other(stop_reason.to_string()),
+        ),
+        other => LanguageTermination::Completed(LanguageCompletionReason::Other(other.to_string())),
     };
     Ok(mapping)
 }

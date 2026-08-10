@@ -4,9 +4,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use siumai_core::{
     ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
-    LanguageResponse, LanguageResponseStatus, LanguageStreamDecoder, LanguageStreamEvent, ModelId,
-    OpaqueProviderItem, ProviderScope, PublicDiagnosticText, ResponseDiagnostics, StreamTerminal,
-    ToolCall, Usage,
+    LanguageCallError, LanguageResponse, LanguageStreamDecoder, LanguageStreamEvent, ModelId,
+    OpaqueProviderItem, PartialLanguageOutput, ProviderScope, PublicDiagnosticText,
+    ResponseDiagnostics, StreamTerminal, ToolCall, Usage, UsageUpdate,
 };
 
 use super::language::{
@@ -86,7 +86,9 @@ impl InteractionsStreamDecoder {
             "step.delta" => self.step_delta(value),
             "step.stop" => self.step_stop(value),
             "interaction.completed" => self.completed(value),
-            "error" => Err(self.in_band_error(value)),
+            "error" => Ok(vec![LanguageStreamEvent::Terminal(
+                self.failure_terminal(self.in_band_error(value)),
+            )]),
             _ => Err(Error::protocol_violation(
                 "Gemini Interactions stream emitted an unknown event type",
             )),
@@ -184,7 +186,9 @@ impl InteractionsStreamDecoder {
         let mut events = state.apply_delta(event.delta)?;
         if let Some(usage) = event.metadata.and_then(|metadata| metadata.total_usage) {
             self.usage = Some(usage.clone());
-            events.push(LanguageStreamEvent::Usage(decode_usage(Some(usage))?));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                decode_usage(Some(usage))?,
+            )));
         }
         Ok(events)
     }
@@ -224,16 +228,18 @@ impl InteractionsStreamDecoder {
         self.finished_steps.insert(event.index, raw);
         if let Some(usage) = event.usage {
             self.usage = Some(usage.clone());
-            events.push(LanguageStreamEvent::Usage(decode_usage(Some(usage))?));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                decode_usage(Some(usage))?,
+            )));
         } else if let Some(step_usage) = event.step_usage {
             let step_usage = decode_usage(Some(step_usage))?;
             let aggregate = self
                 .step_usage
                 .as_ref()
                 .map(|existing| existing.checked_add(&step_usage))
-                .unwrap_or(step_usage);
+                .unwrap_or_else(|| step_usage.clone());
             self.step_usage = Some(aggregate.clone());
-            events.push(LanguageStreamEvent::Usage(aggregate));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::delta(step_usage)));
         }
         Ok(events)
     }
@@ -302,9 +308,7 @@ impl InteractionsStreamDecoder {
                 &self.scope,
                 &self.requested_model,
             )?;
-            if portable_content(&streamed) != portable_content(&terminal)
-                || replay_content(&streamed) != replay_content(&terminal)
-            {
+            if !outcomes_match(&streamed, &terminal) {
                 return Err(Error::protocol_violation(
                     "Gemini streamed steps disagree with the terminal interaction",
                 ));
@@ -329,7 +333,7 @@ impl InteractionsStreamDecoder {
         if terminal_usage.is_none()
             && let Some(step_usage) = self.step_usage.clone()
         {
-            response = replace_usage(response, step_usage)?;
+            response = replace_outcome_usage(response, step_usage)?;
         }
         let mut events = Vec::new();
         if !self.started {
@@ -374,6 +378,43 @@ impl InteractionsStreamDecoder {
             _ => "Gemini streaming failed",
         };
         Error::new(kind, message).with_diagnostics(diagnostics)
+    }
+
+    fn failure_terminal(&self, error: Error) -> StreamTerminal {
+        let partial = self.partial_output();
+        if error.kind() == ErrorKind::Cancelled {
+            StreamTerminal::Cancelled {
+                reason: error.message().to_string(),
+                partial,
+            }
+        } else {
+            StreamTerminal::Failed { error, partial }
+        }
+    }
+
+    fn partial_output(&self) -> Option<PartialLanguageOutput> {
+        let model = self
+            .response_model
+            .as_ref()
+            .unwrap_or(&self.requested_model);
+        let mut content = Vec::new();
+        let mut warnings = Vec::new();
+        for step in self.finished_steps.values() {
+            project_step(step, &self.scope, model, &mut content, &mut warnings).ok()?;
+        }
+        for step in self.open_steps.values() {
+            content.extend(step.partial_content());
+        }
+        let usage = self
+            .usage
+            .clone()
+            .map(|usage| decode_usage(Some(usage)))
+            .transpose()
+            .ok()
+            .flatten()
+            .or_else(|| self.step_usage.clone())
+            .unwrap_or_default();
+        crate::generate_content::partial_output(&content, &usage)
     }
 
     fn ensure_interaction_id(&mut self, id: &str) -> Result<(), Error> {
@@ -832,27 +873,60 @@ impl OpenStep {
             Self::Opaque { raw, .. } => Ok((raw, Vec::new())),
         }
     }
+
+    fn partial_content(&self) -> Vec<ContentPart> {
+        match self {
+            Self::ModelOutput { content, .. } => content
+                .iter()
+                .filter_map(|part| {
+                    (part.get("type").and_then(Value::as_str) == Some("text"))
+                        .then(|| part.get("text").and_then(Value::as_str))
+                        .flatten()
+                        .map(|text| ContentPart::Text {
+                            text: text.to_string(),
+                        })
+                })
+                .collect(),
+            Self::Thought { text, .. } if !text.is_empty() => {
+                vec![ContentPart::Reasoning { text: text.clone() }]
+            }
+            Self::Thought { .. } | Self::FunctionCall { .. } | Self::Opaque { .. } => Vec::new(),
+        }
+    }
 }
 
-fn terminal_event(response: LanguageResponse) -> StreamTerminal {
-    match response.status() {
-        LanguageResponseStatus::Completed | LanguageResponseStatus::Incomplete { .. } => {
-            StreamTerminal::Completed {
-                response: Box::new(response),
+fn terminal_event(response: Result<LanguageResponse, LanguageCallError>) -> StreamTerminal {
+    match response {
+        Ok(response) => StreamTerminal::Completed {
+            response: Box::new(response),
+        },
+        Err(error) if error.kind() == ErrorKind::Cancelled => {
+            let (error, partial) = error.into_parts();
+            StreamTerminal::Cancelled {
+                reason: error.message().to_string(),
+                partial,
             }
         }
-        LanguageResponseStatus::Failed => StreamTerminal::Failed {
-            error: Error::new(ErrorKind::Provider, "Gemini interaction failed"),
-            response: Some(Box::new(response)),
-        },
-        LanguageResponseStatus::Cancelled => StreamTerminal::Cancelled {
-            reason: "Gemini interaction was cancelled".to_string(),
-            response: Some(Box::new(response)),
-        },
-        _ => StreamTerminal::Failed {
-            error: Error::protocol_violation("Gemini terminal response has an unsupported status"),
-            response: None,
-        },
+        Err(error) => {
+            let (error, partial) = error.into_parts();
+            StreamTerminal::Failed { error, partial }
+        }
+    }
+}
+
+fn outcomes_match(
+    streamed: &Result<LanguageResponse, LanguageCallError>,
+    terminal: &Result<LanguageResponse, LanguageCallError>,
+) -> bool {
+    match (streamed, terminal) {
+        (Ok(streamed), Ok(terminal)) => {
+            portable_content(streamed) == portable_content(terminal)
+                && replay_content(streamed) == replay_content(terminal)
+        }
+        (Err(streamed), Err(terminal)) => {
+            streamed.kind() == terminal.kind() && streamed.partial() == terminal.partial()
+        }
+        (Ok(_), Err(_)) | (Err(_), Ok(_)) => false,
     }
 }
 
@@ -878,9 +952,8 @@ fn replay_content(response: &LanguageResponse) -> Vec<&OpaqueProviderItem> {
 
 fn replace_usage(response: LanguageResponse, usage: Usage) -> Result<LanguageResponse, Error> {
     let mut rebuilt = LanguageResponse::new(
-        response.status().clone(),
+        response.termination().clone(),
         response.content().to_vec(),
-        response.finish_reason().clone(),
         usage,
     )
     .map_err(|source| {
@@ -896,6 +969,23 @@ fn replace_usage(response: LanguageResponse, usage: Usage) -> Result<LanguageRes
         rebuilt = rebuilt.with_model(model.clone());
     }
     Ok(rebuilt)
+}
+
+fn replace_outcome_usage(
+    outcome: Result<LanguageResponse, LanguageCallError>,
+    usage: Usage,
+) -> Result<Result<LanguageResponse, LanguageCallError>, Error> {
+    match outcome {
+        Ok(response) => replace_usage(response, usage).map(Ok),
+        Err(error) => {
+            let (error, partial) = error.into_parts();
+            let partial = partial.and_then(|partial| {
+                let (content, _) = partial.into_parts();
+                PartialLanguageOutput::new(content, usage).ok()
+            });
+            Ok(Err(LanguageCallError::new(error, partial)))
+        }
+    }
 }
 
 fn checked_id(value: Option<String>) -> Result<String, Error> {
@@ -1378,7 +1468,7 @@ mod tests {
     #[test]
     fn in_band_error_keeps_typed_classification_and_safe_diagnostics() {
         let mut decoder = decoder();
-        let error = decoder
+        let events = decoder
             .decode(
                 &json!({
                     "event_type": "error",
@@ -1389,8 +1479,12 @@ mod tests {
                 })
                 .to_string(),
             )
-            .unwrap_err();
+            .unwrap();
 
+        let error = match events.as_slice() {
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. })] => error,
+            other => panic!("expected one failed terminal event, got {other:?}"),
+        };
         assert_eq!(error.kind(), ErrorKind::RateLimited);
         assert_eq!(
             error

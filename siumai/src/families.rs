@@ -2,10 +2,14 @@
 
 pub mod language {
     use crate::{
-        CallOptions, Error, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+        CallOptions, Error, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
+        LanguageStream,
     };
 
-    pub async fn generate<M>(model: &M, request: LanguageRequest) -> Result<LanguageResponse, Error>
+    pub async fn generate<M>(
+        model: &M,
+        request: LanguageRequest,
+    ) -> Result<LanguageResponse, LanguageCallError>
     where
         M: LanguageModel + ?Sized,
     {
@@ -16,7 +20,7 @@ pub mod language {
         model: &M,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error>
+    ) -> Result<LanguageResponse, LanguageCallError>
     where
         M: LanguageModel + ?Sized,
     {

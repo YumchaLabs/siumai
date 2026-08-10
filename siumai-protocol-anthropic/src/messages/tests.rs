@@ -4,8 +4,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind, FinishReason,
-    LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent, MediaData, MediaPart, Message,
+    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind,
+    LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest, LanguageStreamDecoder,
+    LanguageStreamEvent, LanguageTermination, MediaData, MediaPart, Message,
     MessageAnnotationTarget, MessageAnnotations, MessagePart, MessageRole, ModelId, ProtocolId,
     ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, ResponseDiagnostics, StreamTerminal,
     ToolAnnotationTarget, ToolAnnotations, ToolCall, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
@@ -375,25 +376,52 @@ fn response_fixture(stop_reason: &str) -> Vec<u8> {
 #[test]
 fn maps_current_stop_reasons_without_collapsing_unknown_values() {
     let cases = [
-        ("end_turn", FinishReason::Stop),
-        ("max_tokens", FinishReason::Length),
-        ("stop_sequence", FinishReason::Stop),
-        ("tool_use", FinishReason::ToolCalls),
-        ("pause_turn", FinishReason::Other("pause_turn".to_string())),
-        ("refusal", FinishReason::Refusal),
+        (
+            "end_turn",
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
+        ),
+        (
+            "max_tokens",
+            LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens),
+        ),
+        (
+            "stop_sequence",
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
+        ),
+        (
+            "tool_use",
+            LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
+        ),
+        (
+            "pause_turn",
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
+                "pause_turn".to_string(),
+            )),
+        ),
+        (
+            "refusal",
+            LanguageTermination::Completed(LanguageCompletionReason::Refusal),
+        ),
         (
             "model_context_window_exceeded",
-            FinishReason::Other("model_context_window_exceeded".to_string()),
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
+                "model_context_window_exceeded".to_string(),
+            )),
         ),
-        ("unknown", FinishReason::Other("unknown".to_string())),
+        (
+            "unknown",
+            LanguageTermination::Completed(LanguageCompletionReason::Other("unknown".to_string())),
+        ),
         (
             "future_reason",
-            FinishReason::Other("future_reason".to_string()),
+            LanguageTermination::Completed(LanguageCompletionReason::Other(
+                "future_reason".to_string(),
+            )),
         ),
     ];
     for (wire, expected) in cases {
         let response = decode_response(&response_fixture(wire), &scope(), &model()).unwrap();
-        assert_eq!(response.finish_reason(), &expected);
+        assert_eq!(response.termination(), &expected);
     }
 }
 
@@ -673,7 +701,7 @@ fn stream_error_event_is_a_canonical_failed_terminal() {
         .unwrap();
     assert!(matches!(
         events.as_slice(),
-        [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response: None })]
+        [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, partial: None })]
             if error.kind() == ErrorKind::Unavailable
                 && error.diagnostics().is_some_and(|diagnostics|
                     diagnostics.status() == Some(200)

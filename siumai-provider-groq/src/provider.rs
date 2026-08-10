@@ -10,16 +10,16 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, CatalogError, Error, GenericSupportClaim, InvalidId,
-    LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse, LanguageStream, Model,
-    ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle, ModelLookupError,
-    ModelOperation, ModelProfile, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId,
-    ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId, ProviderOptionError,
-    ProviderOptions, ProviderProfile, ProviderRegistration, ProviderRegistrationError,
-    ProviderScope, ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel,
-    SpeechModelProvider, SupportManifestError, SupportScope, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedNativeSupportClaim, VerifiedSupportClaim,
+    LanguageCallError, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
+    LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle,
+    ModelLookupError, ModelOperation, ModelProfile, NativeSupportScope, NativeSurfaceId,
+    NativeSurfaceKind, NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError,
+    ProfileId, ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId,
+    ProviderOptionError, ProviderOptions, ProviderProfile, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
+    ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedNativeSupportClaim, VerifiedSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -552,7 +552,7 @@ impl LanguageModel for GroqLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.0.generate(request, options).await
     }
 

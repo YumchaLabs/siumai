@@ -12,8 +12,8 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai_core::{
-    CallOptions, ContentPart, FinishReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageResponse, LanguageResponseStatus, Message, MessageRole, PartialStructuredOutput,
+    CallOptions, ContentPart, LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest,
+    LanguageResponse, LanguageTermination, Message, MessageRole, PartialStructuredOutput,
     StructuredOutputSpec,
 };
 use thiserror::Error;
@@ -183,10 +183,7 @@ enum StructuredOutputErrorSource {
     Transport(siumai_core::Error),
 }
 
-/// A strict structured-output failure with the failed response retained.
-///
-/// Retaining the response lets the runtime account usage from unsuccessful
-/// attempts before it decides whether to spend the single repair step.
+/// A strict structured-output failure with the completed or incomplete response retained.
 #[derive(Debug)]
 pub struct StructuredOutputError {
     kind: StructuredOutputFailureKind,
@@ -251,11 +248,6 @@ impl StructuredOutputError {
 
     pub fn into_response(self) -> Option<LanguageResponse> {
         self.details.response.map(|response| *response)
-    }
-
-    pub(crate) fn with_model_error_source(mut self, source: siumai_core::Error) -> Self {
-        self.details.source = Some(StructuredOutputErrorSource::Transport(source));
-        self
     }
 
     fn response_failure(
@@ -679,73 +671,51 @@ fn classify_response(response: &LanguageResponse) -> Option<(StructuredOutputFai
         ));
     }
 
-    match response.status() {
-        LanguageResponseStatus::Incomplete {
-            reason: Some(LanguageIncompleteReason::ContentFilter),
-        } => {
+    match response.termination() {
+        LanguageTermination::Incomplete(LanguageIncompleteReason::ContentFilter) => {
             return Some((
                 StructuredOutputFailureKind::ContentFilter,
                 "the response was blocked by content filtering".to_string(),
             ));
         }
-        LanguageResponseStatus::Incomplete { .. } => {
+        LanguageTermination::Incomplete(_) => {
             return Some((
                 StructuredOutputFailureKind::IncompleteOutput,
                 "the provider ended the response before normal completion".to_string(),
             ));
         }
-        LanguageResponseStatus::Failed => {
+        LanguageTermination::Completed(LanguageCompletionReason::Refusal) => {
             return Some((
-                StructuredOutputFailureKind::ProviderFailure,
-                "the provider reported a failed response".to_string(),
+                StructuredOutputFailureKind::Refusal,
+                "the model refused to produce structured output".to_string(),
             ));
         }
-        LanguageResponseStatus::Cancelled => {
+        LanguageTermination::Completed(LanguageCompletionReason::ToolCalls) => {
             return Some((
-                StructuredOutputFailureKind::Cancelled,
-                "the model call was cancelled".to_string(),
+                StructuredOutputFailureKind::UnexpectedToolCall,
+                "the model requested a tool instead of producing final structured output"
+                    .to_string(),
             ));
         }
-        LanguageResponseStatus::Completed => {}
+        LanguageTermination::Completed(_) => {}
         _ => {
             return Some((
                 StructuredOutputFailureKind::ProviderFailure,
-                "the provider returned an unsupported response status".to_string(),
+                "the provider returned an unsupported response termination".to_string(),
             ));
         }
     }
 
-    match response.finish_reason() {
-        FinishReason::Refusal => Some((
-            StructuredOutputFailureKind::Refusal,
-            "the model refused to produce structured output".to_string(),
-        )),
-        FinishReason::ContentFilter => Some((
-            StructuredOutputFailureKind::ContentFilter,
-            "the response was blocked by content filtering".to_string(),
-        )),
-        FinishReason::Error => Some((
-            StructuredOutputFailureKind::ProviderFailure,
-            "the provider reported a failed response".to_string(),
-        )),
-        FinishReason::Cancelled => Some((
-            StructuredOutputFailureKind::Cancelled,
-            "the model call was cancelled".to_string(),
-        )),
-        FinishReason::ToolCalls => Some((
+    if response
+        .content()
+        .iter()
+        .any(|part| matches!(part, ContentPart::ToolCall(_)))
+    {
+        Some((
             StructuredOutputFailureKind::UnexpectedToolCall,
-            "the model requested a tool instead of producing final structured output".to_string(),
-        )),
-        _ if response
-            .content()
-            .iter()
-            .any(|part| matches!(part, ContentPart::ToolCall(_))) =>
-        {
-            Some((
-                StructuredOutputFailureKind::UnexpectedToolCall,
-                "the final response contains an unresolved tool call".to_string(),
-            ))
-        }
-        _ => None,
+            "the final response contains an unresolved tool call".to_string(),
+        ))
+    } else {
+        None
     }
 }

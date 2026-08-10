@@ -7,7 +7,7 @@ use siumai::prelude::*;
 use siumai::{EmbeddingLimits, ModelId, ResponseMetadata};
 
 #[cfg(feature = "runtime")]
-use siumai::{ErrorKind, FinishReason, LanguageResponse};
+use siumai::{ErrorKind, LanguageCallError, LanguageCompletionReason, LanguageResponse};
 
 #[cfg(feature = "registry")]
 use siumai::{ImageArtifact, MediaData};
@@ -42,17 +42,19 @@ impl LanguageModel for FakeLanguage {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         LanguageResponse::completed(
             vec![ContentPart::Text {
                 text: "facade runtime".to_string(),
             }],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .map_err(|source| {
-            Error::new(ErrorKind::Protocol, "invalid facade test response").with_source(source)
+            Error::new(ErrorKind::Protocol, "invalid facade test response")
+                .with_source(source)
+                .into()
         })
     }
 

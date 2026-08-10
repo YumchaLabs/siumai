@@ -6,7 +6,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use siumai_core::{
     ContentPart, LanguageRequest, LanguageRequestError, LanguageResponse, Message,
-    ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult, Usage, UsageValue,
+    PartialLanguageOutput, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult, Usage,
+    UsageValue,
 };
 use thiserror::Error;
 
@@ -17,7 +18,7 @@ use crate::{
 };
 
 /// The only snapshot schema version understood by this release.
-pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 5;
+pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 6;
 
 const MAX_ID_BYTES: usize = 256;
 const MAX_FINGERPRINT_BYTES: usize = 1_024;
@@ -403,14 +404,27 @@ impl<'de> Deserialize<'de> for SnapshotReason {
 }
 
 /// A terminal run outcome stored in a continuation.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SnapshotTerminal {
-    Completed { reason: Option<SnapshotReason> },
-    Cancelled { reason: SnapshotReason },
-    Exhausted { reason: SnapshotReason },
-    Failed { reason: SnapshotReason },
-    Indeterminate { reason: SnapshotReason },
+    Completed {
+        reason: Option<SnapshotReason>,
+    },
+    Cancelled {
+        reason: SnapshotReason,
+        partial: Option<PartialLanguageOutput>,
+    },
+    Exhausted {
+        reason: SnapshotReason,
+        partial: Option<PartialLanguageOutput>,
+    },
+    Failed {
+        reason: SnapshotReason,
+        partial: Option<PartialLanguageOutput>,
+    },
+    Indeterminate {
+        reason: SnapshotReason,
+    },
 }
 
 impl fmt::Debug for SnapshotTerminal {
@@ -420,17 +434,20 @@ impl fmt::Debug for SnapshotTerminal {
                 .debug_struct("Completed")
                 .field("reason", reason)
                 .finish(),
-            Self::Cancelled { reason } => formatter
+            Self::Cancelled { reason, partial } => formatter
                 .debug_struct("Cancelled")
                 .field("reason", reason)
+                .field("has_partial", &partial.is_some())
                 .finish(),
-            Self::Exhausted { reason } => formatter
+            Self::Exhausted { reason, partial } => formatter
                 .debug_struct("Exhausted")
                 .field("reason", reason)
+                .field("has_partial", &partial.is_some())
                 .finish(),
-            Self::Failed { reason } => formatter
+            Self::Failed { reason, partial } => formatter
                 .debug_struct("Failed")
                 .field("reason", reason)
+                .field("has_partial", &partial.is_some())
                 .finish(),
             Self::Indeterminate { reason } => formatter
                 .debug_struct("Indeterminate")
@@ -2630,8 +2647,8 @@ fn validate_reason_code(code: &str) -> Result<(), RunSnapshotError> {
 mod tests {
     use serde_json::json;
     use siumai_core::{
-        ContentPart, FinishReason, LanguageResponse, ModelId, ProviderId, ToolCall, ToolOutcome,
-        ToolResult, Usage,
+        ContentPart, LanguageCompletionReason, LanguageResponse, ModelId, ProviderId, ToolCall,
+        ToolOutcome, ToolResult, Usage,
     };
 
     use super::*;
@@ -2686,7 +2703,7 @@ mod tests {
                 .iter()
                 .map(|tool| ContentPart::ToolCall(tool.call().clone()))
                 .collect(),
-            FinishReason::ToolCalls,
+            LanguageCompletionReason::ToolCalls,
             Usage::default(),
         )
         .unwrap()

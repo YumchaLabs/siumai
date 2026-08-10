@@ -1,5 +1,6 @@
 use siumai_core::{
-    CallOptions, Error, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    CallOptions, Error, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream,
 };
 
 use crate::{Runtime, StepOptions};
@@ -12,7 +13,7 @@ pub async fn generate<M>(
     model: &M,
     request: LanguageRequest,
     options: CallOptions,
-) -> Result<LanguageResponse, Error>
+) -> Result<LanguageResponse, LanguageCallError>
 where
     M: LanguageModel + ?Sized,
 {

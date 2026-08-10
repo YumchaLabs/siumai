@@ -1,9 +1,9 @@
 use siumai_core::{
-    DecoderLifecycle, Error, ErrorKind, FinishReason, LanguageResponse, LanguageStreamDecoder,
-    LanguageStreamEvent, StreamTerminal, Usage,
+    DecoderLifecycle, Error, ErrorKind, LanguageCompletionReason, LanguageResponse,
+    LanguageStreamDecoder, LanguageStreamEvent, StreamTerminal, Usage,
 };
 
-fn completed(reason: FinishReason) -> LanguageStreamEvent {
+fn completed(reason: LanguageCompletionReason) -> LanguageStreamEvent {
     LanguageStreamEvent::Terminal(StreamTerminal::Completed {
         response: Box::new(
             LanguageResponse::completed(Vec::new(), reason, Usage::default()).unwrap(),
@@ -79,7 +79,7 @@ impl LanguageStreamDecoder for ResponsesDecoder {
                 }]
             }
             ResponsesFrame::ResponseCompleted if self.created => {
-                vec![completed(FinishReason::Stop)]
+                vec![completed(LanguageCompletionReason::Stop)]
             }
             ResponsesFrame::OutputTextDelta | ResponsesFrame::ResponseCompleted => {
                 return Err(Error::new(
@@ -157,9 +157,9 @@ impl LanguageStreamDecoder for AnthropicDecoder {
                     });
                 }
                 events.push(completed(if *refusal {
-                    FinishReason::Refusal
+                    LanguageCompletionReason::Refusal
                 } else {
-                    FinishReason::Stop
+                    LanguageCompletionReason::Stop
                 }));
                 events
             }
@@ -203,7 +203,7 @@ enum GeminiFrame {
 struct GeminiDecoder {
     lifecycle: DecoderLifecycle,
     candidate_seen: bool,
-    finish_reason: Option<FinishReason>,
+    completion_reason: Option<LanguageCompletionReason>,
 }
 
 impl LanguageStreamDecoder for GeminiDecoder {
@@ -222,7 +222,7 @@ impl LanguageStreamDecoder for GeminiDecoder {
                 }]
             }
             GeminiFrame::CandidateFinished if self.candidate_seen => {
-                self.finish_reason = Some(FinishReason::Stop);
+                self.completion_reason = Some(LanguageCompletionReason::Stop);
                 Vec::new()
             }
             GeminiFrame::CandidateFinished => {
@@ -241,7 +241,7 @@ impl LanguageStreamDecoder for GeminiDecoder {
             return Ok(Vec::new());
         }
         let reason = self
-            .finish_reason
+            .completion_reason
             .take()
             .ok_or_else(Error::unexpected_eof)?;
         let events = vec![completed(reason)];

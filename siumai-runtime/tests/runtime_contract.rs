@@ -7,10 +7,10 @@ use serde::Serialize;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    ApiModeId, CallOptions, ContentPart, Error, FinishReason, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionError, ProviderOptions,
-    RouteId, StreamTerminal, ToolCall, TypedProviderOptions, Usage,
+    ApiModeId, CallOptions, ContentPart, Error, LanguageCallError, LanguageCompletionReason,
+    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
+    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionError,
+    ProviderOptions, RouteId, StreamTerminal, ToolCall, TypedProviderOptions, Usage,
 };
 use siumai_runtime::{Runtime, RuntimeConfigError, StepOptions, generate, stream};
 
@@ -69,7 +69,7 @@ impl LanguageModel for ScriptedModel {
         &self,
         _request: LanguageRequest,
         call: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         let selection = call
             .provider_options_for(self)
@@ -85,7 +85,7 @@ impl LanguageModel for ScriptedModel {
                 ToolCall::local("call-1", "dangerous", json!({"value": 1}))
                     .expect("valid tool call"),
             )],
-            FinishReason::ToolCalls,
+            LanguageCompletionReason::ToolCalls,
             Usage::default(),
         )
         .map_err(|source| {
@@ -95,6 +95,7 @@ impl LanguageModel for ScriptedModel {
             )
             .with_source(source)
         })
+        .map_err(LanguageCallError::from)
     }
 
     async fn stream(
@@ -103,8 +104,12 @@ impl LanguageModel for ScriptedModel {
         _options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let response =
-            LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default()).unwrap();
+        let response = LanguageResponse::completed(
+            Vec::new(),
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
         Ok(established_stream(
             CallOptions::default().cancellation().clone(),
             |_| {

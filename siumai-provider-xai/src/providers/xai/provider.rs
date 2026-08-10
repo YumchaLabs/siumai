@@ -10,12 +10,12 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, CatalogError, Error, GenericSupportClaim, ImageModel,
-    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
-    ModelLifecycle, ModelLookupError, ModelOperation, ModelProfile, NativeSupportScope,
-    NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence, OfficialSource, PlatformId,
-    ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider, ProviderId,
-    ProviderInstanceId, ProviderOptionError, ProviderProfile, ProviderRegistration,
+    ImageModelProvider, InvalidId, LanguageCallError, LanguageModel, LanguageModelProvider,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor,
+    ModelFamily, ModelId, ModelLifecycle, ModelLookupError, ModelOperation, ModelProfile,
+    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
+    OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId, ProtocolId, Provider,
+    ProviderId, ProviderInstanceId, ProviderOptionError, ProviderProfile, ProviderRegistration,
     ProviderRegistrationError, ProviderScope, ProviderSupportManifest, ReplayDomain,
     ReplayDomainId, SpeechModel, SpeechModelProvider, SupportManifestError, SupportScope,
     TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions, VerificationDate,
@@ -574,7 +574,7 @@ impl LanguageModel for XaiLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.0.generate(request, options).await
     }
 

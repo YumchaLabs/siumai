@@ -8,10 +8,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, Error, ErrorKind, FinishReason,
-    LanguageIncompleteReason, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageResponseStatus, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal, ToolCall, Usage,
+    CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageCallError,
+    LanguageCompletionReason, LanguageIncompleteReason, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
+    ModelDescriptor, ModelFamily, ModelId, PartialLanguageOutput, PartialLanguageOutputPart,
+    ProviderId, StreamTerminal, ToolCall, Usage,
 };
 use siumai_runtime::{
     OutputDescriptor, OutputSchemaValidator, RepairPolicy, RunBudget, RunTerminal, Runtime,
@@ -27,7 +28,7 @@ struct Person {
 
 enum ScriptStep {
     Completed(Box<LanguageResponse>),
-    Failed(Box<LanguageResponse>),
+    Failed(PartialLanguageOutput),
     HandshakeError,
     Pending,
 }
@@ -87,12 +88,13 @@ impl LanguageModel for ScriptedModel {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.generate_calls.fetch_add(1, Ordering::SeqCst);
         Err(Error::new(
             ErrorKind::Internal,
             "structured-output execution must not call generate",
-        ))
+        )
+        .into())
     }
 
     async fn stream(
@@ -124,13 +126,13 @@ impl LanguageModel for ScriptedModel {
                     }
                 }))
             }
-            ScriptStep::Failed(response) => {
+            ScriptStep::Failed(partial) => {
                 let cancellation = options.cancellation().clone();
                 Ok(established_stream(cancellation, move |_| {
                     async_stream::stream! {
                         yield Ok(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                             error: Error::new(ErrorKind::Provider, "scripted provider failure"),
-                            response: Some(response),
+                            partial: Some(partial),
                         }));
                     }
                 }))
@@ -196,7 +198,7 @@ fn usage(tokens: u64) -> Usage {
 fn text_response(text: impl Into<String>, tokens: u64) -> LanguageResponse {
     LanguageResponse::completed(
         vec![ContentPart::Text { text: text.into() }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         usage(tokens),
     )
     .expect("valid text response")
@@ -206,8 +208,8 @@ fn completed_step(response: LanguageResponse) -> ScriptStep {
     ScriptStep::Completed(Box::new(response))
 }
 
-fn failed_step(response: LanguageResponse) -> ScriptStep {
-    ScriptStep::Failed(Box::new(response))
+fn failed_step(partial: PartialLanguageOutput) -> ScriptStep {
+    ScriptStep::Failed(partial)
 }
 
 fn refusal_response(tokens: u64) -> LanguageResponse {
@@ -220,32 +222,29 @@ fn refusal_response(tokens: u64) -> LanguageResponse {
                 text: r#"{"name":"Ada","age":36}"#.to_string(),
             },
         ],
-        FinishReason::Refusal,
+        LanguageCompletionReason::Refusal,
         usage(tokens),
     )
     .expect("valid refusal response")
 }
 
 fn content_filter_response(tokens: u64) -> LanguageResponse {
-    LanguageResponse::new(
-        LanguageResponseStatus::Incomplete {
-            reason: Some(LanguageIncompleteReason::ContentFilter),
-        },
+    LanguageResponse::incomplete(
         Vec::new(),
-        FinishReason::ContentFilter,
+        LanguageIncompleteReason::ContentFilter,
         usage(tokens),
     )
     .expect("valid content-filter response")
 }
 
-fn provider_failure_response(tokens: u64) -> LanguageResponse {
-    LanguageResponse::new(
-        LanguageResponseStatus::Failed,
-        Vec::new(),
-        FinishReason::Error,
+fn provider_failure_partial(tokens: u64) -> PartialLanguageOutput {
+    PartialLanguageOutput::new(
+        vec![PartialLanguageOutputPart::Text {
+            text: "partial provider output".to_string(),
+        }],
         usage(tokens),
     )
-    .expect("valid provider-failure response")
+    .expect("valid provider-failure partial")
 }
 
 fn unexpected_tool_response(tokens: u64) -> LanguageResponse {
@@ -253,7 +252,7 @@ fn unexpected_tool_response(tokens: u64) -> LanguageResponse {
         vec![ContentPart::ToolCall(
             ToolCall::local("call-1", "lookup", json!({"query": "Ada"})).expect("valid tool call"),
         )],
-        FinishReason::ToolCalls,
+        LanguageCompletionReason::ToolCalls,
         usage(tokens),
     )
     .expect("valid unexpected-tool response")
@@ -420,7 +419,7 @@ async fn model_step_budget_prevents_repair_before_a_second_stream_call() {
 }
 
 #[tokio::test]
-async fn refusal_content_filter_and_provider_failure_never_repair() {
+async fn refusal_and_content_filter_never_repair() {
     let cases = [
         (
             completed_step(refusal_response(2)),
@@ -429,10 +428,6 @@ async fn refusal_content_filter_and_provider_failure_never_repair() {
         (
             completed_step(content_filter_response(3)),
             StructuredOutputFailureKind::ContentFilter,
-        ),
-        (
-            failed_step(provider_failure_response(4)),
-            StructuredOutputFailureKind::ProviderFailure,
         ),
     ];
 
@@ -456,6 +451,39 @@ async fn refusal_content_filter_and_provider_failure_never_repair() {
         assert_eq!(model.stream_call_count(), 1);
         assert_eq!(model.generate_call_count(), 0);
     }
+}
+
+#[tokio::test]
+async fn provider_failure_partial_is_a_runtime_terminal_and_never_repairs() {
+    let model = ScriptedModel::new([failed_step(provider_failure_partial(4))]);
+    let runner = StructuredOutputRunner::new(
+        model.clone(),
+        descriptor().with_repair_policy(RepairPolicy::OneAttempt),
+    );
+
+    let error = runner
+        .generate(request(), CallOptions::default())
+        .await
+        .expect_err("provider failure must stop after one step");
+
+    assert!(matches!(
+        &error,
+        StructuredOutputRunError::Runtime(terminal)
+            if matches!(
+                terminal.as_ref(),
+                RunTerminal::Failed { partial: Some(partial), .. }
+                    if matches!(
+                        partial.content(),
+                        [PartialLanguageOutputPart::Text { text }]
+                            if text == "partial provider output"
+                    )
+            )
+    ));
+    let report = error.report().expect("runtime report retained");
+    assert!(report.steps().is_empty());
+    assert_eq!(report.usage().total_tokens.value(), Some(4));
+    assert_eq!(model.stream_call_count(), 1);
+    assert_eq!(model.generate_call_count(), 0);
 }
 
 #[tokio::test]

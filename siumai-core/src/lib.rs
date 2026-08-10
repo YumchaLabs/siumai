@@ -31,11 +31,15 @@ pub use error::{
 pub use language::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection, Citation,
     ContentPart, DEFAULT_OPAQUE_COLLECTION_BYTE_LIMIT, DEFAULT_OPAQUE_ITEM_COUNT_LIMIT,
-    DEFAULT_OPAQUE_ITEM_LIMIT, FinishReason, GenerationConfig, GenerationConfigError,
-    LanguageIncompleteReason, LanguageRequest, LanguageRequestBudget, LanguageRequestError,
-    LanguageResponse, LanguageResponseError, LanguageResponseStatus, MediaData, MediaPart, Message,
-    MessagePart, MessageRole, MessageValidationError, OpaqueProviderBudget, OpaqueProviderItem,
-    OpaqueProviderItemBuilder, OpaqueProviderItemError, PartialStructuredOutput,
+    DEFAULT_OPAQUE_ITEM_LIMIT, DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT,
+    DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT,
+    DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT, GenerationConfig, GenerationConfigError,
+    LanguageCallError, LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest,
+    LanguageRequestBudget, LanguageRequestError, LanguageResponse, LanguageResponseError,
+    LanguageTermination, MediaData, MediaPart, Message, MessagePart, MessageRole,
+    MessageValidationError, OpaqueProviderBudget, OpaqueProviderItem, OpaqueProviderItemBuilder,
+    OpaqueProviderItemError, PartialLanguageOutput, PartialLanguageOutputBudget,
+    PartialLanguageOutputError, PartialLanguageOutputPart, PartialStructuredOutput,
     ProviderItemRelation, ProviderProvenance, ProviderProvenanceError, StructuredOutputSpec,
     ToolChoice, Warning, WarningKind,
 };
@@ -70,7 +74,7 @@ pub use provider::{
 };
 pub use stream::{
     DecoderLifecycle, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent,
-    StreamContractError, StreamLifecycle, StreamTerminal,
+    StreamContractError, StreamLifecycle, StreamTerminal, UsageUpdate, UsageUpdateKind,
 };
 pub use tool::{
     DEFAULT_TOOL_INPUT_BYTE_LIMIT, ExecutionOwner, InvalidToolCall, InvalidToolInput,

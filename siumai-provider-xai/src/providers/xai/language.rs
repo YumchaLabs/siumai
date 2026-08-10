@@ -7,11 +7,12 @@ use chrono::NaiveDate;
 use http::header::{HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 use siumai_core::{
-    ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageRequest,
-    LanguageResponse, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
-    ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolContractId,
-    ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope, TypedProviderOptions,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ApiModeId, ApiStability, CatalogError, Error, ErrorKind, InvalidId, LanguageCallError,
+    LanguageRequest, LanguageResponse, ModelCatalog, ModelFamily, ModelId, ModelLifecycle,
+    ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileError, ProfileId,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, SupportScope,
+    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
+    VerifiedSupportClaim,
 };
 use siumai_openai_compatible::extension::v1::{
     ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
@@ -361,10 +362,9 @@ impl ResponsesCodecPolicy for XaiResponsesCodecPolicy {
         model: &ModelId,
         _headers: &ResponseHeaders,
         body: &[u8],
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         let decoded = decode_responses_response(body, scope, model)?;
-        let (_, response) = decoded.into_parts();
-        Ok(response)
+        decoded.into_result()
     }
 }
 

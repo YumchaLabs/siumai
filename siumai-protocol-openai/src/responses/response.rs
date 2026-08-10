@@ -6,8 +6,9 @@ use std::fmt;
 use serde_json::{Value, json};
 use siumai_core::{
     Citation, ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorContext, ErrorKind,
-    FinishReason, LanguageIncompleteReason, LanguageResponse, LanguageResponseStatus, ModelId,
-    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope,
+    LanguageCallError, LanguageCompletionReason, LanguageIncompleteReason, LanguageResponse,
+    LanguageTermination, ModelId, OpaqueProviderItem, PartialLanguageOutput,
+    PartialLanguageOutputPart, ProviderItemRelation, ProviderProvenance, ProviderScope,
     ResponseDiagnostics, ToolCall, Usage, Warning, WarningKind,
 };
 
@@ -19,11 +20,10 @@ use super::wire::{
 };
 use super::{OPENAI_RESPONSES_OPAQUE_KIND, OPENAI_RESPONSES_PROTOCOL};
 
-/// A lossless native response paired with its portable canonical projection.
-#[derive(Clone, PartialEq)]
+/// A lossless native response paired with its portable call outcome.
 pub struct DecodedResponse {
     native: ResponseWire,
-    canonical: LanguageResponse,
+    portable: Result<LanguageResponse, LanguageCallError>,
 }
 
 impl fmt::Debug for DecodedResponse {
@@ -32,8 +32,34 @@ impl fmt::Debug for DecodedResponse {
             .debug_struct("DecodedResponse")
             .field("native_status", &self.native.status)
             .field("native_output_items", &self.native.output.len())
-            .field("portable_status", &self.canonical.status())
-            .field("portable_content_parts", &self.canonical.content().len())
+            .field(
+                "portable_outcome",
+                &match &self.portable {
+                    Ok(response) => match response.termination() {
+                        LanguageTermination::Completed(_) => "completed",
+                        LanguageTermination::Incomplete(_) => "incomplete",
+                        _ => "other",
+                    },
+                    Err(error) if error.error().kind() == ErrorKind::Cancelled => "cancelled",
+                    Err(_) => "failed",
+                },
+            )
+            .field(
+                "portable_content_parts",
+                &self
+                    .portable
+                    .as_ref()
+                    .ok()
+                    .map(|response| response.content().len()),
+            )
+            .field(
+                "has_partial_output",
+                &self
+                    .portable
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.partial().is_some()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -43,35 +69,23 @@ impl DecodedResponse {
         &self.native
     }
 
-    pub fn canonical(&self) -> &LanguageResponse {
-        &self.canonical
+    pub fn portable(&self) -> Result<&LanguageResponse, &LanguageCallError> {
+        self.portable.as_ref()
     }
 
     pub fn status(&self) -> &ResponseStatus {
         &self.native.status
     }
 
-    pub fn into_parts(self) -> (ResponseWire, LanguageResponse) {
-        (self.native, self.canonical)
+    pub fn into_parts(self) -> (ResponseWire, Result<LanguageResponse, LanguageCallError>) {
+        (self.native, self.portable)
     }
 
     /// Convert a decoded terminal resource into the stable call result contract.
     ///
-    /// Provider-returned failed and cancelled resources are still successful
-    /// protocol decodes. Their terminal state remains on `LanguageResponse`;
-    /// outer errors are reserved for failures that never formed a response.
-    pub fn into_result(self) -> Result<LanguageResponse, Error> {
-        match &self.native.status {
-            ResponseStatus::Completed
-            | ResponseStatus::Incomplete
-            | ResponseStatus::Cancelled
-            | ResponseStatus::Failed => Ok(self.canonical),
-            ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => {
-                Err(protocol_error(
-                    "OpenAI returned a non-terminal Responses resource to a non-streaming call",
-                ))
-            }
-        }
+    /// Convert a decoded terminal resource into the portable language-call outcome.
+    pub fn into_result(self) -> Result<LanguageResponse, LanguageCallError> {
+        self.portable
     }
 }
 
@@ -127,8 +141,27 @@ pub(crate) fn decode_response_wire_with_replay(
         ));
     }
 
-    let canonical = project_response(&native, scope, requested_model, include_native_replay)?;
-    Ok(DecodedResponse { native, canonical })
+    let portable = match &native.status {
+        ResponseStatus::Completed | ResponseStatus::Incomplete => Ok(project_response(
+            &native,
+            scope,
+            requested_model,
+            include_native_replay,
+        )?),
+        ResponseStatus::Failed => Err(failed_call_error(
+            &native,
+            scope,
+            requested_model,
+            ResponseDiagnostics::default(),
+        )),
+        ResponseStatus::Cancelled => Err(cancelled_call_error(&native, scope, requested_model)),
+        ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => {
+            return Err(protocol_error(
+                "OpenAI returned a non-terminal or unknown Responses status to a terminal decoder",
+            ));
+        }
+    };
+    Ok(DecodedResponse { native, portable })
 }
 
 fn validate_resource_identity(native: &ResponseWire) -> Result<(), Error> {
@@ -175,8 +208,7 @@ pub(crate) fn project_response(
         )?;
     }
 
-    let status = response_status(native);
-    let finish_reason = finish_reason(native, &content);
+    let termination = response_termination(native, &content)?;
     let mut warnings = Vec::new();
     if matches!(&native.status, ResponseStatus::Incomplete) {
         warnings.push(Warning::new(
@@ -192,9 +224,8 @@ pub(crate) fn project_response(
     );
 
     LanguageResponse::new(
-        status,
+        termination,
         content,
-        finish_reason,
         native.usage.as_ref().map(decode_usage).unwrap_or_default(),
     )
     .map(|response| {
@@ -483,21 +514,30 @@ fn public_response_status(status: &ResponseStatus) -> &'static str {
     }
 }
 
-fn finish_reason(native: &ResponseWire, content: &[ContentPart]) -> FinishReason {
+fn response_termination(
+    native: &ResponseWire,
+    content: &[ContentPart],
+) -> Result<LanguageTermination, Error> {
     match &native.status {
         ResponseStatus::Completed => {
             if content
                 .iter()
                 .any(|part| matches!(part, ContentPart::ToolCall(_)))
             {
-                FinishReason::ToolCalls
+                Ok(LanguageTermination::Completed(
+                    LanguageCompletionReason::ToolCalls,
+                ))
             } else if content
                 .iter()
                 .any(|part| matches!(part, ContentPart::Refusal { .. }))
             {
-                FinishReason::Refusal
+                Ok(LanguageTermination::Completed(
+                    LanguageCompletionReason::Refusal,
+                ))
             } else {
-                FinishReason::Stop
+                Ok(LanguageTermination::Completed(
+                    LanguageCompletionReason::Stop,
+                ))
             }
         }
         ResponseStatus::Incomplete => match native
@@ -505,37 +545,112 @@ fn finish_reason(native: &ResponseWire, content: &[ContentPart]) -> FinishReason
             .as_ref()
             .map(|details| details.reason.as_str())
         {
-            Some("max_output_tokens" | "max_tokens") => FinishReason::Length,
-            Some("content_filter" | "safety") => FinishReason::ContentFilter,
-            Some(reason) => FinishReason::Other(format!("incomplete:{reason}")),
-            None => FinishReason::Other("incomplete".to_string()),
+            Some("max_output_tokens" | "max_tokens") => Ok(LanguageTermination::Incomplete(
+                LanguageIncompleteReason::MaxOutputTokens,
+            )),
+            Some("content_filter" | "safety") => Ok(LanguageTermination::Incomplete(
+                LanguageIncompleteReason::ContentFilter,
+            )),
+            Some(reason) => Ok(LanguageTermination::Incomplete(
+                LanguageIncompleteReason::Other(reason.to_string()),
+            )),
+            None => Ok(LanguageTermination::Incomplete(
+                LanguageIncompleteReason::Other("incomplete".to_string()),
+            )),
         },
-        ResponseStatus::Cancelled => FinishReason::Cancelled,
-        ResponseStatus::Failed => FinishReason::Error,
-        ResponseStatus::Queued => FinishReason::Other("queued".to_string()),
-        ResponseStatus::InProgress => FinishReason::Other("in_progress".to_string()),
-        ResponseStatus::Other(status) => FinishReason::Other(status.clone()),
+        ResponseStatus::Cancelled | ResponseStatus::Failed => Err(protocol_error(
+            "failed or cancelled Responses resources are portable call outcomes, not responses",
+        )),
+        ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => Err(
+            protocol_error("non-terminal Responses resources cannot become language responses"),
+        ),
     }
 }
 
-fn response_status(native: &ResponseWire) -> LanguageResponseStatus {
-    match &native.status {
-        ResponseStatus::Completed => LanguageResponseStatus::Completed,
-        ResponseStatus::Incomplete => LanguageResponseStatus::Incomplete {
-            reason: native.incomplete_details.as_ref().map(|details| {
-                match details.reason.as_str() {
-                    "max_output_tokens" | "max_tokens" => LanguageIncompleteReason::MaxOutputTokens,
-                    "content_filter" | "safety" => LanguageIncompleteReason::ContentFilter,
-                    reason => LanguageIncompleteReason::Other(reason.to_string()),
+fn project_partial_output(
+    response: &ResponseWire,
+) -> Result<Option<PartialLanguageOutput>, siumai_core::PartialLanguageOutputError> {
+    let mut content = Vec::new();
+    for item in &response.output {
+        match item {
+            OutputItem::Message(message) => {
+                for part in &message.content {
+                    match part {
+                        OutputContentPart::Text(text) => {
+                            content.push(PartialLanguageOutputPart::Text {
+                                text: text.text.clone(),
+                            });
+                        }
+                        OutputContentPart::Refusal(refusal) => {
+                            content.push(PartialLanguageOutputPart::Refusal {
+                                reason: Some(refusal.refusal.clone()),
+                            });
+                        }
+                        OutputContentPart::Unknown(_) => {}
+                    }
                 }
-            }),
-        },
-        ResponseStatus::Failed => LanguageResponseStatus::Failed,
-        ResponseStatus::Cancelled => LanguageResponseStatus::Cancelled,
-        ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => {
-            LanguageResponseStatus::Completed
+            }
+            OutputItem::Reasoning(reasoning) => {
+                content.extend(
+                    reasoning
+                        .summary
+                        .iter()
+                        .chain(reasoning.content.iter())
+                        .map(|part| PartialLanguageOutputPart::Reasoning {
+                            text: part.text.clone(),
+                        }),
+                );
+            }
+            OutputItem::FunctionCall(_)
+            | OutputItem::CustomToolCall(_)
+            | OutputItem::Program(_)
+            | OutputItem::ProgramOutput(_)
+            | OutputItem::ProviderTool(_)
+            | OutputItem::Unknown(_) => {}
         }
     }
+    let usage = response
+        .usage
+        .as_ref()
+        .map(decode_usage)
+        .unwrap_or_default();
+    if content.is_empty() && usage == Usage::default() {
+        Ok(None)
+    } else {
+        PartialLanguageOutput::new(content, usage).map(Some)
+    }
+}
+
+fn partial_or_source(
+    error: Error,
+    response: &ResponseWire,
+) -> (Error, Option<PartialLanguageOutput>) {
+    match project_partial_output(response) {
+        Ok(partial) => (error, partial),
+        Err(source) => (error.with_source(source), None),
+    }
+}
+
+fn failed_call_error(
+    response: &ResponseWire,
+    scope: &ProviderScope,
+    requested_model: &ModelId,
+    diagnostics: ResponseDiagnostics,
+) -> LanguageCallError {
+    let error = failed_response_error(response, scope, requested_model, diagnostics);
+    let (error, partial) = partial_or_source(error, response);
+    LanguageCallError::new(error, partial)
+}
+
+fn cancelled_call_error(
+    response: &ResponseWire,
+    scope: &ProviderScope,
+    requested_model: &ModelId,
+) -> LanguageCallError {
+    let error = Error::cancelled("OpenAI cancelled the Responses generation")
+        .with_context(error_context(scope, requested_model));
+    let (error, partial) = partial_or_source(error, response);
+    LanguageCallError::new(error, partial)
 }
 
 pub(crate) fn failed_response_error(

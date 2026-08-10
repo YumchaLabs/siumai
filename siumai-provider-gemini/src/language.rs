@@ -7,10 +7,10 @@ use http::header::{ACCEPT, HeaderName, HeaderValue};
 use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderOptionSelection,
-    ProviderOptions, StreamTerminal, TypedProviderOptions,
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model,
+    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ProviderOptionError,
+    ProviderOptionSelection, ProviderOptions, StreamTerminal, TypedProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     DecodedInteraction, InteractionLanguageConfig, InteractionStorage, InteractionThinkingLevel,
@@ -156,12 +156,12 @@ impl LanguageModel for GeminiLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
         self.generate_native(request, options)
             .await?
             .into_result()
-            .map_err(|error| self.contextualize(operation, error))
+            .map_err(|error| self.contextualize_call_error(operation, error))
     }
 
     async fn stream(
@@ -216,6 +216,17 @@ impl LanguageModel for GeminiLanguageModel {
     }
 }
 
+impl GeminiLanguageModel {
+    fn contextualize_call_error(
+        &self,
+        operation: ModelOperation,
+        error: LanguageCallError,
+    ) -> LanguageCallError {
+        let (error, partial) = error.into_parts();
+        LanguageCallError::new(self.contextualize(operation, error), partial)
+    }
+}
+
 pub(crate) fn decode_sse_stream<D>(
     cancellation: siumai_core::Cancellation,
     body: TransportByteStream,
@@ -236,19 +247,41 @@ where
                 let frames = framing
                     .push(&chunk)
                     .map_err(|source| sse_error(source).with_context(context.clone()))?;
+                let mut pending_events = Vec::new();
+                let mut terminal_in_batch = false;
                 for frame in frames {
+                    if terminal_in_batch {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Gemini stream emitted an SSE frame after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
                     let events = protocol
                         .decode(frame.data())
                         .map_err(|error| error.with_context(context.clone()))?;
+                    let terminal_position = events
+                        .iter()
+                        .position(|event| event.terminal().is_some());
+                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Gemini stream decoder emitted events after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    terminal_in_batch |= terminal_position.is_some();
                     for mut event in events {
                         contextualize_terminal_error(&mut event, &context);
                         attach_response_context(&mut event, &headers);
-                        let terminal = event.terminal().is_some();
-                        yield event;
-                        if terminal {
-                            return;
-                        }
+                        pending_events.push(event);
                     }
+                }
+                for event in pending_events {
+                    yield event;
+                }
+                if terminal_in_batch {
+                    return;
                 }
             }
             framing
@@ -292,15 +325,7 @@ fn attach_response_context(
     headers: &siumai_transport::ResponseHeaders,
 ) {
     let response = match event {
-        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-            response: Some(response),
-            ..
-        })
-        | LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-            response: Some(response),
-            ..
-        }) => response,
+        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => response,
         _ => return,
     };
     **response = with_response_context(response.as_ref().clone(), headers);
@@ -541,6 +566,81 @@ mod tests {
         ));
         direct.assert_async().await;
         stream.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn stream_rejects_frames_after_terminal_in_one_sse_batch() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/v1/interactions")
+            .match_header("accept", "text/event-stream")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(
+                [
+                    serde_json::json!({
+                        "event_type": "interaction.created",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "in_progress",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.start",
+                        "index": 0,
+                        "step": {"type": "model_output"}
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.delta",
+                        "index": 0,
+                        "delta": {"type": "text", "text": "hello"}
+                    }),
+                    serde_json::json!({"event_type": "step.stop", "index": 0}),
+                    serde_json::json!({
+                        "event_type": "interaction.completed",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "completed",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                    serde_json::json!({
+                        "event_type": "interaction.completed",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "completed",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                ]
+                .into_iter()
+                .map(|value| format!("data: {value}\n\n"))
+                .collect::<String>(),
+            )
+            .create_async()
+            .await;
+
+        let model = provider(server.url()).language("gemini-3.6-flash").unwrap();
+        let events = model
+            .stream(
+                LanguageRequest::new(vec![Message::user("hello")]),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        let terminals = events
+            .iter()
+            .filter_map(LanguageStreamEvent::terminal)
+            .collect::<Vec<_>>();
+        assert_eq!(terminals.len(), 1);
+        match terminals[0] {
+            StreamTerminal::Failed { error, .. } => assert_eq!(error.kind(), ErrorKind::Protocol),
+            other => panic!("expected a failed terminal, got {other:?}"),
+        }
     }
 
     #[test]

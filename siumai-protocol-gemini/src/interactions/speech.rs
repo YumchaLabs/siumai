@@ -61,7 +61,9 @@ pub fn decode_speech_response(
     requested_model: &ModelId,
 ) -> Result<SpeechResponse, Error> {
     let decoded = decode_language_response(body, scope, requested_model)?;
-    let canonical = decoded.canonical();
+    let canonical = decoded
+        .into_result()
+        .map_err(siumai_core::LanguageCallError::into_error)?;
     let mut audio = None;
 
     for part in canonical.content() {

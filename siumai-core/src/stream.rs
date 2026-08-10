@@ -1,14 +1,21 @@
 //! Canonical established-stream lifecycle and event vocabulary.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures::{FutureExt, Stream, StreamExt, pin_mut, select_biased};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::error::{Error, ErrorKind, ResponseDiagnostics};
-use crate::language::{Citation, LanguageResponse, LanguageResponseStatus, OpaqueProviderItem};
+use crate::language::{
+    Citation, DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT,
+    DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT,
+    DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT, LanguageResponse, OpaqueProviderItem,
+    PartialLanguageOutput, PartialLanguageOutputPart,
+};
 use crate::options::Cancellation;
 use crate::provider::ModelId;
 use crate::tool::{ExecutionOwner, ToolCall, ToolResult};
@@ -53,10 +60,10 @@ impl LanguageStream {
 
 fn with_route_context(event: LanguageStreamEvent, route: &crate::RouteId) -> LanguageStreamEvent {
     match event {
-        LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response }) => {
+        LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, partial }) => {
             LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                 error: error.with_route(route.clone()),
-                response,
+                partial,
             })
         }
         event => event,
@@ -117,7 +124,7 @@ pub enum LanguageStreamEvent {
         state: OpaqueProviderItem,
     },
     ProviderOpaque(OpaqueProviderItem),
-    Usage(Usage),
+    Usage(UsageUpdate),
     Terminal(StreamTerminal),
 }
 
@@ -130,60 +137,90 @@ impl LanguageStreamEvent {
     }
 }
 
+/// Whether a usage event replaces the latest per-call observation or adds to it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum UsageUpdateKind {
+    #[default]
+    Snapshot,
+    Delta,
+}
+
+/// A provider usage observation with explicit accumulation semantics.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageUpdate {
+    pub kind: UsageUpdateKind,
+    pub usage: Usage,
+}
+
+impl UsageUpdate {
+    pub fn new(kind: UsageUpdateKind, usage: Usage) -> Self {
+        Self { kind, usage }
+    }
+
+    pub fn snapshot(usage: Usage) -> Self {
+        Self::new(UsageUpdateKind::Snapshot, usage)
+    }
+
+    pub fn delta(usage: Usage) -> Self {
+        Self::new(UsageUpdateKind::Delta, usage)
+    }
+
+    pub fn kind(&self) -> UsageUpdateKind {
+        self.kind
+    }
+
+    pub fn usage(&self) -> &Usage {
+        &self.usage
+    }
+
+    pub fn into_usage(self) -> Usage {
+        self.usage
+    }
+}
+
+impl From<Usage> for UsageUpdate {
+    fn from(usage: Usage) -> Self {
+        Self::snapshot(usage)
+    }
+}
+
 /// Exactly one terminal outcome for an observed established stream.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum StreamTerminal {
-    /// The stream reached a non-error protocol terminal. The response status
-    /// may be `Completed` or `Incomplete`.
+    /// The stream reached a successful protocol terminal. The response
+    /// termination may be completed or incomplete.
     Completed { response: Box<LanguageResponse> },
-    /// Generation failed after establishment. A provider-returned failed
-    /// response is retained when one exists.
+    /// Generation failed after establishment. Only bounded observational
+    /// content and usage are retained; complete failed provider resources stay
+    /// behind provider-native APIs.
     Failed {
         error: Error,
-        response: Option<Box<LanguageResponse>>,
+        partial: Option<PartialLanguageOutput>,
     },
-    /// Generation was cancelled after establishment. A provider-returned
-    /// cancelled response is retained when one exists.
+    /// Generation was cancelled after establishment. Only bounded observational
+    /// content and usage are retained.
     Cancelled {
         reason: String,
-        response: Option<Box<LanguageResponse>>,
+        partial: Option<PartialLanguageOutput>,
     },
 }
 
 impl StreamTerminal {
     fn validate(&self) -> Result<(), StreamContractError> {
-        let response = match self {
-            Self::Completed { response } => {
-                if !matches!(
-                    response.status(),
-                    LanguageResponseStatus::Completed | LanguageResponseStatus::Incomplete { .. }
-                ) {
-                    return Err(StreamContractError::TerminalResponseStatusMismatch);
-                }
-                Some(response.as_ref())
+        match self {
+            Self::Completed { response } => response
+                .validate()
+                .map_err(|_| StreamContractError::InvalidTerminalResponse),
+            Self::Failed { partial, .. } | Self::Cancelled { partial, .. } => {
+                partial.as_ref().map_or(Ok(()), |partial| {
+                    partial
+                        .validate()
+                        .map_err(|_| StreamContractError::InvalidPartialOutput)
+                })
             }
-            Self::Failed { response, .. } => {
-                if response.as_deref().is_some_and(|response| {
-                    !matches!(response.status(), LanguageResponseStatus::Failed)
-                }) {
-                    return Err(StreamContractError::TerminalResponseStatusMismatch);
-                }
-                response.as_deref()
-            }
-            Self::Cancelled { response, .. } => {
-                if response.as_deref().is_some_and(|response| {
-                    !matches!(response.status(), LanguageResponseStatus::Cancelled)
-                }) {
-                    return Err(StreamContractError::TerminalResponseStatusMismatch);
-                }
-                response.as_deref()
-            }
-        };
-        if response.is_some_and(|response| response.validate().is_err()) {
-            return Err(StreamContractError::InvalidTerminalResponse);
         }
-        Ok(())
     }
 }
 
@@ -200,10 +237,10 @@ pub enum StreamContractError {
     FrameAfterFinish,
     #[error("protocol decoder finish was called more than once")]
     DuplicateFinish,
-    #[error("stream terminal response status does not match its terminal kind")]
-    TerminalResponseStatusMismatch,
     #[error("stream terminal contains an invalid language response")]
     InvalidTerminalResponse,
+    #[error("stream terminal contains invalid partial language output")]
+    InvalidPartialOutput,
 }
 
 impl From<StreamContractError> for Error {
@@ -222,11 +259,11 @@ impl From<StreamContractError> for Error {
             StreamContractError::DuplicateFinish => {
                 "protocol decoder finish was called more than once"
             }
-            StreamContractError::TerminalResponseStatusMismatch => {
-                "stream terminal response status does not match its terminal kind"
-            }
             StreamContractError::InvalidTerminalResponse => {
                 "stream terminal contains an invalid language response"
+            }
+            StreamContractError::InvalidPartialOutput => {
+                "stream terminal contains invalid partial language output"
             }
         };
         Self::new(ErrorKind::Protocol, message).with_source(error)
@@ -373,13 +410,14 @@ where
         let cancelled = lifecycle_cancellation.token().cancelled_owned().fuse();
         pin_mut!(source, cancelled);
         let mut lifecycle = StreamLifecycle::default();
+        let mut observation = PartialObservation::default();
 
         loop {
             select_biased! {
                 _ = cancelled => {
                     let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                         reason: "call cancelled".to_string(),
-                        response: None,
+                        partial: observation.finish(),
                     });
                     let _ = lifecycle.record(&terminal);
                     yield terminal;
@@ -387,25 +425,37 @@ where
                 },
                 item = source.next() => {
                     match item {
-                        Some(Ok(event)) => {
+                        Some(Ok(mut event)) => {
+                            observation.complete_terminal(&mut event);
                             if let Err(contract_error) = lifecycle.record(&event) {
                                 yield LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                                     error: Error::from(contract_error),
-                                    response: None,
+                                    partial: observation.finish(),
                                 });
                                 break;
                             }
                             let is_terminal = event.terminal().is_some();
+                            if !is_terminal {
+                                observation.observe(&event);
+                            }
                             yield event;
                             if is_terminal {
                                 break;
                             }
                         }
                         Some(Err(error)) => {
-                            let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-                                error,
-                                response: None,
-                            });
+                            let partial = observation.finish();
+                            let terminal = if error.kind() == ErrorKind::Cancelled {
+                                LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
+                                    reason: error.message().to_string(),
+                                    partial,
+                                })
+                            } else {
+                                LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                                    error,
+                                    partial,
+                                })
+                            };
                             let _ = lifecycle.record(&terminal);
                             yield terminal;
                             break;
@@ -413,7 +463,7 @@ where
                         None => {
                             let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                                 error: Error::unexpected_eof(),
-                                response: None,
+                                partial: observation.finish(),
                             });
                             let _ = lifecycle.record(&terminal);
                             yield terminal;
@@ -430,6 +480,219 @@ where
     }
 }
 
+#[derive(Default)]
+struct PartialObservation {
+    parts: Vec<PartialLanguageOutputPart>,
+    text_parts: BTreeMap<String, usize>,
+    reasoning_parts: BTreeMap<String, usize>,
+    usage: Usage,
+    has_usage: bool,
+    observed_text_bytes: usize,
+    disabled: bool,
+}
+
+impl PartialObservation {
+    fn observe(&mut self, event: &LanguageStreamEvent) {
+        if self.disabled {
+            return;
+        }
+        match event {
+            LanguageStreamEvent::TextStart { id } => {
+                self.ensure_text_part(id, false);
+            }
+            LanguageStreamEvent::TextDelta { id, delta } => {
+                self.push_delta(id, delta, false);
+            }
+            LanguageStreamEvent::ReasoningStart { id } => {
+                self.ensure_text_part(id, true);
+            }
+            LanguageStreamEvent::ReasoningDelta { id, delta } => {
+                self.push_delta(id, delta, true);
+            }
+            LanguageStreamEvent::Refusal { reason } => {
+                if self.reserve_part(reason.as_ref().map_or(0, String::len)) {
+                    self.parts.push(PartialLanguageOutputPart::Refusal {
+                        reason: reason.clone(),
+                    });
+                }
+            }
+            LanguageStreamEvent::Usage(update) => self.observe_usage(update),
+            _ => {}
+        }
+    }
+
+    fn complete_terminal(&mut self, event: &mut LanguageStreamEvent) {
+        let LanguageStreamEvent::Terminal(terminal) = event else {
+            return;
+        };
+        match terminal {
+            StreamTerminal::Failed { partial, .. } | StreamTerminal::Cancelled { partial, .. } => {
+                if partial.is_none() {
+                    *partial = self.finish();
+                }
+            }
+            StreamTerminal::Completed { .. } => {}
+        }
+    }
+
+    fn ensure_text_part(&mut self, id: &str, reasoning: bool) -> Option<usize> {
+        let existing = if reasoning {
+            self.reasoning_parts.get(id)
+        } else {
+            self.text_parts.get(id)
+        };
+        if let Some(index) = existing {
+            return Some(*index);
+        }
+        if !self.reserve_part(0) {
+            return None;
+        }
+        let index = self.parts.len();
+        let part = if reasoning {
+            PartialLanguageOutputPart::Reasoning {
+                text: String::new(),
+            }
+        } else {
+            PartialLanguageOutputPart::Text {
+                text: String::new(),
+            }
+        };
+        self.parts.push(part);
+        if reasoning {
+            self.reasoning_parts.insert(id.to_string(), index);
+        } else {
+            self.text_parts.insert(id.to_string(), index);
+        }
+        Some(index)
+    }
+
+    fn push_delta(&mut self, id: &str, delta: &str, reasoning: bool) {
+        let Some(index) = self.ensure_text_part(id, reasoning) else {
+            return;
+        };
+        let current_bytes = match &self.parts[index] {
+            PartialLanguageOutputPart::Text { text }
+            | PartialLanguageOutputPart::Reasoning { text } => text.len(),
+            PartialLanguageOutputPart::Refusal { .. } => return,
+        };
+        let Some(item_bytes) = current_bytes.checked_add(delta.len()) else {
+            self.disable();
+            return;
+        };
+        if item_bytes > DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT {
+            self.disable();
+            return;
+        }
+        let Some(total_bytes) = self.observed_text_bytes.checked_add(delta.len()) else {
+            self.disable();
+            return;
+        };
+        if total_bytes > DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT {
+            self.disable();
+            return;
+        }
+        self.observed_text_bytes = total_bytes;
+        match &mut self.parts[index] {
+            PartialLanguageOutputPart::Text { text }
+            | PartialLanguageOutputPart::Reasoning { text } => text.push_str(delta),
+            PartialLanguageOutputPart::Refusal { .. } => {}
+        }
+    }
+
+    fn reserve_part(&mut self, bytes: usize) -> bool {
+        if self.parts.len() >= DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT
+            || bytes > DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT
+        {
+            self.disable();
+            return false;
+        }
+        let Some(total_bytes) = self.observed_text_bytes.checked_add(bytes) else {
+            self.disable();
+            return false;
+        };
+        if total_bytes > DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT {
+            self.disable();
+            return false;
+        }
+        self.observed_text_bytes = total_bytes;
+        true
+    }
+
+    fn observe_usage(&mut self, update: &UsageUpdate) {
+        match update.kind() {
+            UsageUpdateKind::Snapshot => merge_usage_snapshot(&mut self.usage, update.usage()),
+            UsageUpdateKind::Delta => merge_usage_delta(&mut self.usage, update.usage()),
+        }
+        self.has_usage = true;
+    }
+
+    fn finish(&self) -> Option<PartialLanguageOutput> {
+        if self.disabled || (self.parts.is_empty() && !self.has_usage) {
+            return None;
+        }
+        PartialLanguageOutput::new(self.parts.clone(), self.usage.clone()).ok()
+    }
+
+    fn disable(&mut self) {
+        self.disabled = true;
+        self.parts.clear();
+        self.text_parts.clear();
+        self.reasoning_parts.clear();
+        self.usage = Usage::default();
+        self.has_usage = false;
+        self.observed_text_bytes = 0;
+    }
+}
+
+fn merge_usage_snapshot(current: &mut Usage, snapshot: &Usage) {
+    merge_usage_values(current, snapshot, |existing, incoming| {
+        match (existing, incoming) {
+            (crate::UsageValue::Known(left), crate::UsageValue::Known(right)) => {
+                crate::UsageValue::Known(left.max(right))
+            }
+            (crate::UsageValue::Unknown, crate::UsageValue::Known(value)) => {
+                crate::UsageValue::Known(value)
+            }
+            (existing, crate::UsageValue::Unknown) => existing,
+        }
+    });
+    if !snapshot.provider.is_empty() {
+        current.provider.clone_from(&snapshot.provider);
+    }
+}
+
+fn merge_usage_delta(current: &mut Usage, delta: &Usage) {
+    merge_usage_values(current, delta, |existing, incoming| match incoming {
+        crate::UsageValue::Unknown => existing,
+        crate::UsageValue::Known(value) => match existing {
+            crate::UsageValue::Unknown => crate::UsageValue::Known(value),
+            crate::UsageValue::Known(existing) => existing
+                .checked_add(value)
+                .map_or(crate::UsageValue::Unknown, crate::UsageValue::Known),
+        },
+    });
+    for (key, value) in &delta.provider {
+        current.provider.insert(key.clone(), value.clone());
+    }
+}
+
+fn merge_usage_values(
+    current: &mut Usage,
+    incoming: &Usage,
+    merge: impl Fn(crate::UsageValue, crate::UsageValue) -> crate::UsageValue,
+) {
+    current.input_tokens = merge(current.input_tokens, incoming.input_tokens);
+    current.output_tokens = merge(current.output_tokens, incoming.output_tokens);
+    current.total_tokens = merge(current.total_tokens, incoming.total_tokens);
+    current.reasoning_tokens = merge(current.reasoning_tokens, incoming.reasoning_tokens);
+    current.cache_read_tokens = merge(current.cache_read_tokens, incoming.cache_read_tokens);
+    current.cache_write_tokens = merge(current.cache_write_tokens, incoming.cache_write_tokens);
+    current.audio_input_tokens = merge(current.audio_input_tokens, incoming.audio_input_tokens);
+    current.audio_output_tokens = merge(current.audio_output_tokens, incoming.audio_output_tokens);
+    current.orchestration_tokens =
+        merge(current.orchestration_tokens, incoming.orchestration_tokens);
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -439,24 +702,38 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::language::{FinishReason, LanguageIncompleteReason, ProviderProvenance};
+    use crate::language::{
+        LanguageIncompleteReason, PartialLanguageOutputPart, ProviderProvenance,
+    };
     use crate::provider::{ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId};
     use crate::tool::ToolOutcome;
 
     #[tokio::test]
     async fn eof_without_terminal_becomes_failed_unexpected_eof() {
-        let source = stream::iter(vec![Ok(LanguageStreamEvent::TextDelta {
-            id: "text".to_string(),
-            delta: "hello".to_string(),
-        })]);
+        let source = stream::iter(vec![
+            Ok(LanguageStreamEvent::TextDelta {
+                id: "text".to_string(),
+                delta: "hello".to_string(),
+            }),
+            Ok(LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                Usage::default().with_output_tokens(1_u64),
+            ))),
+        ]);
         let events = established_stream(Cancellation::new(), |_| source)
             .collect::<Vec<_>>()
             .await;
 
         assert!(matches!(
             events.last(),
-            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }))
-                if error.kind() == ErrorKind::UnexpectedEof
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                error,
+                partial: Some(partial),
+            })) if error.kind() == ErrorKind::UnexpectedEof
+                && matches!(
+                    partial.content(),
+                    [PartialLanguageOutputPart::Text { text }] if text == "hello"
+                )
+                && partial.usage().output_tokens == crate::UsageValue::Known(1)
         ));
     }
 
@@ -481,7 +758,7 @@ mod tests {
         let mut lifecycle = StreamLifecycle::default();
         let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
             reason: "cancelled".to_string(),
-            response: None,
+            partial: None,
         });
         lifecycle.record(&terminal).unwrap();
         assert_eq!(
@@ -496,7 +773,7 @@ mod tests {
         let events = [
             LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "cancelled".to_string(),
-                response: None,
+                partial: None,
             }),
             LanguageStreamEvent::TextDelta {
                 id: "text".to_string(),
@@ -512,28 +789,37 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_rejects_terminal_status_mismatch() {
-        let response =
-            LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default()).unwrap();
+    fn failed_terminal_accepts_bounded_observational_partial_output() {
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "partial".to_string(),
+            }],
+            Usage::default().with_output_tokens(2_u64),
+        )
+        .unwrap();
         let terminal = LanguageStreamEvent::Terminal(StreamTerminal::Failed {
             error: Error::new(ErrorKind::Provider, "generation failed"),
-            response: Some(Box::new(response)),
+            partial: Some(partial),
         });
 
-        assert_eq!(
-            StreamLifecycle::default().record(&terminal),
-            Err(StreamContractError::TerminalResponseStatusMismatch)
-        );
+        StreamLifecycle::default().record(&terminal).unwrap();
+        assert!(matches!(
+            terminal,
+            LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                partial: Some(partial),
+                ..
+            }) if matches!(
+                partial.content(),
+                [PartialLanguageOutputPart::Text { text }] if text == "partial"
+            )
+        ));
     }
 
     #[test]
     fn completed_terminal_accepts_an_incomplete_response() {
-        let response = LanguageResponse::new(
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::MaxOutputTokens),
-            },
+        let response = LanguageResponse::incomplete(
             Vec::new(),
-            FinishReason::Length,
+            LanguageIncompleteReason::MaxOutputTokens,
             Usage::default(),
         )
         .unwrap();
@@ -542,6 +828,24 @@ mod tests {
         });
 
         StreamLifecycle::default().record(&terminal).unwrap();
+    }
+
+    #[test]
+    fn usage_events_are_explicit_snapshots_or_deltas() {
+        assert_eq!(UsageUpdate::default().kind(), UsageUpdateKind::Snapshot);
+        let snapshot = UsageUpdate::from(Usage::default().with_input_tokens(4_u64));
+        assert_eq!(snapshot.kind(), UsageUpdateKind::Snapshot);
+        assert_eq!(snapshot.usage().input_tokens, crate::UsageValue::Known(4));
+
+        let delta = UsageUpdate::delta(Usage::default().with_output_tokens(2_u64));
+        assert_eq!(delta.kind(), UsageUpdateKind::Delta);
+        assert_eq!(delta.usage().output_tokens, crate::UsageValue::Known(2));
+
+        let event = LanguageStreamEvent::Usage(snapshot.clone());
+        assert!(matches!(event, LanguageStreamEvent::Usage(update) if update == snapshot));
+        let decoded: UsageUpdate =
+            serde_json::from_value(serde_json::to_value(delta).unwrap()).unwrap();
+        assert_eq!(decoded.kind(), UsageUpdateKind::Delta);
     }
 
     #[tokio::test]
@@ -563,18 +867,42 @@ mod tests {
 
     #[tokio::test]
     async fn post_establishment_error_is_a_failed_terminal_event() {
-        let source = stream::iter(vec![Err(Error::new(
-            ErrorKind::Transport,
-            "connection reset",
-        ))]);
+        let source = stream::iter(vec![
+            Ok(LanguageStreamEvent::ReasoningDelta {
+                id: "reasoning".to_string(),
+                delta: "partial reasoning".to_string(),
+            }),
+            Err(Error::new(ErrorKind::Transport, "connection reset")),
+        ]);
+        let events = established_stream(Cancellation::new(), |_| source)
+            .collect::<Vec<_>>()
+            .await;
+
+        assert!(matches!(
+            events.last(),
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                error,
+                partial: Some(partial),
+            })) if error.kind() == ErrorKind::Transport
+                && matches!(
+                    partial.content(),
+                    [PartialLanguageOutputPart::Reasoning { text }]
+                        if text == "partial reasoning"
+                )
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancelled_source_error_preserves_the_cancelled_terminal_kind() {
+        let source = stream::iter(vec![Err(Error::cancelled("provider cancelled"))]);
         let events = established_stream(Cancellation::new(), |_| source)
             .collect::<Vec<_>>()
             .await;
 
         assert!(matches!(
             events.as_slice(),
-            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. })]
-                if error.kind() == ErrorKind::Transport
+            [LanguageStreamEvent::Terminal(StreamTerminal::Cancelled { reason, .. })]
+                if reason == "provider cancelled"
         ));
     }
 
@@ -591,7 +919,7 @@ mod tests {
             Ok(LanguageStreamEvent::ToolResult(result)),
             Ok(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "test complete".to_string(),
-                response: None,
+                partial: None,
             })),
         ]);
         let events = established_stream(Cancellation::new(), |_| source)
@@ -622,7 +950,7 @@ mod tests {
             Ok(LanguageStreamEvent::ProviderOpaque(item)),
             Ok(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "test complete".to_string(),
-                response: None,
+                partial: None,
             })),
         ]);
         let events = established_stream(Cancellation::new(), |_| source)

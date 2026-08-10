@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorKind, FinishReason, LanguageResponse,
-    LanguageResponseStatus, ModelId, OpaqueProviderItem, ProviderProvenance, ProviderScope,
-    ToolCall, Usage, UsageValue,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, Error, ErrorKind, LanguageCompletionReason,
+    LanguageIncompleteReason, LanguageResponse, LanguageTermination, ModelId, OpaqueProviderItem,
+    ProviderProvenance, ProviderScope, ToolCall, Usage, UsageValue,
 };
 
 use super::ChatCompletionsDialect;
@@ -39,7 +39,7 @@ pub fn decode_response(
     let choice = wire.choices.into_iter().next().expect("length was checked");
     let model = parse_model(wire.model.as_deref(), requested_model)?;
     let content = decode_message(scope, &model, choice.message, dialect)?;
-    let finish_reason = choice
+    let termination = choice
         .finish_reason
         .as_deref()
         .map(decode_finish_reason)
@@ -53,7 +53,7 @@ pub fn decode_response(
         wire.id,
         model,
         content,
-        finish_reason,
+        termination,
         usage,
         selected_response_metadata(&wire.extra)?,
     )
@@ -63,26 +63,15 @@ pub(crate) fn build_response(
     id: Option<String>,
     model: ModelId,
     content: Vec<ContentPart>,
-    finish_reason: FinishReason,
+    termination: LanguageTermination,
     usage: Usage,
     provider: BTreeMap<String, Value>,
 ) -> Result<LanguageResponse, Error> {
-    let status = match &finish_reason {
-        FinishReason::Length => LanguageResponseStatus::Incomplete {
-            reason: Some(siumai_core::LanguageIncompleteReason::MaxOutputTokens),
-        },
-        FinishReason::ContentFilter => LanguageResponseStatus::Incomplete {
-            reason: Some(siumai_core::LanguageIncompleteReason::ContentFilter),
-        },
-        FinishReason::Error => LanguageResponseStatus::Failed,
-        FinishReason::Cancelled => LanguageResponseStatus::Cancelled,
-        _ => LanguageResponseStatus::Completed,
-    };
-    let mut response = LanguageResponse::new(status, content, finish_reason, usage)
+    let mut response = LanguageResponse::new(termination, content, usage)
         .map_err(|source| {
             Error::new(
                 ErrorKind::Protocol,
-                "Chat Completions response produced an inconsistent terminal state",
+                "Chat Completions response produced an invalid termination",
             )
             .with_source(source)
         })?
@@ -235,14 +224,20 @@ pub(crate) fn decode_tool_call(call: ToolCallWire) -> Result<ToolCall, Error> {
     })
 }
 
-pub(crate) fn decode_finish_reason(value: &str) -> FinishReason {
+pub(crate) fn decode_finish_reason(value: &str) -> LanguageTermination {
     match value {
-        "stop" => FinishReason::Stop,
-        "length" | "max_tokens" => FinishReason::Length,
-        "tool_calls" | "function_call" => FinishReason::ToolCalls,
-        "content_filter" => FinishReason::ContentFilter,
-        "refusal" => FinishReason::Refusal,
-        other => FinishReason::Other(other.to_string()),
+        "stop" => LanguageTermination::Completed(LanguageCompletionReason::Stop),
+        "length" | "max_tokens" => {
+            LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
+        }
+        "tool_calls" | "function_call" => {
+            LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
+        }
+        "content_filter" => {
+            LanguageTermination::Incomplete(LanguageIncompleteReason::ContentFilter)
+        }
+        "refusal" => LanguageTermination::Completed(LanguageCompletionReason::Refusal),
+        other => LanguageTermination::Completed(LanguageCompletionReason::Other(other.to_string())),
     }
 }
 
@@ -483,6 +478,58 @@ mod tests {
             "index": 0,
             "text": "inspect the weather tool"
         }])
+    }
+
+    #[test]
+    fn finish_reasons_map_to_one_completed_or_incomplete_termination() {
+        for (finish_reason, expected) in [
+            (
+                "stop",
+                LanguageTermination::Completed(LanguageCompletionReason::Stop),
+            ),
+            (
+                "tool_calls",
+                LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
+            ),
+            (
+                "refusal",
+                LanguageTermination::Completed(LanguageCompletionReason::Refusal),
+            ),
+            (
+                "future_reason",
+                LanguageTermination::Completed(LanguageCompletionReason::Other(
+                    "future_reason".to_string(),
+                )),
+            ),
+            (
+                "length",
+                LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens),
+            ),
+            (
+                "content_filter",
+                LanguageTermination::Incomplete(LanguageIncompleteReason::ContentFilter),
+            ),
+        ] {
+            let body = serde_json::to_vec(&serde_json::json!({
+                "id": "chat-termination",
+                "model": "future:model",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "result"},
+                    "finish_reason": finish_reason
+                }]
+            }))
+            .unwrap();
+            let response = decode_response(
+                &scope(),
+                &ModelId::new("fallback").unwrap(),
+                &body,
+                &ChatCompletionsDialect::generic(),
+            )
+            .unwrap();
+
+            assert_eq!(response.termination(), &expected);
+        }
     }
 
     #[test]

@@ -3,7 +3,6 @@ use siumai_core::{
     CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent,
     Message, MessageRole, ReplayDomain, ReplayDomainId, StreamTerminal,
 };
-use siumai_protocol_openai::responses::OPENAI_RESPONSES_PROTOCOL;
 use siumai_provider_volcengine::models::DOUBAO_SEED_2_1_PRO_260628;
 use siumai_provider_volcengine::{
     ARK_BETA_KNOWLEDGE_SEARCH_HEADER, ARK_BETA_MCP_HEADER, ArkChatOptions, ArkMcpApproval,
@@ -193,8 +192,7 @@ async fn responses_stream_preserves_ark_citation_and_settles_once() {
             part,
             ContentPart::Citation(citation)
                 if citation.title.as_deref() == Some("Doc")
-                    && citation.provider[OPENAI_RESPONSES_PROTOCOL]["type"]
-                        == serde_json::json!("doc_citation")
+                    && citation.url.as_deref() == Some("https://example.com/doc")
         )
     }));
     mock.assert_async().await;

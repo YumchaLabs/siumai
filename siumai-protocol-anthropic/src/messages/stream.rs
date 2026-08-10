@@ -2,15 +2,17 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ExecutionOwner,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
-    StreamTerminal,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, PartialLanguageOutput,
+    PartialLanguageOutputPart, ProviderScope, ResponseDiagnostics, StreamTerminal, Usage,
+    UsageUpdate, UsageValue,
 };
 
 use super::MessagesCodecError;
 use super::error::classify_stream_failure;
 use super::response::{
     StreamResponseParts, build_stream_response, decode_content_block, decode_refusal_reason,
+    decode_usage,
 };
 use super::wire::{StreamEventWire, StreamMessageDeltaWire, StreamMessageStartWire, UsageWire};
 
@@ -82,13 +84,20 @@ impl MessagesStreamDecoder {
             "message_delta" => self.message_delta(&event).map_err(Error::from),
             "message_stop" => self.message_stop().map_err(Error::from),
             "ping" => Ok(Vec::new()),
-            "error" => Ok(vec![LanguageStreamEvent::Terminal(
-                StreamTerminal::Failed {
-                    error: classify_stream_failure(&envelope, self.response_diagnostics.clone())
-                        .map_err(Error::from)?,
-                    response: None,
-                },
-            )]),
+            "error" => {
+                let error = classify_stream_failure(&envelope, self.response_diagnostics.clone())
+                    .map_err(Error::from)?;
+                let partial = self.partial_output();
+                let terminal = if error.kind() == ErrorKind::Cancelled {
+                    StreamTerminal::Cancelled {
+                        reason: error.message().to_string(),
+                        partial,
+                    }
+                } else {
+                    StreamTerminal::Failed { error, partial }
+                };
+                Ok(vec![LanguageStreamEvent::Terminal(terminal)])
+            }
             _ => Err(MessagesCodecError::Unsupported {
                 feature: "this Anthropic Messages stream event",
             }
@@ -330,7 +339,7 @@ impl MessagesStreamDecoder {
             provider: std::mem::take(&mut self.provider_metadata),
         })?;
         let usage = response.usage().clone();
-        events.push(LanguageStreamEvent::Usage(usage));
+        events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(usage)));
         events.push(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
             response: Box::new(response),
         }));
@@ -346,6 +355,62 @@ impl MessagesStreamDecoder {
             })
         }
     }
+
+    fn partial_output(&self) -> Option<PartialLanguageOutput> {
+        let mut by_index = BTreeMap::<u64, Vec<PartialLanguageOutputPart>>::new();
+        for (index, parts) in &self.completed_blocks {
+            let parts = parts.iter().filter_map(partial_part).collect::<Vec<_>>();
+            if !parts.is_empty() {
+                by_index.insert(*index, parts);
+            }
+        }
+        for (index, block) in &self.active_blocks {
+            let parts = block.partial_parts();
+            if !parts.is_empty() {
+                by_index.insert(*index, parts);
+            }
+        }
+        let content = by_index.into_values().flatten().collect::<Vec<_>>();
+        let usage = decode_usage(&self.usage);
+        if content.is_empty() && !usage_observed(&usage) {
+            return None;
+        }
+        PartialLanguageOutput::new(content, usage).ok()
+    }
+}
+
+fn partial_part(part: &ContentPart) -> Option<PartialLanguageOutputPart> {
+    match part {
+        ContentPart::Text { text } => Some(PartialLanguageOutputPart::Text { text: text.clone() }),
+        ContentPart::Reasoning { text } => {
+            Some(PartialLanguageOutputPart::Reasoning { text: text.clone() })
+        }
+        ContentPart::Refusal { reason } => Some(PartialLanguageOutputPart::Refusal {
+            reason: reason.clone(),
+        }),
+        ContentPart::Media(_)
+        | ContentPart::Citation(_)
+        | ContentPart::ToolCall(_)
+        | ContentPart::ToolResult(_)
+        | ContentPart::ProviderOpaque(_) => None,
+        _ => None,
+    }
+}
+
+fn usage_observed(usage: &Usage) -> bool {
+    [
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.total_tokens,
+        usage.reasoning_tokens,
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+        usage.audio_input_tokens,
+        usage.audio_output_tokens,
+        usage.orchestration_tokens,
+    ]
+    .into_iter()
+    .any(|value| matches!(value, UsageValue::Known(_)))
 }
 
 fn fallback_target_model(value: &Value) -> Result<Option<ModelId>, MessagesCodecError> {
@@ -603,6 +668,34 @@ impl ActiveBlock {
                 id: block_id("thinking", *index),
             }),
             Self::ToolUse { .. } | Self::Static { .. } => None,
+        }
+    }
+
+    fn partial_parts(&self) -> Vec<PartialLanguageOutputPart> {
+        match self {
+            Self::Text { text, .. } if !text.is_empty() => {
+                vec![PartialLanguageOutputPart::Text { text: text.clone() }]
+            }
+            Self::Thinking { thinking, .. } if !thinking.is_empty() => {
+                vec![PartialLanguageOutputPart::Reasoning {
+                    text: thinking.clone(),
+                }]
+            }
+            Self::Static { object }
+                if object.get("type").and_then(Value::as_str) == Some("refusal") =>
+            {
+                vec![PartialLanguageOutputPart::Refusal {
+                    reason: object
+                        .get("refusal")
+                        .or_else(|| object.get("reason"))
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string),
+                }]
+            }
+            Self::Text { .. }
+            | Self::Thinking { .. }
+            | Self::ToolUse { .. }
+            | Self::Static { .. } => Vec::new(),
         }
     }
 

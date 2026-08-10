@@ -9,13 +9,13 @@ use siumai_anthropic_compatible::{
     AnthropicCompatibleProvider,
 };
 use siumai_core::{
-    ApiStability, CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider,
-    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
-    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderInstanceId,
-    ProviderOptionError, ProviderRegistration, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
-    VerifiedNativeSupportClaim,
+    ApiStability, CallOptions, Error, InvalidId, LanguageCallError, LanguageModel,
+    LanguageModelProvider, LanguageRequest, LanguageResponse, LanguageStream, Model,
+    ModelDescriptor, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId,
+    NativeSurfaceKind, NativeVerificationEvidence, OfficialSource, ProfileError, Provider,
+    ProviderInstanceId, ProviderOptionError, ProviderRegistration, ProviderSupportManifest,
+    ReplayDomain, ReplayDomainId, SupportManifestError, TypedProviderOptions, VerificationDate,
+    VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
     AuthApplier, EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
@@ -330,7 +330,7 @@ impl AnthropicLanguageModel {
         &self,
         request: LanguageRequest,
         options: AnthropicMessagesOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.prewarm_cache_with_call_options(request, options, CallOptions::default())
             .await
     }
@@ -340,18 +340,20 @@ impl AnthropicLanguageModel {
         mut request: LanguageRequest,
         options: AnthropicMessagesOptions,
         call_options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         if call_options.has_provider_options() {
             return Err(Error::new(
                 siumai_core::ErrorKind::InvalidInput,
                 "Anthropic cache prewarming accepts one explicit provider-option layer",
-            ));
+            )
+            .into());
         }
         if options.automatic_cache_ttl().is_none() && !has_explicit_cache_marker(&request)? {
             return Err(Error::new(
                 siumai_core::ErrorKind::InvalidInput,
                 "Anthropic cache prewarming requires automatic caching or an explicit cache annotation",
-            ));
+            )
+            .into());
         }
         request.generation.max_output_tokens = Some(0);
         let call_options = call_options
@@ -379,7 +381,7 @@ impl LanguageModel for AnthropicLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.inner.generate(request, options).await
     }
 

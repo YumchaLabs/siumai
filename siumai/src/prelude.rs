@@ -3,11 +3,13 @@
 pub use crate::families::{embedding, image, language, rerank, speech, transcription};
 pub use crate::{
     CallOptions, Cancellation, ContentPart, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
-    Error, ImageModel, ImageRequest, ImageResponse, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, Provider, ProviderId, RerankCandidate, RerankModel,
-    RerankRequest, RerankResponse, SpeechModel, SpeechRequest, SpeechResponse, StreamTerminal,
-    ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest, TranscriptionResponse, Usage,
+    Error, ImageModel, ImageRequest, ImageResponse, LanguageCallError, LanguageCompletionReason,
+    LanguageIncompleteReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    LanguageStreamEvent, LanguageTermination, Message, MessageRole, Model, ModelDescriptor,
+    ModelFamily, ModelId, PartialLanguageOutput, Provider, ProviderId, RerankCandidate,
+    RerankModel, RerankRequest, RerankResponse, SpeechModel, SpeechRequest, SpeechResponse,
+    StreamTerminal, ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest,
+    TranscriptionResponse, Usage, UsageUpdate, UsageUpdateKind,
 };
 
 #[cfg(feature = "runtime")]

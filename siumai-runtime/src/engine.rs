@@ -4,14 +4,16 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt, stream};
+use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageModel, LanguageRequest,
     LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart, MessageRole,
-    StreamTerminal, ToolCall, ToolOutcome, ToolResult,
+    PartialLanguageOutput, StreamTerminal, ToolCall, ToolOutcome, ToolResult, Usage,
 };
 
 use crate::approval::VerifiedApproval;
@@ -30,6 +32,7 @@ use crate::tool::{
     ToolSet,
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
+use crate::usage::CallUsageReconciler;
 use crate::{
     IndeterminateEffect, ModelTarget, ProjectionPolicy, RunBudget, RunEvent, RunReport,
     RunStopReason, RunTerminal, RunTimeoutKind, Runtime, StepModelSelector, StepOptions,
@@ -74,7 +77,7 @@ pub(crate) enum ToolHandling {
 
 enum EnginePhase {
     Transitioning,
-    Streaming(StepStream),
+    Streaming(Box<StepStream>),
     Tools(Box<PendingToolPhase>),
     ReadyForModel,
     ReadyForSelectedModel(Box<SelectedStepModel>),
@@ -253,7 +256,7 @@ impl StepEngine {
         }
         match engine.establish_model_stream(step == 0).await {
             Ok(stream) => {
-                engine.phase = EnginePhase::Streaming(stream);
+                engine.phase = EnginePhase::Streaming(Box::new(stream));
                 Ok(engine)
             }
             Err(error) if establishment_failure_as_terminal => {
@@ -409,23 +412,26 @@ impl StepEngine {
             if matches!(self.phase, EnginePhase::Paused | EnginePhase::Terminal) {
                 return Ok(None);
             }
-            if self.cancellation.is_cancelled() {
+            let model_stream_active = matches!(self.phase, EnginePhase::Streaming(_));
+            if self.cancellation.is_cancelled() && !model_stream_active {
                 self.queue_terminal(RunTerminal::Cancelled {
                     reason: "tool loop cancelled".to_string(),
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
                 continue;
             }
-            if Instant::now() >= self.total_deadline {
+            if Instant::now() >= self.total_deadline && !model_stream_active {
                 self.queue_terminal(RunTerminal::TimedOut {
                     kind: RunTimeoutKind::Total,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
                 continue;
             }
             match std::mem::replace(&mut self.phase, EnginePhase::Transitioning) {
                 EnginePhase::Streaming(stream) => {
-                    self.poll_model_stream(stream, checkpoint).await?
+                    self.poll_model_stream(*stream, checkpoint).await?
                 }
                 EnginePhase::Tools(prepared) => {
                     self.execute_prepared_step(*prepared, checkpoint).await?
@@ -443,6 +449,7 @@ impl StepEngine {
                         ErrorKind::Internal,
                         "tool loop reached an invalid engine phase",
                     ),
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 }),
             }
@@ -570,12 +577,24 @@ impl StepEngine {
         let future = single_step.stream(request, self.call_options.clone());
 
         match wait_for(future, &self.cancellation, deadline, timeout_kind).await {
-            WaitResult::Ready(result) => result.map(|stream| StepStream {
-                stream,
-                deadline: step_deadline,
-                first_event: true,
-                provider_states: Vec::new(),
-                provider_result_ids: BTreeSet::new(),
+            WaitResult::Ready(result) => result.map(|stream| {
+                let timeout = Arc::new(StreamTimeoutState::default());
+                let stream = stream_with_runtime_deadlines(
+                    stream,
+                    self.cancellation.clone(),
+                    self.total_deadline,
+                    step_deadline,
+                    self.budget.timeouts().first_chunk(),
+                    self.budget.timeouts().inter_chunk(),
+                    Arc::clone(&timeout),
+                );
+                StepStream {
+                    stream,
+                    provider_states: Vec::new(),
+                    provider_result_ids: BTreeSet::new(),
+                    usage: CallUsageReconciler::default(),
+                    timeout,
+                }
             }),
             WaitResult::Cancelled => Err(Error::cancelled(if first {
                 "tool loop cancelled during first model handshake"
@@ -602,6 +621,7 @@ impl StepEngine {
             Err(error) => {
                 self.queue_terminal(RunTerminal::Failed {
                     error,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
                 return Ok(());
@@ -640,6 +660,7 @@ impl StepEngine {
             Err(error) => {
                 self.queue_terminal(RunTerminal::Failed {
                     error,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
                 return Ok(());
@@ -675,7 +696,7 @@ impl StepEngine {
                     index: self.step,
                     target: self.target.clone(),
                 });
-                self.phase = EnginePhase::Streaming(stream);
+                self.phase = EnginePhase::Streaming(Box::new(stream));
             }
             Err(error) => self.queue_handshake_failure(error),
         }
@@ -884,6 +905,7 @@ impl StepEngine {
         match error.kind() {
             ErrorKind::Cancelled => self.queue_terminal(RunTerminal::Cancelled {
                 reason: "tool loop cancelled during model handshake".to_string(),
+                partial: None,
                 report: Box::new(self.report.clone()),
             }),
             ErrorKind::Timeout => {
@@ -894,11 +916,13 @@ impl StepEngine {
                 };
                 self.queue_terminal(RunTerminal::TimedOut {
                     kind,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
             }
             _ => self.queue_terminal(RunTerminal::Failed {
                 error,
+                partial: None,
                 report: Box::new(self.report.clone()),
             }),
         }
@@ -912,46 +936,26 @@ impl StepEngine {
     where
         P: EngineCheckpointPort,
     {
-        let chunk_deadline = checked_deadline(
-            Instant::now(),
-            if state.first_event {
-                self.budget.timeouts().first_chunk()
-            } else {
-                self.budget.timeouts().inter_chunk()
-            },
-        );
-        let (deadline, kind) = earliest_timeout([
-            (self.total_deadline, RunTimeoutKind::Total),
-            (state.deadline, RunTimeoutKind::ModelStep),
-            (
-                chunk_deadline,
-                if state.first_event {
-                    RunTimeoutKind::FirstChunk
+        match state.stream.next().await {
+            None => {
+                if let Err(error) = self.settle_model_usage(state.usage, None) {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
+                        report: Box::new(self.report.clone()),
+                    });
                 } else {
-                    RunTimeoutKind::InterChunk
-                },
-            ),
-        ]);
-
-        match wait_for(state.stream.next(), &self.cancellation, deadline, kind).await {
-            WaitResult::Cancelled => self.queue_terminal(RunTerminal::Cancelled {
-                reason: "tool loop cancelled while reading model stream".to_string(),
-                report: Box::new(self.report.clone()),
-            }),
-            WaitResult::TimedOut(kind) => self.queue_terminal(RunTerminal::TimedOut {
-                kind,
-                report: Box::new(self.report.clone()),
-            }),
-            WaitResult::Ready(None) => self.queue_terminal(RunTerminal::Failed {
-                error: Error::unexpected_eof(),
-                report: Box::new(self.report.clone()),
-            }),
-            WaitResult::Ready(Some(LanguageStreamEvent::Terminal(terminal))) => {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error: Error::unexpected_eof(),
+                        partial: None,
+                        report: Box::new(self.report.clone()),
+                    });
+                }
+            }
+            Some(LanguageStreamEvent::Terminal(terminal)) => {
                 self.consume_model_terminal(terminal, state, checkpoint)
                     .await?;
             }
-            WaitResult::Ready(Some(event)) => {
-                state.first_event = false;
+            Some(event) => {
                 match &event {
                     LanguageStreamEvent::ProviderDeferred { id, state: item } => {
                         state.provider_states.push((id.clone(), item.clone()));
@@ -960,9 +964,10 @@ impl StepEngine {
                     LanguageStreamEvent::ToolResult(result) => {
                         state.provider_result_ids.insert(result.call_id.clone());
                     }
+                    LanguageStreamEvent::Usage(update) => state.usage.observe(update),
                     _ => {}
                 }
-                self.phase = EnginePhase::Streaming(state);
+                self.phase = EnginePhase::Streaming(Box::new(state));
                 self.pending.push_back(RunEvent::Model {
                     step: self.step,
                     event,
@@ -986,25 +991,38 @@ impl StepEngine {
                 self.prepare_completed_response(*response, state, checkpoint)
                     .await?;
             }
-            StreamTerminal::Failed { error, response } => {
-                if let Some(response) = response
-                    && let Err(error) = self.record_terminal_response(*response)
-                {
+            StreamTerminal::Failed { error, partial } => {
+                if let Err(error) = self.settle_model_usage(
+                    state.usage,
+                    partial.as_ref().map(PartialLanguageOutput::usage),
+                ) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
                     });
                     return Ok(());
                 }
-                self.queue_terminal(RunTerminal::Failed {
-                    error,
-                    report: Box::new(self.report.clone()),
-                });
-            }
-            StreamTerminal::Cancelled { reason, response } => {
-                if let Some(response) = response
-                    && let Err(error) = self.record_terminal_response(*response)
+                if error.kind() == ErrorKind::Timeout
+                    && let Some(kind) = state.timeout.take()
                 {
+                    self.queue_terminal(RunTerminal::TimedOut {
+                        kind,
+                        partial,
+                        report: Box::new(self.report.clone()),
+                    });
+                } else {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error,
+                        partial,
+                        report: Box::new(self.report.clone()),
+                    });
+                }
+            }
+            StreamTerminal::Cancelled { reason, partial } => {
+                if let Err(error) = self.settle_model_usage(
+                    state.usage,
+                    partial.as_ref().map(PartialLanguageOutput::usage),
+                ) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
@@ -1013,28 +1031,26 @@ impl StepEngine {
                 }
                 self.queue_terminal(RunTerminal::Cancelled {
                     reason,
+                    partial,
                     report: Box::new(self.report.clone()),
                 });
             }
-            _ => self.queue_terminal(RunTerminal::Failed {
-                error: Error::protocol_violation("unsupported model stream terminal"),
-                report: Box::new(self.report.clone()),
-            }),
+            _ => {
+                if let Err(error) = self.settle_model_usage(state.usage, None) {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
+                        report: Box::new(self.report.clone()),
+                    });
+                } else {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error: Error::protocol_violation("unsupported model stream terminal"),
+                        partial: None,
+                        report: Box::new(self.report.clone()),
+                    });
+                }
+            }
         }
         Ok(())
-    }
-
-    fn record_terminal_response(
-        &mut self,
-        response: LanguageResponse,
-    ) -> Result<(), crate::BudgetError> {
-        self.report.accumulate_usage(response.usage());
-        let budget_result = self
-            .report
-            .budget_mut()
-            .charge_usage(response.usage(), &self.budget);
-        self.finish_step(response, Vec::new());
-        budget_result
     }
 
     async fn prepare_completed_response<P>(
@@ -1046,12 +1062,9 @@ impl StepEngine {
     where
         P: EngineCheckpointPort,
     {
-        self.report.accumulate_usage(response.usage());
-        if let Err(error) = self
-            .report
-            .budget_mut()
-            .charge_usage(response.usage(), &self.budget)
-        {
+        let mut state = state;
+        let reconciler = std::mem::take(&mut state.usage);
+        if let Err(error) = self.settle_model_usage(reconciler, Some(response.usage())) {
             self.append_assistant_message(&response);
             self.finish_step(response, Vec::new());
             self.queue_terminal(RunTerminal::BudgetExceeded {
@@ -1096,6 +1109,7 @@ impl StepEngine {
             .unwrap_or_else(|error| {
                 self.queue_terminal(RunTerminal::Failed {
                     error,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
                 Vec::new()
@@ -1162,6 +1176,7 @@ impl StepEngine {
                             "tool arguments could not be serialized for budget accounting",
                         )
                         .with_source(error),
+                        partial: None,
                         report: Box::new(self.report.clone()),
                     });
                     return Ok(());
@@ -1185,6 +1200,7 @@ impl StepEngine {
                     self.finish_step(response, Vec::new());
                     self.queue_terminal(RunTerminal::Failed {
                         error,
+                        partial: None,
                         report: Box::new(self.report.clone()),
                     });
                     return Ok(());
@@ -1209,6 +1225,7 @@ impl StepEngine {
                         );
                         self.queue_terminal(RunTerminal::Failed {
                             error: execution_authorization_error(error),
+                            partial: None,
                             report: Box::new(self.report.clone()),
                         });
                         return Ok(());
@@ -1258,6 +1275,7 @@ impl StepEngine {
                                     NonDispatchResultError::Failed(error) => {
                                         self.queue_terminal(RunTerminal::Failed {
                                             error,
+                                            partial: None,
                                             report: Box::new(self.report.clone()),
                                         });
                                     }
@@ -1324,6 +1342,7 @@ impl StepEngine {
                             );
                             self.queue_terminal(RunTerminal::Failed {
                                 error: execution_approval_decision_error(error),
+                                partial: None,
                                 report: Box::new(self.report.clone()),
                             });
                             return Ok(());
@@ -1338,6 +1357,7 @@ impl StepEngine {
                             );
                             self.queue_terminal(RunTerminal::TimedOut {
                                 kind,
+                                partial: None,
                                 report: Box::new(self.report.clone()),
                             });
                             return Ok(());
@@ -1352,6 +1372,7 @@ impl StepEngine {
                             );
                             self.queue_terminal(RunTerminal::Cancelled {
                                 reason: "tool loop cancelled during approval decision".to_string(),
+                                partial: None,
                                 report: Box::new(self.report.clone()),
                             });
                             return Ok(());
@@ -1547,12 +1568,14 @@ impl StepEngine {
             Some(ExecutionStop::TimedOut(kind)) => {
                 self.queue_terminal(RunTerminal::TimedOut {
                     kind,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
             }
             Some(ExecutionStop::Cancelled) => {
                 self.queue_terminal(RunTerminal::Cancelled {
                     reason: "tool loop cancelled during tool execution".to_string(),
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
             }
@@ -1565,6 +1588,7 @@ impl StepEngine {
             Some(ExecutionStop::Failed(error)) => {
                 self.queue_terminal(RunTerminal::Failed {
                     error,
+                    partial: None,
                     report: Box::new(self.report.clone()),
                 });
             }
@@ -1957,6 +1981,16 @@ impl StepEngine {
         }
     }
 
+    fn settle_model_usage(
+        &mut self,
+        reconciler: CallUsageReconciler,
+        terminal: Option<&Usage>,
+    ) -> Result<(), crate::BudgetError> {
+        let usage = reconciler.settle(terminal);
+        self.report.accumulate_usage(&usage);
+        self.report.budget_mut().charge_usage(&usage, &self.budget)
+    }
+
     fn finish_step(&mut self, response: LanguageResponse, results: Vec<ToolResult>) {
         if !results.is_empty() {
             self.report.messages_mut().push(Message::new(
@@ -2154,10 +2188,23 @@ impl StepEngine {
 
 struct StepStream {
     stream: LanguageStream,
-    deadline: Instant,
-    first_event: bool,
     provider_states: Vec<(String, siumai_core::OpaqueProviderItem)>,
     provider_result_ids: BTreeSet<String>,
+    usage: CallUsageReconciler,
+    timeout: Arc<StreamTimeoutState>,
+}
+
+#[derive(Default)]
+struct StreamTimeoutState(AtomicU8);
+
+impl StreamTimeoutState {
+    fn record(&self, kind: RunTimeoutKind) {
+        self.0.store(timeout_kind_code(kind), Ordering::Release);
+    }
+
+    fn take(&self) -> Option<RunTimeoutKind> {
+        decode_timeout_kind(self.0.swap(0, Ordering::AcqRel))
+    }
 }
 
 struct PendingToolPhase {
@@ -2334,26 +2381,34 @@ fn terminal_checkpoint(terminal: &RunTerminal) -> SnapshotTerminal {
         },
         RunTerminal::Suspended { .. } => SnapshotTerminal::Failed {
             reason: reason("unexpected_runtime_suspension"),
+            partial: None,
         },
-        RunTerminal::BudgetExceeded { .. } | RunTerminal::TimedOut { .. } => {
-            SnapshotTerminal::Exhausted {
-                reason: reason("runtime_budget_exhausted"),
-            }
-        }
+        RunTerminal::BudgetExceeded { .. } => SnapshotTerminal::Exhausted {
+            reason: reason("runtime_budget_exhausted"),
+            partial: None,
+        },
+        RunTerminal::TimedOut { partial, .. } => SnapshotTerminal::Exhausted {
+            reason: reason("runtime_timed_out"),
+            partial: partial.clone(),
+        },
         RunTerminal::Indeterminate { .. } => SnapshotTerminal::Indeterminate {
             reason: reason("runtime_indeterminate"),
         },
         RunTerminal::HistoryProjectionRejected { .. } => SnapshotTerminal::Failed {
             reason: reason("history_projection_rejected"),
+            partial: None,
         },
         RunTerminal::ResumeConflict { .. } => SnapshotTerminal::Failed {
             reason: reason("runtime_resume_conflict"),
+            partial: None,
         },
-        RunTerminal::Failed { .. } => SnapshotTerminal::Failed {
+        RunTerminal::Failed { partial, .. } => SnapshotTerminal::Failed {
             reason: reason("runtime_failed"),
+            partial: partial.clone(),
         },
-        RunTerminal::Cancelled { .. } => SnapshotTerminal::Cancelled {
+        RunTerminal::Cancelled { partial, .. } => SnapshotTerminal::Cancelled {
             reason: reason("runtime_cancelled"),
+            partial: partial.clone(),
         },
     }
 }
@@ -2405,6 +2460,98 @@ fn budget_start_error(error: crate::BudgetError) -> Error {
         "tool loop could not reserve its first model step",
     )
     .with_source(error)
+}
+
+fn stream_with_runtime_deadlines(
+    mut stream: LanguageStream,
+    cancellation: Cancellation,
+    total_deadline: Instant,
+    step_deadline: Instant,
+    first_chunk_timeout: std::time::Duration,
+    inter_chunk_timeout: std::time::Duration,
+    timeout: Arc<StreamTimeoutState>,
+) -> LanguageStream {
+    established_stream(cancellation, move |_| {
+        async_stream::stream! {
+            let mut first_event = true;
+            loop {
+                let chunk_kind = if first_event {
+                    RunTimeoutKind::FirstChunk
+                } else {
+                    RunTimeoutKind::InterChunk
+                };
+                let chunk_timeout = if first_event {
+                    first_chunk_timeout
+                } else {
+                    inter_chunk_timeout
+                };
+                let (deadline, kind) = earliest_timeout([
+                    (total_deadline, RunTimeoutKind::Total),
+                    (step_deadline, RunTimeoutKind::ModelStep),
+                    (checked_deadline(Instant::now(), chunk_timeout), chunk_kind),
+                ]);
+                let item = tokio::select! {
+                    biased;
+                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => None,
+                    item = stream.next() => Some(item),
+                };
+                match item {
+                    None => {
+                        timeout.record(kind);
+                        yield Err(runtime_stream_timeout(kind));
+                        break;
+                    }
+                    Some(Some(event)) => {
+                        let terminal = event.terminal().is_some();
+                        if !terminal {
+                            first_event = false;
+                        }
+                        yield Ok(event);
+                        if terminal {
+                            break;
+                        }
+                    }
+                    Some(None) => break,
+                }
+            }
+        }
+    })
+}
+
+fn runtime_stream_timeout(kind: RunTimeoutKind) -> Error {
+    Error::new(
+        ErrorKind::Timeout,
+        match kind {
+            RunTimeoutKind::Total => "tool loop total deadline expired while reading model stream",
+            RunTimeoutKind::ModelStep => {
+                "tool loop model-step deadline expired while reading model stream"
+            }
+            RunTimeoutKind::FirstChunk => "tool loop timed out waiting for the first model event",
+            RunTimeoutKind::InterChunk => "tool loop timed out waiting for the next model event",
+            RunTimeoutKind::Tool => "tool loop tool deadline expired",
+        },
+    )
+}
+
+const fn timeout_kind_code(kind: RunTimeoutKind) -> u8 {
+    match kind {
+        RunTimeoutKind::Total => 1,
+        RunTimeoutKind::ModelStep => 2,
+        RunTimeoutKind::FirstChunk => 3,
+        RunTimeoutKind::InterChunk => 4,
+        RunTimeoutKind::Tool => 5,
+    }
+}
+
+const fn decode_timeout_kind(code: u8) -> Option<RunTimeoutKind> {
+    match code {
+        1 => Some(RunTimeoutKind::Total),
+        2 => Some(RunTimeoutKind::ModelStep),
+        3 => Some(RunTimeoutKind::FirstChunk),
+        4 => Some(RunTimeoutKind::InterChunk),
+        5 => Some(RunTimeoutKind::Tool),
+        _ => None,
+    }
 }
 
 fn checked_deadline(now: Instant, duration: std::time::Duration) -> Instant {

@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use bytes::Bytes;
 use serde_json::{Map, Value};
 use siumai_core::{
-    Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse, LanguageStreamEvent,
-    StreamTerminal, ToolCall, Usage,
+    Error, ErrorKind, ExecutionOwner, LanguageCompletionReason, LanguageIncompleteReason,
+    LanguageResponse, LanguageStreamEvent, LanguageTermination, StreamTerminal, ToolCall, Usage,
+    UsageUpdate, UsageUpdateKind,
 };
 
 const MAX_RESPONSE_ID_BYTES: usize = 512;
@@ -307,8 +308,13 @@ impl ChatCompletionsSseEncoder {
         ))?])
     }
 
-    fn encode_usage(&mut self, usage: &Usage) -> Result<Vec<Bytes>, Error> {
-        let projection = UsageProjection::from_usage(usage);
+    fn encode_usage(&mut self, update: &UsageUpdate) -> Result<Vec<Bytes>, Error> {
+        if update.kind() != UsageUpdateKind::Snapshot {
+            return Err(unsupported_projection(
+                "Chat Completions SSE usage fields are cumulative snapshots, not deltas",
+            ));
+        }
+        let projection = UsageProjection::from_usage(update.usage());
         if projection.is_empty() || self.last_emitted_usage == Some(projection) {
             return Ok(Vec::new());
         }
@@ -500,9 +506,11 @@ impl ChatCompletionsSseEncoder {
     fn encode_terminal(&mut self, terminal: &StreamTerminal) -> Result<Vec<Bytes>, Error> {
         match terminal {
             StreamTerminal::Completed { response } => self.encode_completed(response),
-            StreamTerminal::Failed { error, response } => {
-                if let Some(response) = response.as_deref() {
-                    validate_terminal_response(response)?;
+            StreamTerminal::Failed { error, partial } => {
+                if partial.is_some() {
+                    return Err(unsupported_projection(
+                        "partial failed output has no faithful Chat Completions SSE projection",
+                    ));
                 }
                 let frames = vec![
                     error_frame(error.message(), error_kind_code(error.kind()))?,
@@ -511,9 +519,11 @@ impl ChatCompletionsSseEncoder {
                 self.lifecycle = EncoderLifecycle::Terminal;
                 Ok(frames)
             }
-            StreamTerminal::Cancelled { response, .. } => {
-                if let Some(response) = response.as_deref() {
-                    validate_terminal_response(response)?;
+            StreamTerminal::Cancelled { partial, .. } => {
+                if partial.is_some() {
+                    return Err(unsupported_projection(
+                        "partial cancelled output has no faithful Chat Completions SSE projection",
+                    ));
                 }
                 let frames = vec![
                     error_frame("language stream was cancelled", "cancelled")?,
@@ -541,7 +551,7 @@ impl ChatCompletionsSseEncoder {
         }
         validate_terminal_response(response)?;
         let (response_id, model) = self.resolve_response_identity(response)?;
-        let finish_reason = finish_reason_value(response.finish_reason())?;
+        let finish_reason = finish_reason_value(response.termination())?;
         let projection = UsageProjection::from_usage(response.usage());
 
         let mut frames = vec![data_frame(&chunk_payload(
@@ -734,14 +744,17 @@ fn ensure_local_owner(owner: &ExecutionOwner) -> Result<(), Error> {
     }
 }
 
-fn finish_reason_value(reason: &FinishReason) -> Result<Value, Error> {
-    let value = match reason {
-        FinishReason::Stop => "stop",
-        FinishReason::Length => "length",
-        FinishReason::ToolCalls => "tool_calls",
-        FinishReason::ContentFilter => "content_filter",
-        FinishReason::Refusal => "refusal",
-        FinishReason::Other(reason) => {
+fn finish_reason_value(termination: &LanguageTermination) -> Result<Value, Error> {
+    let value = match termination {
+        LanguageTermination::Completed(LanguageCompletionReason::Stop) => "stop",
+        LanguageTermination::Completed(LanguageCompletionReason::ToolCalls) => "tool_calls",
+        LanguageTermination::Completed(LanguageCompletionReason::Refusal) => "refusal",
+        LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens) => "length",
+        LanguageTermination::Incomplete(LanguageIncompleteReason::ContentFilter) => {
+            "content_filter"
+        }
+        LanguageTermination::Completed(LanguageCompletionReason::Other(reason))
+        | LanguageTermination::Incomplete(LanguageIncompleteReason::Other(reason)) => {
             if reason.is_empty() || reason.chars().any(char::is_control) {
                 return Err(protocol_violation(
                     "custom Chat Completions finish reason was invalid",
@@ -754,14 +767,9 @@ fn finish_reason_value(reason: &FinishReason) -> Result<Value, Error> {
             }
             reason
         }
-        FinishReason::Error | FinishReason::Cancelled => {
-            return Err(protocol_violation(
-                "completed Chat Completions response used an error terminal reason",
-            ));
-        }
         _ => {
             return Err(unsupported_projection(
-                "the finish reason has no audited Chat Completions projection",
+                "the language termination has no audited Chat Completions projection",
             ));
         }
     };
@@ -881,10 +889,11 @@ mod tests {
 
     use serde_json::json;
     use siumai_core::{
-        Error, ErrorKind, ExecutionOwner, FinishReason, LanguageResponse, LanguageStreamEvent,
-        ModelId, OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
+        Error, ErrorKind, ExecutionOwner, LanguageCompletionReason, LanguageResponse,
+        LanguageStreamEvent, ModelId, OpaqueProviderItem, PartialLanguageOutput,
+        PartialLanguageOutputPart, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
         ReplayDomain, ReplayDomainId, SensitiveResponse, StreamTerminal, ToolCall, Usage,
-        UsageValue,
+        UsageUpdate, UsageValue,
     };
 
     use super::*;
@@ -896,16 +905,16 @@ mod tests {
         }
     }
 
-    fn completed_response(finish_reason: FinishReason, usage: Usage) -> LanguageResponse {
-        LanguageResponse::completed(Vec::new(), finish_reason, usage)
+    fn completed_response(reason: LanguageCompletionReason, usage: Usage) -> LanguageResponse {
+        LanguageResponse::completed(Vec::new(), reason, usage)
             .expect("valid completed response")
             .with_id("chatcmpl_test")
             .with_model(ModelId::new("model-test").expect("valid model ID"))
     }
 
-    fn completed_event(finish_reason: FinishReason, usage: Usage) -> LanguageStreamEvent {
+    fn completed_event(reason: LanguageCompletionReason, usage: Usage) -> LanguageStreamEvent {
         LanguageStreamEvent::Terminal(StreamTerminal::Completed {
-            response: Box::new(completed_response(finish_reason, usage)),
+            response: Box::new(completed_response(reason, usage)),
         })
     }
 
@@ -973,7 +982,9 @@ mod tests {
         );
 
         let usage_frames = encoder
-            .encode(&LanguageStreamEvent::Usage(usage.clone()))
+            .encode(&LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                usage.clone(),
+            )))
             .expect("encode usage");
         let usage_json = frame_json(&usage_frames[0]);
         assert_eq!(usage_json["choices"], json!([]));
@@ -994,7 +1005,7 @@ mod tests {
         );
 
         let terminal = encoder
-            .encode(&completed_event(FinishReason::Stop, usage))
+            .encode(&completed_event(LanguageCompletionReason::Stop, usage))
             .expect("encode terminal");
         assert_eq!(terminal.len(), 2);
         assert_eq!(
@@ -1010,17 +1021,25 @@ mod tests {
         let mut encoder = ChatCompletionsSseEncoder::new();
         encoder.encode(&started()).expect("encode start");
         let terminal = encoder
-            .encode(&completed_event(FinishReason::Stop, Usage::default()))
+            .encode(&completed_event(
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            ))
             .expect("encode terminal");
         assert_eq!(terminal.iter().filter(|frame| is_done(frame)).count(), 1);
 
         let duplicate = encoder
-            .encode(&completed_event(FinishReason::Stop, Usage::default()))
+            .encode(&completed_event(
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            ))
             .expect_err("duplicate terminal must fail");
         assert_eq!(duplicate.kind(), ErrorKind::ProtocolViolation);
 
         let after_terminal = encoder
-            .encode(&LanguageStreamEvent::Usage(Usage::default()))
+            .encode(&LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                Usage::default(),
+            )))
             .expect_err("event after terminal must fail");
         assert_eq!(after_terminal.kind(), ErrorKind::ProtocolViolation);
 
@@ -1051,7 +1070,7 @@ mod tests {
         let failed = failed_encoder
             .encode(&LanguageStreamEvent::Terminal(StreamTerminal::Failed {
                 error: failure,
-                response: None,
+                partial: None,
             }))
             .expect("encode failure");
         assert_eq!(failed.len(), 2);
@@ -1066,13 +1085,31 @@ mod tests {
         let cancelled = cancelled_encoder
             .encode(&LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                 reason: "PRIVATE_CANCELLATION_REASON".to_string(),
-                response: None,
+                partial: None,
             }))
             .expect("encode cancellation");
         let cancellation_text = str::from_utf8(&cancelled[0]).expect("UTF-8 cancellation frame");
         assert!(cancellation_text.contains("language stream was cancelled"));
         assert!(!cancellation_text.contains("PRIVATE_CANCELLATION_REASON"));
         assert!(is_done(&cancelled[1]));
+
+        let mut partial_encoder = ChatCompletionsSseEncoder::new();
+        partial_encoder.encode(&started()).expect("encode start");
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "partial output".to_string(),
+            }],
+            Usage::default(),
+        )
+        .unwrap();
+        let error = partial_encoder
+            .encode(&LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                error: Error::new(ErrorKind::Provider, "public provider failure"),
+                partial: Some(partial),
+            }))
+            .expect_err("partial failure cannot be projected losslessly");
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert!(!partial_encoder.terminal_seen());
     }
 
     #[test]
@@ -1081,10 +1118,18 @@ mod tests {
         encoder.encode(&started()).expect("encode start");
         assert!(
             encoder
-                .encode(&LanguageStreamEvent::Usage(Usage::default()))
+                .encode(&LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                    Usage::default(),
+                )))
                 .expect("encode unknown usage")
                 .is_empty()
         );
+        let delta_error = encoder
+            .encode(&LanguageStreamEvent::Usage(UsageUpdate::delta(
+                Usage::default().with_input_tokens(1),
+            )))
+            .expect_err("Chat SSE usage does not encode delta semantics");
+        assert_eq!(delta_error.kind(), ErrorKind::Unsupported);
 
         let usage = Usage::default()
             .with_input_tokens(UsageValue::Known(0))
@@ -1093,7 +1138,7 @@ mod tests {
             .with_cache_write_tokens(99)
             .with_provider_value("private_raw_usage", "PRIVATE_USAGE_PAYLOAD");
         let frames = encoder
-            .encode(&LanguageStreamEvent::Usage(usage))
+            .encode(&LanguageStreamEvent::Usage(UsageUpdate::snapshot(usage)))
             .expect("encode known usage");
         let text = str::from_utf8(&frames[0]).expect("UTF-8 usage frame");
         let usage = &frame_json(&frames[0])["usage"];
@@ -1171,7 +1216,10 @@ mod tests {
         assert_eq!(duplicate.kind(), ErrorKind::ProtocolViolation);
 
         let terminal = encoder
-            .encode(&completed_event(FinishReason::ToolCalls, Usage::default()))
+            .encode(&completed_event(
+                LanguageCompletionReason::ToolCalls,
+                Usage::default(),
+            ))
             .expect("encode tool terminal");
         assert!(is_done(terminal.last().expect("DONE frame")));
     }
@@ -1284,7 +1332,10 @@ mod tests {
         assert_eq!(mismatched_end.kind(), ErrorKind::ProtocolViolation);
 
         let open_terminal = encoder
-            .encode(&completed_event(FinishReason::Stop, Usage::default()))
+            .encode(&completed_event(
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            ))
             .expect_err("completed terminal cannot close an open text part");
         assert_eq!(open_terminal.kind(), ErrorKind::ProtocolViolation);
         assert!(!encoder.terminal_seen());
@@ -1373,7 +1424,10 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
 
         encoder
-            .encode(&completed_event(FinishReason::Stop, Usage::default()))
+            .encode(&completed_event(
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            ))
             .expect("encode terminal");
         encoder
             .finish()

@@ -4,10 +4,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
-    ImageLimits, ImageModel, ImageRequest, ImageResponse, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelLookupError, RerankLimits,
-    RerankModel, RerankRequest, RerankResponse, RouteId, SpeechLimits, SpeechModel, SpeechRequest,
-    SpeechResponse, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
+    ImageLimits, ImageModel, ImageRequest, ImageResponse, LanguageCallError, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelLookupError,
+    RerankLimits, RerankModel, RerankRequest, RerankResponse, RouteId, SpeechLimits, SpeechModel,
+    SpeechRequest, SpeechResponse, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
     TranscriptionResponse,
 };
 
@@ -287,7 +287,7 @@ impl LanguageModel for RouteLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.inner
             .generate(
                 request,

@@ -192,12 +192,7 @@ impl<T> StructuredOutputRunner<T> {
         )
         .await
         .map_err(StructuredOutputRunError::Establishment)?;
-        let report = completed_report(
-            drive(engine).await,
-            &self.descriptor,
-            StructuredOutputAttemptKind::Initial,
-            0,
-        )?;
+        let report = completed_report(drive(engine).await, StructuredOutputAttemptKind::Initial)?;
         let (report, response) = take_final_response(report)?;
 
         match self.descriptor.consume_response(response) {
@@ -232,6 +227,7 @@ impl<T> StructuredOutputRunner<T> {
                                 ErrorKind::LimitExceeded,
                                 "structured-output step index overflowed",
                             ),
+                            partial: None,
                             report: Box::new(report),
                         },
                     )));
@@ -262,12 +258,8 @@ impl<T> StructuredOutputRunner<T> {
                     ),
                     report: Box::new(fallback_report),
                 })?;
-                let repaired_report = completed_report(
-                    drive(engine).await,
-                    &self.descriptor,
-                    StructuredOutputAttemptKind::Repair,
-                    next_step,
-                )?;
+                let repaired_report =
+                    completed_report(drive(engine).await, StructuredOutputAttemptKind::Repair)?;
                 let (repaired_report, repaired_response) = take_final_response(repaired_report)?;
                 let output = self
                     .descriptor
@@ -310,48 +302,25 @@ async fn drive(engine: StepEngine) -> RunTerminal {
     }
     RunTerminal::Failed {
         error: Error::unexpected_eof(),
+        partial: None,
         report: Box::new(fallback_report),
     }
 }
 
-fn completed_report<T>(
+fn completed_report(
     terminal: RunTerminal,
-    descriptor: &OutputDescriptor<T>,
     attempt: StructuredOutputAttemptKind,
-    expected_step: u32,
-) -> Result<RunReport, StructuredOutputRunError>
-where
-    T: DeserializeOwned,
-{
+) -> Result<RunReport, StructuredOutputRunError> {
     match terminal {
         RunTerminal::Completed { report } => Ok(*report),
-        RunTerminal::Failed { error, report } => {
-            let response_failure = report
-                .final_response()
-                .filter(|_| {
-                    report
-                        .steps()
-                        .last()
-                        .is_some_and(|step| step.index() == expected_step)
-                })
-                .cloned()
-                .and_then(|response| match attempt {
-                    StructuredOutputAttemptKind::Initial => {
-                        descriptor.consume_response(response).err()
-                    }
-                    StructuredOutputAttemptKind::Repair => {
-                        descriptor.consume_repair_response(response).err()
-                    }
-                });
-            let output_error = match response_failure {
-                Some(failure) => failure.with_model_error_source(error),
-                None => StructuredOutputError::from_transport(error, attempt),
-            };
-            Err(StructuredOutputRunError::Validation {
-                error: output_error,
-                report,
-            })
-        }
+        RunTerminal::Failed {
+            error,
+            partial: None,
+            report,
+        } => Err(StructuredOutputRunError::Validation {
+            error: StructuredOutputError::from_transport(error, attempt),
+            report,
+        }),
         terminal => Err(StructuredOutputRunError::Runtime(Box::new(terminal))),
     }
 }
@@ -367,6 +336,7 @@ fn take_final_response(
                     ErrorKind::Internal,
                     "completed structured-output run has no final response",
                 ),
+                partial: None,
                 report: Box::new(report),
             },
         ))),

@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use siumai_core::{
-    ApiModeId, CallOptions, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
-    Model, ModelFamily, ModelId, PlatformId, ProtocolId, ProviderId, ProviderInstanceId,
-    ProviderOptionError, ProviderOptionTarget, ProviderOptions, ProviderScope, ReplayDomain,
-    RouteId, TypedProviderOptions,
+    ApiModeId, CallOptions, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
+    LanguageStream, Model, ModelFamily, ModelId, PlatformId, ProtocolId, ProviderId,
+    ProviderInstanceId, ProviderOptionError, ProviderOptionTarget, ProviderOptions, ProviderScope,
+    ReplayDomain, RouteId, TypedProviderOptions,
 };
 use thiserror::Error;
 
@@ -309,7 +309,7 @@ impl Runtime {
         request: LanguageRequest,
         step: StepOptions,
         options: CallOptions,
-    ) -> Result<LanguageResponse, siumai_core::Error>
+    ) -> Result<LanguageResponse, LanguageCallError>
     where
         M: LanguageModel + ?Sized,
     {

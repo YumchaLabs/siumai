@@ -6,6 +6,8 @@
 mod language;
 mod stream;
 
+pub(crate) use language::partial_output;
+
 pub use language::{
     DecodedGenerateContent, GENERATE_CONTENT_PART_KIND, GenerateContentLanguageConfig,
     GenerateContentServiceTier, GenerateContentThinkingConfig, GenerateContentThinkingLevel,

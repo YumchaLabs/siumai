@@ -542,8 +542,14 @@ async fn messages_rejects_unverified_mid_conversation_system_before_transport() 
 }
 
 #[tokio::test]
-async fn known_m2_cannot_claim_disabled_thinking() {
+async fn known_m2_preserves_explicit_disabled_thinking() {
     let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/anthropic/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(messages_response(MINIMAX_M2_7)))
+        .expect(1)
+        .mount(&server)
+        .await;
     let options = MinimaxMessagesOptions::new().with_thinking(MinimaxThinking::Disabled);
     let model = provider(&server, MinimaxCredential::unauthenticated())
         .messages(MINIMAX_M2_7)
@@ -551,18 +557,13 @@ async fn known_m2_cannot_claim_disabled_thinking() {
     let call_options = CallOptions::default()
         .with_provider_options_for(&model, &options)
         .expect("call options");
-    let error = model
+    model
         .generate(text_request("hello"), call_options)
         .await
-        .expect_err("disabled thinking must fail");
-    assert_eq!(error.kind(), ErrorKind::Unsupported);
-    assert!(
-        server
-            .received_requests()
-            .await
-            .expect("requests")
-            .is_empty()
-    );
+        .expect("explicit disabled thinking must remain callable");
+    let requests = server.received_requests().await.expect("requests");
+    let body: Value = serde_json::from_slice(&requests[0].body).expect("request body");
+    assert_eq!(body["thinking"], json!({"type": "disabled"}));
 }
 
 #[tokio::test]
@@ -695,8 +696,16 @@ async fn responses_encodes_video_and_bounded_typed_options() {
 }
 
 #[tokio::test]
-async fn unknown_models_remain_open_but_receive_no_invented_controls() {
+async fn unknown_models_remain_open_and_preserve_explicit_controls() {
     let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/anthropic/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(messages_response("future-minimax-model")),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
     let provider = provider(&server, MinimaxCredential::unauthenticated());
     let options = MinimaxMessagesOptions::new().with_thinking(MinimaxThinking::Adaptive);
     let model = provider
@@ -705,16 +714,11 @@ async fn unknown_models_remain_open_but_receive_no_invented_controls() {
     let call_options = CallOptions::default()
         .with_provider_options_for(&model, &options)
         .expect("call options");
-    let error = model
+    model
         .generate(text_request("hello"), call_options)
         .await
-        .expect_err("unverified thinking must fail");
-    assert_eq!(error.kind(), ErrorKind::Unsupported);
-    assert!(
-        server
-            .received_requests()
-            .await
-            .expect("requests")
-            .is_empty()
-    );
+        .expect("future model with explicit typed control must remain callable");
+    let requests = server.received_requests().await.expect("requests");
+    let body: Value = serde_json::from_slice(&requests[0].body).expect("request body");
+    assert_eq!(body["thinking"], json!({"type": "adaptive"}));
 }

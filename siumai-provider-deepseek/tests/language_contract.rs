@@ -847,10 +847,10 @@ async fn chat_stream_emits_one_terminal_and_preserves_known_zero_usage() {
     );
     assert!(events.iter().any(|event| matches!(
         event,
-        LanguageStreamEvent::Usage(usage)
-            if usage.cache_read_tokens == UsageValue::Known(0)
-                && usage.reasoning_tokens == UsageValue::Known(0)
-                && usage.provider["deepseek"]["prompt_cache_miss_tokens"] == 0
+        LanguageStreamEvent::Usage(update)
+            if update.usage().cache_read_tokens == UsageValue::Known(0)
+                && update.usage().reasoning_tokens == UsageValue::Known(0)
+                && update.usage().provider["deepseek"]["prompt_cache_miss_tokens"] == 0
     )));
     assert!(events.iter().any(|event| matches!(
         event,

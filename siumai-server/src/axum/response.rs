@@ -68,6 +68,9 @@ pub fn gateway_error_response(
             "model_route_mismatch",
             "server route configuration is inconsistent",
         ),
+        ServerGatewayError::LanguageCall(error) => {
+            return language_call_error_response(error, policy);
+        }
         ServerGatewayError::Runtime(_) => (
             StatusCode::BAD_GATEWAY,
             "runtime_failed",
@@ -75,6 +78,31 @@ pub fn gateway_error_response(
         ),
     };
     error_response(status, code, public_message, None, policy)
+}
+
+fn language_call_error_response(
+    error: &siumai_core::LanguageCallError,
+    policy: &GatewayPolicy,
+) -> Response<Body> {
+    let body = serde_json::to_vec(&json!({
+        "error": {
+            "code": "language_call_failed",
+            "message": "model language request failed",
+        },
+        "partial": error.partial(),
+    }));
+    match body {
+        Ok(body) if body.len() <= policy.limits().json_response_bytes() => {
+            build_json_response(StatusCode::BAD_GATEWAY, body, None, policy)
+        }
+        _ => error_response(
+            StatusCode::BAD_GATEWAY,
+            "language_call_failed",
+            "model language request failed",
+            None,
+            policy,
+        ),
+    }
 }
 
 pub(crate) fn error_response(
@@ -213,7 +241,7 @@ fn run_terminal_status(terminal: &RunTerminal) -> StatusCode {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{FinishReason, LanguageResponseStatus, RouteId, Usage};
+    use siumai_core::{LanguageCompletionReason, LanguageTermination, RouteId, Usage};
     use siumai_runtime::approval::TrustIdentity;
 
     use super::*;
@@ -222,9 +250,8 @@ mod tests {
     #[test]
     fn language_response_sets_safe_headers() {
         let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
             Vec::new(),
-            FinishReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -256,11 +283,10 @@ mod tests {
             .unwrap(),
         );
         let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+            LanguageTermination::Completed(LanguageCompletionReason::Stop),
             vec![siumai_core::ContentPart::Text {
                 text: "x".repeat(crate::MIN_SERVER_RESPONSE_LIMIT_BYTES * 2),
             }],
-            FinishReason::Stop,
             Usage::default(),
         )
         .unwrap();

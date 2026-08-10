@@ -5,18 +5,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use serde::{Deserialize, Serialize};
-use siumai_core::language::{FinishReason, MediaData};
+use siumai_core::language::MediaData;
 use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
     ApiModeId, CallOptions, ContentAnnotationTarget, EmbeddingLimits, EmbeddingModel,
     EmbeddingRequest, EmbeddingResponse, Error, ImageArtifact, ImageLimits, ImageModel,
-    ImageRequest, ImageResponse, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
-    LanguageStreamEvent, Message, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
-    ModelId, ProtocolId, ProviderId, ProviderOptionBindingRequirement, ProviderRegistration,
-    ProviderScope, RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse,
-    RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    TypedProviderAnnotation, TypedProviderOptions, Usage,
+    ImageRequest, ImageResponse, LanguageCallError, LanguageCompletionReason, LanguageModel,
+    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart,
+    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProtocolId, ProviderId,
+    ProviderOptionBindingRequirement, ProviderRegistration, ProviderScope, RerankCandidate,
+    RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata,
+    SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, TranscriptionLimits,
+    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderAnnotation,
+    TypedProviderOptions, Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -33,7 +34,7 @@ fn language_response(model: &str) -> LanguageResponse {
         vec![siumai_core::ContentPart::Text {
             text: "ok".to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .unwrap()
@@ -73,7 +74,7 @@ impl LanguageModel for FakeLanguage {
         &self,
         _request: LanguageRequest,
         _options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         Ok(language_response(self.model_id().as_str()))
     }
 

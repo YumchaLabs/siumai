@@ -179,16 +179,15 @@ impl GroqTranscriptionResponseExt for TranscriptionResponse {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{FinishReason, LanguageResponseStatus, ModelId, Usage};
+    use siumai_core::{LanguageCompletionReason, ModelId, Usage};
 
     use super::*;
 
     #[test]
     fn language_metadata_falls_back_to_canonical_identity() {
-        let response = LanguageResponse::new(
-            LanguageResponseStatus::Completed,
+        let response = LanguageResponse::completed(
             Vec::new(),
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap()

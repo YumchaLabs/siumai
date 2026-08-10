@@ -8,8 +8,8 @@ use siumai_anthropic_compatible::{
     AnthropicCompatibleProvider,
 };
 use siumai_core::{
-    CallOptions, Error, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
+    CallOptions, Error, LanguageCallError, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
     ProviderInstanceId, ProviderOptionError, ProviderRegistration, ReplayDomain,
     TypedProviderOptions,
 };
@@ -277,7 +277,7 @@ impl LanguageModel for GoogleVertexAnthropicLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.inner.generate(request, options).await
     }
 

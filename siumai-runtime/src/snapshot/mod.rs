@@ -24,11 +24,12 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        ContentAnnotationTarget, ContentPart, FinishReason, LanguageRequest, LanguageResponse,
-        Message, MessageAnnotationTarget, MessagePart, MessageRole, Model, ModelDescriptor,
-        ModelFamily, ModelId, OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance,
-        ReplayDomain, ReplayDomainId, RouteId, ToolAnnotationTarget, ToolBindingIdentity, ToolCall,
-        ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
+        ContentAnnotationTarget, ContentPart, LanguageCompletionReason, LanguageIncompleteReason,
+        LanguageRequest, LanguageResponse, LanguageTermination, Message, MessageAnnotationTarget,
+        MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem,
+        PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
+        ProviderProvenance, ReplayDomain, ReplayDomainId, RouteId, ToolAnnotationTarget,
+        ToolBindingIdentity, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
     };
 
     use super::*;
@@ -128,7 +129,7 @@ mod tests {
     fn tool_response() -> LanguageResponse {
         LanguageResponse::completed(
             vec![ContentPart::ToolCall(tool_call())],
-            FinishReason::ToolCalls,
+            LanguageCompletionReason::ToolCalls,
             Usage::default(),
         )
         .unwrap()
@@ -202,7 +203,7 @@ mod tests {
             vec![ContentPart::Refusal {
                 reason: Some("private refusal".to_string()),
             }],
-            FinishReason::Refusal,
+            LanguageCompletionReason::Refusal,
             Usage::default(),
         )
         .unwrap();
@@ -350,6 +351,94 @@ mod tests {
                 .expect("tool annotation decodes"),
             Some(tool_annotation)
         );
+    }
+
+    #[test]
+    fn version_six_round_trip_preserves_language_termination() {
+        let mut report = ready_report();
+        let response = LanguageResponse::incomplete(
+            vec![ContentPart::Text {
+                text: "truncated output".to_string(),
+            }],
+            LanguageIncompleteReason::MaxOutputTokens,
+            Usage::default().with_total_tokens(9_u64),
+        )
+        .unwrap();
+        report
+            .steps_mut()
+            .push(StepRecord::new(0, target(), response, Vec::new()));
+        let snapshot = snapshot(
+            "checkpoint-incomplete",
+            None,
+            report,
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 1,
+                target: target(),
+            },
+        );
+
+        let encoded = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(encoded["snapshot_version"], json!(6));
+        let restored: RunSnapshot = serde_json::from_value(encoded).unwrap();
+
+        assert!(matches!(
+            restored.report().steps()[0].response().termination(),
+            LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
+        ));
+    }
+
+    #[test]
+    fn version_six_round_trip_preserves_partial_terminals() {
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "partial output".to_string(),
+            }],
+            Usage::default().with_output_tokens(4_u64),
+        )
+        .unwrap();
+        let terminals = [
+            ResumePoint::Terminal(SnapshotTerminal::Failed {
+                reason: SnapshotReason::new("provider_failed", None).unwrap(),
+                partial: Some(partial.clone()),
+            }),
+            ResumePoint::Terminal(SnapshotTerminal::Cancelled {
+                reason: SnapshotReason::new("call_cancelled", None).unwrap(),
+                partial: Some(partial.clone()),
+            }),
+            ResumePoint::Terminal(SnapshotTerminal::Exhausted {
+                reason: SnapshotReason::new("runtime_timed_out", None).unwrap(),
+                partial: Some(partial),
+            }),
+        ];
+
+        for (index, resume_point) in terminals.into_iter().enumerate() {
+            let snapshot = snapshot(
+                &format!("checkpoint-terminal-{index}"),
+                None,
+                ready_report(),
+                Some(DEADLINE),
+                resume_point,
+            );
+            let restored: RunSnapshot =
+                serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap();
+            let ResumePoint::Terminal(terminal) = restored.resume_point() else {
+                panic!("expected terminal resume point");
+            };
+            match terminal {
+                SnapshotTerminal::Failed { partial, .. }
+                | SnapshotTerminal::Cancelled { partial, .. }
+                | SnapshotTerminal::Exhausted { partial, .. } => {
+                    assert_eq!(
+                        partial
+                            .as_ref()
+                            .and_then(|value| value.usage().output_tokens.value()),
+                        Some(4)
+                    );
+                }
+                _ => panic!("expected a partial terminal"),
+            }
+        }
     }
 
     fn awaiting_approval_snapshot(
@@ -602,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialization_rejects_stored_version_four_snapshot() {
+    fn deserialization_rejects_real_version_five_before_payload_decode() {
         let snapshot = snapshot(
             "checkpoint-1",
             None,
@@ -614,15 +703,18 @@ mod tests {
             },
         );
         let mut value = serde_json::to_value(snapshot).unwrap();
-        value["snapshot_version"] = json!(4);
-        value["report"]["steps"][0]
+        value["snapshot_version"] = json!(5);
+        let response = value["report"]["steps"][0]["response"]
             .as_object_mut()
-            .unwrap()
-            .remove("assistant_history_omissions");
+            .unwrap();
+        response.remove("termination");
+        response.insert("status".to_string(), json!("Completed"));
+        response.insert("finish_reason".to_string(), json!("Refusal"));
 
         let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
         let public = error.to_string();
-        assert!(public.contains("unsupported run snapshot version 4"));
+        assert!(public.contains("unsupported run snapshot version 5"));
+        assert!(!public.contains("missing field `termination`"));
         assert!(!public.contains("history-secret"));
         assert!(!public.contains("tool-secret"));
     }
@@ -668,6 +760,7 @@ mod tests {
             Some(DEADLINE),
             ResumePoint::Terminal(SnapshotTerminal::Failed {
                 reason: SnapshotReason::new("worker_crashed", None).unwrap(),
+                partial: None,
             }),
         );
         let expected = snapshot.clone();
@@ -707,6 +800,7 @@ mod tests {
             Some(DEADLINE),
             ResumePoint::Terminal(SnapshotTerminal::Failed {
                 reason: SnapshotReason::new("worker_crashed", None).unwrap(),
+                partial: None,
             }),
         )
         .recovered_for_resume(30)
@@ -802,7 +896,7 @@ mod tests {
         .unwrap();
         let source_response = LanguageResponse::completed(
             vec![ContentPart::ProviderOpaque(native.clone())],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -851,7 +945,7 @@ mod tests {
             vec![ContentPart::Text {
                 text: "done".to_string(),
             }],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -934,7 +1028,7 @@ mod tests {
             vec![ContentPart::Text {
                 text: "first step".to_string(),
             }],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -982,7 +1076,7 @@ mod tests {
             vec![ContentPart::Text {
                 text: "first step".to_string(),
             }],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();
@@ -990,7 +1084,7 @@ mod tests {
             vec![ContentPart::Text {
                 text: "second step".to_string(),
             }],
-            FinishReason::Stop,
+            LanguageCompletionReason::Stop,
             Usage::default(),
         )
         .unwrap();

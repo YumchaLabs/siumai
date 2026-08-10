@@ -1,8 +1,8 @@
 use serde_json::json;
 use siumai_core::{
-    ApiModeId, ContentPart, ErrorKind, FinishReason, LanguageStreamDecoder, LanguageStreamEvent,
-    ModelId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId, StreamTerminal,
-    UsageValue,
+    ApiModeId, ContentPart, ErrorKind, LanguageCompletionReason, LanguageStreamDecoder,
+    LanguageStreamEvent, LanguageTermination, ModelId, ProtocolId, ProviderId, ProviderScope,
+    ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
 };
 
 use super::*;
@@ -52,7 +52,10 @@ fn response_projects_refusal_and_preserves_current_usage_metadata() {
 
     let response = decode_response(&body, &scope(), &model()).expect("decode response");
 
-    assert_eq!(response.finish_reason(), &FinishReason::Refusal);
+    assert_eq!(
+        response.termination(),
+        &LanguageTermination::Completed(LanguageCompletionReason::Refusal)
+    );
     assert!(matches!(
         response.content(),
         [ContentPart::Refusal { reason: Some(reason) }] if reason == "blocked by policy"
@@ -170,7 +173,10 @@ fn streamed_refusal_clears_provisional_content_from_terminal_response() {
             _ => None,
         })
         .expect("completed terminal");
-    assert_eq!(terminal.finish_reason(), &FinishReason::Refusal);
+    assert_eq!(
+        terminal.termination(),
+        &LanguageTermination::Completed(LanguageCompletionReason::Refusal)
+    );
     assert!(matches!(
         terminal.content(),
         [ContentPart::Refusal { reason: Some(reason) }] if reason == "blocked"

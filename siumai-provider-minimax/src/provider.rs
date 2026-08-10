@@ -11,9 +11,9 @@ use siumai_anthropic_compatible::{
 };
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, Error, GenericSupportClaim, ImageModel,
-    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
-    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    ImageModelProvider, InvalidId, LanguageCallError, LanguageModel, LanguageModelProvider,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor,
+    ModelFamily, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId, ProtocolId,
     Provider, ProviderId, ProviderInstanceId, ProviderOptionError, ProviderProfile,
     ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
@@ -704,7 +704,7 @@ impl LanguageModel for MinimaxLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         match &self.inner {
             MinimaxLanguageModelInner::Messages(model) => model.generate(request, options).await,
             MinimaxLanguageModelInner::OpenAi(model) => model.generate(request, options).await,

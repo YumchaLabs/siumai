@@ -4,7 +4,8 @@
 //! smallest execution boundary shared by direct calls and [`StepEngine`].
 
 use siumai_core::{
-    CallOptions, Error, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
+    CallOptions, Error, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
+    LanguageStream,
 };
 
 use crate::call::validate_request;
@@ -37,15 +38,13 @@ where
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
-        validate_request(&request)?;
-        self.model
-            .generate(
-                request,
-                self.runtime
-                    .prepare_options(self.model, self.step_options, options)?,
-            )
-            .await
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        validate_request(&request).map_err(LanguageCallError::from)?;
+        let options = self
+            .runtime
+            .prepare_options(self.model, self.step_options, options)
+            .map_err(LanguageCallError::from)?;
+        self.model.generate(request, options).await
     }
 
     /// Establish exactly one provider stream.

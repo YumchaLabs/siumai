@@ -10,10 +10,10 @@ use siumai_anthropic_compatible::{
     AnthropicCompatibleLanguageModel, AnthropicCompatibleProvider,
 };
 use siumai_core::{
-    CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId, ModelLookupError, Provider,
-    ProviderInstanceId, ProviderOptionError, ProviderRegistration, ReplayDomain, ReplayDomainId,
-    TypedProviderOptions,
+    CallOptions, Error, InvalidId, LanguageCallError, LanguageModel, LanguageModelProvider,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
+    ModelLookupError, Provider, ProviderInstanceId, ProviderOptionError, ProviderRegistration,
+    ReplayDomain, ReplayDomainId, TypedProviderOptions,
 };
 use siumai_openai_compatible::{
     DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
@@ -587,7 +587,7 @@ impl LanguageModel for DeepSeekLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         match &self.inner {
             DeepSeekLanguageModelInner::OpenAi(model) => model.generate(request, options).await,
             DeepSeekLanguageModelInner::Messages(model) => model.generate(request, options).await,

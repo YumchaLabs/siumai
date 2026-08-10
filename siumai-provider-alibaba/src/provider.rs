@@ -11,13 +11,13 @@ use siumai_anthropic_compatible::{
 };
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, EmbeddingModel, EmbeddingModelProvider, Error, ErrorKind,
-    InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelDescriptor, ModelFamily, ModelId, ModelLookupError,
-    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
-    OfficialSource, PlatformId, ProfileError, ProtocolId, Provider, ProviderId, ProviderInstanceId,
-    ProviderRegistration, ProviderRegistrationError, ProviderScope, ProviderSupportManifest,
-    ReplayDomain, ReplayDomainId, SupportManifestError, VerificationDate, VerifiedFidelity,
-    VerifiedNativeSupportClaim,
+    InvalidId, LanguageCallError, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProtocolId, Provider,
+    ProviderId, ProviderInstanceId, ProviderRegistration, ProviderRegistrationError, ProviderScope,
+    ProviderSupportManifest, ReplayDomain, ReplayDomainId, SupportManifestError, VerificationDate,
+    VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -895,7 +895,7 @@ impl LanguageModel for AlibabaLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         match &self.inner {
             AlibabaLanguageModelInner::OpenAi(model) => model.generate(request, options).await,
             AlibabaLanguageModelInner::Messages(model) => model.generate(request, options).await,

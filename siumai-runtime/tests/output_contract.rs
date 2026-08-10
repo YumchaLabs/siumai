@@ -3,9 +3,8 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use siumai_core::{
-    CallOptions, Cancellation, ContentPart, FinishReason, LanguageIncompleteReason,
-    LanguageRequest, LanguageResponse, LanguageResponseStatus, Message, MessageRole, ToolChoice,
-    ToolSpec, Usage,
+    CallOptions, Cancellation, ContentPart, LanguageCompletionReason, LanguageIncompleteReason,
+    LanguageRequest, LanguageResponse, Message, MessageRole, ToolChoice, ToolSpec, Usage,
 };
 use siumai_runtime::{
     OutputDescriptor, OutputSchemaValidator, RepairPolicy, SchemaValidationError,
@@ -63,7 +62,7 @@ fn descriptor() -> OutputDescriptor<Person> {
 fn text_response(text: impl Into<String>) -> LanguageResponse {
     LanguageResponse::completed(
         vec![ContentPart::Text { text: text.into() }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .unwrap()
@@ -107,7 +106,7 @@ fn refusal_is_non_repairable_even_if_it_contains_text() {
                 text: r#"{"name":"Ada","age":36}"#.to_string(),
             },
         ],
-        FinishReason::Refusal,
+        LanguageCompletionReason::Refusal,
         Usage::default(),
     )
     .unwrap();
@@ -121,12 +120,9 @@ fn refusal_is_non_repairable_even_if_it_contains_text() {
 
 #[test]
 fn content_filter_is_non_repairable() {
-    let response = LanguageResponse::new(
-        LanguageResponseStatus::Incomplete {
-            reason: Some(LanguageIncompleteReason::ContentFilter),
-        },
+    let response = LanguageResponse::incomplete(
         Vec::new(),
-        FinishReason::ContentFilter,
+        LanguageIncompleteReason::ContentFilter,
         Usage::default(),
     )
     .unwrap();
@@ -143,7 +139,7 @@ fn missing_output_is_non_repairable() {
         vec![ContentPart::Text {
             text: "   \n".to_string(),
         }],
-        FinishReason::Stop,
+        LanguageCompletionReason::Stop,
         Usage::default(),
     )
     .unwrap();
@@ -152,23 +148,6 @@ fn missing_output_is_non_repairable() {
 
     assert_eq!(error.kind(), StructuredOutputFailureKind::MissingOutput);
     assert!(!error.is_repair_eligible());
-}
-
-#[test]
-fn provider_failure_is_non_repairable_and_retains_usage_response() {
-    let response = LanguageResponse::new(
-        LanguageResponseStatus::Failed,
-        Vec::new(),
-        FinishReason::Error,
-        Usage::default(),
-    )
-    .unwrap();
-
-    let error = descriptor().consume_response(response).unwrap_err();
-
-    assert_eq!(error.kind(), StructuredOutputFailureKind::ProviderFailure);
-    assert!(!error.is_repair_eligible());
-    assert!(error.response().is_some());
 }
 
 #[test]

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use siumai_core::{
-    CallOptions, Error, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, RouteId,
+    CallOptions, Error, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
+    LanguageStream, RouteId,
 };
 use siumai_runtime::tool::{
     ApprovalDecider, ApprovalDecisionFuture, ApprovalPolicyFingerprint, ApprovalRequest, ToolSet,
@@ -32,6 +33,8 @@ pub enum ServerGatewayError {
     TrustRouteMismatch,
     #[error("configured tool route does not match the model's Registry route")]
     ModelRouteMismatch,
+    #[error(transparent)]
+    LanguageCall(#[from] LanguageCallError),
     #[error(transparent)]
     Runtime(#[from] Error),
 }
@@ -297,7 +300,7 @@ mod tests {
             &self,
             _request: LanguageRequest,
             _options: CallOptions,
-        ) -> Result<LanguageResponse, Error> {
+        ) -> Result<LanguageResponse, LanguageCallError> {
             panic!("disabled route must not invoke the model")
         }
 

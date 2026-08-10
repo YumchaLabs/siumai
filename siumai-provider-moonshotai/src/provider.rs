@@ -9,13 +9,13 @@ use chrono::NaiveDate;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
-    ApiStability, CallOptions, Error, InvalidId, LanguageModel, LanguageModelProvider,
-    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelId,
-    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderInstanceId,
-    ProviderOptionError, ProviderRegistration, ProviderSupportManifest, ReplayDomain,
-    ReplayDomainId, SupportManifestError, TypedProviderOptions, VerificationDate, VerifiedFidelity,
-    VerifiedNativeSupportClaim,
+    ApiStability, CallOptions, Error, InvalidId, LanguageCallError, LanguageModel,
+    LanguageModelProvider, LanguageRequest, LanguageResponse, LanguageStream, Model,
+    ModelDescriptor, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId,
+    NativeSurfaceKind, NativeVerificationEvidence, OfficialSource, ProfileError, Provider,
+    ProviderInstanceId, ProviderOptionError, ProviderRegistration, ProviderSupportManifest,
+    ReplayDomain, ReplayDomainId, SupportManifestError, TypedProviderOptions, VerificationDate,
+    VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_openai_compatible::{
     CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
@@ -314,7 +314,7 @@ impl LanguageModel for MoonshotLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.inner.generate(request, options).await
     }
 

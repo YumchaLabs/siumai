@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::error::{Error, ErrorKind, ResourceKind};
-use crate::language::{LanguageRequest, LanguageResponse, MediaData, Warning};
+use crate::language::{LanguageCallError, LanguageRequest, LanguageResponse, MediaData, Warning};
 use crate::options::CallOptions;
 use crate::provider::{ModelId, ProviderId, ProviderInstanceId, ProviderScope, ReplayDomain};
 use crate::stream::LanguageStream;
@@ -195,16 +195,17 @@ where
 pub trait LanguageModel: Model {
     /// Generate one terminal response resource.
     ///
-    /// A provider-returned failed or cancelled resource remains an `Ok`
-    /// [`LanguageResponse`] with the corresponding status so its identity,
-    /// content, usage, and native items are not discarded. Validation,
-    /// encoding, authentication, transport, and protocol failures that produce
-    /// no response resource remain outer [`Error`] values.
+    /// Provider-returned failure and cancellation are returned as a typed
+    /// [`LanguageCallError`] with optional bounded observational output.
+    /// Complete provider-native failed or cancelled resources remain available
+    /// through provider-owned APIs. Validation, encoding, authentication,
+    /// transport, and protocol failures remain sanitized outer errors wrapped by
+    /// the language-specific error.
     async fn generate(
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error>;
+    ) -> Result<LanguageResponse, LanguageCallError>;
 
     /// Return an established stream. Validation, encoding, and handshake
     /// failures are returned as this method's outer error.
@@ -224,7 +225,7 @@ where
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.as_ref().generate(request, options).await
     }
 

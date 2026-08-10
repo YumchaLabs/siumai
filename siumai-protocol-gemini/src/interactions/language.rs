@@ -4,10 +4,11 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use siumai_core::{
-    ContentPart, Error, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageResponse, LanguageResponseStatus, MediaData, MediaPart, Message, MessageRole, ModelId,
-    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall,
-    ToolChoice, ToolOutcome, ToolResult, Usage, Warning, WarningKind,
+    ContentPart, Error, ErrorKind, LanguageCallError, LanguageCompletionReason,
+    LanguageIncompleteReason, LanguageRequest, LanguageResponse, LanguageTermination, MediaData,
+    MediaPart, Message, MessageRole, ModelId, OpaqueProviderItem, ProviderItemRelation,
+    ProviderProvenance, ProviderScope, ToolCall, ToolChoice, ToolOutcome, ToolResult, Usage,
+    Warning, WarningKind,
 };
 
 /// Stable Gemini Interactions create target relative to the official API origin.
@@ -142,10 +143,9 @@ impl InteractionLanguageConfig {
 }
 
 /// Lossless direct Interactions resource plus its portable terminal projection.
-#[derive(Clone, PartialEq)]
 pub struct DecodedInteraction {
     native: Value,
-    canonical: LanguageResponse,
+    portable: Result<LanguageResponse, LanguageCallError>,
 }
 
 impl std::fmt::Debug for DecodedInteraction {
@@ -153,8 +153,8 @@ impl std::fmt::Debug for DecodedInteraction {
         formatter
             .debug_struct("DecodedInteraction")
             .field("native", &"<redacted>")
-            .field("canonical", &self.canonical)
-            .finish()
+            .field("portable_is_ok", &self.portable.is_ok())
+            .finish_non_exhaustive()
     }
 }
 
@@ -163,21 +163,21 @@ impl DecodedInteraction {
         &self.native
     }
 
-    pub fn canonical(&self) -> &LanguageResponse {
-        &self.canonical
+    pub fn portable(&self) -> Result<&LanguageResponse, &LanguageCallError> {
+        self.portable.as_ref()
     }
 
-    pub fn into_parts(self) -> (Value, LanguageResponse) {
-        (self.native, self.canonical)
+    pub fn into_parts(self) -> (Value, Result<LanguageResponse, LanguageCallError>) {
+        (self.native, self.portable)
     }
 
     pub fn map_canonical(mut self, map: impl FnOnce(LanguageResponse) -> LanguageResponse) -> Self {
-        self.canonical = map(self.canonical);
+        self.portable = self.portable.map(map);
         self
     }
 
-    pub fn into_result(self) -> Result<LanguageResponse, Error> {
-        Ok(self.canonical)
+    pub fn into_result(self) -> Result<LanguageResponse, LanguageCallError> {
+        self.portable
     }
 }
 
@@ -301,15 +301,41 @@ pub fn decode_language_response(
         )
         .with_source(source)
     })?;
-    let canonical = project_interaction(wire, scope, requested_model)?;
-    Ok(DecodedInteraction { native, canonical })
+    let portable = project_interaction(wire, scope, requested_model)?;
+    Ok(DecodedInteraction { native, portable })
+}
+
+/// Decode and validate a provider-native Interactions resource without
+/// requiring it to be terminal or portable.
+pub fn decode_interaction_resource(body: &[u8]) -> Result<Value, Error> {
+    if body.len() > MAX_RESPONSE_BODY_BYTES {
+        return Err(Error::new(
+            ErrorKind::ResponseLimit,
+            "Gemini Interactions response exceeded the protocol body limit",
+        ));
+    }
+    let native = serde_json::from_slice::<Value>(body).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "provider returned malformed Gemini Interactions JSON",
+        )
+        .with_source(source)
+    })?;
+    serde_json::from_value::<InteractionWire>(native.clone()).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "provider returned an invalid Gemini Interactions resource",
+        )
+        .with_source(source)
+    })?;
+    Ok(native)
 }
 
 pub(crate) fn project_interaction(
     wire: InteractionWire,
     scope: &ProviderScope,
     requested_model: &ModelId,
-) -> Result<LanguageResponse, Error> {
+) -> Result<Result<LanguageResponse, LanguageCallError>, Error> {
     if wire.steps.len() > MAX_STEPS {
         return Err(Error::new(
             ErrorKind::ResponseLimit,
@@ -328,7 +354,7 @@ pub(crate) fn project_interaction(
             .with_source(source)
         })?
         .unwrap_or_else(|| requested_model.clone());
-    let (status, finish_reason) = terminal_mapping(wire.status, &wire.steps)?;
+    let terminal = terminal_mapping(wire.status, &wire.steps)?;
     let mut content = Vec::new();
     let mut warnings = Vec::new();
     for step in &wire.steps {
@@ -347,7 +373,25 @@ pub(crate) fn project_interaction(
     if let Some(value) = checked_optional_text(wire.updated, MAX_METADATA_TEXT_BYTES, "updated")? {
         provider.insert("google.updated".to_string(), Value::String(value));
     }
-    let mut response = LanguageResponse::new(status, content, finish_reason, usage)
+    let termination = match terminal {
+        InteractionTerminal::Success(termination) => termination,
+        terminal => {
+            let error = match terminal {
+                InteractionTerminal::Failed => {
+                    Error::new(ErrorKind::Provider, "Gemini interaction failed")
+                }
+                InteractionTerminal::Cancelled => {
+                    Error::new(ErrorKind::Cancelled, "Gemini interaction was cancelled")
+                }
+                InteractionTerminal::Success(_) => unreachable!(),
+            };
+            return Ok(Err(LanguageCallError::new(
+                error,
+                crate::generate_content::partial_output(&content, &usage),
+            )));
+        }
+    };
+    let mut response = LanguageResponse::new(termination, content, usage)
         .map_err(|source| {
             Error::protocol_violation("invalid Gemini terminal response").with_source(source)
         })?
@@ -357,7 +401,7 @@ pub(crate) fn project_interaction(
     if let Some(response_id) = response_id {
         response = response.with_id(response_id);
     }
-    Ok(response)
+    Ok(Ok(response))
 }
 
 fn encode_generation_config(
@@ -983,40 +1027,41 @@ pub(crate) fn function_call_fields(step: &Value) -> Result<FunctionCallFields<'_
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InteractionTerminal {
+    Success(LanguageTermination),
+    Failed,
+    Cancelled,
+}
+
 pub(crate) fn terminal_mapping(
     status: InteractionStatus,
     steps: &[Value],
-) -> Result<(LanguageResponseStatus, FinishReason), Error> {
+) -> Result<InteractionTerminal, Error> {
     let has_function_call = steps
         .iter()
         .any(|step| step.get("type").and_then(Value::as_str) == Some("function_call"));
     match status {
-        InteractionStatus::Completed => Ok((
-            LanguageResponseStatus::Completed,
-            if has_function_call {
-                FinishReason::ToolCalls
+        InteractionStatus::Completed => Ok(InteractionTerminal::Success(
+            LanguageTermination::Completed(if has_function_call {
+                LanguageCompletionReason::ToolCalls
             } else {
-                FinishReason::Stop
-            },
+                LanguageCompletionReason::Stop
+            }),
         )),
-        InteractionStatus::RequiresAction if has_function_call => {
-            Ok((LanguageResponseStatus::Completed, FinishReason::ToolCalls))
-        }
+        InteractionStatus::RequiresAction if has_function_call => Ok(InteractionTerminal::Success(
+            LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
+        )),
         InteractionStatus::RequiresAction => Err(Error::protocol_violation(
             "Gemini requires_action response omitted a caller-executed function call",
         )),
-        InteractionStatus::Incomplete => Ok((
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::Other(
-                    "provider_incomplete".to_string(),
-                )),
-            },
-            FinishReason::Length,
+        InteractionStatus::Incomplete => Ok(InteractionTerminal::Success(
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
+                "provider_incomplete".to_string(),
+            )),
         )),
-        InteractionStatus::Failed => Ok((LanguageResponseStatus::Failed, FinishReason::Error)),
-        InteractionStatus::Cancelled => {
-            Ok((LanguageResponseStatus::Cancelled, FinishReason::Cancelled))
-        }
+        InteractionStatus::Failed => Ok(InteractionTerminal::Failed),
+        InteractionStatus::Cancelled => Ok(InteractionTerminal::Cancelled),
         InteractionStatus::InProgress => Err(Error::protocol_violation(
             "Gemini returned a non-terminal interaction to a terminal call",
         )),
@@ -1286,9 +1331,12 @@ mod tests {
         .unwrap();
 
         let decoded = decode_language_response(&body, &scope(), &model).unwrap();
-        let response = decoded.canonical();
+        let response = decoded.portable().unwrap();
 
-        assert_eq!(response.finish_reason(), &FinishReason::ToolCalls);
+        assert_eq!(
+            response.termination(),
+            &LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
+        );
         assert_eq!(response.content().len(), 4);
         assert!(matches!(
             &response.content()[0],

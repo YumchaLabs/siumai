@@ -998,6 +998,81 @@ async fn streaming_uses_canonical_decoder_and_emits_one_terminal() {
 }
 
 #[tokio::test]
+async fn streaming_rejects_frames_after_terminal_in_one_sse_batch() {
+    let server = MockServer::start().await;
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "stream-model",
+                "usage": {"input_tokens": 2}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hello"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": 1}
+        }),
+        json!({"type": "message_stop"}),
+        json!({"type": "message_stop"}),
+    ];
+    let sse = frames
+        .into_iter()
+        .map(|frame| format!("data: {frame}\n\n"))
+        .collect::<String>();
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("accept", "text/event-stream"))
+        .and(body_json(request_body("stream-model", "hello", 64, true)))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&server)
+        .await;
+
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let events = provider
+        .language("stream-model")
+        .unwrap()
+        .stream(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+    let terminals = events
+        .iter()
+        .filter_map(LanguageStreamEvent::terminal)
+        .collect::<Vec<_>>();
+    assert_eq!(terminals.len(), 1);
+    match terminals[0] {
+        StreamTerminal::Failed { error, .. } => assert_eq!(error.kind(), ErrorKind::Protocol),
+        other => panic!("expected a failed terminal, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn post_is_not_replayed_and_http_diagnostics_are_sanitized() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

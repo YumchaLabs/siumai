@@ -7,9 +7,10 @@ use http::header::{ACCEPT, HeaderValue};
 use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderScope, StreamTerminal,
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model,
+    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderScope,
+    StreamTerminal,
 };
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
@@ -283,6 +284,7 @@ impl OpenAiResponsesModel {
         )
         .map_err(|error| self.contextualize(operation, error))?;
         let (native, portable) = decoded.into_parts();
+        let portable = portable.map_err(|error| contextualize_call_error(self, operation, error));
         Ok(OpenAiResponsesResponse::new(native, portable))
     }
 
@@ -359,11 +361,10 @@ impl LanguageModel for OpenAiResponsesModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
-        Ok(self
-            .generate_native(request, options)
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        self.generate_native(request, options)
             .await?
-            .into_portable())
+            .into_portable()
     }
 
     async fn stream(
@@ -451,7 +452,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
         let merged = self
             .runtime
@@ -474,10 +475,12 @@ impl LanguageModel for OpenAiChatCompletionsModel {
             .await
             .map_err(|error| self.contextualize(operation, error))?;
         if !response.status().is_success() {
-            return Err(self.contextualize(
-                operation,
-                response_error(OpenAiApiMode::ChatCompletions, response),
-            ));
+            return Err(self
+                .contextualize(
+                    operation,
+                    response_error(OpenAiApiMode::ChatCompletions, response),
+                )
+                .into());
         }
         let response = decode_chat_response(
             self.runtime.scope(OpenAiApiMode::ChatCompletions),
@@ -620,6 +623,15 @@ fn request_plan(
 
 fn contextualize(model: &impl Model, operation: ModelOperation, error: Error) -> Error {
     error.with_context(model_error_context(model, operation))
+}
+
+fn contextualize_call_error(
+    model: &impl Model,
+    operation: ModelOperation,
+    error: LanguageCallError,
+) -> LanguageCallError {
+    let (error, partial) = error.into_parts();
+    LanguageCallError::new(contextualize(model, operation, error), partial)
 }
 
 pub(crate) fn model_error_context(model: &impl Model, operation: ModelOperation) -> ErrorContext {
@@ -1402,11 +1414,69 @@ mod tests {
             .unwrap();
         assert_eq!(response.native().output.len(), 2);
         assert!(
-            response.portable().content().iter().any(
+            response.portable().unwrap().content().iter().any(
                 |part| matches!(part, ContentPart::Text { text } if text == "hello from native")
             )
         );
         assert!(!format!("{response:?}").contains("native-secret"));
+    }
+
+    #[tokio::test]
+    async fn native_generation_preserves_failed_resource_and_portable_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "resp_failed_native",
+                "created_at": 1,
+                "model": "gpt-5.6-sol",
+                "status": "failed",
+                "output": [
+                    {
+                        "id": "msg_partial",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "incomplete",
+                        "content": [{
+                            "type": "output_text",
+                            "text": "bounded partial",
+                            "annotations": []
+                        }]
+                    },
+                    {
+                        "id": "call_unsafe",
+                        "type": "function_call",
+                        "status": "incomplete",
+                        "call_id": "call_unsafe",
+                        "name": "must_not_execute",
+                        "arguments": "{\"unsafe\":true}"
+                    }
+                ],
+                "usage": {"input_tokens": 7, "output_tokens": 3, "total_tokens": 10},
+                "error": {"code": "server_error", "message": "provider detail"},
+                "incomplete_details": null,
+                "reasoning": null
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+        let response = model
+            .generate_native(request(), CallOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(response.native().status.as_str(), "failed");
+        assert_eq!(response.native().output.len(), 2);
+        let error = response.portable().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Unavailable);
+        assert_eq!(error.context().operation, Some(ModelOperation::Generate));
+        let partial = error.partial().expect("bounded portable partial output");
+        assert!(matches!(
+            partial.content(),
+            [siumai_core::PartialLanguageOutputPart::Text { text }] if text == "bounded partial"
+        ));
+        assert_eq!(partial.usage().input_tokens.value(), Some(7));
     }
 
     #[tokio::test]

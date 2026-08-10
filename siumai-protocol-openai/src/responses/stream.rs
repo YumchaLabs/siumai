@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use siumai_core::{
     DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
     LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
-    StreamTerminal, ToolCall,
+    StreamTerminal, ToolCall, UsageUpdate,
 };
 
 use crate::openai_error::classify_stream_error;
@@ -1857,26 +1857,51 @@ impl ResponsesStreamDecoder {
             self.replay_status.is_available(),
         )?;
         if let Some(usage) = &projected.usage {
-            events.push(LanguageStreamEvent::Usage(decode_usage(usage)));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                decode_usage(usage),
+            )));
         }
-        let (_, canonical) = decoded.into_parts();
+        let (_, portable) = decoded.into_parts();
         let terminal = match &projected.status {
-            ResponseStatus::Completed | ResponseStatus::Incomplete => StreamTerminal::Completed {
-                response: Box::new(canonical),
-            },
-            ResponseStatus::Cancelled => StreamTerminal::Cancelled {
-                reason: "OpenAI cancelled the Responses generation".to_string(),
-                response: Some(Box::new(canonical)),
-            },
-            ResponseStatus::Failed => StreamTerminal::Failed {
-                error: failed_response_error(
-                    &projected,
-                    &self.scope,
-                    &self.requested_model,
-                    self.response_diagnostics.clone(),
-                ),
-                response: Some(Box::new(canonical)),
-            },
+            ResponseStatus::Completed | ResponseStatus::Incomplete => {
+                let response = portable.map_err(|error| error.into_error())?;
+                StreamTerminal::Completed {
+                    response: Box::new(response),
+                }
+            }
+            ResponseStatus::Cancelled => {
+                let (_, partial) = match portable {
+                    Err(error) => error.into_parts(),
+                    Ok(_) => {
+                        return Err(protocol_error(
+                            "cancelled Responses resource produced a successful portable response",
+                        ));
+                    }
+                };
+                StreamTerminal::Cancelled {
+                    reason: "OpenAI cancelled the Responses generation".to_string(),
+                    partial,
+                }
+            }
+            ResponseStatus::Failed => {
+                let (_, partial) = match portable {
+                    Err(error) => error.into_parts(),
+                    Ok(_) => {
+                        return Err(protocol_error(
+                            "failed Responses resource produced a successful portable response",
+                        ));
+                    }
+                };
+                StreamTerminal::Failed {
+                    error: failed_response_error(
+                        &projected,
+                        &self.scope,
+                        &self.requested_model,
+                        self.response_diagnostics.clone(),
+                    ),
+                    partial,
+                }
+            }
             ResponseStatus::Queued | ResponseStatus::InProgress | ResponseStatus::Other(_) => {
                 return Err(protocol_error(
                     "OpenAI Responses terminal event carried a non-terminal status",
@@ -2113,7 +2138,7 @@ impl ResponsesStreamDecoder {
         Ok(vec![LanguageStreamEvent::Terminal(
             StreamTerminal::Failed {
                 error,
-                response: None,
+                partial: None,
             },
         )])
     }
@@ -2166,7 +2191,18 @@ impl ResponsesStreamDecoder {
                 if streamed_complete {
                     compare_terminal_item(&streamed, terminal, true, &mut self.replay_status)?;
                 } else if is_portable_item(&streamed) {
-                    self.complete_portable_item(&streamed, terminal, &mut completion_events)?;
+                    if matches!(status, ResponseStatus::Failed | ResponseStatus::Cancelled)
+                        && matches!(&streamed, OutputItem::FunctionCall(_))
+                    {
+                        compare_item_transition(
+                            &streamed,
+                            terminal,
+                            true,
+                            &mut self.replay_status,
+                        )?;
+                    } else {
+                        self.complete_portable_item(&streamed, terminal, &mut completion_events)?;
+                    }
                 } else {
                     compare_item_transition(&streamed, terminal, true, &mut self.replay_status)?;
                 }

@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use siumai_core::{
     ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
-    FinishReason, LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope,
-    ResponseDiagnostics, StreamTerminal, ToolCall, Usage,
+    LanguageStreamDecoder, LanguageStreamEvent, LanguageTermination, ModelId, ProviderScope,
+    ResponseDiagnostics, StreamTerminal, ToolCall, Usage, UsageUpdate,
 };
 
 use crate::openai_error::classify_stream_error;
@@ -39,7 +39,7 @@ pub struct ChatCompletionsStreamDecoder {
     order: Vec<ContentOrder>,
     usage: Usage,
     response_metadata: BTreeMap<String, Value>,
-    finish_reason: Option<FinishReason>,
+    termination: Option<LanguageTermination>,
     response_diagnostics: ResponseDiagnostics,
 }
 
@@ -102,7 +102,7 @@ impl ChatCompletionsStreamDecoder {
             order: Vec::new(),
             usage: Usage::default(),
             response_metadata: BTreeMap::new(),
-            finish_reason: None,
+            termination: None,
             response_diagnostics: ResponseDiagnostics::default(),
         }
     }
@@ -157,7 +157,7 @@ impl ChatCompletionsStreamDecoder {
                         self.response_diagnostics.clone(),
                         "provider reported an error after establishing the Chat Completions stream",
                     ),
-                    response: None,
+                    partial: None,
                 },
             )]);
         }
@@ -193,7 +193,9 @@ impl ChatCompletionsStreamDecoder {
         if let Some(usage) = usage {
             let update = decode_usage(usage, &self.dialect)?;
             merge_usage(&mut self.usage, update);
-            events.push(LanguageStreamEvent::Usage(self.usage.clone()));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(
+                self.usage.clone(),
+            )));
         }
         let Some(choice) = choice else {
             return Ok(events);
@@ -255,17 +257,17 @@ impl ChatCompletionsStreamDecoder {
             self.apply_tool_delta(call, &mut events)?;
         }
         if let Some(reason) = choice.finish_reason {
-            let reason = decode_finish_reason(&reason);
+            let termination = decode_finish_reason(&reason);
             if self
-                .finish_reason
+                .termination
                 .as_ref()
-                .is_some_and(|existing| existing != &reason)
+                .is_some_and(|existing| existing != &termination)
             {
                 return Err(protocol_error(
                     "Chat Completions stream changed its finish reason",
                 ));
             }
-            self.finish_reason = Some(reason);
+            self.termination = Some(termination);
         }
         Ok(events)
     }
@@ -364,8 +366,8 @@ impl ChatCompletionsStreamDecoder {
                 "Chat Completions stream ended before a response chunk",
             ));
         }
-        let finish_reason = self
-            .finish_reason
+        let termination = self
+            .termination
             .clone()
             .ok_or_else(|| protocol_error("Chat Completions stream omitted its finish reason"))?;
         let mut events = Vec::new();
@@ -459,7 +461,7 @@ impl ChatCompletionsStreamDecoder {
             self.response_id.clone(),
             response_model,
             content,
-            finish_reason,
+            termination,
             self.usage.clone(),
             selected_response_metadata(&self.response_metadata)?,
         )?;
@@ -604,7 +606,8 @@ mod tests {
         )));
         assert!(second.iter().any(|event| matches!(
             event,
-            LanguageStreamEvent::Usage(usage) if usage.input_tokens == UsageValue::Known(0)
+            LanguageStreamEvent::Usage(update)
+                if update.usage().input_tokens == UsageValue::Known(0)
         )));
 
         let terminal = decoder.decode("[DONE]").unwrap();
@@ -838,8 +841,8 @@ mod tests {
 
         assert!(events.iter().any(|event| matches!(
             event,
-            LanguageStreamEvent::Usage(usage)
-                if usage.cache_read_tokens == UsageValue::Known(7)
+            LanguageStreamEvent::Usage(update)
+                if update.usage().cache_read_tokens == UsageValue::Known(7)
         )));
         assert!(decoder.decode("[DONE]").is_ok());
     }
@@ -877,8 +880,8 @@ mod tests {
         );
         assert!(kimi.decode(frame).unwrap().iter().any(|event| matches!(
             event,
-            LanguageStreamEvent::Usage(usage)
-                if usage.cache_read_tokens == UsageValue::Known(7)
+            LanguageStreamEvent::Usage(update)
+                if update.usage().cache_read_tokens == UsageValue::Known(7)
         )));
     }
 
@@ -897,10 +900,10 @@ mod tests {
             .unwrap();
         assert!(usage.iter().any(|event| matches!(
             event,
-            LanguageStreamEvent::Usage(usage)
-                if usage.input_tokens == UsageValue::Known(10)
-                    && usage.output_tokens == UsageValue::Known(8)
-                    && usage.cache_write_tokens == UsageValue::Known(3)
+            LanguageStreamEvent::Usage(update)
+                if update.usage().input_tokens == UsageValue::Known(10)
+                    && update.usage().output_tokens == UsageValue::Known(8)
+                    && update.usage().cache_write_tokens == UsageValue::Known(3)
         )));
 
         let terminal = decoder.decode("[DONE]").unwrap();
@@ -932,7 +935,7 @@ mod tests {
 
         assert!(matches!(
             events.as_slice(),
-            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, response: None })]
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, partial: None })]
                 if error.kind() == ErrorKind::RateLimited
                     && error.diagnostics().and_then(ResponseDiagnostics::retry_after)
                         == Some(Duration::from_secs(3))

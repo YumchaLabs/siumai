@@ -1,13 +1,13 @@
 use serde_json::{Map, Value, json};
 use siumai_core::{
-    ContentPart, DecoderLifecycle, Error, ErrorKind, LanguageResponse, LanguageResponseStatus,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, PublicDiagnosticText,
-    ResponseDiagnostics, StreamTerminal,
+    ContentPart, DecoderLifecycle, Error, ErrorKind, LanguageCallError, LanguageResponse,
+    LanguageStreamDecoder, LanguageStreamEvent, ModelId, PartialLanguageOutput, ProviderScope,
+    PublicDiagnosticText, ResponseDiagnostics, StreamTerminal, UsageUpdate,
 };
 
 use super::language::{
-    UsageMetadataWire, normalize_response_parts, project_response_part, project_response_value,
-    valid_bounded_text,
+    UsageMetadataWire, normalize_response_parts, partial_output, project_response_part,
+    project_response_value, valid_bounded_text,
 };
 
 const MAX_STREAM_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -94,7 +94,17 @@ impl GenerateContentStreamDecoder {
             .with_source(source)
         })?;
         if value.get("error").is_some() {
-            return Err(self.in_band_error(&value));
+            let error = self.in_band_error(&value);
+            let partial = self.partial_output();
+            let terminal = if error.kind() == ErrorKind::Cancelled {
+                StreamTerminal::Cancelled {
+                    reason: error.message().to_string(),
+                    partial,
+                }
+            } else {
+                StreamTerminal::Failed { error, partial }
+            };
+            return Ok(vec![LanguageStreamEvent::Terminal(terminal)]);
         }
         let object = value.as_object().ok_or_else(|| {
             Error::protocol_violation("Gemini Generate Content SSE frame was not an object")
@@ -134,7 +144,7 @@ impl GenerateContentStreamDecoder {
                 })?;
             let usage = super::language::decode_usage(Some(wire))?;
             self.usage_metadata = Some(usage_metadata.clone());
-            events.push(LanguageStreamEvent::Usage(usage));
+            events.push(LanguageStreamEvent::Usage(UsageUpdate::snapshot(usage)));
         }
         Ok(events)
     }
@@ -436,7 +446,7 @@ impl GenerateContentStreamDecoder {
         });
     }
 
-    fn terminal_response(&self) -> Result<LanguageResponse, Error> {
+    fn terminal_response(&self) -> Result<Result<LanguageResponse, LanguageCallError>, Error> {
         let mut root = Map::new();
         if let Some(response_id) = &self.response_id {
             root.insert("responseId".to_string(), Value::String(response_id.clone()));
@@ -474,6 +484,39 @@ impl GenerateContentStreamDecoder {
             );
         }
         project_response_value(&Value::Object(root), &self.scope, &self.requested_model)
+    }
+
+    fn partial_output(&self) -> Option<PartialLanguageOutput> {
+        let parts = normalize_response_parts(self.parts.clone()).ok()?;
+        let model = self
+            .response_model
+            .as_ref()
+            .unwrap_or(&self.requested_model);
+        let mut content = Vec::new();
+        let mut warnings = Vec::new();
+        for (part_index, part) in parts.iter().enumerate() {
+            project_response_part(
+                part,
+                &self.scope,
+                model,
+                self.response_id.as_deref(),
+                0,
+                part_index,
+                &mut content,
+                &mut warnings,
+            )
+            .ok()?;
+        }
+        let usage = self
+            .usage_metadata
+            .clone()
+            .map(serde_json::from_value::<UsageMetadataWire>)
+            .transpose()
+            .ok()
+            .flatten()
+            .and_then(|wire| super::language::decode_usage(Some(wire)).ok())
+            .unwrap_or_default();
+        partial_output(&content, &usage)
     }
 
     fn in_band_error(&self, value: &Value) -> Error {
@@ -557,28 +600,22 @@ struct OpenText {
     part_index: usize,
 }
 
-fn terminal_event(response: LanguageResponse) -> StreamTerminal {
-    match response.status() {
-        LanguageResponseStatus::Completed | LanguageResponseStatus::Incomplete { .. } => {
-            StreamTerminal::Completed {
-                response: Box::new(response),
+fn terminal_event(response: Result<LanguageResponse, LanguageCallError>) -> StreamTerminal {
+    match response {
+        Ok(response) => StreamTerminal::Completed {
+            response: Box::new(response),
+        },
+        Err(error) if error.kind() == ErrorKind::Cancelled => {
+            let (error, partial) = error.into_parts();
+            StreamTerminal::Cancelled {
+                reason: error.message().to_string(),
+                partial,
             }
         }
-        LanguageResponseStatus::Failed => StreamTerminal::Failed {
-            error: Error::new(
-                ErrorKind::Provider,
-                "Gemini Generate Content generation failed",
-            ),
-            response: Some(Box::new(response)),
-        },
-        LanguageResponseStatus::Cancelled => StreamTerminal::Cancelled {
-            reason: "Gemini Generate Content generation was cancelled".to_string(),
-            response: Some(Box::new(response)),
-        },
-        _ => StreamTerminal::Failed {
-            error: Error::protocol_violation("Gemini terminal response has an unsupported status"),
-            response: None,
-        },
+        Err(error) => {
+            let (error, partial) = error.into_parts();
+            StreamTerminal::Failed { error, partial }
+        }
     }
 }
 
@@ -606,8 +643,8 @@ fn ensure_value_limit(value: &Value, maximum: usize) -> Result<(), Error> {
 mod tests {
     use super::*;
     use siumai_core::{
-        ApiModeId, FinishReason, PlatformId, ProtocolId, ProviderId, ReplayDomain, ReplayDomainId,
-        UsageValue,
+        ApiModeId, LanguageCompletionReason, LanguageTermination, PlatformId, ProtocolId,
+        ProviderId, ReplayDomain, ReplayDomainId, UsageValue,
     };
 
     fn decoder() -> GenerateContentStreamDecoder {
@@ -672,7 +709,10 @@ mod tests {
         else {
             panic!("expected completed terminal");
         };
-        assert_eq!(response.finish_reason(), &FinishReason::ToolCalls);
+        assert_eq!(
+            response.termination(),
+            &LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
+        );
         assert_eq!(response.usage().total_tokens, UsageValue::Known(6));
         assert!(
             response.content().iter().any(|part| {

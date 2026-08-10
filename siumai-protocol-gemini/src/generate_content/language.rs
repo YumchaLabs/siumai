@@ -4,10 +4,11 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use siumai_core::{
-    ContentPart, Error, ErrorKind, FinishReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageResponse, LanguageResponseStatus, MediaData, MediaPart, Message, MessageRole, ModelId,
-    OpaqueProviderItem, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall,
-    ToolChoice, ToolOutcome, ToolResult, Usage, Warning, WarningKind,
+    ContentPart, Error, ErrorKind, LanguageCallError, LanguageCompletionReason,
+    LanguageIncompleteReason, LanguageRequest, LanguageResponse, LanguageTermination, MediaData,
+    MediaPart, Message, MessageRole, ModelId, OpaqueProviderItem, PartialLanguageOutput,
+    PartialLanguageOutputPart, ProviderItemRelation, ProviderProvenance, ProviderScope, ToolCall,
+    ToolChoice, ToolOutcome, ToolResult, Usage, UsageValue, Warning, WarningKind,
 };
 
 /// Stable v1 target template for Google's Legacy Generate Content product mode.
@@ -177,10 +178,9 @@ impl GenerateContentLanguageConfig {
 }
 
 /// Lossless direct Generate Content response plus its portable projection.
-#[derive(Clone, PartialEq)]
 pub struct DecodedGenerateContent {
     native: Value,
-    canonical: LanguageResponse,
+    portable: Result<LanguageResponse, LanguageCallError>,
 }
 
 impl std::fmt::Debug for DecodedGenerateContent {
@@ -188,8 +188,8 @@ impl std::fmt::Debug for DecodedGenerateContent {
         formatter
             .debug_struct("DecodedGenerateContent")
             .field("native", &"<redacted>")
-            .field("canonical", &self.canonical)
-            .finish()
+            .field("portable_is_ok", &self.portable.is_ok())
+            .finish_non_exhaustive()
     }
 }
 
@@ -198,21 +198,21 @@ impl DecodedGenerateContent {
         &self.native
     }
 
-    pub fn canonical(&self) -> &LanguageResponse {
-        &self.canonical
+    pub fn portable(&self) -> Result<&LanguageResponse, &LanguageCallError> {
+        self.portable.as_ref()
     }
 
-    pub fn into_parts(self) -> (Value, LanguageResponse) {
-        (self.native, self.canonical)
+    pub fn into_parts(self) -> (Value, Result<LanguageResponse, LanguageCallError>) {
+        (self.native, self.portable)
     }
 
     pub fn map_canonical(mut self, map: impl FnOnce(LanguageResponse) -> LanguageResponse) -> Self {
-        self.canonical = map(self.canonical);
+        self.portable = self.portable.map(map);
         self
     }
 
-    pub fn into_result(self) -> Result<LanguageResponse, Error> {
-        Ok(self.canonical)
+    pub fn into_result(self) -> Result<LanguageResponse, LanguageCallError> {
+        self.portable
     }
 }
 
@@ -305,8 +305,8 @@ pub fn decode_language_response(
         )
         .with_source(source)
     })?;
-    let canonical = project_response_value(&native, scope, requested_model)?;
-    Ok(DecodedGenerateContent { native, canonical })
+    let portable = project_response_value(&native, scope, requested_model)?;
+    Ok(DecodedGenerateContent { native, portable })
 }
 
 fn encode_generation_config(
@@ -804,7 +804,7 @@ pub(crate) fn project_response_value(
     native: &Value,
     scope: &ProviderScope,
     requested_model: &ModelId,
-) -> Result<LanguageResponse, Error> {
+) -> Result<Result<LanguageResponse, LanguageCallError>, Error> {
     let wire = serde_json::from_value::<GenerateContentResponseWire>(native.clone()).map_err(
         |source| {
             Error::protocol_violation("Gemini Generate Content response is malformed")
@@ -845,9 +845,7 @@ pub(crate) fn project_response_value(
         wire.model_status.as_ref(),
     )?;
 
-    let (status, finish_reason, content, warnings) = if let Some(candidate) =
-        wire.candidates.first()
-    {
+    let (terminal, content, warnings) = if let Some(candidate) = wire.candidates.first() {
         if candidate.index.unwrap_or(0) != 0 {
             return Err(Error::protocol_violation(
                 "Gemini portable response candidate had a non-zero index",
@@ -884,7 +882,7 @@ pub(crate) fn project_response_value(
                 &mut warnings,
             )?;
         }
-        let (status, finish_reason) = map_finish_reason(
+        let terminal = map_finish_reason(
             candidate.finish_reason.as_deref(),
             projected
                 .iter()
@@ -896,13 +894,12 @@ pub(crate) fn project_response_value(
             "google.generate_content.candidate",
             Some(&metadata),
         )?;
-        (status, finish_reason, projected, warnings)
+        (terminal, projected, warnings)
     } else if prompt_block_reason(wire.prompt_feedback.as_ref())?.is_some() {
         (
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::ContentFilter),
-            },
-            FinishReason::ContentFilter,
+            GenerateContentTerminal::Success(LanguageTermination::Incomplete(
+                LanguageIncompleteReason::ContentFilter,
+            )),
             vec![ContentPart::Refusal { reason: None }],
             Vec::new(),
         )
@@ -912,7 +909,21 @@ pub(crate) fn project_response_value(
         ));
     };
 
-    let mut response = LanguageResponse::new(status, content, finish_reason, usage)
+    let termination = match terminal {
+        GenerateContentTerminal::Success(termination) => termination,
+        GenerateContentTerminal::Failed => {
+            let error = Error::new(
+                ErrorKind::Provider,
+                "Gemini Generate Content failed to produce a valid result",
+            );
+            return Ok(Err(LanguageCallError::new(
+                error,
+                partial_output(&content, &usage),
+            )));
+        }
+    };
+
+    let mut response = LanguageResponse::new(termination, content, usage)
         .map_err(|source| {
             Error::protocol_violation(
                 "Gemini Generate Content produced an invalid portable response",
@@ -925,7 +936,45 @@ pub(crate) fn project_response_value(
     if let Some(response_id) = response_id {
         response = response.with_id(response_id);
     }
-    Ok(response)
+    Ok(Ok(response))
+}
+
+pub(crate) fn partial_output(
+    content: &[ContentPart],
+    usage: &Usage,
+) -> Option<PartialLanguageOutput> {
+    let content = content
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => {
+                Some(PartialLanguageOutputPart::Text { text: text.clone() })
+            }
+            ContentPart::Reasoning { text } => {
+                Some(PartialLanguageOutputPart::Reasoning { text: text.clone() })
+            }
+            ContentPart::Refusal { reason } => Some(PartialLanguageOutputPart::Refusal {
+                reason: reason.clone(),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let observed_usage = [
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.total_tokens,
+        usage.reasoning_tokens,
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+        usage.audio_input_tokens,
+        usage.audio_output_tokens,
+        usage.orchestration_tokens,
+    ]
+    .into_iter()
+    .any(|value| matches!(value, UsageValue::Known(_)));
+    if content.is_empty() && !observed_usage {
+        return None;
+    }
+    PartialLanguageOutput::new(content, usage.clone()).ok()
 }
 
 pub(crate) fn normalize_response_parts(parts: Vec<Value>) -> Result<Vec<Value>, Error> {
@@ -1176,22 +1225,29 @@ fn synthetic_call_id(
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GenerateContentTerminal {
+    Success(LanguageTermination),
+    Failed,
+}
+
 fn map_finish_reason(
     reason: Option<&str>,
     has_tool_call: bool,
-) -> Result<(LanguageResponseStatus, FinishReason), Error> {
+) -> Result<GenerateContentTerminal, Error> {
     let reason = reason.ok_or_else(|| {
         Error::protocol_violation("Gemini terminal response omitted its finish reason")
     })?;
     let value = match reason {
-        "STOP" if has_tool_call => (LanguageResponseStatus::Completed, FinishReason::ToolCalls),
-        "STOP" => (LanguageResponseStatus::Completed, FinishReason::Stop),
-        "MAX_TOKENS" => (
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::MaxOutputTokens),
-            },
-            FinishReason::Length,
+        "STOP" if has_tool_call => GenerateContentTerminal::Success(
+            LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
         ),
+        "STOP" => GenerateContentTerminal::Success(LanguageTermination::Completed(
+            LanguageCompletionReason::Stop,
+        )),
+        "MAX_TOKENS" => GenerateContentTerminal::Success(LanguageTermination::Incomplete(
+            LanguageIncompleteReason::MaxOutputTokens,
+        )),
         "SAFETY"
         | "RECITATION"
         | "LANGUAGE"
@@ -1201,31 +1257,23 @@ fn map_finish_reason(
         | "IMAGE_SAFETY"
         | "IMAGE_PROHIBITED_CONTENT"
         | "IMAGE_RECITATION"
-        | "ESCALATION" => (
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::ContentFilter),
-            },
-            FinishReason::ContentFilter,
-        ),
+        | "ESCALATION" => GenerateContentTerminal::Success(LanguageTermination::Incomplete(
+            LanguageIncompleteReason::ContentFilter,
+        )),
         "MALFORMED_FUNCTION_CALL"
         | "MALFORMED_RESPONSE"
         | "UNEXPECTED_TOOL_CALL"
         | "TOO_MANY_TOOL_CALLS"
         | "MISSING_THOUGHT_SIGNATURE"
         | "NO_IMAGE"
-        | "IMAGE_OTHER" => (LanguageResponseStatus::Failed, FinishReason::Error),
+        | "IMAGE_OTHER" => GenerateContentTerminal::Failed,
         "FINISH_REASON_UNSPECIFIED" => {
             return Err(Error::protocol_violation(
                 "Gemini terminal response used an unspecified finish reason",
             ));
         }
-        other if valid_bounded_text(other, 128) => (
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::Other(
-                    "provider_finish_reason".to_string(),
-                )),
-            },
-            FinishReason::Other(other.to_string()),
+        other if valid_bounded_text(other, 128) => GenerateContentTerminal::Success(
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(other.to_string())),
         ),
         _ => {
             return Err(Error::protocol_violation(
@@ -1673,7 +1721,7 @@ mod tests {
         .unwrap();
 
         let decoded = decode_language_response(&body, &scope(), &model).unwrap();
-        let response = decoded.canonical();
+        let response = decoded.portable().unwrap();
         let call = response
             .content()
             .iter()
@@ -1761,12 +1809,9 @@ mod tests {
             .unwrap()
             .into_result()
             .unwrap();
-        assert!(matches!(
-            response.status(),
-            LanguageResponseStatus::Incomplete {
-                reason: Some(LanguageIncompleteReason::ContentFilter)
-            }
-        ));
-        assert_eq!(response.finish_reason(), &FinishReason::ContentFilter);
+        assert_eq!(
+            response.termination(),
+            &LanguageTermination::Incomplete(LanguageIncompleteReason::ContentFilter)
+        );
     }
 }

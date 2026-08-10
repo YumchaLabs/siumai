@@ -333,11 +333,11 @@ mod tests {
     use async_trait::async_trait;
     use siumai_core::{
         ApiModeId, CallOptions, EmbeddingLimits, EmbeddingRequest, EmbeddingResponse, Error,
-        ErrorContext, ErrorKind, FinishReason, ImageRequest, ImageResponse, LanguageRequest,
-        LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelFamily, ModelLookupError,
-        ModelOperation, ProtocolId, ProviderId, ProviderInstanceId, ProviderScope, RerankRequest,
-        RerankResponse, SpeechRequest, SpeechResponse, TranscriptionRequest, TranscriptionResponse,
-        Usage,
+        ErrorContext, ErrorKind, ImageRequest, ImageResponse, LanguageCallError,
+        LanguageCompletionReason, LanguageRequest, LanguageResponse, LanguageStream, Model,
+        ModelDescriptor, ModelFamily, ModelLookupError, ModelOperation, ProtocolId, ProviderId,
+        ProviderInstanceId, ProviderScope, RerankRequest, RerankResponse, SpeechRequest,
+        SpeechResponse, TranscriptionRequest, TranscriptionResponse, Usage,
     };
 
     use super::*;
@@ -360,13 +360,15 @@ mod tests {
             &self,
             _request: LanguageRequest,
             _options: CallOptions,
-        ) -> Result<LanguageResponse, Error> {
-            Ok(
-                LanguageResponse::completed(Vec::new(), FinishReason::Stop, Usage::default())
-                    .unwrap()
-                    .with_id(self.runtime.to_string())
-                    .with_model(self.descriptor.model().clone()),
+        ) -> Result<LanguageResponse, LanguageCallError> {
+            Ok(LanguageResponse::completed(
+                Vec::new(),
+                LanguageCompletionReason::Stop,
+                Usage::default(),
             )
+            .unwrap()
+            .with_id(self.runtime.to_string())
+            .with_model(self.descriptor.model().clone()))
         }
 
         async fn stream(

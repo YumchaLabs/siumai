@@ -7,18 +7,17 @@ use std::task::{Context, Poll};
 use futures_util::{Stream, StreamExt};
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    Cancellation, Error, ErrorKind, LanguageResponse, LanguageStream, LanguageStreamEvent,
-    StreamTerminal,
+    Cancellation, Error, ErrorKind, LanguageCallError, LanguageResponse, LanguageStream,
+    LanguageStreamEvent, LanguageTermination, StreamTerminal,
 };
 use siumai_protocol_openai::responses::{
     ResponseWire, ResponsesReplayStatus, ResponsesStreamEvent,
 };
 
 /// A native OpenAI Responses result paired with its portable projection.
-#[derive(Clone)]
 pub struct OpenAiResponsesResponse {
     native: ResponseWire,
-    portable: LanguageResponse,
+    portable: Result<LanguageResponse, LanguageCallError>,
 }
 
 impl fmt::Debug for OpenAiResponsesResponse {
@@ -29,13 +28,35 @@ impl fmt::Debug for OpenAiResponsesResponse {
             .field("model", &self.native.model)
             .field("status", &self.native.status)
             .field("native_output_items", &self.native.output.len())
-            .field("portable_status", &self.portable.status())
+            .field(
+                "portable_outcome",
+                &match &self.portable {
+                    Ok(response) => match response.termination() {
+                        LanguageTermination::Completed(_) => "completed",
+                        LanguageTermination::Incomplete(_) => "incomplete",
+                        _ => "other",
+                    },
+                    Err(error) if error.kind() == ErrorKind::Cancelled => "cancelled",
+                    Err(_) => "failed",
+                },
+            )
+            .field(
+                "has_partial_output",
+                &self
+                    .portable
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.partial().is_some()),
+            )
             .finish_non_exhaustive()
     }
 }
 
 impl OpenAiResponsesResponse {
-    pub(crate) fn new(native: ResponseWire, portable: LanguageResponse) -> Self {
+    pub(crate) fn new(
+        native: ResponseWire,
+        portable: Result<LanguageResponse, LanguageCallError>,
+    ) -> Self {
         Self { native, portable }
     }
 
@@ -43,15 +64,15 @@ impl OpenAiResponsesResponse {
         &self.native
     }
 
-    pub fn portable(&self) -> &LanguageResponse {
-        &self.portable
+    pub fn portable(&self) -> Result<&LanguageResponse, &LanguageCallError> {
+        self.portable.as_ref()
     }
 
-    pub fn into_portable(self) -> LanguageResponse {
+    pub fn into_portable(self) -> Result<LanguageResponse, LanguageCallError> {
         self.portable
     }
 
-    pub fn into_parts(self) -> (ResponseWire, LanguageResponse) {
+    pub fn into_parts(self) -> (ResponseWire, Result<LanguageResponse, LanguageCallError>) {
         (self.native, self.portable)
     }
 }
@@ -246,7 +267,7 @@ impl OpenAiResponsesStream {
                         Err(error) if error.kind() == ErrorKind::Cancelled => {
                             yield LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
                                 reason: "call cancelled".to_string(),
-                                response: None,
+                                partial: None,
                             });
                             return;
                         }

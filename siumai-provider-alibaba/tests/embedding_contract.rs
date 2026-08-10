@@ -320,8 +320,18 @@ async fn unknown_embedding_models_remain_callable_with_unknown_usage() {
 }
 
 #[tokio::test]
-async fn known_limits_dimensions_output_modes_and_option_context_fail_before_wire() {
+async fn stable_limits_forward_dimensions_and_validate_options_before_wire() {
     let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(EMBEDDING_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "output": {
+                "embeddings": [{"text_index": 0, "embedding": vec![0.0_f32; 192]}]
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
     let provider = provider(&server);
 
     let too_many = (0..11).map(|index| format!("input-{index}"));
@@ -336,7 +346,7 @@ async fn known_limits_dimensions_output_modes_and_option_context_fail_before_wir
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::LimitExceeded);
 
-    let error = provider
+    let response = provider
         .embedding("text-embedding-v4")
         .unwrap()
         .embed(
@@ -347,8 +357,8 @@ async fn known_limits_dimensions_output_modes_and_option_context_fail_before_wir
             CallOptions::default(),
         )
         .await
-        .unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        .unwrap();
+    assert_eq!(response.embeddings[0].len(), 192);
 
     let sparse_only =
         AlibabaEmbeddingOptions::new().with_output_type(AlibabaEmbeddingOutputType::SparseOnly);
@@ -369,7 +379,10 @@ async fn known_limits_dimensions_output_modes_and_option_context_fail_before_wir
         }
     ));
 
-    assert!(server.received_requests().await.unwrap().is_empty());
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(body["parameters"]["dimension"], json!(192));
 }
 
 #[tokio::test]

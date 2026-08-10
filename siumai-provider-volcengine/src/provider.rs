@@ -10,9 +10,9 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, Error, GenericSupportClaim, ImageModel,
-    ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, LanguageRequest,
-    LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor, ModelFamily, ModelId,
-    ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
+    ImageModelProvider, InvalidId, LanguageCallError, LanguageModel, LanguageModelProvider,
+    LanguageRequest, LanguageResponse, LanguageStream, Model, ModelCatalog, ModelDescriptor,
+    ModelFamily, ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, PlatformId, ProfileError, ProfileId,
     ProtocolContractId, ProtocolId, Provider, ProviderId, ProviderInstanceId, ProviderOptionError,
     ProviderOptions, ProviderProfile, ProviderRegistration, ProviderRegistrationError,
@@ -464,7 +464,7 @@ impl LanguageModel for VolcengineLanguageModel {
         &self,
         request: LanguageRequest,
         options: CallOptions,
-    ) -> Result<LanguageResponse, Error> {
+    ) -> Result<LanguageResponse, LanguageCallError> {
         self.inner.generate(request, options).await
     }
 

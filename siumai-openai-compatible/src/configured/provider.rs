@@ -1372,7 +1372,7 @@ mod tests {
         assert!(events.iter().any(|event| matches!(
             event,
             siumai_core::LanguageStreamEvent::Usage(usage)
-                if usage.input_tokens == siumai_core::UsageValue::Known(0)
+                if usage.usage().input_tokens == siumai_core::UsageValue::Known(0)
         )));
         mock.assert_async().await;
     }

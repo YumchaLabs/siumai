@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, Error, ErrorKind,
-    FinishReason, LanguageIncompleteReason, LanguageRequest, LanguageResponseStatus,
-    LanguageStreamEvent, MediaData, MediaPart, Message, MessagePart, MessageRole, ModelId,
-    PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
-    ResponseDiagnostics, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome, ToolResult,
-    ToolSpec, TypedProviderAnnotation, UsageValue,
+    LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest, LanguageStreamEvent,
+    LanguageTermination, MediaData, MediaPart, Message, MessagePart, MessageRole, ModelId,
+    PartialLanguageOutputPart, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain,
+    ReplayDomainId, ResponseDiagnostics, StreamTerminal, StructuredOutputSpec, ToolCall,
+    ToolOutcome, ToolResult, ToolSpec, TypedProviderAnnotation, UsageValue,
 };
 
 use crate::{PromptCacheAnnotationResolver, PromptCacheNodeOptions};
@@ -181,41 +181,29 @@ fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
     let fixture = fidelity_response();
     let body = serde_json::to_vec(&fixture).unwrap();
     let decoded = decode_response(&body, &scope(), &model()).unwrap();
+    let portable = decoded.portable().unwrap();
 
     assert_eq!(decoded.status(), &ResponseStatus::Completed);
-    assert_eq!(decoded.canonical().id(), Some("resp_fidelity"));
-    assert!(matches!(
-        decoded.canonical().status(),
-        LanguageResponseStatus::Completed
-    ));
+    assert_eq!(portable.id(), Some("resp_fidelity"));
     assert_eq!(
-        decoded.canonical().usage().cache_read_tokens,
-        UsageValue::Known(80)
+        portable.termination(),
+        &LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
     );
-    assert_eq!(
-        decoded.canonical().usage().cache_write_tokens,
-        UsageValue::Known(10)
-    );
-    assert_eq!(
-        decoded.canonical().usage().reasoning_tokens,
-        UsageValue::Known(7)
-    );
-    assert_eq!(
-        decoded.canonical().usage().orchestration_tokens,
-        UsageValue::Known(5)
-    );
-    assert!(decoded.canonical().content().iter().any(|part| matches!(
+    assert_eq!(portable.usage().cache_read_tokens, UsageValue::Known(80));
+    assert_eq!(portable.usage().cache_write_tokens, UsageValue::Known(10));
+    assert_eq!(portable.usage().reasoning_tokens, UsageValue::Known(7));
+    assert_eq!(portable.usage().orchestration_tokens, UsageValue::Known(5));
+    assert!(portable.content().iter().any(|part| matches!(
         part,
         ContentPart::Citation(citation)
             if citation.url.as_deref() == Some("https://example.com/inventory")
     )));
-    assert!(decoded.canonical().content().iter().any(|part| matches!(
+    assert!(portable.content().iter().any(|part| matches!(
         part,
         ContentPart::Refusal { reason: Some(reason) }
             if reason == "restricted detail omitted"
     )));
-    let local_calls = decoded
-        .canonical()
+    let local_calls = portable
         .content()
         .iter()
         .filter_map(|part| match part {
@@ -227,8 +215,7 @@ fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
     assert_eq!(local_calls[0].id(), "call_inventory");
     assert_eq!(local_calls[0].name(), "inventory");
 
-    let opaque = decoded
-        .canonical()
+    let opaque = portable
         .content()
         .iter()
         .filter_map(|part| match part {
@@ -264,7 +251,8 @@ fn encrypted_reasoning_larger_than_legacy_limit_remains_replayable() {
 
     let decoded = decode_response(&body, &scope(), &model()).unwrap();
     let native = decoded
-        .canonical()
+        .portable()
+        .unwrap()
         .content()
         .iter()
         .find_map(|part| match part {
@@ -304,7 +292,7 @@ fn request_replays_native_program_history_and_copies_caller_to_tool_output() {
             text: "Check inventory".to_string(),
         })],
     );
-    let projection = decoded.canonical().project_assistant_history();
+    let projection = decoded.portable().unwrap().project_assistant_history();
     assert_eq!(projection.omissions().len(), 2);
     let assistant = projection
         .into_message()
@@ -552,7 +540,8 @@ fn opaque_history_requires_an_exact_replay_domain() {
     )
     .unwrap();
     let assistant = decoded
-        .canonical()
+        .portable()
+        .unwrap()
         .project_assistant_history()
         .into_message()
         .expect("native replay content remains");
@@ -619,15 +608,43 @@ fn websocket_request_body_omits_http_transport_fields() {
 }
 
 #[test]
-fn failed_and_cancelled_non_streaming_resources_remain_canonical_responses() {
+fn failed_and_cancelled_non_streaming_resources_return_bounded_partial_call_errors() {
     for status in ["failed", "cancelled"] {
         let response = json!({
             "id": format!("resp_{status}"),
             "created_at": 1785811200,
             "model": "gpt-5.6",
             "status": status,
-            "output": [],
-            "usage": null,
+            "output": [
+                {
+                    "id": "msg_partial",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "incomplete",
+                    "content": [
+                        {"type": "output_text", "text": "partial text", "annotations": []},
+                        {"type": "refusal", "refusal": "partial refusal"}
+                    ]
+                },
+                {
+                    "id": "rs_partial",
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "partial reasoning"}],
+                    "content": []
+                },
+                {
+                    "id": "fc_partial",
+                    "type": "function_call",
+                    "call_id": "call_partial",
+                    "name": "must_not_execute",
+                    "arguments": "{\"unsafe\":true}"
+                }
+            ],
+            "usage": {
+                "input_tokens": 7,
+                "output_tokens": 3,
+                "total_tokens": 10
+            },
             "error": if status == "failed" {
                 json!({"code": "server_error", "message": "provider detail"})
             } else {
@@ -636,23 +653,36 @@ fn failed_and_cancelled_non_streaming_resources_remain_canonical_responses() {
             "incomplete_details": null,
             "reasoning": null
         });
-        let canonical =
-            decode_response(&serde_json::to_vec(&response).unwrap(), &scope(), &model())
-                .unwrap()
-                .into_result()
-                .unwrap();
+        let decoded =
+            decode_response(&serde_json::to_vec(&response).unwrap(), &scope(), &model()).unwrap();
+        assert_eq!(decoded.status().as_str(), status);
+        let error = decoded.into_result().unwrap_err();
+        assert_eq!(
+            error.error().kind(),
+            if status == "failed" {
+                ErrorKind::Unavailable
+            } else {
+                ErrorKind::Cancelled
+            }
+        );
+        let partial = error.partial().expect("bounded partial output");
+        assert_eq!(partial.usage().input_tokens, UsageValue::Known(7));
+        assert_eq!(partial.usage().output_tokens, UsageValue::Known(3));
+        assert_eq!(partial.content().len(), 3);
         assert!(matches!(
-            (status, canonical.status(), canonical.finish_reason()),
-            (
-                "failed",
-                LanguageResponseStatus::Failed,
-                FinishReason::Error
-            ) | (
-                "cancelled",
-                LanguageResponseStatus::Cancelled,
-                FinishReason::Cancelled
-            )
+            partial.content(),
+            [
+                PartialLanguageOutputPart::Text { text },
+                PartialLanguageOutputPart::Refusal {
+                    reason: Some(refusal)
+                },
+                PartialLanguageOutputPart::Reasoning { text: reasoning }
+            ] if text == "partial text"
+                && refusal == "partial refusal"
+                && reasoning == "partial reasoning"
         ));
+        assert!(!format!("{error:?}").contains("provider detail"));
+        assert!(!format!("{partial:?}").contains("must_not_execute"));
     }
 }
 
@@ -983,12 +1013,14 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
     );
     assert!(terminal.iter().any(|event| matches!(
         event,
-        LanguageStreamEvent::Usage(usage) if usage.input_tokens == UsageValue::Known(0)
+        LanguageStreamEvent::Usage(update)
+            if update.usage().input_tokens == UsageValue::Known(0)
     )));
     assert!(matches!(
         terminal.last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
-            if response.finish_reason() == &FinishReason::ToolCalls
+            if response.termination()
+                == &LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
     ));
     assert!(decoder.decode("{}").is_err());
     assert!(decoder.finish().unwrap().is_empty());
@@ -1211,8 +1243,8 @@ fn usage_only_terminal_still_emits_started_usage_and_one_terminal() {
     ));
     assert!(events.iter().any(|event| matches!(
         event,
-        LanguageStreamEvent::Usage(usage)
-            if usage.total_tokens == UsageValue::Known(0)
+        LanguageStreamEvent::Usage(update)
+            if update.usage().total_tokens == UsageValue::Known(0)
     )));
     assert_eq!(
         events
@@ -1244,12 +1276,8 @@ fn terminal_status_matrix_preserves_partial_failed_and_cancelled_responses() {
     assert!(matches!(
         events.last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
-            if matches!(
-                response.status(),
-                LanguageResponseStatus::Incomplete {
-                    reason: Some(LanguageIncompleteReason::MaxOutputTokens)
-                }
-            ) && response.finish_reason() == &FinishReason::Length
+            if response.termination()
+                == &LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
     ));
 
     let mut cancelled = ResponsesStreamDecoder::new(scope(), model());
@@ -1264,8 +1292,15 @@ fn terminal_status_matrix_preserves_partial_failed_and_cancelled_responses() {
     assert!(matches!(
         events.last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-            response: Some(response), ..
-        })) if matches!(response.status(), LanguageResponseStatus::Cancelled)
+            partial: Some(partial), ..
+        })) if partial.usage().input_tokens == UsageValue::Known(5)
+            && matches!(
+                partial.content(),
+                [
+                    PartialLanguageOutputPart::Text { text },
+                    PartialLanguageOutputPart::Reasoning { text: reasoning }
+                ] if text == "partial cancelled" && reasoning == "reasoning cancelled"
+            )
     ));
 
     let mut failed = ResponsesStreamDecoder::new(scope(), model());
@@ -1280,9 +1315,93 @@ fn terminal_status_matrix_preserves_partial_failed_and_cancelled_responses() {
     assert!(matches!(
         events.last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
-            response: Some(response), error
-        })) if matches!(response.status(), LanguageResponseStatus::Failed)
+            partial: Some(partial), error
+        })) if partial.usage().output_tokens == UsageValue::Known(2)
+            && matches!(
+                partial.content(),
+                [
+                    PartialLanguageOutputPart::Text { text },
+                    PartialLanguageOutputPart::Reasoning { text: reasoning }
+                ] if text == "partial failed" && reasoning == "reasoning failed"
+            )
             && error.message() == "OpenAI Responses generation failed"
+    ));
+}
+
+#[test]
+fn failed_terminal_does_not_promote_unsettled_tool_input_to_an_executable_call() {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+    decoder
+        .decode(
+            &json!({
+                "type": "response.output_item.added",
+                "sequence_number": 1,
+                "output_index": 0,
+                "item": {
+                    "id": "fc_failed",
+                    "type": "function_call",
+                    "status": "in_progress",
+                    "call_id": "call_failed",
+                    "name": "must_not_execute",
+                    "arguments": ""
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let events = decoder
+        .decode(
+            &json!({
+                "type": "response.failed",
+                "sequence_number": 2,
+                "response": {
+                    "id": "resp_stream",
+                    "created_at": 1785811200,
+                    "model": "gpt-5.6",
+                    "status": "failed",
+                    "output": [{
+                        "id": "fc_failed",
+                        "type": "function_call",
+                        "status": "incomplete",
+                        "call_id": "call_failed",
+                        "name": "must_not_execute",
+                        "arguments": "{\"unsafe\":true}"
+                    }],
+                    "usage": null,
+                    "error": {"code": "server_error", "message": "private detail"},
+                    "incomplete_details": null,
+                    "reasoning": null
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        LanguageStreamEvent::ToolInputDelta { .. } | LanguageStreamEvent::ToolCall(_)
+    )));
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+            partial: None,
+            error
+        })) if error.kind() == ErrorKind::Unavailable
+    ));
+    assert!(matches!(
+        decoder.terminal_response().map(|response| response.output.as_slice()),
+        Some([OutputItem::FunctionCall(call)]) if call.name == "must_not_execute"
     ));
 }
 
@@ -1316,7 +1435,7 @@ fn early_error_and_eof_are_terminal_failures_not_success() {
     let [
         LanguageStreamEvent::Terminal(StreamTerminal::Failed {
             error,
-            response: None,
+            partial: None,
         }),
     ] = frame.portable_events()
     else {
@@ -2287,8 +2406,12 @@ fn no_output_response_and_unknown_provider_tool_remain_valid() {
     });
     let decoded =
         decode_response(&serde_json::to_vec(&response).unwrap(), &scope(), &model()).unwrap();
-    assert!(decoded.canonical().content().is_empty());
-    assert_eq!(decoded.canonical().finish_reason(), &FinishReason::Stop);
+    let portable = decoded.portable().unwrap();
+    assert!(portable.content().is_empty());
+    assert_eq!(
+        portable.termination(),
+        &LanguageTermination::Completed(LanguageCompletionReason::Stop)
+    );
 
     let future: OutputItem = serde_json::from_value(json!({
         "id": "future_1",
@@ -2332,15 +2455,23 @@ fn incomplete_program_output_is_not_projected_as_success() {
     ));
     assert!(
         !decoded
-            .canonical()
+            .portable()
+            .unwrap()
             .content()
             .iter()
             .any(|part| matches!(part, ContentPart::ToolResult(_)))
     );
-    assert!(decoded.canonical().content().iter().any(|part| matches!(
-        part,
-        ContentPart::ProviderOpaque(item) if item.item_id() == Some("cmo_incomplete")
-    )));
+    assert!(
+        decoded
+            .portable()
+            .unwrap()
+            .content()
+            .iter()
+            .any(|part| matches!(
+                part,
+                ContentPart::ProviderOpaque(item) if item.item_id() == Some("cmo_incomplete")
+            ))
+    );
 }
 
 fn progress_response(status: &str) -> Value {
@@ -2688,7 +2819,8 @@ fn repository_response_fixtures_round_trip_native_items_losslessly() {
         let requested_model = ModelId::new(original["model"].as_str().unwrap()).unwrap();
         let decoded = decode_response(body.as_bytes(), &scope(), &requested_model)
             .unwrap_or_else(|error| panic!("{name} fixture failed: {error}"));
-        let (native, canonical) = decoded.into_parts();
+        let (native, portable) = decoded.into_parts();
+        let canonical = portable.expect("fixture is a successful portable response");
         let round_trip = serde_json::to_value(&native).unwrap();
 
         assert_eq!(round_trip["output"], original["output"], "{name}");
@@ -2761,8 +2893,33 @@ fn terminal_frame(
             "created_at": 1785811200,
             "model": "gpt-5.6",
             "status": status,
-            "output": [],
-            "usage": null,
+            "output": [
+                {
+                    "id": format!("msg_{status}"),
+                    "type": "message",
+                    "role": "assistant",
+                    "status": if status == "completed" { "completed" } else { "incomplete" },
+                    "content": [{
+                        "type": "output_text",
+                        "text": format!("partial {status}"),
+                        "annotations": []
+                    }]
+                },
+                {
+                    "id": format!("rs_{status}"),
+                    "type": "reasoning",
+                    "summary": [{
+                        "type": "summary_text",
+                        "text": format!("reasoning {status}")
+                    }],
+                    "content": []
+                }
+            ],
+            "usage": {
+                "input_tokens": 5,
+                "output_tokens": 2,
+                "total_tokens": 7
+            },
             "error": error,
             "incomplete_details": incomplete_details,
             "reasoning": null

@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    Error, LanguageRequest, LanguageResponse, LanguageStreamDecoder, ModelId, ProviderOptionError,
-    ProviderScope, Warning,
+    Error, LanguageCallError, LanguageRequest, LanguageResponse, LanguageStreamDecoder, ModelId,
+    ProviderOptionError, ProviderScope, Warning,
 };
 use siumai_protocol_openai::PromptCacheAnnotationResolver;
 use siumai_protocol_openai::chat_completions::{
@@ -173,10 +173,10 @@ pub trait ResponsesCodecPolicy: Send + Sync {
         model: &ModelId,
         _headers: &ResponseHeaders,
         body: &[u8],
-    ) -> Result<LanguageResponse, Error> {
-        let decoded = decode_responses_response(body, scope, model)?;
-        let (_, response) = decoded.into_parts();
-        Ok(response)
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        decode_responses_response(body, scope, model)
+            .map_err(LanguageCallError::from)?
+            .into_result()
     }
 
     fn stream_decoder(
