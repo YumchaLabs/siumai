@@ -11,10 +11,9 @@ use siumai_core::{
     ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent, Message, MessagePart,
     MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
     ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId, ProviderOptions, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal,
-    SupportScope, ToolAnnotationTarget, ToolAnnotations, ToolSpec, TypedProviderAnnotation,
-    TypedProviderOptions, VerificationDate, VerificationEvidence, VerifiedFidelity,
-    VerifiedSupportClaim,
+    ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal, SupportScope,
+    ToolAnnotationTarget, ToolAnnotations, ToolSpec, TypedProviderAnnotation, TypedProviderOptions,
+    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, AnthropicTool, CacheControl, CacheTtl, ContentNodeOptions, InferenceGeo,
@@ -522,7 +521,7 @@ impl TypedProviderOptions for TestTypedOptions {
 }
 
 #[tokio::test]
-async fn typed_and_checked_raw_layers_merge_into_messages_request_options() {
+async fn typed_and_checked_raw_patches_merge_into_messages_request_options() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
@@ -551,23 +550,18 @@ async fn typed_and_checked_raw_layers_merge_into_messages_request_options() {
     )
     .build()
     .unwrap();
-    let typed = ProviderOptions::typed(&TestTypedOptions {
+    let model = provider.language("thinking-model").unwrap();
+    let typed = TestTypedOptions {
         metadata: json!({"user_id": "typed-user"}),
         thinking: json!({"type": "enabled", "budget_tokens": 2048}),
         custom_level: "typed",
-    })
-    .unwrap();
-    let raw = ProviderOptions::checked_raw(
-        ProviderId::new(PROVIDER_ID).unwrap(),
-        json!({"custom_level": "raw"}),
-    )
-    .unwrap();
+    };
     let options = CallOptions::default()
-        .with_provider_options(typed)
-        .with_provider_options(raw);
-    provider
-        .language("thinking-model")
+        .with_provider_options_for(&model, &typed)
         .unwrap()
+        .with_raw_provider_options_for(&model, json!({"custom_level": "raw"}))
+        .unwrap();
+    model
         .generate(request("reason", 4096), options)
         .await
         .unwrap();
@@ -625,32 +619,23 @@ async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
     )
     .build()
     .unwrap();
-    let typed = ProviderOptions::typed(&TestServiceTierOptions {
+    let model = provider.language("tier-model").unwrap();
+    let typed = TestServiceTierOptions {
         service_tier: Some(MessagesServiceTierPreference::StandardOnly),
-    })
-    .unwrap();
-    provider
-        .language("tier-model")
-        .unwrap()
-        .generate(
-            request("tier", 64),
-            CallOptions::default().with_provider_options(typed),
-        )
+    };
+    let typed_options = CallOptions::default()
+        .with_provider_options_for(&model, &typed)
+        .unwrap();
+    model
+        .generate(request("tier", 64), typed_options)
         .await
         .unwrap();
 
-    let raw = ProviderOptions::checked_raw(
-        ProviderId::new(PROVIDER_ID).unwrap(),
-        json!({"service_tier": "priority_v2"}),
-    )
-    .unwrap();
-    provider
-        .language("tier-model")
-        .unwrap()
-        .generate(
-            request("tier", 64),
-            CallOptions::default().with_provider_options(raw),
-        )
+    let raw_options = CallOptions::default()
+        .with_raw_provider_options_for(&model, json!({"service_tier": "priority_v2"}))
+        .unwrap();
+    model
+        .generate(request("tier", 64), raw_options)
         .await
         .unwrap();
     assert_eq!(server.received_requests().await.unwrap().len(), 2);
@@ -707,7 +692,8 @@ async fn current_typed_request_controls_survive_the_compatible_merge() {
     )
     .build()
     .unwrap();
-    let typed = ProviderOptions::typed(&TestCurrentRequestOptions {
+    let model = provider.language("current-options-model").unwrap();
+    let typed = TestCurrentRequestOptions {
         cache_control: CacheControl::new(CacheTtl::FiveMinutes),
         speed: InferenceSpeed::Fast,
         inference_geo: InferenceGeo::Us,
@@ -725,9 +711,11 @@ async fn current_typed_request_controls_survive_the_compatible_merge() {
             "url": "https://mcp.example.test",
             "authorization_token": "sentinel-secret"
         }]),
-    })
-    .unwrap();
-    assert!(!format!("{typed:?}").contains("sentinel-secret"));
+    };
+    let options = CallOptions::default()
+        .with_provider_options_for(&model, &typed)
+        .unwrap();
+    assert!(!format!("{options:?}").contains("sentinel-secret"));
 
     let mut current_request = request("current options", 64);
     current_request.tools.push(
@@ -736,15 +724,7 @@ async fn current_typed_request_controls_survive_the_compatible_merge() {
             .with_provider_annotation(&TestMcpToolsetAnnotation { enabled: true })
             .unwrap(),
     );
-    provider
-        .language("current-options-model")
-        .unwrap()
-        .generate(
-            current_request,
-            CallOptions::default().with_provider_options(typed),
-        )
-        .await
-        .unwrap();
+    model.generate(current_request, options).await.unwrap();
 }
 
 #[tokio::test]
@@ -756,21 +736,15 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
     )
     .build()
     .unwrap();
+    let model = provider.language("model").unwrap();
     for field in ["anthropicVersion", "requestEndpoint", "credentialToken"] {
         let mut value = serde_json::Map::new();
         value.insert(field.to_string(), json!("canary-secret"));
-        let options = ProviderOptions::checked_raw(
-            ProviderId::new(PROVIDER_ID).unwrap(),
-            serde_json::Value::Object(value),
-        )
-        .unwrap();
-        let error = provider
-            .language("model")
-            .unwrap()
-            .generate(
-                request("hello", 32),
-                CallOptions::default().with_provider_options(options),
-            )
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, serde_json::Value::Object(value))
+            .unwrap();
+        let error = model
+            .generate(request("hello", 32), options)
             .await
             .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);

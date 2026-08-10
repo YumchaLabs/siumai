@@ -93,7 +93,7 @@ impl EmbeddingModel for CohereEmbeddingModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let provider_options = embedding_options(&options, self.descriptor.scope())
+        let provider_options = embedding_options(&options, self)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let dimensions =
@@ -204,7 +204,7 @@ impl RerankModel for CohereRerankModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let provider_options = rerank_options(&options, self.descriptor.scope())
+        let provider_options = rerank_options(&options, self)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let wire = RerankWireRequest {

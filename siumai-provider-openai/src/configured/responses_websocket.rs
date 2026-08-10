@@ -1496,7 +1496,7 @@ mod tests {
 
     use futures_util::StreamExt;
     use serde_json::{Value, json};
-    use siumai_core::{Message, MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId};
+    use siumai_core::{Message, MessageRole, ReplayDomain, ReplayDomainId};
     use siumai_transport::EndpointConfig;
 
     use super::*;
@@ -1758,8 +1758,9 @@ mod tests {
             previous_response_id: Some("resp_1".to_string()),
             ..OpenAiResponsesOptions::default()
         };
-        let call =
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&options).unwrap());
+        let call = CallOptions::default()
+            .with_provider_options_for(&session.inner.model_handle, &options)
+            .unwrap();
         let mut second = session.generate(request("second"), call).await.unwrap();
         let second_body = outgoing_json(harness.outgoing.recv().await.unwrap());
         assert_eq!(second_body["previous_response_id"], "resp_1");
@@ -1779,7 +1780,6 @@ mod tests {
     async fn websocket_rejects_http_transport_fields_before_send() {
         let mut harness = harness();
         let model = provider(true).unwrap().responses("gpt-5.6").unwrap();
-        let provider_id = model.provider_id().clone();
         let session = model
             .websocket()
             .unwrap()
@@ -1789,12 +1789,11 @@ mod tests {
             .unwrap();
 
         for raw in [json!({"stream": true}), json!({"background": true})] {
-            let options = ProviderOptions::checked_raw(provider_id.clone(), raw).unwrap();
+            let options = CallOptions::default()
+                .with_raw_provider_options_for(&session.inner.model_handle, raw)
+                .unwrap();
             let error = session
-                .generate(
-                    request("reject HTTP transport field"),
-                    CallOptions::default().with_provider_options(options),
-                )
+                .generate(request("reject HTTP transport field"), options)
                 .await
                 .unwrap_err();
             assert_eq!(error.kind(), ErrorKind::InvalidInput);
@@ -2228,15 +2227,15 @@ mod tests {
     #[tokio::test]
     async fn connect_rejects_language_model_provider_options_before_opening_a_socket() {
         let harness = harness();
-        let options = ProviderOptions::typed(&OpenAiResponsesOptions::default()).unwrap();
-        let error = provider(true)
-            .unwrap()
-            .responses("gpt-5.6")
-            .unwrap()
+        let model = provider(true).unwrap().responses("gpt-5.6").unwrap();
+        let options = CallOptions::default()
+            .with_provider_options_for(&model, &OpenAiResponsesOptions::default())
+            .unwrap();
+        let error = model
             .websocket()
             .unwrap()
             .with_connector(harness.connector.clone())
-            .connect(CallOptions::default().with_provider_options(options))
+            .connect(options)
             .await
             .unwrap_err();
 

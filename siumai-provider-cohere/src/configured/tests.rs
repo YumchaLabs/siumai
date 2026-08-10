@@ -2,8 +2,8 @@ use std::time::Instant;
 
 use siumai_core::{
     ApiStability, CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail,
-    ErrorKind, Model, ModelFamily, ModelId, ProviderOptions, RerankCandidate, RerankModel,
-    RerankRequest, ResourceKind, UsageValue, VerifiedFidelity,
+    ErrorKind, Model, ModelFamily, ModelId, RerankCandidate, RerankModel, RerankRequest,
+    ResourceKind, UsageValue, VerifiedFidelity,
 };
 use siumai_transport::{EndpointConfig, RetryPolicy};
 use wiremock::matchers::{body_json, header, method, path};
@@ -190,17 +190,14 @@ async fn direct_and_erased_models_share_embedding_and_rerank_wire_contracts() {
     let registration = provider.registration();
     let embedding_request =
         EmbeddingRequest::new(["sunny day", "rainy day"]).expect("embedding request");
-    let embedding_options = CallOptions::default().with_provider_options(
-        ProviderOptions::typed(
-            &CohereEmbeddingOptions::new()
-                .with_input_type(CohereEmbeddingInputType::SearchDocument)
-                .with_truncate(CohereEmbeddingTruncate::End),
-        )
-        .expect("typed Cohere embedding options"),
-    );
-    let direct_embedding = provider
-        .embedding("embed-v4.0")
-        .expect("embedding model")
+    let embedding = provider.embedding("embed-v4.0").expect("embedding model");
+    let typed_embedding_options = CohereEmbeddingOptions::new()
+        .with_input_type(CohereEmbeddingInputType::SearchDocument)
+        .with_truncate(CohereEmbeddingTruncate::End);
+    let embedding_options = CallOptions::default()
+        .with_provider_options_for(&embedding, &typed_embedding_options)
+        .expect("Cohere embedding call options");
+    let direct_embedding = embedding
         .embed(embedding_request.clone(), embedding_options.clone())
         .await
         .expect("direct embedding response");
@@ -221,17 +218,14 @@ async fn direct_and_erased_models_share_embedding_and_rerank_wire_contracts() {
         .expect("rerank request")
         .with_top_n(2)
         .expect("top n");
-    let rerank_options = CallOptions::default().with_provider_options(
-        ProviderOptions::typed(
-            &CohereRerankOptions::new()
-                .with_max_tokens_per_doc(1000)
-                .with_priority(1),
-        )
-        .expect("typed Cohere rerank options"),
-    );
-    let direct_rerank = provider
-        .reranker("rerank-v3.5")
-        .expect("rerank model")
+    let reranker = provider.reranker("rerank-v3.5").expect("rerank model");
+    let typed_rerank_options = CohereRerankOptions::new()
+        .with_max_tokens_per_doc(1000)
+        .with_priority(1);
+    let rerank_options = CallOptions::default()
+        .with_provider_options_for(&reranker, &typed_rerank_options)
+        .expect("Cohere rerank call options");
+    let direct_rerank = reranker
         .rerank(rerank_request.clone(), rerank_options.clone())
         .await
         .expect("direct rerank response");
@@ -335,10 +329,12 @@ async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
                 .expect("embedding request")
                 .with_dimensions(256)
                 .expect("dimensions"),
-            CallOptions::default().with_provider_options(
-                ProviderOptions::typed(&CohereEmbeddingOptions::new().with_output_dimension(512))
-                    .expect("typed Cohere options"),
-            ),
+            CallOptions::default()
+                .with_provider_options_for(
+                    &embedding,
+                    &CohereEmbeddingOptions::new().with_output_dimension(512),
+                )
+                .expect("Cohere embedding call options"),
         )
         .await
         .unwrap_err();

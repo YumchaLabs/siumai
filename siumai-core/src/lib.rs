@@ -49,8 +49,7 @@ pub use model::{
 };
 pub use options::{
     CallOptions, Cancellation, MAX_PROVIDER_OPTION_ENTRIES, MAX_PROVIDER_OPTION_TARGETS,
-    MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionContext,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
+    MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionError,
     ProviderOptionSelection, ProviderOptionTarget, ProviderOptions, RetryIntent,
     TypedProviderOptions,
 };

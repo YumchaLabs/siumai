@@ -11,11 +11,10 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderInstanceId, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptions, ProviderScope,
-    PublicDiagnosticText, ResponseMetadata, SensitiveResponse, TranscriptSegment,
-    TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
-    TypedProviderOptions, Usage,
+    ModelOperation, ProviderInstanceId, ProviderOptionError, ProviderOptionSelection,
+    ProviderOptions, ProviderScope, PublicDiagnosticText, ResponseMetadata, SensitiveResponse,
+    TranscriptSegment, TranscriptionLimits, TranscriptionModel, TranscriptionRequest,
+    TranscriptionResponse, TypedProviderOptions, Usage,
 };
 use siumai_transport::{
     MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
@@ -151,7 +150,7 @@ impl TranscriptionModel for GroqTranscriptionModel {
             .map_err(|error| self.contextualize(error))?;
         let options = self
             .runtime
-            .options(&call)
+            .options(self, &call)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let response_format = options.response_format.unwrap_or_default();
@@ -177,7 +176,6 @@ pub(crate) struct GroqTranscriptionRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
     default_options: ProviderOptions,
-    option_merger: GroqTranscriptionOptionMerger,
 }
 
 impl GroqTranscriptionRuntime {
@@ -192,22 +190,16 @@ impl GroqTranscriptionRuntime {
             scope,
             transport,
             default_options,
-            option_merger: GroqTranscriptionOptionMerger,
         }
     }
 
-    fn options(&self, call: &CallOptions) -> Result<GroqTranscriptionOptions, ProviderOptionError> {
-        let layers =
-            ProviderOptionLayers::default().with_provider_default(self.default_options.clone())?;
-        call.apply_provider_options(self.scope.provider_id(), layers)?
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.scope.provider_id(),
-                    ModelFamily::Transcription,
-                    self.scope.api_mode(),
-                ),
-                &self.option_merger,
-            )
+    fn options<M: Model + ?Sized>(
+        &self,
+        model: &M,
+        call: &CallOptions,
+    ) -> Result<GroqTranscriptionOptions, ProviderOptionError> {
+        let selection = call.provider_options_for(model)?;
+        merge_options(&self.default_options, &selection)
     }
 }
 
@@ -222,31 +214,24 @@ impl fmt::Debug for GroqTranscriptionRuntime {
     }
 }
 
-struct GroqTranscriptionOptionMerger;
-
-impl ProviderOptionMerger for GroqTranscriptionOptionMerger {
-    type Output = GroqTranscriptionOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: siumai_core::ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options.value()).and_then(|value| value.validate())
+fn merge_options(
+    defaults: &ProviderOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GroqTranscriptionOptions, ProviderOptionError> {
+    let mut merged = defaults.value().clone();
+    for options in selection.typed() {
+        decode_options(options.value())?.validate()?;
+        merged.extend(options.value().clone());
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = Map::new();
-        for (_, options) in layers.in_precedence_order() {
-            for (name, value) in options.value() {
-                merged.insert(name.clone(), value.clone());
-            }
-        }
-        decode_options(&merged).and_then(|value| {
-            value.validate()?;
-            Ok(value)
-        })
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Groq transcription only accepts typed provider options".to_string(),
+        });
     }
+    let options = decode_options(&merged)?;
+    options.validate()?;
+    Ok(options)
 }
 
 fn decode_options(

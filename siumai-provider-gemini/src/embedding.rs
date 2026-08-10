@@ -8,8 +8,8 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, Error,
     ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions,
+    ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderScope,
+    TypedProviderOptions,
 };
 use siumai_protocol_gemini::embedding::{
     EmbedContentConfig, EmbedContentTaskType, EmbeddingRequestMode, decode_embedding_response,
@@ -140,21 +140,8 @@ impl GeminiEmbeddingModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiEmbeddingOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Embedding,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &GeminiEmbeddingOptionMerger {
-                    defaults: self.defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -277,38 +264,32 @@ fn is_known_model(model: &ModelId) -> bool {
     matches!(model.as_str(), GEMINI_EMBEDDING_2 | GEMINI_EMBEDDING_001)
 }
 
-struct GeminiEmbeddingOptionMerger {
-    defaults: GeminiEmbeddingOptions,
-}
-
-impl ProviderOptionMerger for GeminiEmbeddingOptionMerger {
-    type Output = GeminiEmbeddingOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).map(|_| ())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let value = decode_options(options)?;
-            if value.task_type.is_some() {
-                merged.task_type = value.task_type;
-            }
-            if value.title.is_some() {
-                merged.title = value.title;
-            }
-            if value.auto_truncate.is_some() {
-                merged.auto_truncate = value.auto_truncate;
-            }
+fn merge_options(
+    defaults: &GeminiEmbeddingOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiEmbeddingOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let value = decode_options(options)?;
+        value.validate()?;
+        if value.task_type.is_some() {
+            merged.task_type = value.task_type;
         }
-        merged.validate()?;
-        Ok(merged)
+        if value.title.is_some() {
+            merged.title = value.title;
+        }
+        if value.auto_truncate.is_some() {
+            merged.auto_truncate = value.auto_truncate;
+        }
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini stable v1 embedding only accepts typed provider options".to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(

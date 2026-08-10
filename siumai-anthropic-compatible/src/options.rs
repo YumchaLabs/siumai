@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai_core::{
-    LanguageRequest, Message, MessageRole, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptionSelection, ProviderOptions,
+    LanguageRequest, Message, MessageRole, ProviderOptionError, ProviderOptionSelection,
+    ProviderOptions,
 };
 use siumai_protocol_anthropic::messages::{
     CacheControl, ContextManagement, InferenceGeo, InferenceSpeed, McpServer, MessagesContainer,
@@ -15,10 +15,10 @@ use siumai_protocol_anthropic::messages::{
 /// Provider-independent Messages call shaping understood by the compatible engine.
 ///
 /// This type intentionally does not implement `TypedProviderOptions`: branded providers
-/// own their namespaces and may expose their own typed option structs. After erasure, the
-/// engine accepts the same typed Messages schema from provider-owned options and applies the
-/// canonical precedence stack. Checked raw layers are retained as a bounded final body overlay;
-/// canonical request fields and provider or transport security fields remain protected.
+/// own their namespaces and may expose their own typed option structs. After exact-target
+/// selection, the engine applies provider-owned typed patches in order over configured defaults.
+/// At most one checked raw patch is retained as the final body overlay; canonical request fields
+/// and provider or transport security fields remain protected.
 #[derive(Debug, Clone, Default)]
 pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
@@ -297,51 +297,25 @@ impl MessagesOptionMerger {
 
     pub(crate) fn merge_selected(
         &self,
-        layers: &ProviderOptionLayers,
         selection: &ProviderOptionSelection<'_>,
     ) -> Result<MessagesCallOptions, ProviderOptionError> {
         let mut merged = self.defaults.clone();
-        let mut has_raw = false;
-        for (origin, options) in layers.in_precedence_order() {
-            self.validate_layer(origin, options)?;
-            has_raw |= origin == ProviderOptionOrigin::RawOverride;
-            merged.apply(parse_patch(options)?);
-        }
         for options in selection.typed() {
-            self.validate_layer(ProviderOptionOrigin::Call, options)?;
+            self.validate_options(options)?;
             merged.apply(parse_patch(options)?);
         }
         if let Some(options) = selection.raw_override() {
-            if has_raw {
-                return Err(ProviderOptionError::DuplicateRawTarget);
-            }
-            self.validate_layer(ProviderOptionOrigin::RawOverride, options)?;
+            self.validate_options(options)?;
             merged.apply(parse_patch(options)?);
         }
         Ok(merged)
     }
-}
 
-impl ProviderOptionMerger for MessagesOptionMerger {
-    type Output = MessagesCallOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
+    fn validate_options(&self, options: &ProviderOptions) -> Result<(), ProviderOptionError> {
         let patch = parse_patch(options)?;
         let mut layer = MessagesCallOptions::default();
         layer.apply(patch);
         layer.validate_static()
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            merged.apply(parse_patch(options)?);
-        }
-        Ok(merged)
     }
 }
 

@@ -1,4 +1,4 @@
-use siumai_core::{CallOptions, ImageModel, ImageRequest, MediaData, ModelFamily, ProviderOptions};
+use siumai_core::{CallOptions, ImageModel, ImageRequest, MediaData, ModelFamily};
 use siumai_core::{ReplayDomain, ReplayDomainId};
 use siumai_provider_volcengine::models::{DREAMINA_SEEDANCE_2_0_260128, SEEDREAM_5_0_260128};
 use siumai_provider_volcengine::{
@@ -44,15 +44,13 @@ async fn portable_image_adapter_projects_one_bounded_seedream_call() {
         .with_format("image/png")
         .expect("format");
     let options = ArkImageOptions::new().with_watermark(false);
+    let model = provider.image(SEEDREAM_5_0_260128).expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
 
-    let response = provider
-        .image(SEEDREAM_5_0_260128)
-        .expect("model")
-        .generate_image(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+    let response = model
+        .generate_image(request, call_options)
         .await
         .expect("response");
 

@@ -1,7 +1,8 @@
 use serde_json::{Value, json};
 use siumai_core::{
     CallOptions, EmbeddingModel, EmbeddingRequest, ErrorKind, Model, ModelFamily, ModelId,
-    ModelLookupError, ProviderOptions, ReplayDomain, ReplayDomainId, UsageValue,
+    ModelLookupError, ProviderOptionError, ProviderOptions, ReplayDomain, ReplayDomainId,
+    UsageValue,
 };
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaConfigError, AlibabaCredential, AlibabaEmbeddingOptions,
@@ -214,16 +215,11 @@ async fn native_embedding_maps_options_orders_results_and_preserves_sparse_metad
         .with_text_type(AlibabaEmbeddingTextType::Query)
         .with_output_type(AlibabaEmbeddingOutputType::DenseAndSparse)
         .with_instruct("Represent the query for retrieving relevant documents");
-    let response = provider(&server)
-        .embedding("text-embedding-v4")
-        .unwrap()
-        .embed(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&provider_options).unwrap()),
-        )
-        .await
+    let model = provider(&server).embedding("text-embedding-v4").unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &provider_options)
         .unwrap();
+    let response = model.embed(request, call_options).await.unwrap();
 
     assert_eq!(response.embeddings[0], vec![0.1_f32; 128]);
     assert_eq!(response.embeddings[1], vec![0.2_f32; 128]);
@@ -276,15 +272,17 @@ async fn text_embedding_v3_accepts_its_documented_dense_and_sparse_mode() {
 
     let output =
         AlibabaEmbeddingOptions::new().with_output_type(AlibabaEmbeddingOutputType::DenseAndSparse);
-    let response = provider(&server)
-        .embedding("text-embedding-v3")
-        .unwrap()
+    let model = provider(&server).embedding("text-embedding-v3").unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &output)
+        .unwrap();
+    let response = model
         .embed(
             EmbeddingRequest::single("hello")
                 .unwrap()
                 .with_dimensions(512)
                 .unwrap(),
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&output).unwrap()),
+            call_options,
         )
         .await
         .unwrap();
@@ -358,17 +356,18 @@ async fn known_limits_dimensions_output_modes_and_option_context_fail_before_wir
     assert!(error.to_string().contains("sparse-only"));
 
     let chat_options = AlibabaChatOptions::new().with_enable_search(true);
-    let error = provider
-        .embedding("text-embedding-v4")
-        .unwrap()
-        .embed(
-            EmbeddingRequest::single("hello").unwrap(),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&chat_options).unwrap()),
-        )
-        .await
+    let embedding = provider.embedding("text-embedding-v4").unwrap();
+    let error = CallOptions::default()
+        .with_provider_options_for(&embedding, &chat_options)
         .unwrap_err();
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(matches!(
+        error,
+        ProviderOptionError::TargetMismatch {
+            expected_family: ModelFamily::Embedding,
+            actual_family: ModelFamily::Language,
+            ..
+        }
+    ));
 
     assert!(server.received_requests().await.unwrap().is_empty());
 }

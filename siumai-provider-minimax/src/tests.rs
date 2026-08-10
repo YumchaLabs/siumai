@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
     MediaData, MediaPart, Message, MessagePart, MessageRole, Model, ModelFamily, Provider,
-    ProviderOptions, ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
+    ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
 };
 use siumai_transport::{EndpointConfig, OfficialOrigin};
 use wiremock::matchers::{header, method, path};
@@ -426,14 +426,14 @@ async fn messages_is_recommended_and_uses_minimax_dialect_controls() {
         }),
     ]);
     request.generation.temperature = Some(2.0);
-    provider(&server, MinimaxCredential::api_key("test-key"))
+    let model = provider(&server, MinimaxCredential::api_key("test-key"))
         .language(MINIMAX_M3)
-        .expect("model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request, call_options)
         .await
         .expect("response");
 
@@ -453,14 +453,14 @@ async fn messages_rejects_forged_anthropic_controls_before_transport() {
     let options = ForgedMinimaxMessagesOptions {
         task_budget: json!({"total": 20_000}),
     };
-    let error = provider(&server, MinimaxCredential::unauthenticated())
+    let model = provider(&server, MinimaxCredential::unauthenticated())
         .messages(MINIMAX_M3)
-        .expect("model")
-        .generate(
-            text_request("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let error = model
+        .generate(text_request("hello"), call_options)
         .await
         .expect_err("Anthropic-only controls must fail closed");
 
@@ -545,14 +545,14 @@ async fn messages_rejects_unverified_mid_conversation_system_before_transport() 
 async fn known_m2_cannot_claim_disabled_thinking() {
     let server = MockServer::start().await;
     let options = MinimaxMessagesOptions::new().with_thinking(MinimaxThinking::Disabled);
-    let error = provider(&server, MinimaxCredential::unauthenticated())
+    let model = provider(&server, MinimaxCredential::unauthenticated())
         .messages(MINIMAX_M2_7)
-        .expect("model")
-        .generate(
-            text_request("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let error = model
+        .generate(text_request("hello"), call_options)
         .await
         .expect_err("disabled thinking must fail");
     assert_eq!(error.kind(), ErrorKind::Unsupported);
@@ -581,14 +581,14 @@ async fn chat_completions_uses_its_own_defaults_and_wire_contract() {
     let mut request = text_request("hello");
     request.generation.max_output_tokens = Some(128);
     request.generation.temperature = Some(2.0);
-    provider(&server, MinimaxCredential::unauthenticated())
+    let model = provider(&server, MinimaxCredential::unauthenticated())
         .chat_completions(MINIMAX_M3)
-        .expect("model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request, call_options)
         .await
         .expect("response");
 
@@ -673,14 +673,14 @@ async fn responses_encodes_video_and_bounded_typed_options() {
         name: None,
     })]);
     request.generation.temperature = Some(1.0);
-    provider(&server, MinimaxCredential::unauthenticated())
+    let model = provider(&server, MinimaxCredential::unauthenticated())
         .responses(MINIMAX_M3)
-        .expect("model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request, call_options)
         .await
         .expect("response");
 
@@ -699,14 +699,14 @@ async fn unknown_models_remain_open_but_receive_no_invented_controls() {
     let server = MockServer::start().await;
     let provider = provider(&server, MinimaxCredential::unauthenticated());
     let options = MinimaxMessagesOptions::new().with_thinking(MinimaxThinking::Adaptive);
-    let error = provider
+    let model = provider
         .messages("future-minimax-model")
-        .expect("future model")
-        .generate(
-            text_request("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("typed options")),
-        )
+        .expect("future model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let error = model
+        .generate(text_request("hello"), call_options)
         .await
         .expect_err("unverified thinking must fail");
     assert_eq!(error.kind(), ErrorKind::Unsupported);

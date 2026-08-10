@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 use siumai_core::{
     CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent,
-    Message, MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal,
+    Message, MessageRole, ReplayDomain, ReplayDomainId, StreamTerminal,
 };
 use siumai_protocol_openai::responses::OPENAI_RESPONSES_PROTOCOL;
 use siumai_provider_volcengine::models::DOUBAO_SEED_2_1_PRO_260628;
@@ -48,15 +48,13 @@ async fn chat_sends_ark_thinking_and_decodes_reasoning() {
         .await;
     let provider = test_provider(&format!("{}/v1", server.url()));
     let options = ArkChatOptions::new().with_thinking(ArkThinking::enabled());
+    let model = provider.chat_completions(TEST_MODEL).expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
 
-    let response = provider
-        .chat_completions(TEST_MODEL)
-        .expect("model")
-        .generate(
-            user_request("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+    let response = model
+        .generate(user_request("hello"), call_options)
         .await
         .expect("response");
 
@@ -164,15 +162,13 @@ async fn responses_stream_preserves_ark_citation_and_settles_once() {
     let provider = test_provider(&format!("{}/v1", server.url()));
     let options =
         ArkResponsesOptions::new().with_native_tool(ArkResponsesTool::knowledge_search("kb-1"));
+    let model = provider.responses(TEST_MODEL).expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
 
-    let events = provider
-        .responses(TEST_MODEL)
-        .expect("model")
-        .stream(
-            user_request("search"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+    let events = model
+        .stream(user_request("search"), call_options)
         .await
         .expect("stream")
         .collect::<Vec<_>>()
@@ -260,15 +256,13 @@ async fn responses_remote_mcp_adds_the_required_beta_header_and_typed_controls()
         .with_allowed_tool("search")
         .with_approval(ArkMcpApproval::Always);
     let options = ArkResponsesOptions::new().with_native_tool(ArkResponsesTool::remote_mcp(mcp));
+    let model = provider.responses(TEST_MODEL).expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
 
-    provider
-        .responses(TEST_MODEL)
-        .expect("model")
-        .generate(
-            user_request("search"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+    model
+        .generate(user_request("search"), call_options)
         .await
         .expect("response");
 

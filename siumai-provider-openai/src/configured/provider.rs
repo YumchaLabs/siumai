@@ -7,15 +7,12 @@ use chrono::NaiveDate;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-#[cfg(test)]
-use siumai_core::ProviderOptionContext;
 use siumai_core::{
     ApiStability, CallOptions, CatalogError, EmbeddingModel, EmbeddingModelProvider, ImageModel,
     ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelFamily,
     ModelId, ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
     NativeVerificationEvidence, OfficialSource, ProfileError, Provider, ProviderInstanceId,
-    ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin,
-    ProviderOptionSelection, ProviderOptions, ProviderRegistration, ProviderScope,
+    ProviderOptionError, ProviderOptionSelection, ProviderRegistration, ProviderScope,
     ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider,
     SupportManifestError, TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
     VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
@@ -1061,44 +1058,18 @@ impl OpenAiRuntime {
             .clone()
     }
 
-    #[cfg(test)]
-    pub(crate) fn merge_options(
-        &self,
-        mode: OpenAiApiMode,
-        options: &CallOptions,
-    ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
-        let scope = self.profile.provider_scope(mode);
-        let layers =
-            options.apply_provider_options(scope.provider_id(), ProviderOptionLayers::default())?;
-        let merger = match mode {
-            OpenAiApiMode::Responses => &self.responses_options,
-            OpenAiApiMode::ChatCompletions => &self.chat_completions_options,
-        };
-        layers.merge_for(
-            ProviderOptionContext::new(
-                scope.provider_id(),
-                ModelFamily::Language,
-                scope.api_mode(),
-            ),
-            merger,
-        )
-    }
-
     pub(crate) fn merge_options_for<M: Model + ?Sized>(
         &self,
         model: &M,
         mode: OpenAiApiMode,
         options: &CallOptions,
     ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
-        let scope = self.profile.provider_scope(mode);
-        let layers =
-            options.apply_provider_options(scope.provider_id(), ProviderOptionLayers::default())?;
         let selection = options.provider_options_for(model)?;
         let merger = match mode {
             OpenAiApiMode::Responses => &self.responses_options,
             OpenAiApiMode::ChatCompletions => &self.chat_completions_options,
         };
-        merger.merge_selected(&layers, &selection)
+        merger.merge_selected(&selection)
     }
 }
 
@@ -1189,30 +1160,16 @@ impl OpenAiOptionMerger {
 
     fn merge_selected(
         &self,
-        layers: &ProviderOptionLayers,
         selection: &ProviderOptionSelection<'_>,
     ) -> Result<OpenAiMergedOptions, ProviderOptionError> {
         let mut typed = self.defaults.clone();
-        let mut raw = None;
-        for (origin, options) in layers.in_precedence_order() {
-            if origin == ProviderOptionOrigin::RawOverride {
-                self.validate_raw(options.value())?;
-                raw = Some(options.value());
-            } else {
-                self.validate_typed(options.value())?;
-                merge_typed_layer(&mut typed, options.value());
-            }
-        }
         for options in selection.typed() {
             self.validate_typed(options.value())?;
             merge_typed_layer(&mut typed, options.value());
         }
-        if let Some(selected_raw) = selection.raw_override() {
-            if raw.is_some() {
-                return Err(ProviderOptionError::DuplicateRawTarget);
-            }
-            self.validate_raw(selected_raw.value())?;
-            raw = Some(selected_raw.value());
+        let raw = selection.raw_override().map(|options| options.value());
+        if let Some(raw) = raw {
+            self.validate_raw(raw)?;
         }
         self.finish_merge(typed, raw)
     }
@@ -1248,34 +1205,6 @@ impl OpenAiOptionMerger {
             native_tools,
             function_tools,
         })
-    }
-}
-
-impl ProviderOptionMerger for OpenAiOptionMerger {
-    type Output = OpenAiMergedOptions;
-
-    fn validate_layer(
-        &self,
-        origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        match origin {
-            ProviderOptionOrigin::RawOverride => self.validate_raw(options.value()),
-            _ => self.validate_typed(options.value()),
-        }
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut typed = self.defaults.clone();
-        let mut raw = None;
-        for (origin, options) in layers.in_precedence_order() {
-            if origin == ProviderOptionOrigin::RawOverride {
-                raw = Some(options.value());
-            } else {
-                merge_typed_layer(&mut typed, options.value());
-            }
-        }
-        self.finish_merge(typed, raw)
     }
 }
 

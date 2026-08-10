@@ -2,8 +2,8 @@ use futures_util::StreamExt;
 use serde_json::json;
 use siumai_core::{
     ApiStability, CallOptions, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent,
-    Message, MessagePart, MessageRole, Model, ModelId, ModelLifecycle, Provider, ProviderOptions,
-    ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
+    Message, MessagePart, MessageRole, Model, ModelId, ModelLifecycle, Provider, ReplayDomain,
+    ReplayDomainId, StreamTerminal, ToolSpec,
 };
 use siumai_protocol_anthropic::messages::{
     MessagesCodecError, MessagesRequestOptions, encode_request_with_resolver,
@@ -73,21 +73,17 @@ async fn explicit_options_are_encoded_without_model_name_gating() {
     let mut explicit = request("caller intent", 4_096);
     explicit.generation.temperature = Some(0.4);
     explicit.generation.top_p = Some(0.5);
+    let model = provider.language(CLAUDE_OPUS_4_7).expect("model");
+    let options = AnthropicMessagesOptions::new()
+        .with_enabled_thinking(2_048)
+        .with_output_effort(OutputEffort::Max)
+        .with_top_k(32);
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
 
-    let response = provider
-        .language(CLAUDE_OPUS_4_7)
-        .expect("model")
-        .generate(
-            explicit,
-            CallOptions::default().with_provider_options(
-                AnthropicMessagesOptions::new()
-                    .with_enabled_thinking(2_048)
-                    .with_output_effort(OutputEffort::Max)
-                    .with_top_k(32)
-                    .provider_options()
-                    .expect("options"),
-            ),
-        )
+    let response = model
+        .generate(explicit, call_options)
         .await
         .expect("explicit caller options must reach the wire");
     assert_eq!(response.id(), Some("msg_caller_intent"));
@@ -118,22 +114,19 @@ async fn future_raw_provider_values_reach_the_request_body() {
         .mount(&server)
         .await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
-    let raw = ProviderOptions::checked_raw(
-        siumai_core::ProviderId::new("anthropic").expect("provider"),
-        json!({
-            "service_tier": "priority_v2",
-            "output_config": {"effort": "ultra"}
-        }),
-    )
-    .expect("bounded raw options");
-
-    provider
-        .language("future-model")
-        .expect("model")
-        .generate(
-            request("future values", 64),
-            CallOptions::default().with_provider_options(raw),
+    let model = provider.language("future-model").expect("model");
+    let call_options = CallOptions::default()
+        .with_raw_provider_options_for(
+            &model,
+            json!({
+                "service_tier": "priority_v2",
+                "output_config": {"effort": "ultra"}
+            }),
         )
+        .expect("bounded raw options");
+
+    model
+        .generate(request("future values", 64), call_options)
         .await
         .expect("future raw values must reach the wire");
 }
@@ -163,18 +156,13 @@ async fn fallback_options_encode_and_add_the_required_beta_header() {
         .await;
 
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
-    provider
-        .language("future-model")
-        .expect("model")
-        .generate(
-            request("fallback", 64),
-            CallOptions::default().with_provider_options(
-                AnthropicMessagesOptions::new()
-                    .with_fallbacks(ServerFallbacks::Default)
-                    .provider_options()
-                    .expect("options"),
-            ),
-        )
+    let model = provider.language("future-model").expect("model");
+    let options = AnthropicMessagesOptions::new().with_fallbacks(ServerFallbacks::Default);
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request("fallback", 64), call_options)
         .await
         .expect("fallback request");
 }
@@ -673,14 +661,12 @@ async fn typed_messages_options_use_the_anthropic_wire_shape() {
         .with_output_effort(OutputEffort::High)
         .try_with_extra("custom_level", json!("provider-specific"))
         .expect("extra");
-    provider
-        .language("thinking-model")
-        .expect("model")
-        .generate(
-            request("reason", 4_096),
-            CallOptions::default()
-                .with_provider_options(options.provider_options().expect("provider options")),
-        )
+    let model = provider.language("thinking-model").expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request("reason", 4_096), call_options)
         .await
         .expect("generate");
 }
@@ -914,18 +900,12 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
 async fn protected_raw_options_fail_before_network() {
     let server = MockServer::start().await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
-    let raw = ProviderOptions::checked_raw(
-        siumai_core::ProviderId::new("anthropic").expect("provider id"),
-        json!({"credential_token": "canary-secret"}),
-    )
-    .expect("checked raw layer");
-    let error = provider
-        .language("future-model")
-        .expect("model")
-        .generate(
-            request("hello", 64),
-            CallOptions::default().with_provider_options(raw),
-        )
+    let model = provider.language("future-model").expect("model");
+    let call_options = CallOptions::default()
+        .with_raw_provider_options_for(&model, json!({"credential_token": "canary-secret"}))
+        .expect("checked raw layer");
+    let error = model
+        .generate(request("hello", 64), call_options)
         .await
         .expect_err("engine-owned protected field");
     assert_eq!(error.kind(), ErrorKind::InvalidInput);

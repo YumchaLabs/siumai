@@ -4,8 +4,7 @@ use std::time::Duration;
 
 use siumai_core::{
     CallOptions, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
-    Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers, ProviderRegistration,
-    ProviderScope,
+    Provider, ProviderInstanceId, ProviderOptionError, ProviderRegistration, ProviderScope,
 };
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
@@ -256,10 +255,8 @@ impl ProviderRuntime {
         model: &M,
         options: &CallOptions,
     ) -> Result<MessagesCallOptions, ProviderOptionError> {
-        let layers = options
-            .apply_provider_options(self.scope.provider_id(), ProviderOptionLayers::default())?;
         let selection = options.provider_options_for(model)?;
-        self.option_merger.merge_selected(&layers, &selection)
+        self.option_merger.merge_selected(&selection)
     }
 }
 

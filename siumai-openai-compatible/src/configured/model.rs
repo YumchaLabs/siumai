@@ -23,7 +23,7 @@ use siumai_transport::{
 use super::codec_policy::{CompatibleStreamDecoder, PreparedChatCall, PreparedResponsesCall};
 use super::mode::OpenAiCompatibleApiMode;
 use super::profile::LanguageModeProfile;
-use super::provider::ProviderRuntime;
+use super::provider::{CompatibleCallOptions, ProviderRuntime};
 
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
 
@@ -90,7 +90,12 @@ impl OpenAiCompatibleLanguageModel {
         }
     }
 
-    fn chat_plan(&self, prepared: &PreparedChatCall, stream: bool) -> Result<RequestPlan, Error> {
+    fn chat_plan(
+        &self,
+        prepared: &PreparedChatCall,
+        raw: Option<&serde_json::Map<String, serde_json::Value>>,
+        stream: bool,
+    ) -> Result<RequestPlan, Error> {
         let LanguageModeProfile::ChatCompletions {
             scope,
             codec_policy,
@@ -101,7 +106,10 @@ impl OpenAiCompatibleLanguageModel {
                 "Chat Completions encoding requires a Chat Completions model",
             ));
         };
-        let body = codec_policy.encode_request(scope, self.model_id(), prepared, stream)?;
+        let mut body = codec_policy.encode_request(scope, self.model_id(), prepared, stream)?;
+        codec_policy
+            .apply_raw_body_overlay(&mut body, raw)
+            .map_err(|source| option_error(self.api_mode(), source))?;
         request_plan(
             self.api_mode(),
             CHAT_COMPLETIONS_TARGET,
@@ -115,6 +123,7 @@ impl OpenAiCompatibleLanguageModel {
     fn responses_plan(
         &self,
         prepared: &PreparedResponsesCall,
+        raw: Option<&serde_json::Map<String, serde_json::Value>>,
         stream: bool,
     ) -> Result<RequestPlan, Error> {
         let LanguageModeProfile::Responses {
@@ -127,7 +136,10 @@ impl OpenAiCompatibleLanguageModel {
                 "Responses encoding requires a Responses model",
             ));
         };
-        let body = codec_policy.encode_request(scope, self.model_id(), prepared, stream)?;
+        let mut body = codec_policy.encode_request(scope, self.model_id(), prepared, stream)?;
+        codec_policy
+            .apply_raw_body_overlay(&mut body, raw)
+            .map_err(|source| option_error(self.api_mode(), source))?;
         request_plan(
             self.api_mode(),
             RESPONSES_TARGET,
@@ -178,10 +190,10 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         let operation = ModelOperation::Generate;
         let mut warnings = Vec::new();
         let mode = self.api_mode();
-        let extra = self
-            .runtime
-            .merge_options_for(self, mode, &options)
-            .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
+        let CompatibleCallOptions { typed, raw } =
+            self.runtime
+                .options_for(self, mode, &options)
+                .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
 
         let response = match &self.mode {
             LanguageModeProfile::ChatCompletions {
@@ -190,11 +202,11 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 ..
             } => {
                 let prepared = self
-                    .prepare_chat(request, extra)
+                    .prepare_chat(request, typed)
                     .map_err(|error| self.contextualize(operation, error))?;
                 warnings.extend(prepared.warnings.iter().cloned());
                 let plan = self
-                    .chat_plan(&prepared, false)
+                    .chat_plan(&prepared, raw.as_ref(), false)
                     .map_err(|error| self.contextualize(operation, error))?;
                 let response = self
                     .runtime
@@ -221,11 +233,11 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 ..
             } => {
                 let prepared = self
-                    .prepare_responses(request, extra)
+                    .prepare_responses(request, typed)
                     .map_err(|error| self.contextualize(operation, error))?;
                 warnings.extend(prepared.warnings.iter().cloned());
                 let plan = self
-                    .responses_plan(&prepared, false)
+                    .responses_plan(&prepared, raw.as_ref(), false)
                     .map_err(|error| self.contextualize(operation, error))?;
                 let response = self
                     .runtime
@@ -252,10 +264,10 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         let operation = ModelOperation::Stream;
         let mut warnings = Vec::new();
         let mode = self.api_mode();
-        let extra = self
-            .runtime
-            .merge_options_for(self, mode, &options)
-            .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
+        let CompatibleCallOptions { typed, raw } =
+            self.runtime
+                .options_for(self, mode, &options)
+                .map_err(|source| self.contextualize(operation, option_error(mode, source)))?;
 
         let (plan, mut decoder) = match &self.mode {
             LanguageModeProfile::ChatCompletions {
@@ -264,11 +276,11 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 ..
             } => {
                 let prepared = self
-                    .prepare_chat(request, extra)
+                    .prepare_chat(request, typed)
                     .map_err(|error| self.contextualize(operation, error))?;
                 warnings.extend(prepared.warnings.iter().cloned());
                 let plan = self
-                    .chat_plan(&prepared, true)
+                    .chat_plan(&prepared, raw.as_ref(), true)
                     .map_err(|error| self.contextualize(operation, error))?;
                 let decoder = codec_policy.stream_decoder(
                     scope.as_ref().clone(),
@@ -283,11 +295,11 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 codec_policy,
             } => {
                 let prepared = self
-                    .prepare_responses(request, extra)
+                    .prepare_responses(request, typed)
                     .map_err(|error| self.contextualize(operation, error))?;
                 warnings.extend(prepared.warnings.iter().cloned());
                 let plan = self
-                    .responses_plan(&prepared, true)
+                    .responses_plan(&prepared, raw.as_ref(), true)
                     .map_err(|error| self.contextualize(operation, error))?;
                 let decoder = codec_policy.stream_decoder(
                     scope.as_ref().clone(),

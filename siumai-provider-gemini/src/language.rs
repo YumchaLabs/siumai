@@ -9,9 +9,8 @@ use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model, ModelDescriptor,
-    ModelFamily, ModelId, ModelOperation, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions,
-    StreamTerminal,
+    ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderOptionSelection,
+    ProviderOptions, StreamTerminal, TypedProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     DecodedInteraction, InteractionLanguageConfig, InteractionStorage, InteractionThinkingLevel,
@@ -54,21 +53,8 @@ impl GeminiLanguageModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiInteractionsOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Language,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &GeminiInteractionsOptionMerger {
-                    defaults: self.runtime.interactions_defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.runtime.interactions_defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -368,37 +354,33 @@ fn protocol_config(options: &GeminiInteractionsOptions) -> InteractionLanguageCo
     config
 }
 
-struct GeminiInteractionsOptionMerger {
-    defaults: GeminiInteractionsOptions,
-}
-
-impl ProviderOptionMerger for GeminiInteractionsOptionMerger {
-    type Output = GeminiInteractionsOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).map(|_| ())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let value = decode_options(options)?;
-            if value.storage.is_some() {
-                merged.storage = value.storage;
-            }
-            if value.thinking_level.is_some() {
-                merged.thinking_level = value.thinking_level;
-            }
-            if value.thinking_summaries.is_some() {
-                merged.thinking_summaries = value.thinking_summaries;
-            }
+fn merge_options(
+    defaults: &GeminiInteractionsOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiInteractionsOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let value = decode_options(options)?;
+        value.validate()?;
+        if value.storage.is_some() {
+            merged.storage = value.storage;
         }
-        Ok(merged)
+        if value.thinking_level.is_some() {
+            merged.thinking_level = value.thinking_level;
+        }
+        if value.thinking_summaries.is_some() {
+            merged.thinking_summaries = value.thinking_summaries;
+        }
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini Interactions language generation only accepts typed provider options"
+                .to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(
@@ -521,12 +503,11 @@ mod tests {
             .await;
         let provider = provider(server.url());
         let model = provider.language("gemini-3.6-flash").unwrap();
-        let options = ProviderOptions::typed(
-            &GeminiInteractionsOptions::new()
-                .with_thinking_summaries(GeminiThinkingSummaries::Auto),
-        )
-        .unwrap();
-        let call = CallOptions::default().with_provider_options(options);
+        let options =
+            GeminiInteractionsOptions::new().with_thinking_summaries(GeminiThinkingSummaries::Auto);
+        let call = CallOptions::default()
+            .with_provider_options_for(&model, &options)
+            .unwrap();
         let request = LanguageRequest::new(vec![Message::user("hello")]);
 
         let native = model

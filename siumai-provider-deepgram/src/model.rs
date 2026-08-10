@@ -131,7 +131,7 @@ impl TranscriptionModel for DeepgramTranscriptionModel {
             .map_err(|error| self.contextualize(error))?;
         let options = self
             .runtime
-            .options(&call)
+            .options(self, &call)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let plan = self
@@ -514,8 +514,7 @@ mod tests {
     use bytes::Bytes;
     use mockito::Matcher;
     use siumai_core::{
-        Cancellation, ErrorDetail, ProviderOptions, ResourceKind, TranscriptionModel as _,
-        UsageValue,
+        Cancellation, ErrorDetail, ResourceKind, TranscriptionModel as _, UsageValue,
     };
     use siumai_transport::{EndpointConfig, TransportLimits};
 
@@ -571,19 +570,17 @@ mod tests {
             .create_async()
             .await;
         let provider = provider_at(&server.url());
-        let provider_options = ProviderOptions::typed(
-            &DeepgramTranscriptionOptions::new()
-                .with_smart_format(true)
-                .with_diarize_model(DeepgramDiarizeModel::Latest),
-        )
-        .unwrap();
+        let provider_options = DeepgramTranscriptionOptions::new()
+            .with_smart_format(true)
+            .with_diarize_model(DeepgramDiarizeModel::Latest);
         let request = TranscriptionRequest::new(Bytes::from_static(b"owned-audio"), "audio/wav")
             .unwrap()
             .with_language("en")
             .unwrap();
-        let call = CallOptions::default().with_provider_options(provider_options);
-
         let direct = provider.transcription("nova-3").unwrap();
+        let call = CallOptions::default()
+            .with_provider_options_for(&direct, &provider_options)
+            .unwrap();
         let direct_response = direct
             .transcribe(request.clone(), call.clone())
             .await

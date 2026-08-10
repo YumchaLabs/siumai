@@ -300,7 +300,7 @@ impl TranscriptionModel for ElevenLabsTranscriptionModel {
             .map_err(|error| self.contextualize(error))?;
         let options = self
             .runtime
-            .merge_options(&call)
+            .merge_options(self, &call)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let plan = self
@@ -474,7 +474,7 @@ fn request_build_error(source: RequestBuildError) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{ProviderOptions, TranscriptionModel as _, UsageValue};
+    use siumai_core::{TranscriptionModel as _, UsageValue};
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -516,21 +516,20 @@ mod tests {
             .mount(&server)
             .await;
 
-        let options = ProviderOptions::typed(
-            &ElevenLabsTranscriptionOptions::new()
-                .with_diarize(true)
-                .with_timestamps_granularity(ElevenLabsTimestampGranularity::Word),
-        )
-        .unwrap();
-        let response = provider(&server)
-            .default_transcription_model()
-            .unwrap()
+        let options = ElevenLabsTranscriptionOptions::new()
+            .with_diarize(true)
+            .with_timestamps_granularity(ElevenLabsTimestampGranularity::Word);
+        let model = provider(&server).default_transcription_model().unwrap();
+        let call = CallOptions::default()
+            .with_provider_options_for(&model, &options)
+            .unwrap();
+        let response = model
             .transcribe(
                 TranscriptionRequest::new(vec![1_u8, 2, 3], "audio/mpeg")
                     .unwrap()
                     .with_language("en")
                     .unwrap(),
-                CallOptions::default().with_provider_options(options),
+                call,
             )
             .await
             .unwrap();

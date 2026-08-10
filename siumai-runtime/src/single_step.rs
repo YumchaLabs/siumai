@@ -43,7 +43,7 @@ where
             .generate(
                 request,
                 self.runtime
-                    .prepare_options(self.model, self.step_options, options),
+                    .prepare_options(self.model, self.step_options, options)?,
             )
             .await
     }
@@ -59,7 +59,7 @@ where
             .stream(
                 request,
                 self.runtime
-                    .prepare_options(self.model, self.step_options, options),
+                    .prepare_options(self.model, self.step_options, options)?,
             )
             .await
     }

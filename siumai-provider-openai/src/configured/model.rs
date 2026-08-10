@@ -873,8 +873,7 @@ async fn stream_response_error(mode: OpenAiApiMode, response: TransportStreamRes
 mod tests {
     use serde_json::json;
     use siumai_core::{
-        ContentPart, Message, MessagePart, MessageRole, ProviderOptions, ReplayDomain,
-        ReplayDomainId, ToolSpec,
+        ContentPart, Message, MessagePart, MessageRole, ReplayDomain, ReplayDomainId, ToolSpec,
     };
     use siumai_protocol_openai::responses::ResponsesWireDialect;
     use siumai_transport::EndpointConfig;
@@ -936,11 +935,19 @@ mod tests {
         let chat = provider.chat_completions(GPT_5_6_SOL).unwrap();
         let responses_options = responses
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &CallOptions::default())
+            .merge_options_for(
+                &responses,
+                OpenAiApiMode::Responses,
+                &CallOptions::default(),
+            )
             .unwrap();
         let chat_options = chat
             .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &CallOptions::default())
+            .merge_options_for(
+                &chat,
+                OpenAiApiMode::ChatCompletions,
+                &CallOptions::default(),
+            )
             .unwrap();
         let responses_plan = responses
             .plan(&request(), false, responses_options)
@@ -1008,11 +1015,12 @@ mod tests {
             ],
             ..OpenAiResponsesOptions::default()
         };
-        let call_options =
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
         let merged = model
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let plan = model
             .plan(
@@ -1050,7 +1058,7 @@ mod tests {
         let typed = OpenAiResponsesOptions::default()
             .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
         let call_options = CallOptions::default()
-            .with_typed_provider_options_for(&model, &typed)
+            .with_provider_options_for(&model, &typed)
             .unwrap();
 
         let merged = model
@@ -1080,11 +1088,12 @@ mod tests {
         let model = provider.chat_completions(GPT_5_6_SOL).unwrap();
         let typed = OpenAiChatCompletionsOptions::default()
             .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes());
-        let call_options =
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
         let merged = model
             .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &call_options)
+            .merge_options_for(&model, OpenAiApiMode::ChatCompletions, &call_options)
             .unwrap();
         let plan = model
             .plan(
@@ -1193,10 +1202,11 @@ mod tests {
         let responses_options = OpenAiResponsesOptions::default()
             .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
         let responses_call = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&responses_options).unwrap());
+            .with_provider_options_for(&responses, &responses_options)
+            .unwrap();
         let merged = responses
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &responses_call)
+            .merge_options_for(&responses, OpenAiApiMode::Responses, &responses_call)
             .unwrap();
         let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
         let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
@@ -1211,10 +1221,11 @@ mod tests {
             ..OpenAiChatCompletionsOptions::default()
         };
         let chat_call = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&chat_options).unwrap());
+            .with_provider_options_for(&chat, &chat_options)
+            .unwrap();
         let merged = chat
             .runtime
-            .merge_options(OpenAiApiMode::ChatCompletions, &chat_call)
+            .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &chat_call)
             .unwrap();
         let normalized =
             normalize_request(OpenAiApiMode::ChatCompletions, request(), &merged).unwrap();
@@ -1232,10 +1243,11 @@ mod tests {
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&formerly_rejected_5_6).unwrap());
+            .with_provider_options_for(&responses_5_6, &formerly_rejected_5_6)
+            .unwrap();
         let merged = responses_5_6
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&responses_5_6, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
         let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
@@ -1247,10 +1259,11 @@ mod tests {
             ..OpenAiResponsesOptions::default()
         };
         let call_options = CallOptions::default()
-            .with_provider_options(ProviderOptions::typed(&formerly_rejected_5_5).unwrap());
+            .with_provider_options_for(&responses_5_5, &formerly_rejected_5_5)
+            .unwrap();
         let merged = responses_5_5
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&responses_5_5, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let normalized = normalize_request(
             OpenAiApiMode::Responses,
@@ -1287,11 +1300,12 @@ mod tests {
                     .with_strict(true)
                     .with_output_schema(json!({"type": "object"})),
             );
-        let call_options =
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
         let merged = model
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let plan = model.plan(&request, false, merged).unwrap();
         let body = body_json(&plan);
@@ -1492,11 +1506,12 @@ mod tests {
             top_logprobs: Some(5),
             ..OpenAiResponsesOptions::default()
         };
-        let call_options =
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&typed).unwrap());
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
         let merged = model
             .runtime
-            .merge_options(OpenAiApiMode::Responses, &call_options)
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
 
         let normalized_request =

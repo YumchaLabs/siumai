@@ -7,8 +7,7 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
     ImageResponse, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions,
+    ProviderOptionError, ProviderOptionSelection, ProviderOptions, TypedProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     ImageAspectRatio as ProtocolImageAspectRatio, ImageMimeType as ProtocolImageMimeType,
@@ -46,21 +45,8 @@ impl GeminiImageModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiImageOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Image,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &GeminiImageOptionMerger {
-                    defaults: self.runtime.image_defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.runtime.image_defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -259,34 +245,30 @@ fn protocol_image_size(value: GeminiImageSize) -> ProtocolImageSize {
     }
 }
 
-struct GeminiImageOptionMerger {
-    defaults: GeminiImageOptions,
-}
-
-impl ProviderOptionMerger for GeminiImageOptionMerger {
-    type Output = GeminiImageOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).map(|_| ())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let value = decode_options(options)?;
-            if value.aspect_ratio.is_some() {
-                merged.aspect_ratio = value.aspect_ratio;
-            }
-            if value.image_size.is_some() {
-                merged.image_size = value.image_size;
-            }
+fn merge_options(
+    defaults: &GeminiImageOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiImageOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let value = decode_options(options)?;
+        value.validate()?;
+        if value.aspect_ratio.is_some() {
+            merged.aspect_ratio = value.aspect_ratio;
         }
-        Ok(merged)
+        if value.image_size.is_some() {
+            merged.image_size = value.image_size;
+        }
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini Interactions image generation only accepts typed provider options"
+                .to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(options: &ProviderOptions) -> Result<GeminiImageOptions, ProviderOptionError> {
@@ -321,8 +303,8 @@ mod tests {
     use base64::Engine as _;
     use siumai_core::{
         ApiStability, Cancellation, ErrorDetail, ImageModel, MediaData, Model, ModelId,
-        ProviderOptions, ReplayDomain, ReplayDomainId, ResourceKind, ResponseDiagnostics,
-        UsageValue, VerifiedFidelity,
+        ReplayDomain, ReplayDomainId, ResourceKind, ResponseDiagnostics, UsageValue,
+        VerifiedFidelity,
     };
     use siumai_transport::EndpointConfig;
 
@@ -459,15 +441,13 @@ mod tests {
             .unwrap()
             .with_format("jpeg")
             .unwrap();
-        let typed = ProviderOptions::typed(
-            &GeminiImageOptions::new()
-                .with_aspect_ratio(GeminiImageAspectRatio::LandscapeSixteenNine)
-                .with_image_size(GeminiImageSize::TwoK),
-        )
-        .unwrap();
-        let call = CallOptions::default().with_provider_options(typed);
-
         let direct = provider.image(MODEL).unwrap();
+        let typed = GeminiImageOptions::new()
+            .with_aspect_ratio(GeminiImageAspectRatio::LandscapeSixteenNine)
+            .with_image_size(GeminiImageSize::TwoK);
+        let call = CallOptions::default()
+            .with_provider_options_for(&direct, &typed)
+            .unwrap();
         let direct_response = direct
             .generate_image(request.clone(), call.clone())
             .await
@@ -575,18 +555,15 @@ mod tests {
     async fn model_specific_options_and_cancellation_are_checked_locally() {
         let provider = provider("http://127.0.0.1:9".to_string());
         let lite = provider.image(GEMINI_3_1_FLASH_LITE_IMAGE).unwrap();
-        let options = ProviderOptions::typed(
-            &GeminiImageOptions::new().with_image_size(GeminiImageSize::FourK),
-        )
-        .unwrap();
+        let options = GeminiImageOptions::new().with_image_size(GeminiImageSize::FourK);
+        let call = CallOptions::default()
+            .with_provider_options_for(&lite, &options)
+            .unwrap();
         assert_eq!(
-            lite.generate_image(
-                ImageRequest::new("mountains").unwrap(),
-                CallOptions::default().with_provider_options(options),
-            )
-            .await
-            .unwrap_err()
-            .kind(),
+            lite.generate_image(ImageRequest::new("mountains").unwrap(), call,)
+                .await
+                .unwrap_err()
+                .kind(),
             ErrorKind::Unsupported
         );
 

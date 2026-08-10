@@ -3,12 +3,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use siumai_core::{
     InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
-    ProfileError, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptionSelection, ProviderOptions,
-    ProviderRegistration, ProviderScope,
+    ProfileError, Provider, ProviderInstanceId, ProviderOptionError, ProviderOptionSelection,
+    ProviderOptions, ProviderRegistration, ProviderScope,
 };
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
 use siumai_protocol_openai::responses::is_protected_option_field as is_responses_protected_field;
@@ -351,26 +350,23 @@ impl ProviderRuntime {
         self.profile.scope_arc(mode)
     }
 
-    pub(crate) fn merge_options_for<M: Model + ?Sized>(
+    pub(crate) fn options_for<M: Model + ?Sized>(
         &self,
         model: &M,
         mode: OpenAiCompatibleApiMode,
         options: &siumai_core::CallOptions,
-    ) -> Result<BTreeMap<String, Value>, ProviderOptionError> {
-        let scope = self
-            .scope(mode)
+    ) -> Result<CompatibleCallOptions, ProviderOptionError> {
+        self.scope(mode)
             .ok_or_else(|| ProviderOptionError::Rejected {
                 path: "api_mode".to_string(),
                 reason: "the configured profile does not expose this language mode".to_string(),
             })?;
-        let layers =
-            options.apply_provider_options(scope.provider_id(), ProviderOptionLayers::default())?;
         let selection = options.provider_options_for(model)?;
         let merger = match mode {
             OpenAiCompatibleApiMode::Responses => &self.responses_options,
             OpenAiCompatibleApiMode::ChatCompletions => &self.chat_options,
         };
-        merger.merge_selected(&layers, &selection)
+        merger.merge_selected(&selection)
     }
 }
 
@@ -406,6 +402,11 @@ struct CompatibleOptionMerger {
     defaults: BTreeMap<String, Value>,
 }
 
+pub(crate) struct CompatibleCallOptions {
+    pub(crate) typed: BTreeMap<String, Value>,
+    pub(crate) raw: Option<Map<String, Value>>,
+}
+
 impl CompatibleOptionMerger {
     fn new(mode: OpenAiCompatibleApiMode, defaults: BTreeMap<String, Value>) -> Self {
         Self { mode, defaults }
@@ -413,48 +414,20 @@ impl CompatibleOptionMerger {
 
     fn merge_selected(
         &self,
-        layers: &ProviderOptionLayers,
         selection: &ProviderOptionSelection<'_>,
-    ) -> Result<BTreeMap<String, Value>, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        let mut has_raw = false;
-        for (origin, options) in layers.in_precedence_order() {
-            self.validate_layer(origin, options)?;
-            has_raw |= origin == ProviderOptionOrigin::RawOverride;
-            overlay_options(&mut merged, options);
-        }
+    ) -> Result<CompatibleCallOptions, ProviderOptionError> {
+        let mut typed = self.defaults.clone();
         for options in selection.typed() {
-            self.validate_layer(ProviderOptionOrigin::Call, options)?;
-            overlay_options(&mut merged, options);
+            self.validate_options(options)?;
+            overlay_options(&mut typed, options);
         }
-        if let Some(options) = selection.raw_override() {
-            if has_raw {
-                return Err(ProviderOptionError::DuplicateRawTarget);
-            }
-            self.validate_layer(ProviderOptionOrigin::RawOverride, options)?;
-            overlay_options(&mut merged, options);
-        }
-        Ok(merged)
+        let raw = selection
+            .raw_override()
+            .map(|options| options.value().clone());
+        Ok(CompatibleCallOptions { typed, raw })
     }
-}
 
-fn overlay_options(merged: &mut BTreeMap<String, Value>, options: &ProviderOptions) {
-    merged.extend(
-        options
-            .value()
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone())),
-    );
-}
-
-impl ProviderOptionMerger for CompatibleOptionMerger {
-    type Output = BTreeMap<String, Value>;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
+    fn validate_options(&self, options: &ProviderOptions) -> Result<(), ProviderOptionError> {
         validate_option_fields(self.mode, options.value()).map_err(|path| {
             ProviderOptionError::Rejected {
                 path,
@@ -465,16 +438,15 @@ impl ProviderOptionMerger for CompatibleOptionMerger {
             }
         })
     }
+}
 
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            for (name, value) in options.value() {
-                merged.insert(name.clone(), value.clone());
-            }
-        }
-        Ok(merged)
-    }
+fn overlay_options(merged: &mut BTreeMap<String, Value>, options: &ProviderOptions) {
+    merged.extend(
+        options
+            .value()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone())),
+    );
 }
 
 fn validate_default_options(
@@ -952,23 +924,117 @@ mod tests {
             )
             .unwrap();
 
-        let merged = first
+        let selected = first
             .runtime
-            .merge_options_for(
+            .options_for(
                 &first_model,
                 OpenAiCompatibleApiMode::ChatCompletions,
                 &options,
             )
             .unwrap();
-        assert_eq!(merged["future_compatible_field"], "enabled");
+        assert_eq!(
+            selected.raw.as_ref().unwrap()["future_compatible_field"],
+            "enabled"
+        );
+        assert!(!selected.typed.contains_key("future_compatible_field"));
         assert!(matches!(
-            second.runtime.merge_options_for(
+            second.runtime.options_for(
                 &second_model,
                 OpenAiCompatibleApiMode::ChatCompletions,
                 &options,
             ),
             Err(ProviderOptionError::ExactTargetMismatch { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn identity_codec_applies_raw_only_to_the_final_request_body() {
+        let mut server = mockito::Server::new_async().await;
+        let chat_mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_body(mockito::Matcher::Regex(
+                r#"\"future_compatible_field\":\"enabled\""#.to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"chat-raw","model":"future:model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+            )
+            .expect(1)
+            .create_async()
+            .await;
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("local-test").unwrap(),
+            format!("{}/v1", server.url()),
+            ReplayDomainId::new("local-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap();
+        let provider = OpenAiCompatibleProvider::builder(
+            profile,
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+        let model = provider.language("future:model").unwrap();
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"future_compatible_field": "enabled"}))
+            .unwrap();
+
+        let response = model
+            .generate(
+                LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+                options,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.id(), Some("chat-raw"));
+        chat_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn unreviewed_branded_codec_rejects_raw_before_transport() {
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("local-test").unwrap(),
+            "http://127.0.0.1:9/v1",
+            ReplayDomainId::new("local-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap()
+        .with_chat_codec_policy(Arc::new(ProtocolHeaderPolicy));
+        let provider = OpenAiCompatibleProvider::builder(
+            profile,
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .build()
+        .unwrap();
+        let model = provider.language("future:model").unwrap();
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"future_field": true}))
+            .unwrap();
+
+        let error = model
+            .generate(
+                LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+                options,
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(
+            error.to_string(),
+            "InvalidInput: provider options are invalid for Chat Completions"
+        );
+        assert!(
+            error
+                .sensitive_source()
+                .unwrap()
+                .expose()
+                .to_string()
+                .contains("raw provider options")
+        );
     }
 
     #[tokio::test]

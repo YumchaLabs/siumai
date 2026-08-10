@@ -156,7 +156,7 @@ impl SpeechModel for ElevenLabsSpeechModel {
             .map_err(|error| self.contextualize(error))?;
         let provider_options = self
             .runtime
-            .merge_options(&options)
+            .merge_options(self, &options)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
         let prepared = self
@@ -363,7 +363,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use siumai_core::{Cancellation, ErrorDetail, ProviderOptions, ResourceKind, UsageValue};
+    use siumai_core::{Cancellation, ErrorDetail, ResourceKind, UsageValue};
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -421,20 +421,14 @@ mod tests {
             .unwrap()
             .with_speed(1.0)
             .unwrap();
-        let provider_options = ProviderOptions::typed(
-            &ElevenLabsSpeechOptions::new()
-                .with_seed(7)
-                .with_logging(false)
-                .with_voice_settings(ElevenLabsVoiceSettings::new().with_stability(0.4)),
-        )
-        .unwrap();
-        let response = model
-            .synthesize(
-                request,
-                CallOptions::default().with_provider_options(provider_options),
-            )
-            .await
+        let provider_options = ElevenLabsSpeechOptions::new()
+            .with_seed(7)
+            .with_logging(false)
+            .with_voice_settings(ElevenLabsVoiceSettings::new().with_stability(0.4));
+        let call = CallOptions::default()
+            .with_provider_options_for(&model, &provider_options)
             .unwrap();
+        let response = model.synthesize(request, call).await.unwrap();
 
         assert_eq!(response.media_type, "audio/mpeg");
         assert_eq!(response.sample_rate_hz, Some(44_100));

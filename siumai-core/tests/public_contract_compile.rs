@@ -12,9 +12,9 @@ use siumai_core::{
     EmbeddingRequest, EmbeddingResponse, Error, ImageArtifact, ImageLimits, ImageModel,
     ImageRequest, ImageResponse, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, Message, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
-    ModelId, ProtocolId, ProviderId, ProviderOptions, ProviderRegistration, ProviderScope,
-    RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult,
-    ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
+    ModelId, ProtocolId, ProviderId, ProviderOptionBindingRequirement, ProviderRegistration,
+    ProviderScope, RerankCandidate, RerankLimits, RerankModel, RerankRequest, RerankResponse,
+    RerankResult, ResponseMetadata, SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse,
     TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
     TypedProviderAnnotation, TypedProviderOptions, Usage,
 };
@@ -264,6 +264,10 @@ struct CustomOptions {
 impl TypedProviderOptions for CustomOptions {
     const NAMESPACE: &'static str = "custom";
     const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+
+    fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+        ProviderOptionBindingRequirement::Reusable
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,8 +313,9 @@ where
 
 #[tokio::test]
 async fn external_models_are_object_safe_callable_and_task_safe() {
-    let options = ProviderOptions::typed(&CustomOptions { strict: true }).unwrap();
-    let call_options = CallOptions::default().with_provider_options(options);
+    let call_options = CallOptions::default()
+        .with_provider_options(&CustomOptions { strict: true })
+        .unwrap();
 
     let language: Arc<dyn LanguageModel> = Arc::new(FakeLanguage::new("language-test"));
     let generated = tokio::spawn({

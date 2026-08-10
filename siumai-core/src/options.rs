@@ -66,17 +66,6 @@ pub enum RetryIntent {
     Never,
 }
 
-/// The source of one provider-option layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderOptionOrigin {
-    ProviderDefault,
-    RouteDefault,
-    ModelDefault,
-    RuntimeStep,
-    Call,
-    RawOverride,
-}
-
 /// Provider option validation failure.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
@@ -100,12 +89,6 @@ pub enum ProviderOptionError {
         actual_family: ModelFamily,
         actual_api_mode: Option<String>,
     },
-    #[error("raw provider options may only occupy the explicit raw-override layer")]
-    RawLayerMismatch,
-    #[error("typed provider options are required for this precedence layer")]
-    TypedLayerRequired,
-    #[error("provider option layer {origin:?} was configured more than once")]
-    DuplicateLayer { origin: ProviderOptionOrigin },
     #[error("provider options exceed the {maximum}-entry call limit")]
     TooManyEntries { maximum: usize },
     #[error("provider options exceed the {maximum}-target call limit")]
@@ -134,8 +117,9 @@ pub enum ProviderOptionError {
 
 /// Implemented by typed provider option structs in provider crates.
 ///
-/// Implementations are ergonomic codecs, not a trust boundary. After erasure,
-/// every layer is still checked by [`ProviderOptionMerger::validate_layer`].
+/// Implementations are ergonomic codecs, not a trust boundary. The selected
+/// provider still owns request-body schema and relationship validation after
+/// core has checked the exact target and generic resource bounds.
 pub trait TypedProviderOptions: Serialize {
     const NAMESPACE: &'static str;
     const MODEL_FAMILY: ModelFamily;
@@ -177,7 +161,7 @@ enum ProviderOptionKind {
     Raw,
 }
 
-/// One opaque but validated provider-option layer.
+/// One opaque but bounded provider-option patch.
 #[derive(Clone, PartialEq)]
 pub struct ProviderOptions {
     namespace: ProviderId,
@@ -254,7 +238,6 @@ impl ProviderOptions {
             });
         };
         let retained_bytes = validate_option_shape(&value)?;
-        reject_protected_fields(&value, "")?;
         Ok(Self {
             namespace,
             value,
@@ -301,34 +284,6 @@ impl ProviderOptions {
                 ..
             } | ProviderOptionKind::Raw
         )
-    }
-
-    fn validate_target(
-        &self,
-        context: ProviderOptionContext<'_>,
-    ) -> Result<(), ProviderOptionError> {
-        let ProviderOptionKind::Typed {
-            family: actual_family,
-            api_mode: actual_api_mode,
-            ..
-        } = &self.kind
-        else {
-            return Ok(());
-        };
-        let actual_family = *actual_family;
-        let family_matches = actual_family == context.family;
-        let mode_matches = actual_api_mode
-            .as_ref()
-            .is_none_or(|actual| Some(actual) == context.api_mode);
-        if family_matches && mode_matches {
-            return Ok(());
-        }
-        Err(ProviderOptionError::TargetMismatch {
-            expected_family: context.family,
-            expected_api_mode: context.api_mode.map(ApiModeId::to_string),
-            actual_family,
-            actual_api_mode: actual_api_mode.as_ref().map(ApiModeId::to_string),
-        })
     }
 }
 
@@ -523,224 +478,34 @@ impl<'a> ProviderOptionSelection<'a> {
     }
 }
 
-fn validate_typed_target<T: TypedProviderOptions>(
+fn validate_options_target(
     target: &ProviderOptionTarget,
+    options: &ProviderOptions,
 ) -> Result<(), ProviderOptionError> {
-    let declared = ProviderOptionTarget::typed::<T>()?;
-    if declared.provider == target.provider
-        && declared.family == target.family
-        && declared.api_mode == target.api_mode
-    {
-        return Ok(());
-    }
-    if declared.provider != target.provider {
+    if options.namespace() != target.provider() {
         return Err(ProviderOptionError::NamespaceMismatch {
-            expected: target.provider.to_string(),
-            actual: declared.provider.to_string(),
+            expected: target.provider().to_string(),
+            actual: options.namespace().to_string(),
         });
     }
-    Err(ProviderOptionError::TargetMismatch {
-        expected_family: target.family,
-        expected_api_mode: target.api_mode.as_ref().map(ApiModeId::to_string),
-        actual_family: declared.family,
-        actual_api_mode: declared.api_mode.as_ref().map(ApiModeId::to_string),
-    })
-}
 
-/// Exact model call context used to validate erased typed provider options.
-#[derive(Debug, Clone, Copy)]
-pub struct ProviderOptionContext<'a> {
-    provider: &'a ProviderId,
-    family: ModelFamily,
-    api_mode: Option<&'a ApiModeId>,
-}
-
-impl<'a> ProviderOptionContext<'a> {
-    pub const fn new(
-        provider: &'a ProviderId,
-        family: ModelFamily,
-        api_mode: Option<&'a ApiModeId>,
-    ) -> Self {
-        Self {
-            provider,
-            family,
-            api_mode,
-        }
+    if let Some(actual_family) = options.model_family()
+        && (actual_family != target.family() || options.api_mode() != target.api_mode())
+    {
+        return Err(ProviderOptionError::TargetMismatch {
+            expected_family: target.family(),
+            expected_api_mode: target.api_mode().map(ApiModeId::to_string),
+            actual_family,
+            actual_api_mode: options.api_mode().map(ApiModeId::to_string),
+        });
     }
 
-    pub const fn provider(self) -> &'a ProviderId {
-        self.provider
+    if options.is_instance_sensitive() && !target.is_instance_bound() {
+        return Err(ProviderOptionError::InstanceBindingRequired {
+            namespace: options.namespace().to_string(),
+        });
     }
-
-    pub const fn family(self) -> ModelFamily {
-        self.family
-    }
-
-    pub const fn api_mode(self) -> Option<&'a ApiModeId> {
-        self.api_mode
-    }
-}
-
-/// Explicit precedence stack. The provider owns the merge algorithm.
-#[derive(Debug, Clone, Default)]
-pub struct ProviderOptionLayers {
-    provider_default: Option<ProviderOptions>,
-    route_default: Option<ProviderOptions>,
-    model_default: Option<ProviderOptions>,
-    runtime_step: Option<ProviderOptions>,
-    call: Option<ProviderOptions>,
-    raw_override: Option<ProviderOptions>,
-}
-
-impl ProviderOptionLayers {
-    pub fn with_provider_default(
-        mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, ProviderOptionError> {
-        ensure_empty(
-            &self.provider_default,
-            ProviderOptionOrigin::ProviderDefault,
-        )?;
-        self.provider_default = Some(require_typed(options)?);
-        Ok(self)
-    }
-
-    pub fn with_route_default(
-        mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, ProviderOptionError> {
-        ensure_empty(&self.route_default, ProviderOptionOrigin::RouteDefault)?;
-        self.route_default = Some(require_typed(options)?);
-        Ok(self)
-    }
-
-    pub fn with_model_default(
-        mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, ProviderOptionError> {
-        ensure_empty(&self.model_default, ProviderOptionOrigin::ModelDefault)?;
-        self.model_default = Some(require_typed(options)?);
-        Ok(self)
-    }
-
-    pub fn with_runtime_step(
-        mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, ProviderOptionError> {
-        ensure_empty(&self.runtime_step, ProviderOptionOrigin::RuntimeStep)?;
-        self.runtime_step = Some(require_typed(options)?);
-        Ok(self)
-    }
-
-    pub fn with_call(mut self, options: ProviderOptions) -> Result<Self, ProviderOptionError> {
-        ensure_empty(&self.call, ProviderOptionOrigin::Call)?;
-        self.call = Some(require_typed(options)?);
-        Ok(self)
-    }
-
-    pub fn with_raw_override(
-        mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, ProviderOptionError> {
-        ensure_empty(&self.raw_override, ProviderOptionOrigin::RawOverride)?;
-        if !options.is_raw() {
-            return Err(ProviderOptionError::RawLayerMismatch);
-        }
-        self.raw_override = Some(options);
-        Ok(self)
-    }
-
-    pub fn in_precedence_order(
-        &self,
-    ) -> impl Iterator<Item = (ProviderOptionOrigin, &ProviderOptions)> {
-        [
-            (
-                ProviderOptionOrigin::ProviderDefault,
-                self.provider_default.as_ref(),
-            ),
-            (
-                ProviderOptionOrigin::RouteDefault,
-                self.route_default.as_ref(),
-            ),
-            (
-                ProviderOptionOrigin::ModelDefault,
-                self.model_default.as_ref(),
-            ),
-            (
-                ProviderOptionOrigin::RuntimeStep,
-                self.runtime_step.as_ref(),
-            ),
-            (ProviderOptionOrigin::Call, self.call.as_ref()),
-            (
-                ProviderOptionOrigin::RawOverride,
-                self.raw_override.as_ref(),
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(origin, options)| options.map(|options| (origin, options)))
-    }
-
-    /// Validate namespace ownership and invoke the provider-owned raw schema
-    /// and merge policy. Raw fields never reach transport or authentication
-    /// configuration through this contract.
-    pub fn merge_for<M: ProviderOptionMerger>(
-        &self,
-        context: ProviderOptionContext<'_>,
-        merger: &M,
-    ) -> Result<M::Output, ProviderOptionError> {
-        for (origin, options) in self.in_precedence_order() {
-            if options.namespace() != context.provider {
-                return Err(ProviderOptionError::NamespaceMismatch {
-                    expected: context.provider.to_string(),
-                    actual: options.namespace().to_string(),
-                });
-            }
-            options.validate_target(context)?;
-            merger.validate_layer(origin, options)?;
-        }
-        merger.merge(self)
-    }
-}
-
-fn require_typed(options: ProviderOptions) -> Result<ProviderOptions, ProviderOptionError> {
-    if options.is_raw() {
-        Err(ProviderOptionError::TypedLayerRequired)
-    } else {
-        Ok(options)
-    }
-}
-
-fn ensure_empty(
-    slot: &Option<ProviderOptions>,
-    origin: ProviderOptionOrigin,
-) -> Result<(), ProviderOptionError> {
-    if slot.is_some() {
-        Err(ProviderOptionError::DuplicateLayer { origin })
-    } else {
-        Ok(())
-    }
-}
-
-/// Provider-owned merge and rejection policy.
-pub trait ProviderOptionMerger: Send + Sync {
-    type Output;
-
-    /// Validate every erased typed or raw layer against the selected provider's
-    /// request-body schema. A public Rust trait implementation is not treated as
-    /// proof that typed fields are provider-owned.
-    fn validate_layer(
-        &self,
-        origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError>;
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError>;
-}
-
-#[derive(Debug, Clone)]
-struct ProviderOptionEntry {
-    origin: ProviderOptionOrigin,
-    options: ProviderOptions,
+    Ok(())
 }
 
 /// Controls shared by all six stable model families.
@@ -750,7 +515,6 @@ pub struct CallOptions {
     cancellation: Cancellation,
     retry: RetryIntent,
     selected_route_context: Option<RouteId>,
-    provider_options: Vec<ProviderOptionEntry>,
     exact_provider_options: Vec<ExactProviderOptionEntry>,
 }
 
@@ -762,14 +526,6 @@ impl fmt::Debug for CallOptions {
             .field("cancellation", &self.cancellation)
             .field("retry", &self.retry)
             .field("selected_route_context", &self.selected_route_context)
-            .field(
-                "legacy_provider_option_namespaces",
-                &self
-                    .provider_options
-                    .iter()
-                    .map(|entry| entry.options.namespace().as_str())
-                    .collect::<Vec<_>>(),
-            )
             .field(
                 "exact_provider_option_targets",
                 &self
@@ -803,19 +559,8 @@ impl CallOptions {
         self.retry
     }
 
-    pub fn provider_options(&self) -> impl Iterator<Item = &ProviderOptions> {
-        self.provider_options
-            .iter()
-            .map(|entry| &entry.options)
-            .chain(
-                self.exact_provider_options
-                    .iter()
-                    .map(|entry| &entry.options),
-            )
-    }
-
     pub fn has_provider_options(&self) -> bool {
-        !self.provider_options.is_empty() || !self.exact_provider_options.is_empty()
+        !self.exact_provider_options.is_empty()
     }
 
     /// Select the exact-target entries that belong to one configured model.
@@ -854,19 +599,16 @@ impl CallOptions {
 
     /// Add reusable typed options for the model selected by this call.
     ///
-    /// Instance-sensitive values must use
-    /// [`Self::with_typed_provider_options_for`] instead.
-    pub fn with_typed_provider_options<T: TypedProviderOptions>(
+    /// Values use a fail-closed configured-instance default. A value that has
+    /// not explicitly opted into [`ProviderOptionBindingRequirement::Reusable`]
+    /// must use [`Self::with_provider_options_for`] instead.
+    pub fn with_provider_options<T: TypedProviderOptions>(
         mut self,
         value: &T,
     ) -> Result<Self, ProviderOptionError> {
         let options = ProviderOptions::typed(value)?;
-        if options.is_instance_sensitive() {
-            return Err(ProviderOptionError::InstanceBindingRequired {
-                namespace: options.namespace().to_string(),
-            });
-        }
         let target = ProviderOptionTarget::typed::<T>()?;
+        validate_options_target(&target, &options)?;
         self.push_exact_provider_option(ExactProviderOptionEntry {
             applicability: ProviderOptionApplicability::Required,
             target,
@@ -876,7 +618,7 @@ impl CallOptions {
     }
 
     /// Add typed options bound to the concrete model receiving the call.
-    pub fn with_typed_provider_options_for<M, T>(
+    pub fn with_provider_options_for<M, T>(
         mut self,
         model: &M,
         value: &T,
@@ -887,7 +629,7 @@ impl CallOptions {
     {
         let options = ProviderOptions::typed(value)?;
         let target = ProviderOptionTarget::for_model(model);
-        validate_typed_target::<T>(&target)?;
+        validate_options_target(&target, &options)?;
         self.push_exact_provider_option(ExactProviderOptionEntry {
             applicability: ProviderOptionApplicability::Required,
             target,
@@ -897,7 +639,7 @@ impl CallOptions {
     }
 
     /// Add an optional typed fallback for one exact configured model.
-    pub fn with_optional_typed_provider_options_for<M, T>(
+    pub fn with_optional_provider_options_for<M, T>(
         mut self,
         model: &M,
         value: &T,
@@ -908,7 +650,7 @@ impl CallOptions {
     {
         let options = ProviderOptions::typed(value)?;
         let target = ProviderOptionTarget::for_model(model);
-        validate_typed_target::<T>(&target)?;
+        validate_options_target(&target, &options)?;
         self.push_exact_provider_option(ExactProviderOptionEntry {
             applicability: ProviderOptionApplicability::OptionalFallback,
             target,
@@ -965,13 +707,37 @@ impl CallOptions {
         Ok(self)
     }
 
+    /// Prepend runtime-owned exact-target patches before the caller entries.
+    ///
+    /// This is an assembly seam for runtime defaults and is intentionally
+    /// hidden from ordinary callers. The input order is preserved, every entry
+    /// is required for its exact target, and all normal bounds are rechecked
+    /// against the existing call entries.
+    #[doc(hidden)]
+    pub fn prepend_provider_options<I>(mut self, patches: I) -> Result<Self, ProviderOptionError>
+    where
+        I: IntoIterator<Item = (ProviderOptionTarget, ProviderOptions)>,
+    {
+        let existing = std::mem::take(&mut self.exact_provider_options);
+        for (target, options) in patches {
+            validate_options_target(&target, &options)?;
+            self.push_exact_provider_option(ExactProviderOptionEntry {
+                applicability: ProviderOptionApplicability::Required,
+                target,
+                options,
+            })?;
+        }
+        for entry in existing {
+            self.push_exact_provider_option(entry)?;
+        }
+        Ok(self)
+    }
+
     fn push_exact_provider_option(
         &mut self,
         entry: ExactProviderOptionEntry,
     ) -> Result<(), ProviderOptionError> {
-        if self.provider_options.len() + self.exact_provider_options.len()
-            >= MAX_PROVIDER_OPTION_ENTRIES
-        {
+        if self.exact_provider_options.len() >= MAX_PROVIDER_OPTION_ENTRIES {
             return Err(ProviderOptionError::TooManyEntries {
                 maximum: MAX_PROVIDER_OPTION_ENTRIES,
             });
@@ -999,14 +765,9 @@ impl CallOptions {
         }
 
         let retained_bytes = self
-            .provider_options
+            .exact_provider_options
             .iter()
             .map(|entry| entry.options.retained_bytes())
-            .chain(
-                self.exact_provider_options
-                    .iter()
-                    .map(|entry| entry.options.retained_bytes()),
-            )
             .try_fold(entry.options.retained_bytes(), usize::checked_add)
             .ok_or(ProviderOptionError::AggregateTooLarge {
                 maximum: MAX_PROVIDER_OPTION_TOTAL_BYTES,
@@ -1028,35 +789,6 @@ impl CallOptions {
 
         self.exact_provider_options.push(entry);
         Ok(())
-    }
-
-    /// Add call-scoped typed and raw options to an existing precedence stack.
-    /// Foreign namespaces and duplicate call/raw layers are rejected.
-    pub fn apply_provider_options(
-        &self,
-        expected: &ProviderId,
-        mut layers: ProviderOptionLayers,
-    ) -> Result<ProviderOptionLayers, ProviderOptionError> {
-        for entry in &self.provider_options {
-            let options = &entry.options;
-            if options.namespace() != expected {
-                return Err(ProviderOptionError::NamespaceMismatch {
-                    expected: expected.to_string(),
-                    actual: options.namespace().to_string(),
-                });
-            }
-            layers = match entry.origin {
-                ProviderOptionOrigin::ProviderDefault => {
-                    layers.with_provider_default(options.clone())?
-                }
-                ProviderOptionOrigin::RouteDefault => layers.with_route_default(options.clone())?,
-                ProviderOptionOrigin::ModelDefault => layers.with_model_default(options.clone())?,
-                ProviderOptionOrigin::RuntimeStep => layers.with_runtime_step(options.clone())?,
-                ProviderOptionOrigin::Call => layers.with_call(options.clone())?,
-                ProviderOptionOrigin::RawOverride => layers.with_raw_override(options.clone())?,
-            };
-        }
-        Ok(layers)
     }
 
     pub fn with_deadline(mut self, deadline: Instant) -> Self {
@@ -1085,47 +817,12 @@ impl CallOptions {
         self.selected_route_context = Some(route);
         self
     }
-
-    pub fn with_provider_options(mut self, options: ProviderOptions) -> Self {
-        let origin = if options.is_raw() {
-            ProviderOptionOrigin::RawOverride
-        } else {
-            ProviderOptionOrigin::Call
-        };
-        self.provider_options
-            .push(ProviderOptionEntry { origin, options });
-        self
-    }
-
-    /// Attach typed defaults selected by a configured Registry route.
-    pub fn with_route_default_provider_options(mut self, options: ProviderOptions) -> Self {
-        self.provider_options.push(ProviderOptionEntry {
-            origin: ProviderOptionOrigin::RouteDefault,
-            options,
-        });
-        self
-    }
-
-    /// Attach typed defaults selected for one concrete model target.
-    pub fn with_model_default_provider_options(mut self, options: ProviderOptions) -> Self {
-        self.provider_options.push(ProviderOptionEntry {
-            origin: ProviderOptionOrigin::ModelDefault,
-            options,
-        });
-        self
-    }
-
-    /// Attach typed options selected for one runtime model step.
-    pub fn with_runtime_step_provider_options(mut self, options: ProviderOptions) -> Self {
-        self.provider_options.push(ProviderOptionEntry {
-            origin: ProviderOptionOrigin::RuntimeStep,
-            options,
-        });
-        self
-    }
 }
 
-const PROTECTED_FIELDS: &[&str] = &[
+// Provider annotations retain their existing node-local validation through
+// this crate-private helper. Provider call options deliberately do not use it;
+// selected provider codecs own canonical and protected request-body paths.
+const ANNOTATION_PROTECTED_FIELDS: &[&str] = &[
     "apikey",
     "apitoken",
     "accesstoken",
@@ -1314,7 +1011,7 @@ pub(crate) fn reject_protected_fields(
             .filter(|character| character.is_ascii_alphanumeric())
             .flat_map(char::to_lowercase)
             .collect::<String>();
-        if PROTECTED_FIELDS.contains(&normalized.as_str()) {
+        if ANNOTATION_PROTECTED_FIELDS.contains(&normalized.as_str()) {
             return Err(ProviderOptionError::ProtectedField { path });
         }
         reject_protected_value(value, &path)?;
@@ -1338,7 +1035,7 @@ fn reject_protected_value(value: &Value, path: &str) -> Result<(), ProviderOptio
 #[cfg(test)]
 mod tests {
     use serde::Serialize;
-    use serde_json::json;
+    use serde_json::{Map, Value, json};
 
     use crate::model::{Model, ModelDescriptor};
     use crate::provider::{ModelId, ProviderScope, RouteId};
@@ -1400,6 +1097,25 @@ mod tests {
         const API_MODE: Option<&'static str> = Some("responses");
     }
 
+    #[derive(Serialize)]
+    struct Layer {
+        value: &'static str,
+    }
+
+    impl TypedProviderOptions for Layer {
+        const NAMESPACE: &'static str = "openai";
+        const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+        const API_MODE: Option<&'static str> = Some("responses");
+
+        fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+            ProviderOptionBindingRequirement::Reusable
+        }
+    }
+
+    fn layer(value: &'static str) -> ProviderOptions {
+        ProviderOptions::typed(&Layer { value }).unwrap()
+    }
+
     #[test]
     fn typed_options_keep_namespace_and_hide_values_from_debug() {
         let options = ProviderOptions::typed(&OpenAiOptions {
@@ -1413,427 +1129,161 @@ mod tests {
     }
 
     #[test]
-    fn raw_options_reject_protected_fields_recursively() {
-        let error = ProviderOptions::checked_raw(
-            ProviderId::new("openai").unwrap(),
-            json!({"transport": {"api_key": "secret"}}),
-        )
-        .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderOptionError::ProtectedField { ref path }
-                if path == "transport.api_key"
-        ));
-    }
-
-    #[test]
-    fn raw_options_reject_protected_fields_inside_arrays() {
-        let error = ProviderOptions::checked_raw(
-            ProviderId::new("openai").unwrap(),
-            json!({"items": [{"headers": {"x-secret": "secret"}}]}),
-        )
-        .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderOptionError::ProtectedField { ref path }
-                if path == "items[0].headers"
-        ));
-    }
-
-    #[test]
-    fn foreign_namespace_is_rejected_instead_of_ignored() {
-        struct Merger;
-        impl ProviderOptionMerger for Merger {
-            type Output = ();
-
-            fn validate_layer(
-                &self,
-                _origin: ProviderOptionOrigin,
-                _options: &ProviderOptions,
-            ) -> Result<(), ProviderOptionError> {
-                Ok(())
-            }
-
-            fn merge(
-                &self,
-                _layers: &ProviderOptionLayers,
-            ) -> Result<Self::Output, ProviderOptionError> {
-                Ok(())
-            }
-        }
-
+    fn nested_provider_body_headers_are_accepted_by_core_bounds() {
         let options = ProviderOptions::checked_raw(
-            ProviderId::new("anthropic").unwrap(),
-            json!({"thinking": {"type": "adaptive"}}),
+            ProviderId::new("openai").unwrap(),
+            json!({
+                "provider_payload": {
+                    "headers": {
+                        "x-provider-feature": "future"
+                    }
+                }
+            }),
         )
         .unwrap();
-        let layers = ProviderOptionLayers::default()
-            .with_raw_override(options)
-            .unwrap();
 
-        let provider = ProviderId::new("openai").unwrap();
-        let api_mode = ApiModeId::new("responses").unwrap();
-        let error = layers
-            .merge_for(
-                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&api_mode)),
-                &Merger,
-            )
-            .unwrap_err();
+        assert_eq!(
+            options.value()["provider_payload"]["headers"]["x-provider-feature"],
+            "future"
+        );
+    }
+
+    #[test]
+    fn raw_shape_bounds_remain_strict_without_a_global_field_denylist() {
+        let too_large = vec![b' '; MAX_PROVIDER_OPTION_BYTES + 1];
         assert!(matches!(
-            error,
-            ProviderOptionError::NamespaceMismatch { .. }
+            ProviderOptions::checked_raw_json(ProviderId::new("openai").unwrap(), &too_large),
+            Err(ProviderOptionError::TooLarge { .. })
+        ));
+
+        let mut too_many_fields = Map::new();
+        for index in 0..=MAX_PROVIDER_OPTION_FIELDS {
+            too_many_fields.insert(format!("field-{index}"), Value::Null);
+        }
+        assert!(matches!(
+            ProviderOptions::checked_raw(
+                ProviderId::new("openai").unwrap(),
+                Value::Object(too_many_fields),
+            ),
+            Err(ProviderOptionError::TooManyFields { .. })
+        ));
+
+        let mut too_deep = Value::Bool(true);
+        for _ in 0..=MAX_PROVIDER_OPTION_DEPTH {
+            too_deep = json!({"nested": too_deep});
+        }
+        assert!(matches!(
+            ProviderOptions::checked_raw(ProviderId::new("openai").unwrap(), too_deep),
+            Err(ProviderOptionError::TooDeep { .. })
         ));
     }
 
     #[test]
-    fn layers_expose_the_fixed_precedence_without_generic_merging() {
-        fn layer() -> ProviderOptions {
-            ProviderOptions::typed(&OpenAiOptions {
+    fn ordinary_typed_options_infer_a_required_target() {
+        let call = CallOptions::default()
+            .with_provider_options(&OpenAiOptions {
                 reasoning_effort: "high",
             })
-            .unwrap()
-        }
-
-        let layers = ProviderOptionLayers::default()
-            .with_provider_default(layer())
-            .unwrap()
-            .with_route_default(layer())
-            .unwrap()
-            .with_model_default(layer())
-            .unwrap()
-            .with_runtime_step(layer())
-            .unwrap()
-            .with_call(layer())
-            .unwrap()
-            .with_raw_override(
-                ProviderOptions::checked_raw(
-                    ProviderId::new("openai").unwrap(),
-                    json!({"reasoning_effort": "xhigh"}),
-                )
-                .unwrap(),
-            )
             .unwrap();
 
         assert_eq!(
-            layers
-                .in_precedence_order()
-                .map(|(origin, _)| origin)
-                .collect::<Vec<_>>(),
-            vec![
-                ProviderOptionOrigin::ProviderDefault,
-                ProviderOptionOrigin::RouteDefault,
-                ProviderOptionOrigin::ModelDefault,
-                ProviderOptionOrigin::RuntimeStep,
-                ProviderOptionOrigin::Call,
-                ProviderOptionOrigin::RawOverride,
-            ]
+            call.provider_options_for(&fake_model("openai", "responses", None))
+                .unwrap()
+                .typed()
+                .count(),
+            1
         );
-    }
-
-    #[test]
-    fn raw_options_cannot_occupy_a_typed_precedence_layer() {
-        let raw = ProviderOptions::checked_raw(
-            ProviderId::new("openai").unwrap(),
-            json!({"reasoning_effort": "high"}),
-        )
-        .unwrap();
         assert!(matches!(
-            ProviderOptionLayers::default().with_call(raw),
-            Err(ProviderOptionError::TypedLayerRequired)
+            call.provider_options_for(&fake_model("openai", "chat-completions", None)),
+            Err(ProviderOptionError::TargetMismatch { .. })
         ));
     }
 
     #[test]
-    fn call_options_reject_foreign_namespaces_and_duplicate_layers() {
-        let openai = ProviderOptions::typed(&OpenAiOptions {
-            reasoning_effort: "high",
-        })
-        .unwrap();
-        let anthropic = ProviderOptions::checked_raw(
-            ProviderId::new("anthropic").unwrap(),
-            json!({"thinking": {"type": "adaptive"}}),
-        )
-        .unwrap();
-        let foreign = CallOptions::default()
-            .with_provider_options(openai.clone())
-            .with_provider_options(anthropic)
-            .apply_provider_options(
-                &ProviderId::new("openai").unwrap(),
-                ProviderOptionLayers::default(),
-            )
-            .unwrap_err();
-        assert!(matches!(
-            foreign,
-            ProviderOptionError::NamespaceMismatch { .. }
-        ));
-
-        let duplicate = CallOptions::default()
-            .with_provider_options(openai.clone())
-            .with_provider_options(openai)
-            .apply_provider_options(
-                &ProviderId::new("openai").unwrap(),
-                ProviderOptionLayers::default(),
-            )
-            .unwrap_err();
-        assert!(matches!(
-            duplicate,
-            ProviderOptionError::DuplicateLayer {
-                origin: ProviderOptionOrigin::Call
-            }
-        ));
-    }
-
-    #[test]
-    fn runtime_option_origins_join_the_provider_owned_precedence_stack() {
-        fn layer(value: &'static str) -> ProviderOptions {
-            #[derive(Serialize)]
-            struct Layer {
-                value: &'static str,
-            }
-
-            impl TypedProviderOptions for Layer {
-                const NAMESPACE: &'static str = "openai";
-                const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
-                const API_MODE: Option<&'static str> = Some("responses");
-            }
-
-            ProviderOptions::typed(&Layer { value }).unwrap()
-        }
-
-        let layers = CallOptions::default()
-            .with_route_default_provider_options(layer("route"))
-            .with_model_default_provider_options(layer("model"))
-            .with_runtime_step_provider_options(layer("step"))
-            .with_provider_options(layer("call"))
-            .apply_provider_options(
-                &ProviderId::new("openai").unwrap(),
-                ProviderOptionLayers::default()
-                    .with_provider_default(layer("provider"))
-                    .unwrap(),
-            )
-            .unwrap();
-
-        assert_eq!(
-            layers
-                .in_precedence_order()
-                .map(|(origin, options)| (origin, options.value()["value"].as_str().unwrap()))
-                .collect::<Vec<_>>(),
-            vec![
-                (ProviderOptionOrigin::ProviderDefault, "provider"),
-                (ProviderOptionOrigin::RouteDefault, "route"),
-                (ProviderOptionOrigin::ModelDefault, "model"),
-                (ProviderOptionOrigin::RuntimeStep, "step"),
-                (ProviderOptionOrigin::Call, "call"),
-            ]
-        );
-    }
-
-    #[test]
-    fn provider_schema_validates_erased_typed_layers_too() {
+    fn exact_typed_insertion_validates_namespace_family_and_api_mode() {
         #[derive(Serialize)]
-        struct ForgedOpenAiOptions {
-            unrecognized: bool,
+        struct ForeignOptions {
+            enabled: bool,
         }
 
-        impl TypedProviderOptions for ForgedOpenAiOptions {
-            const NAMESPACE: &'static str = "openai";
+        impl TypedProviderOptions for ForeignOptions {
+            const NAMESPACE: &'static str = "anthropic";
             const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
             const API_MODE: Option<&'static str> = Some("responses");
         }
 
-        struct StrictMerger;
-        impl ProviderOptionMerger for StrictMerger {
-            type Output = ();
-
-            fn validate_layer(
-                &self,
-                _origin: ProviderOptionOrigin,
-                options: &ProviderOptions,
-            ) -> Result<(), ProviderOptionError> {
-                if options.value().contains_key("unrecognized") {
-                    return Err(ProviderOptionError::Rejected {
-                        path: "unrecognized".to_string(),
-                        reason: "unknown request-body field".to_string(),
-                    });
-                }
-                Ok(())
-            }
-
-            fn merge(
-                &self,
-                _layers: &ProviderOptionLayers,
-            ) -> Result<Self::Output, ProviderOptionError> {
-                Ok(())
-            }
+        #[derive(Serialize)]
+        struct EmbeddingOptions {
+            enabled: bool,
         }
 
-        let forged = ProviderOptions::typed(&ForgedOpenAiOptions { unrecognized: true }).unwrap();
-        let layers = ProviderOptionLayers::default().with_call(forged).unwrap();
-        let provider = ProviderId::new("openai").unwrap();
-        let api_mode = ApiModeId::new("responses").unwrap();
+        impl TypedProviderOptions for EmbeddingOptions {
+            const NAMESPACE: &'static str = "openai";
+            const MODEL_FAMILY: ModelFamily = ModelFamily::Embedding;
+            const API_MODE: Option<&'static str> = Some("responses");
+        }
+
+        let responses = fake_model("openai", "responses", None);
         assert!(matches!(
-            layers.merge_for(
-                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&api_mode)),
-                &StrictMerger
-            ),
-            Err(ProviderOptionError::Rejected { .. })
+            CallOptions::default()
+                .with_provider_options_for(&responses, &ForeignOptions { enabled: true }),
+            Err(ProviderOptionError::NamespaceMismatch { .. })
         ));
-    }
-
-    #[test]
-    fn typed_options_require_their_declared_family_and_api_mode() {
-        struct Merger;
-        impl ProviderOptionMerger for Merger {
-            type Output = ();
-
-            fn validate_layer(
-                &self,
-                _origin: ProviderOptionOrigin,
-                _options: &ProviderOptions,
-            ) -> Result<(), ProviderOptionError> {
-                Ok(())
-            }
-
-            fn merge(
-                &self,
-                _layers: &ProviderOptionLayers,
-            ) -> Result<Self::Output, ProviderOptionError> {
-                Ok(())
-            }
-        }
-
-        let provider = ProviderId::new("openai").unwrap();
-        let chat = ApiModeId::new("chat-completions").unwrap();
-        let typed = ProviderOptionLayers::default()
-            .with_call(
-                ProviderOptions::typed(&OpenAiOptions {
-                    reasoning_effort: "high",
-                })
-                .unwrap(),
-            )
-            .unwrap();
         assert!(matches!(
-            typed.merge_for(
-                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&chat)),
-                &Merger
-            ),
+            CallOptions::default()
+                .with_provider_options_for(&responses, &EmbeddingOptions { enabled: true }),
             Err(ProviderOptionError::TargetMismatch { .. })
         ));
 
-        let raw = ProviderOptionLayers::default()
-            .with_raw_override(
-                ProviderOptions::checked_raw(provider.clone(), json!({"reasoning_effort":"high"}))
-                    .unwrap(),
-            )
-            .unwrap();
-        assert!(
-            raw.merge_for(
-                ProviderOptionContext::new(&provider, ModelFamily::Language, Some(&chat)),
-                &Merger
-            )
-            .is_ok()
-        );
+        let chat = fake_model("openai", "chat-completions", None);
+        assert!(matches!(
+            CallOptions::default().with_provider_options_for(
+                &chat,
+                &OpenAiOptions {
+                    reasoning_effort: "high",
+                },
+            ),
+            Err(ProviderOptionError::TargetMismatch { .. })
+        ));
     }
 
     #[test]
-    fn raw_options_reject_common_transport_and_auth_aliases() {
-        for key in [
-            "base_uri",
-            "proxy_url",
-            "client_secret",
-            "access-token",
-            "default_headers",
-            "redirect_policy",
-        ] {
-            let error = ProviderOptions::checked_raw(
-                ProviderId::new("openai").unwrap(),
-                Value::Object(Map::from_iter([(key.to_string(), json!("secret"))])),
-            )
-            .unwrap_err();
-            assert!(matches!(error, ProviderOptionError::ProtectedField { .. }));
-        }
-    }
-
-    #[test]
-    fn typed_option_entry_infers_exact_target_and_rejects_another_model() {
-        let options = OpenAiOptions {
-            reasoning_effort: "high",
-        };
-        let call = CallOptions::default()
-            .with_typed_provider_options(&options)
-            .unwrap();
-        let selected = call
-            .provider_options_for(&fake_model("openai", "responses", None))
-            .unwrap();
-        assert_eq!(selected.typed().count(), 1);
-
-        let error = call
-            .provider_options_for(&fake_model("openai", "chat-completions", None))
-            .unwrap_err();
-        assert!(matches!(error, ProviderOptionError::TargetMismatch { .. }));
-    }
-
-    #[test]
-    fn optional_bound_options_do_not_cross_same_label_instances() {
+    fn required_and_optional_targets_have_typed_mismatch_behavior() {
         let first = fake_model("openai", "responses", Some("primary"));
         let second = fake_model("openai", "responses", Some("primary"));
-        let raw = json!({"future_provider_field": "sentinel"});
-        let call = CallOptions::default()
-            .with_optional_raw_provider_options_for(&first, raw)
+
+        let required = CallOptions::default()
+            .with_raw_provider_options_for(&first, json!({"future": true}))
             .unwrap();
-
-        assert!(
-            call.provider_options_for(&first)
-                .unwrap()
-                .raw_override()
-                .is_some()
-        );
-        let other = call.provider_options_for(&second).unwrap();
-        assert_eq!(other.raw_override(), None);
-        assert_eq!(other.unconsumed_count(), 1);
-        assert!(!format!("{call:?}").contains("sentinel"));
-    }
-
-    #[test]
-    fn selected_route_context_preserves_binding_through_a_route_less_delegate() {
-        let routed = fake_model("openai", "responses", Some("primary"));
-        let inner = FakeModel {
-            descriptor: routed.descriptor.clone(),
-            route: None,
-        };
-        let call = CallOptions::default()
-            .with_raw_provider_options_for(&routed, json!({"future_provider_field": true}))
-            .unwrap();
-
         assert!(matches!(
-            call.provider_options_for(&inner),
+            required.provider_options_for(&second),
             Err(ProviderOptionError::ExactTargetMismatch { .. })
         ));
-        let delegated = call.with_selected_route_context(routed.route.clone().unwrap());
-        let selected = delegated.provider_options_for(&inner).unwrap();
-        assert!(selected.raw_override().is_some());
+
+        let optional = CallOptions::default()
+            .with_optional_raw_provider_options_for(&first, json!({"future": true}))
+            .unwrap();
+        let selection = optional.provider_options_for(&second).unwrap();
+        assert_eq!(selection.raw_override(), None);
+        assert_eq!(selection.unconsumed_count(), 1);
     }
 
     #[test]
-    fn instance_sensitive_typed_options_require_and_preserve_exact_binding() {
-        let options = SensitiveOpenAiOptions {
+    fn sensitive_typed_options_fail_closed_and_isolate_same_label_instances() {
+        let sensitive = SensitiveOpenAiOptions {
             mcp_authorization: "sentinel-secret",
         };
-        let error = CallOptions::default()
-            .with_typed_provider_options(&options)
-            .unwrap_err();
         assert!(matches!(
-            error,
-            ProviderOptionError::InstanceBindingRequired { .. }
+            CallOptions::default().with_provider_options(&sensitive),
+            Err(ProviderOptionError::InstanceBindingRequired { .. })
         ));
 
         let first = fake_model("openai", "responses", Some("shared-label"));
         let second = fake_model("openai", "responses", Some("shared-label"));
         let call = CallOptions::default()
-            .with_typed_provider_options_for(&first, &options)
+            .with_provider_options_for(&first, &sensitive)
             .unwrap();
+
         assert_eq!(
             call.provider_options_for(&first).unwrap().typed().count(),
             1
@@ -1846,12 +1296,79 @@ mod tests {
     }
 
     #[test]
-    fn bounded_option_entries_reject_entry_target_and_byte_overflow() {
+    fn ordered_typed_patches_precede_the_final_raw_override() {
         let model = fake_model("openai", "responses", None);
-        let mut call = CallOptions::default();
-        for _ in 0..64 {
-            call = call
-                .with_optional_typed_provider_options_for(
+        let call = CallOptions::default()
+            .with_provider_options(&Layer { value: "call" })
+            .unwrap()
+            .with_provider_options_for(&model, &Layer { value: "model" })
+            .unwrap()
+            .with_raw_provider_options_for(&model, json!({"future": "raw"}))
+            .unwrap();
+
+        let selection = call.provider_options_for(&model).unwrap();
+        let values = selection
+            .typed()
+            .map(|options| options.value()["value"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["call", "model"]);
+        assert_eq!(selection.raw_override().unwrap().value()["future"], "raw");
+    }
+
+    #[test]
+    fn prepend_runtime_patches_preserve_source_order_before_call_entries() {
+        let model = fake_model("openai", "responses", None);
+        let target = ProviderOptionTarget::for_model(&model);
+        let call = CallOptions::default()
+            .with_provider_options(&Layer { value: "call" })
+            .unwrap()
+            .prepend_provider_options(vec![
+                (target.clone(), layer("route")),
+                (target, layer("step")),
+            ])
+            .unwrap();
+
+        let values = call
+            .provider_options_for(&model)
+            .unwrap()
+            .typed()
+            .map(|options| options.value()["value"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["route", "step", "call"]);
+    }
+
+    #[test]
+    fn selected_route_context_preserves_binding_through_a_route_less_delegate() {
+        let routed = fake_model("openai", "responses", Some("primary"));
+        let inner = FakeModel {
+            descriptor: routed.descriptor.clone(),
+            route: None,
+        };
+        let call = CallOptions::default()
+            .with_raw_provider_options_for(&routed, json!({"future": true}))
+            .unwrap();
+
+        assert!(matches!(
+            call.provider_options_for(&inner),
+            Err(ProviderOptionError::ExactTargetMismatch { .. })
+        ));
+        let delegated = call.with_selected_route_context(routed.route.clone().unwrap());
+        assert!(
+            delegated
+                .provider_options_for(&inner)
+                .unwrap()
+                .raw_override()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn duplicate_raw_target_and_bounds_are_enforced() {
+        let model = fake_model("openai", "responses", None);
+        let mut entries = CallOptions::default();
+        for _ in 0..MAX_PROVIDER_OPTION_ENTRIES {
+            entries = entries
+                .with_optional_provider_options_for(
                     &model,
                     &OpenAiOptions {
                         reasoning_effort: "high",
@@ -1859,33 +1376,30 @@ mod tests {
                 )
                 .unwrap();
         }
-        let error = call
-            .with_optional_typed_provider_options_for(
+        assert!(matches!(
+            entries.with_optional_provider_options_for(
                 &model,
                 &OpenAiOptions {
                     reasoning_effort: "high",
                 },
-            )
-            .unwrap_err();
-        assert!(matches!(error, ProviderOptionError::TooManyEntries { .. }));
+            ),
+            Err(ProviderOptionError::TooManyEntries { .. })
+        ));
 
-        let too_large = vec![b' '; MAX_PROVIDER_OPTION_BYTES + 1];
-        let error = CallOptions::default()
-            .with_raw_provider_json_for(&model, &too_large)
-            .unwrap_err();
-        assert!(matches!(error, ProviderOptionError::TooLarge { .. }));
-
-        let huge_value = json!({"items": vec![Value::Null; MAX_PROVIDER_OPTION_BYTES]});
-        let error = CallOptions::default()
-            .with_raw_provider_options_for(&model, huge_value)
-            .unwrap_err();
-        assert!(matches!(error, ProviderOptionError::TooLarge { .. }));
+        let duplicate = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"future": true}))
+            .unwrap()
+            .with_raw_provider_options_for(&model, json!({"future": false}));
+        assert!(matches!(
+            duplicate,
+            Err(ProviderOptionError::DuplicateRawTarget)
+        ));
 
         let mut targets = CallOptions::default();
         for index in 0..MAX_PROVIDER_OPTION_TARGETS {
             let target = fake_model("openai", "responses", Some(&format!("route-{index}")));
             targets = targets
-                .with_optional_typed_provider_options_for(
+                .with_optional_provider_options_for(
                     &target,
                     &OpenAiOptions {
                         reasoning_effort: "high",
@@ -1894,18 +1408,18 @@ mod tests {
                 .unwrap();
         }
         let overflow = fake_model("openai", "responses", Some("route-overflow"));
-        let error = targets
-            .with_optional_typed_provider_options_for(
+        assert!(matches!(
+            targets.with_optional_provider_options_for(
                 &overflow,
                 &OpenAiOptions {
                     reasoning_effort: "high",
                 },
-            )
-            .unwrap_err();
-        assert!(matches!(error, ProviderOptionError::TooManyTargets { .. }));
+            ),
+            Err(ProviderOptionError::TooManyTargets { .. })
+        ));
 
-        let mut aggregate = CallOptions::default();
         let payload = "x".repeat(MAX_PROVIDER_OPTION_BYTES - 1024);
+        let mut aggregate = CallOptions::default();
         for index in 0..8 {
             let target = fake_model("openai", "responses", Some(&format!("raw-{index}")));
             aggregate = aggregate
@@ -1916,12 +1430,12 @@ mod tests {
                 .unwrap();
         }
         let overflow = fake_model("openai", "responses", Some("raw-overflow"));
-        let error = aggregate
-            .with_optional_raw_provider_options_for(&overflow, json!({"future_blob": payload}))
-            .unwrap_err();
         assert!(matches!(
-            error,
-            ProviderOptionError::AggregateTooLarge { .. }
+            aggregate.with_optional_raw_provider_options_for(
+                &overflow,
+                json!({"future_blob": payload}),
+            ),
+            Err(ProviderOptionError::AggregateTooLarge { .. })
         ));
     }
 }

@@ -354,19 +354,16 @@ impl AnthropicLanguageModel {
             ));
         }
         request.generation.max_output_tokens = Some(0);
-        let provider_options = options.provider_options().map_err(|source| {
-            Error::new(
-                siumai_core::ErrorKind::InvalidInput,
-                "Anthropic cache prewarming options are invalid",
-            )
-            .with_source(source)
-        })?;
-        self.inner
-            .generate(
-                request,
-                call_options.with_provider_options(provider_options),
-            )
-            .await
+        let call_options = call_options
+            .with_provider_options_for(&self.inner, &options)
+            .map_err(|source| {
+                Error::new(
+                    siumai_core::ErrorKind::InvalidInput,
+                    "Anthropic cache prewarming options are invalid",
+                )
+                .with_source(source)
+            })?;
+        self.inner.generate(request, call_options).await
     }
 }
 

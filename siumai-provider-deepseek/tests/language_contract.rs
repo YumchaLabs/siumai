@@ -3,8 +3,8 @@ use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
     LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole, Model, ModelFamily,
-    ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec, ToolCall,
-    ToolOutcome, ToolResult, ToolSpec, UsageValue, WarningKind,
+    ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome,
+    ToolResult, ToolSpec, UsageValue, WarningKind,
 };
 use siumai_provider_deepseek::{
     DeepSeekAssistantPrefix, DeepSeekChatOptions, DeepSeekConfigError, DeepSeekCredential,
@@ -483,14 +483,14 @@ async fn chat_replays_all_reasoning_and_preserves_json_cache_usage() {
     let options = DeepSeekChatOptions::new()
         .with_thinking_enabled()
         .with_reasoning_effort(DeepSeekReasoningEffort::High);
-    let response = provider(&server)
+    let model = provider(&server)
         .chat_completions("deepseek-v4-flash")
-        .expect("model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let response = model
+        .generate(request, call_options)
         .await
         .expect("response");
 
@@ -538,14 +538,14 @@ async fn stable_chat_rejects_beta_strict_tools_before_transport() {
         structured_output: None,
     };
     let options = DeepSeekChatOptions::new().with_strict_tools(true);
-    let error = provider(&server)
+    let model = provider(&server)
         .chat_completions("deepseek-v4-flash")
-        .expect("model")
-        .generate(
-            strict_request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let error = model
+        .generate(strict_request, call_options)
         .await
         .expect_err("stable endpoint must reject beta-only strict tools");
 
@@ -610,14 +610,14 @@ async fn beta_chat_projects_strict_tools_and_final_assistant_prefix() {
         structured_output: None,
     };
     let options = DeepSeekChatOptions::new().with_strict_tools(true);
-    beta_provider(&server)
+    let model = beta_provider(&server)
         .beta_chat_completions("deepseek-v4-flash")
-        .expect("beta model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+        .expect("beta model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    model
+        .generate(request, call_options)
         .await
         .expect("beta response");
 
@@ -683,14 +683,14 @@ async fn beta_strict_tools_validate_nested_object_schemas_before_transport() {
         structured_output: None,
     };
     let options = DeepSeekChatOptions::new().with_strict_tools(true);
-    let error = beta_provider(&server)
+    let model = beta_provider(&server)
         .beta_chat_completions("deepseek-v4-flash")
-        .expect("beta model")
-        .generate(
-            request,
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+        .expect("beta model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let error = model
+        .generate(request, call_options)
         .await
         .expect_err("invalid nested schema must fail before transport");
 
@@ -772,14 +772,14 @@ async fn responses_maps_supported_controls_and_rejects_known_pro() {
         .with_user("tenant-1")
         .with_web_search()
         .with_apply_patch();
-    let response = provider(&server)
+    let model = provider(&server)
         .responses("deepseek-v4-flash")
-        .expect("model")
-        .generate(
-            request("continue"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&options).expect("options")),
-        )
+        .expect("model");
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+    let response = model
+        .generate(request("continue"), call_options)
         .await
         .expect("response");
     assert_eq!(response.id(), Some("resp-deepseek"));

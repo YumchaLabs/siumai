@@ -7,13 +7,12 @@ use serde::Serialize;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, FinishReason, LanguageModel, LanguageRequest,
+    ApiModeId, CallOptions, ContentPart, Error, FinishReason, LanguageModel, LanguageRequest,
     LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessageRole, Model,
-    ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionContext, ProviderOptionError,
-    ProviderOptionLayers, ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, RouteId,
-    StreamTerminal, ToolCall, TypedProviderOptions, Usage,
+    ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionError, ProviderOptions,
+    RouteId, StreamTerminal, ToolCall, TypedProviderOptions, Usage,
 };
-use siumai_runtime::{ModelTarget, Runtime, RuntimeConfigError, StepOptions, generate, stream};
+use siumai_runtime::{Runtime, RuntimeConfigError, StepOptions, generate, stream};
 
 #[derive(Debug, Serialize)]
 struct TestOptions {
@@ -35,38 +34,15 @@ impl TypedProviderOptions for OtherOptions {
     const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
 }
 
-fn options(value: &'static str) -> ProviderOptions {
-    ProviderOptions::typed(&TestOptions { value }).unwrap()
+#[derive(Debug, Serialize)]
+struct ChatOptions {
+    value: &'static str,
 }
 
-fn other_options(value: &'static str) -> ProviderOptions {
-    ProviderOptions::typed(&OtherOptions { value }).unwrap()
-}
-
-struct CaptureMerger;
-
-impl ProviderOptionMerger for CaptureMerger {
-    type Output = Vec<(ProviderOptionOrigin, String)>;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        _options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        Ok(())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        Ok(layers
-            .in_precedence_order()
-            .map(|(origin, options)| {
-                (
-                    origin,
-                    options.value()["value"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect())
-    }
+impl TypedProviderOptions for ChatOptions {
+    const NAMESPACE: &'static str = "test";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some("chat");
 }
 
 #[derive(Debug)]
@@ -74,7 +50,7 @@ struct ScriptedModel {
     descriptor: ModelDescriptor,
     route: Option<RouteId>,
     calls: Arc<AtomicUsize>,
-    observed: Arc<std::sync::Mutex<Vec<(ProviderOptionOrigin, String)>>>,
+    observed: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl Model for ScriptedModel {
@@ -95,24 +71,15 @@ impl LanguageModel for ScriptedModel {
         call: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let layers = call
-            .apply_provider_options(
-                self.provider_id(),
-                ProviderOptionLayers::default()
-                    .with_provider_default(options("provider"))
-                    .unwrap(),
-            )
+        let selection = call
+            .provider_options_for(self)
             .map_err(provider_options_error)?;
-        *self.observed.lock().unwrap() = layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    self.family(),
-                    self.descriptor().scope().api_mode(),
-                ),
-                &CaptureMerger,
-            )
-            .map_err(provider_options_error)?;
+        let mut observed = vec!["provider".to_string()];
+        observed.extend(selection.typed().map(option_value));
+        if let Some(raw) = selection.raw_override() {
+            observed.push(option_value(raw));
+        }
+        *self.observed.lock().unwrap() = observed;
         LanguageResponse::completed(
             vec![ContentPart::ToolCall(
                 ToolCall::local("call-1", "dangerous", json!({"value": 1}))
@@ -159,10 +126,18 @@ fn provider_options_error(source: ProviderOptionError) -> Error {
     .with_source(source)
 }
 
+fn option_value(options: &ProviderOptions) -> String {
+    options.value()["value"].as_str().unwrap().to_string()
+}
+
 fn model() -> ScriptedModel {
+    model_for("test")
+}
+
+fn model_for(provider: &str) -> ScriptedModel {
     ScriptedModel {
         descriptor: ModelDescriptor::new(
-            ProviderId::new("test").unwrap(),
+            ProviderId::new(provider).unwrap(),
             ModelId::new("model-v1").unwrap(),
             ModelFamily::Language,
         ),
@@ -170,6 +145,15 @@ fn model() -> ScriptedModel {
         calls: Arc::new(AtomicUsize::new(0)),
         observed: Arc::new(std::sync::Mutex::new(Vec::new())),
     }
+}
+
+fn model_for_mode(api_mode: &str) -> ScriptedModel {
+    let mut model = model();
+    model.descriptor = model
+        .descriptor
+        .clone()
+        .with_api_mode(ApiModeId::new(api_mode).unwrap());
+    model
 }
 
 fn request() -> LanguageRequest {
@@ -213,15 +197,19 @@ async fn runtime_composes_defaults_without_owning_provider_merge_semantics() {
     let model = model();
     let observed = model.observed.clone();
     let runtime = Runtime::builder()
-        .with_route_defaults(RouteId::new("production").unwrap(), options("route"))
+        .with_route_defaults(&model, &TestOptions { value: "route" })
         .unwrap()
-        .with_model_defaults(ModelTarget::from_model(&model), options("model"))
+        .with_model_defaults(&model, &TestOptions { value: "model" })
         .unwrap()
         .build();
     let step = StepOptions::default()
-        .with_provider_options(options("step"))
+        .with_provider_options(&model, &TestOptions { value: "step" })
         .unwrap();
-    let call = CallOptions::default().with_provider_options(options("call"));
+    let call = CallOptions::default()
+        .with_provider_options_for(&model, &TestOptions { value: "call" })
+        .unwrap()
+        .with_raw_provider_options_for(&model, json!({"value": "raw"}))
+        .unwrap();
 
     runtime
         .generate(&model, request(), step, call)
@@ -231,26 +219,25 @@ async fn runtime_composes_defaults_without_owning_provider_merge_semantics() {
     assert_eq!(
         *observed.lock().unwrap(),
         vec![
-            (
-                ProviderOptionOrigin::ProviderDefault,
-                "provider".to_string()
-            ),
-            (ProviderOptionOrigin::RouteDefault, "route".to_string()),
-            (ProviderOptionOrigin::ModelDefault, "model".to_string()),
-            (ProviderOptionOrigin::RuntimeStep, "step".to_string()),
-            (ProviderOptionOrigin::Call, "call".to_string()),
+            "provider".to_string(),
+            "route".to_string(),
+            "model".to_string(),
+            "step".to_string(),
+            "call".to_string(),
+            "raw".to_string(),
         ]
     );
 }
 
 #[tokio::test]
-async fn step_options_select_only_the_active_provider_namespace() {
+async fn step_options_select_only_the_exact_configured_target() {
     let model = model();
+    let other_model = model_for("other");
     let observed = model.observed.clone();
     let step = StepOptions::default()
-        .with_provider_options(other_options("foreign"))
+        .with_provider_options(&other_model, &OtherOptions { value: "foreign" })
         .unwrap()
-        .with_provider_options(options("selected"))
+        .with_provider_options(&model, &TestOptions { value: "selected" })
         .unwrap();
 
     Runtime::default()
@@ -260,24 +247,84 @@ async fn step_options_select_only_the_active_provider_namespace() {
 
     assert_eq!(
         *observed.lock().unwrap(),
-        vec![
-            (
-                ProviderOptionOrigin::ProviderDefault,
-                "provider".to_string()
-            ),
-            (ProviderOptionOrigin::RuntimeStep, "selected".to_string()),
-        ]
+        vec!["provider".to_string(), "selected".to_string()]
     );
+}
+
+#[tokio::test]
+async fn same_label_instances_do_not_share_runtime_defaults_or_step_options() {
+    let configured = model();
+    let selected = model();
+    let observed = selected.observed.clone();
+    let runtime = Runtime::builder()
+        .with_route_defaults(&configured, &TestOptions { value: "route" })
+        .unwrap()
+        .with_model_defaults(&configured, &TestOptions { value: "model" })
+        .unwrap()
+        .build();
+    let step = StepOptions::default()
+        .with_provider_options(&configured, &TestOptions { value: "step" })
+        .unwrap();
+
+    runtime
+        .generate(&selected, request(), step, CallOptions::default())
+        .await
+        .unwrap();
+
+    assert_eq!(*observed.lock().unwrap(), vec!["provider".to_string()]);
+}
+
+#[tokio::test]
+async fn runtime_prefix_respects_the_call_option_entry_bound() {
+    let model = model();
+    let calls = model.calls.clone();
+    let runtime = Runtime::builder()
+        .with_model_defaults(&model, &TestOptions { value: "model" })
+        .unwrap()
+        .build();
+    let mut call = CallOptions::default();
+    for _ in 0..64 {
+        call = call
+            .with_provider_options_for(&model, &TestOptions { value: "call" })
+            .unwrap();
+    }
+
+    let error = runtime
+        .generate(&model, request(), StepOptions::default(), call)
+        .await
+        .unwrap_err();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        error
+            .sensitive_source()
+            .and_then(|source| source.expose().downcast_ref::<ProviderOptionError>()),
+        Some(ProviderOptionError::TooManyEntries { maximum: 64 })
+    ));
 }
 
 #[test]
 fn model_defaults_reject_a_foreign_provider_namespace_at_build_time() {
+    let model = model();
     let error = Runtime::builder()
-        .with_model_defaults(ModelTarget::from_model(&model()), other_options("foreign"))
+        .with_model_defaults(&model, &OtherOptions { value: "foreign" })
         .unwrap_err();
 
     assert!(matches!(
         error,
-        RuntimeConfigError::ModelDefaultsNamespace { .. }
+        RuntimeConfigError::ProviderOptions(ProviderOptionError::NamespaceMismatch { .. })
+    ));
+}
+
+#[test]
+fn model_defaults_reject_a_foreign_api_mode_at_build_time() {
+    let model = model_for_mode("responses");
+    let error = Runtime::builder()
+        .with_model_defaults(&model, &ChatOptions { value: "foreign" })
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        RuntimeConfigError::ProviderOptions(ProviderOptionError::TargetMismatch { .. })
     ));
 }

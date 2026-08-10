@@ -3,11 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use siumai_core::{
-    InvalidId, ModelFamily, ModelId, ModelLookupError, ProfileError, Provider, ProviderInstanceId,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderRegistration, ProviderRegistrationError,
-    ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider, TranscriptionModel,
-    TranscriptionModelProvider, TypedProviderOptions,
+    InvalidId, Model, ModelId, ModelLookupError, ProfileError, Provider, ProviderInstanceId,
+    ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderRegistration,
+    ProviderRegistrationError, ProviderScope, SpeechLimits, SpeechModel, SpeechModelProvider,
+    TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointError, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
@@ -238,18 +237,14 @@ impl ElevenLabsProviderBuilder {
             profile: self.profile.clone(),
             transport: transport.clone(),
             default_voice,
-            option_merger: ElevenLabsOptionMerger {
-                defaults: self.default_options,
-            },
+            default_options: self.default_options,
             speech_limits: self.speech_limits,
         });
         let transcription_runtime = Arc::new(TranscriptionRuntime {
             scope: self.profile.transcription_scope_arc(),
             instance_id,
             transport,
-            option_merger: ElevenLabsTranscriptionOptionMerger {
-                defaults: self.default_transcription_options,
-            },
+            default_options: self.default_transcription_options,
         });
         let speech_registration = ProviderRegistration::from_speech(runtime.scope.clone(), {
             let runtime = runtime.clone();
@@ -282,7 +277,7 @@ pub(crate) struct ProviderRuntime {
     pub(crate) profile: ElevenLabsProfile,
     pub(crate) transport: ProviderTransport,
     pub(crate) default_voice: String,
-    option_merger: ElevenLabsOptionMerger,
+    default_options: ElevenLabsSpeechOptions,
     speech_limits: Option<SpeechLimits>,
 }
 
@@ -290,42 +285,28 @@ pub(crate) struct TranscriptionRuntime {
     pub(crate) scope: Arc<ProviderScope>,
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
-    option_merger: ElevenLabsTranscriptionOptionMerger,
+    default_options: ElevenLabsTranscriptionOptions,
 }
 
 impl TranscriptionRuntime {
-    pub(crate) fn merge_options(
+    pub(crate) fn merge_options<M: Model + ?Sized>(
         &self,
+        model: &M,
         options: &siumai_core::CallOptions,
     ) -> Result<ElevenLabsTranscriptionOptions, ProviderOptionError> {
-        let layers = options
-            .apply_provider_options(self.scope.provider_id(), ProviderOptionLayers::default())?;
-        layers.merge_for(
-            ProviderOptionContext::new(
-                self.scope.provider_id(),
-                ModelFamily::Transcription,
-                self.scope.api_mode(),
-            ),
-            &self.option_merger,
-        )
+        let selection = options.provider_options_for(model)?;
+        merge_transcription_options(&self.default_options, &selection)
     }
 }
 
 impl ProviderRuntime {
-    pub(crate) fn merge_options(
+    pub(crate) fn merge_options<M: Model + ?Sized>(
         &self,
+        model: &M,
         options: &siumai_core::CallOptions,
     ) -> Result<ElevenLabsSpeechOptions, ProviderOptionError> {
-        let layers = options
-            .apply_provider_options(self.scope.provider_id(), ProviderOptionLayers::default())?;
-        layers.merge_for(
-            ProviderOptionContext::new(
-                self.scope.provider_id(),
-                ModelFamily::Speech,
-                self.scope.api_mode(),
-            ),
-            &self.option_merger,
-        )
+        let selection = options.provider_options_for(model)?;
+        merge_speech_options(&self.default_options, &selection)
     }
 
     pub(crate) fn speech_limits(&self, model: &ModelId) -> SpeechLimits {
@@ -347,54 +328,44 @@ impl fmt::Debug for ProviderRuntime {
     }
 }
 
-struct ElevenLabsOptionMerger {
-    defaults: ElevenLabsSpeechOptions,
+fn merge_transcription_options(
+    defaults: &ElevenLabsTranscriptionOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<ElevenLabsTranscriptionOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let options = decode_transcription_options(options)?;
+        options.validate()?;
+        merged.merge_from(options);
+    }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "ElevenLabs transcription only accepts typed provider options".to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
-struct ElevenLabsTranscriptionOptionMerger {
-    defaults: ElevenLabsTranscriptionOptions,
-}
-
-impl ProviderOptionMerger for ElevenLabsTranscriptionOptionMerger {
-    type Output = ElevenLabsTranscriptionOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_transcription_options(options)?.validate()
+fn merge_speech_options(
+    defaults: &ElevenLabsSpeechOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<ElevenLabsSpeechOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let options = decode_options(options)?;
+        options.validate()?;
+        merged.merge_from(options);
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            merged.merge_from(decode_transcription_options(options)?);
-        }
-        merged.validate()?;
-        Ok(merged)
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "ElevenLabs speech only accepts typed provider options".to_string(),
+        });
     }
-}
-
-impl ProviderOptionMerger for ElevenLabsOptionMerger {
-    type Output = ElevenLabsSpeechOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options)?.validate()
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            merged.merge_from(decode_options(options)?);
-        }
-        merged.validate()?;
-        Ok(merged)
-    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(

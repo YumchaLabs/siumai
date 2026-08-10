@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use siumai_core::{CallOptions, ErrorKind, ProviderOptions};
+use siumai_core::{CallOptions, ErrorKind, ReplayDomain, ReplayDomainId};
 use siumai_provider_alibaba::{
     AlibabaChatOptions, AlibabaCredential, AlibabaProvider,
     experimental::{
@@ -273,9 +273,20 @@ async fn typed_video_job_snapshots_update_on_cancel_and_keep_future_models_calla
 #[tokio::test]
 async fn video_validation_and_foreign_call_options_fail_before_wire() {
     let server = MockServer::start().await;
-    let model = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
-        .video(WAN_2_7_I2V)
+    let provider = AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
+        .with_language_endpoint(
+            EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap(),
+        )
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("alibaba-video-options-test").unwrap(),
+        ))
+        .with_video_endpoint(
+            EndpointConfig::local_explicit(format!("{}/api/v1", server.uri())).unwrap(),
+        )
+        .with_video_download_policy(AlibabaVideoDownloadPolicy::LoopbackExplicit)
+        .build()
         .unwrap();
+    let model = provider.video(WAN_2_7_I2V).unwrap();
 
     let error = model
         .create(AlibabaVideoRequest::new(), CallOptions::default())
@@ -284,12 +295,12 @@ async fn video_validation_and_foreign_call_options_fail_before_wire() {
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
     let chat_options = AlibabaChatOptions::new().with_enable_search(true);
+    let chat = provider.chat_completions("future-qwen").unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&chat, &chat_options)
+        .unwrap();
     let error = model
-        .create(
-            AlibabaVideoRequest::text("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&chat_options).unwrap()),
-        )
+        .create(AlibabaVideoRequest::text("hello"), call_options)
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);

@@ -12,9 +12,8 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageArtifact, ImageLimits, ImageModel,
     ImageRequest, ImageResponse, MediaData, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ResponseMetadata,
-    TypedProviderOptions, Usage,
+    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions,
+    ResponseMetadata, TypedProviderOptions, Usage,
 };
 use siumai_transport::{ReplaySafety, RequestBody};
 
@@ -477,21 +476,8 @@ impl ArkImageModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<ArkImageOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Image,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &ArkImageOptionMerger {
-                    defaults: self.defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.defaults, &selection).map_err(option_error)
     }
 
     fn contextualize(&self, error: Error) -> Error {
@@ -588,34 +574,29 @@ impl fmt::Debug for ArkImageModel {
     }
 }
 
-struct ArkImageOptionMerger {
-    defaults: ArkImageOptions,
-}
-
-impl ProviderOptionMerger for ArkImageOptionMerger {
-    type Output = ArkImageOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).map(|_| ())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let layer = decode_options(options)?;
-            if layer.watermark.is_some() {
-                merged.watermark = layer.watermark;
-            }
-            if layer.optimize_prompt_mode.is_some() {
-                merged.optimize_prompt_mode = layer.optimize_prompt_mode;
-            }
+fn merge_options(
+    defaults: &ArkImageOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<ArkImageOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let layer = decode_options(options)?;
+        layer.validate()?;
+        if layer.watermark.is_some() {
+            merged.watermark = layer.watermark;
         }
-        Ok(merged)
+        if layer.optimize_prompt_mode.is_some() {
+            merged.optimize_prompt_mode = layer.optimize_prompt_mode;
+        }
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "ARK image generation only accepts typed provider options".to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(options: &ProviderOptions) -> Result<ArkImageOptions, ProviderOptionError> {

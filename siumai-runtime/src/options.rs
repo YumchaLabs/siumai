@@ -1,15 +1,16 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use siumai_core::{
     ApiModeId, CallOptions, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
-    Model, ModelId, PlatformId, ProtocolId, ProviderId, ProviderOptions, ProviderScope,
-    ReplayDomain, RouteId,
+    Model, ModelFamily, ModelId, PlatformId, ProtocolId, ProviderId, ProviderInstanceId,
+    ProviderOptionError, ProviderOptionTarget, ProviderOptions, ProviderScope, ReplayDomain,
+    RouteId, TypedProviderOptions,
 };
 use thiserror::Error;
 
 use crate::RunBudget;
+
 /// Complete model target used for model-default selection.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModelTarget {
@@ -113,47 +114,178 @@ pub enum RuntimeConfigError {
     DuplicateRouteDefaults { route: RouteId },
     #[error("model target already has provider-option defaults")]
     DuplicateModelDefaults { target: Box<ModelTarget> },
-    #[error("runtime defaults and step options must use typed provider options")]
-    RawProviderOptions,
-    #[error("runtime step already has provider options for `{provider}`")]
-    DuplicateStepOptions { provider: ProviderId },
-    #[error("model defaults target `{expected}` but options use namespace `{actual}`")]
-    ModelDefaultsNamespace {
-        expected: ProviderId,
-        actual: ProviderId,
-    },
+    #[error("runtime step already has provider options for this exact model target")]
+    DuplicateStepOptions { target: Box<ModelTarget> },
+    #[error("route defaults require a Registry-selected model target")]
+    MissingRoute { target: Box<ModelTarget> },
+    #[error("invalid runtime provider options: {0}")]
+    ProviderOptions(#[from] ProviderOptionError),
+}
+
+#[derive(Clone)]
+struct ExactProviderPatch {
+    target: ProviderOptionTarget,
+    route: Option<RouteId>,
+    scope: ProviderScope,
+    family: ModelFamily,
+    instance_id: ProviderInstanceId,
+    options: ProviderOptions,
+}
+
+impl std::fmt::Debug for ExactProviderPatch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ExactProviderPatch")
+            .field("target", &self.target)
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
+impl ExactProviderPatch {
+    fn typed<M, T>(model: &M, value: &T) -> Result<Self, RuntimeConfigError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let options = ProviderOptions::typed(value)?;
+        let target = ProviderOptionTarget::for_model(model);
+        if options.namespace() != target.provider() {
+            return Err(ProviderOptionError::NamespaceMismatch {
+                expected: target.provider().to_string(),
+                actual: options.namespace().to_string(),
+            }
+            .into());
+        }
+        if options.model_family() != Some(target.family())
+            || options.api_mode() != target.api_mode()
+        {
+            return Err(ProviderOptionError::TargetMismatch {
+                expected_family: target.family(),
+                expected_api_mode: target.api_mode().map(ApiModeId::to_string),
+                actual_family: options.model_family().unwrap_or(target.family()),
+                actual_api_mode: options.api_mode().map(ApiModeId::to_string),
+            }
+            .into());
+        }
+
+        let descriptor = model.descriptor();
+        Ok(Self {
+            target,
+            route: model.route_id().cloned(),
+            scope: descriptor.scope().clone(),
+            family: descriptor.family(),
+            instance_id: descriptor.instance_id().clone(),
+            options,
+        })
+    }
+
+    fn matches_model<M>(&self, model: &M) -> bool
+    where
+        M: Model + ?Sized,
+    {
+        let descriptor = model.descriptor();
+        self.route.as_ref() == model.route_id()
+            && self.scope == *descriptor.scope()
+            && self.family == descriptor.family()
+            && self.instance_id == *descriptor.instance_id()
+    }
+
+    fn same_target(&self, other: &Self) -> bool {
+        self.target == other.target
+    }
 }
 
 /// Options owned by one model step inside the high-level runtime.
 #[derive(Debug, Clone, Default)]
 pub struct StepOptions {
-    provider_options: BTreeMap<ProviderId, ProviderOptions>,
+    patches: Vec<ExactProviderPatch>,
 }
 
 impl StepOptions {
-    pub fn with_provider_options(
+    /// Add typed options for one exact configured model that may own this step.
+    pub fn with_provider_options<M, T>(
         mut self,
-        options: ProviderOptions,
-    ) -> Result<Self, RuntimeConfigError> {
-        ensure_typed(&options)?;
-        let provider = options.namespace().clone();
-        if self.provider_options.contains_key(&provider) {
-            return Err(RuntimeConfigError::DuplicateStepOptions { provider });
+        model: &M,
+        value: &T,
+    ) -> Result<Self, RuntimeConfigError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let patch = ExactProviderPatch::typed(model, value)?;
+        if self
+            .patches
+            .iter()
+            .any(|existing| existing.same_target(&patch))
+        {
+            return Err(RuntimeConfigError::DuplicateStepOptions {
+                target: Box::new(ModelTarget::from_model(model)),
+            });
         }
-        self.provider_options.insert(provider, options);
+        self.patches.push(patch);
         Ok(self)
     }
+}
 
-    pub fn provider_options_for(&self, provider: &ProviderId) -> Option<&ProviderOptions> {
-        self.provider_options.get(provider)
-    }
+#[derive(Debug, Clone)]
+struct RouteDefaults {
+    route: RouteId,
+    patch: ExactProviderPatch,
+}
+
+#[derive(Debug, Clone)]
+struct ModelDefaults {
+    target: ModelTarget,
+    patch: ExactProviderPatch,
 }
 
 #[derive(Debug, Clone, Default)]
 struct RuntimeDefaults {
-    route: BTreeMap<RouteId, ProviderOptions>,
-    model: BTreeMap<ModelTarget, ProviderOptions>,
+    route: Vec<RouteDefaults>,
+    model: Vec<ModelDefaults>,
     budget: RunBudget,
+}
+
+/// Runtime-private source ordering. Providers consume only the resulting
+/// exact-target patch order and never observe these host-level source labels.
+struct OrderedProviderPatches<'a> {
+    patches: Vec<&'a ExactProviderPatch>,
+}
+
+impl<'a> OrderedProviderPatches<'a> {
+    fn for_call<M>(defaults: &'a RuntimeDefaults, model: &M, step: &'a StepOptions) -> Self
+    where
+        M: Model + ?Sized,
+    {
+        let mut patches = Vec::new();
+
+        if let Some(route) = model.route_id() {
+            patches.extend(
+                defaults
+                    .route
+                    .iter()
+                    .filter(|defaults| &defaults.route == route)
+                    .map(|defaults| &defaults.patch),
+            );
+        }
+
+        let exact_target = ModelTarget::from_model(model);
+        let route_independent_target = exact_target.clone().without_route();
+        patches.extend(
+            defaults
+                .model
+                .iter()
+                .filter(|defaults| {
+                    defaults.target == exact_target || defaults.target == route_independent_target
+                })
+                .map(|defaults| &defaults.patch),
+        );
+        patches.extend(step.patches.iter());
+        patches.retain(|patch| patch.matches_model(model));
+
+        Self { patches }
+    }
 }
 
 /// Immutable, clone-cheap high-level runtime configuration.
@@ -205,32 +337,18 @@ impl Runtime {
         &self,
         model: &M,
         step: &StepOptions,
-        mut options: CallOptions,
-    ) -> CallOptions
+        options: CallOptions,
+    ) -> Result<CallOptions, siumai_core::Error>
     where
         M: Model + ?Sized,
     {
-        if let Some(route) = model.route_id()
-            && let Some(defaults) = self.defaults.route.get(route)
-        {
-            options = options.with_route_default_provider_options(defaults.clone());
-        }
-
-        let exact_target = ModelTarget::from_model(model);
-        let route_independent_target = exact_target.clone().without_route();
-        if let Some(defaults) = self
-            .defaults
-            .model
-            .get(&exact_target)
-            .or_else(|| self.defaults.model.get(&route_independent_target))
-        {
-            options = options.with_model_default_provider_options(defaults.clone());
-        }
-
-        if let Some(step_options) = step.provider_options_for(model.provider_id()) {
-            options = options.with_runtime_step_provider_options(step_options.clone());
-        }
+        let patches = OrderedProviderPatches::for_call(&self.defaults, model, step)
+            .patches
+            .into_iter()
+            .map(|patch| (patch.target.clone(), patch.options.clone()));
         options
+            .prepend_provider_options(patches)
+            .map_err(runtime_provider_options_error)
     }
 }
 
@@ -246,37 +364,59 @@ impl RuntimeBuilder {
         self
     }
 
-    pub fn with_route_defaults(
+    /// Add route-scoped typed defaults bound to one exact configured model.
+    pub fn with_route_defaults<M, T>(
         mut self,
-        route: RouteId,
-        options: ProviderOptions,
-    ) -> Result<Self, RuntimeConfigError> {
-        ensure_typed(&options)?;
-        if self.defaults.route.contains_key(&route) {
+        model: &M,
+        value: &T,
+    ) -> Result<Self, RuntimeConfigError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let target = ModelTarget::from_model(model);
+        let route = model
+            .route_id()
+            .cloned()
+            .ok_or_else(|| RuntimeConfigError::MissingRoute {
+                target: Box::new(target),
+            })?;
+        let patch = ExactProviderPatch::typed(model, value)?;
+        if self
+            .defaults
+            .route
+            .iter()
+            .any(|existing| existing.route == route && existing.patch.same_target(&patch))
+        {
             return Err(RuntimeConfigError::DuplicateRouteDefaults { route });
         }
-        self.defaults.route.insert(route, options);
+        self.defaults.route.push(RouteDefaults { route, patch });
         Ok(self)
     }
 
-    pub fn with_model_defaults(
+    /// Add model-scoped typed defaults bound to one exact configured model.
+    pub fn with_model_defaults<M, T>(
         mut self,
-        target: ModelTarget,
-        options: ProviderOptions,
-    ) -> Result<Self, RuntimeConfigError> {
-        ensure_typed(&options)?;
-        if target.provider() != options.namespace() {
-            return Err(RuntimeConfigError::ModelDefaultsNamespace {
-                expected: target.provider().clone(),
-                actual: options.namespace().clone(),
-            });
-        }
-        if self.defaults.model.contains_key(&target) {
+        model: &M,
+        value: &T,
+    ) -> Result<Self, RuntimeConfigError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let target = ModelTarget::from_model(model);
+        let patch = ExactProviderPatch::typed(model, value)?;
+        if self
+            .defaults
+            .model
+            .iter()
+            .any(|existing| existing.target == target && existing.patch.same_target(&patch))
+        {
             return Err(RuntimeConfigError::DuplicateModelDefaults {
                 target: Box::new(target),
             });
         }
-        self.defaults.model.insert(target, options);
+        self.defaults.model.push(ModelDefaults { target, patch });
         Ok(self)
     }
 
@@ -287,10 +427,10 @@ impl RuntimeBuilder {
     }
 }
 
-fn ensure_typed(options: &ProviderOptions) -> Result<(), RuntimeConfigError> {
-    if options.is_raw() {
-        Err(RuntimeConfigError::RawProviderOptions)
-    } else {
-        Ok(())
-    }
+fn runtime_provider_options_error(source: ProviderOptionError) -> siumai_core::Error {
+    siumai_core::Error::new(
+        siumai_core::ErrorKind::Configuration,
+        "invalid runtime provider options",
+    )
+    .with_source(source)
 }

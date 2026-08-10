@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope,
+    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderScope,
     TranscriptionLimits, TranscriptionModel, TranscriptionRequest, TranscriptionResponse,
     TypedProviderOptions,
 };
@@ -172,21 +171,8 @@ impl OpenAiTranscriptionModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<OpenAiTranscriptionOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Transcription,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &OpenAiTranscriptionOptionMerger {
-                    defaults: self.defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -325,35 +311,29 @@ impl TranscriptionModel for OpenAiTranscriptionModel {
     }
 }
 
-struct OpenAiTranscriptionOptionMerger {
-    defaults: OpenAiTranscriptionOptions,
-}
-
-impl ProviderOptionMerger for OpenAiTranscriptionOptionMerger {
-    type Output = OpenAiTranscriptionOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).and_then(|options| options.validate())
+fn merge_options(
+    defaults: &OpenAiTranscriptionOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<OpenAiTranscriptionOptions, ProviderOptionError> {
+    let mut merged = serde_json::to_value(defaults)
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
+        .as_object()
+        .cloned()
+        .unwrap_or_else(Map::new);
+    for options in selection.typed() {
+        decode_options(options)?.validate()?;
+        merged.extend(options.value().clone());
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = serde_json::to_value(&self.defaults)
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .as_object()
-            .cloned()
-            .unwrap_or_else(Map::new);
-        for (_, options) in layers.in_precedence_order() {
-            merged.extend(options.value().clone());
-        }
-        let output = serde_json::from_value::<OpenAiTranscriptionOptions>(Value::Object(merged))
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-        output.validate()?;
-        Ok(output)
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "OpenAI transcription only accepts typed provider options".to_string(),
+        });
     }
+    let output = serde_json::from_value::<OpenAiTranscriptionOptions>(Value::Object(merged))
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
+    output.validate()?;
+    Ok(output)
 }
 
 fn decode_options(

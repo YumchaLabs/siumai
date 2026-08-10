@@ -2,20 +2,22 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use siumai_core::{
-    Error, LanguageRequest, LanguageResponse, LanguageStreamDecoder, ModelId, ProviderScope,
-    Warning,
+    Error, LanguageRequest, LanguageResponse, LanguageStreamDecoder, ModelId, ProviderOptionError,
+    ProviderScope, Warning,
 };
 use siumai_protocol_openai::PromptCacheAnnotationResolver;
 use siumai_protocol_openai::chat_completions::{
     ChatCompletionsDialect, ChatCompletionsStreamDecoder, ChatRequestEncodingOptions,
     decode_response as decode_chat_response, encode_request_with_options as encode_chat_request,
+    is_protected_option_field as is_chat_protected_field,
 };
 use siumai_protocol_openai::responses::{
     FunctionToolEncodingOptions, RequestEncodingOptions, ResponsesStreamDecoder,
     ResponsesWireDialect, decode_response as decode_responses_response,
     encode_request_with_options as encode_responses_request,
+    is_protected_option_field as is_responses_protected_field,
 };
 use siumai_transport::{RequestHeaders, ResponseHeaders};
 
@@ -44,6 +46,18 @@ pub trait ChatCodecPolicy: Send + Sync {
         stream: bool,
     ) -> Result<Value, Error> {
         prepared.encode(scope, model, stream)
+    }
+
+    /// Apply a reviewed raw provider-body overlay after all typed codec behavior.
+    ///
+    /// The fail-closed default prevents a branded codec from accidentally
+    /// reinterpreting raw body data as headers or other request authority.
+    fn apply_raw_body_overlay(
+        &self,
+        _body: &mut Value,
+        raw: Option<&Map<String, Value>>,
+    ) -> Result<(), ProviderOptionError> {
+        reject_unreviewed_raw(self.name(), raw)
     }
 
     fn decode_response(
@@ -144,6 +158,15 @@ pub trait ResponsesCodecPolicy: Send + Sync {
         prepared.encode(scope, model, stream)
     }
 
+    /// Apply a reviewed raw provider-body overlay after all typed codec behavior.
+    fn apply_raw_body_overlay(
+        &self,
+        _body: &mut Value,
+        raw: Option<&Map<String, Value>>,
+    ) -> Result<(), ProviderOptionError> {
+        reject_unreviewed_raw(self.name(), raw)
+    }
+
     fn decode_response(
         &self,
         scope: &ProviderScope,
@@ -218,6 +241,14 @@ impl ChatCodecPolicy for IdentityChatCodecPolicy {
             warnings: Vec::new(),
         })
     }
+
+    fn apply_raw_body_overlay(
+        &self,
+        body: &mut Value,
+        raw: Option<&Map<String, Value>>,
+    ) -> Result<(), ProviderOptionError> {
+        apply_reviewed_raw_body_overlay(body, raw, is_chat_protected_field, "Chat Completions")
+    }
 }
 
 #[derive(Debug, Default)]
@@ -243,4 +274,52 @@ impl ResponsesCodecPolicy for IdentityResponsesCodecPolicy {
             warnings: Vec::new(),
         })
     }
+
+    fn apply_raw_body_overlay(
+        &self,
+        body: &mut Value,
+        raw: Option<&Map<String, Value>>,
+    ) -> Result<(), ProviderOptionError> {
+        apply_reviewed_raw_body_overlay(body, raw, is_responses_protected_field, "Responses")
+    }
+}
+
+fn reject_unreviewed_raw(
+    policy_name: &str,
+    raw: Option<&Map<String, Value>>,
+) -> Result<(), ProviderOptionError> {
+    if raw.is_none() {
+        return Ok(());
+    }
+    Err(ProviderOptionError::Rejected {
+        path: "$".to_string(),
+        reason: format!(
+            "raw provider options are not supported by the `{policy_name}` codec; use typed provider options"
+        ),
+    })
+}
+
+fn apply_reviewed_raw_body_overlay(
+    body: &mut Value,
+    raw: Option<&Map<String, Value>>,
+    is_protected: fn(&str) -> bool,
+    mode_name: &str,
+) -> Result<(), ProviderOptionError> {
+    let Some(raw) = raw else {
+        return Ok(());
+    };
+    if let Some(name) = raw.keys().find(|name| is_protected(name)) {
+        return Err(ProviderOptionError::Rejected {
+            path: name.clone(),
+            reason: format!("field is owned by the canonical {mode_name} request"),
+        });
+    }
+    let Value::Object(body) = body else {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: format!("the encoded {mode_name} request body is not a JSON object"),
+        });
+    };
+    body.extend(raw.clone());
+    Ok(())
 }

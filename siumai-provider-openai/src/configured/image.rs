@@ -10,8 +10,8 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, ImageLimits, ImageModel, ImageRequest,
     ImageResponse, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderScope, TypedProviderOptions,
+    ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderScope,
+    TypedProviderOptions,
 };
 use siumai_protocol_openai::image::{
     API_MODE_ID, ImageBackground, ImageGenerationConfig, ImageModeration, ImageOutputFormat,
@@ -214,21 +214,8 @@ impl OpenAiImageModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<OpenAiImageOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Image,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &OpenAiImageOptionMerger {
-                    defaults: self.defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -372,35 +359,29 @@ impl ImageModel for OpenAiImageModel {
     }
 }
 
-struct OpenAiImageOptionMerger {
-    defaults: OpenAiImageOptions,
-}
-
-impl ProviderOptionMerger for OpenAiImageOptionMerger {
-    type Output = OpenAiImageOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).and_then(|options| options.validate())
+fn merge_options(
+    defaults: &OpenAiImageOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<OpenAiImageOptions, ProviderOptionError> {
+    let mut merged = serde_json::to_value(defaults)
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    for options in selection.typed() {
+        decode_options(options)?.validate()?;
+        merged.extend(options.value().clone());
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = serde_json::to_value(&self.defaults)
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        for (_, options) in layers.in_precedence_order() {
-            merged.extend(options.value().clone());
-        }
-        let output = serde_json::from_value::<OpenAiImageOptions>(Value::Object(merged))
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-        output.validate()?;
-        Ok(output)
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "OpenAI image generation only accepts typed provider options".to_string(),
+        });
     }
+    let output = serde_json::from_value::<OpenAiImageOptions>(Value::Object(merged))
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
+    output.validate()?;
+    Ok(output)
 }
 
 fn decode_options(options: &ProviderOptions) -> Result<OpenAiImageOptions, ProviderOptionError> {

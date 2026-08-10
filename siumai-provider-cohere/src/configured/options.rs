@@ -1,107 +1,97 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use siumai_core::{
-    CallOptions, ModelFamily, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope,
+    CallOptions, Model, ProviderOptionError, ProviderOptionSelection, ProviderOptions,
     TypedProviderOptions,
 };
 
 use crate::provider_options::{CohereEmbeddingOptions, CohereRerankOptions};
 
-pub(crate) fn embedding_options(
+pub(crate) fn embedding_options<M: Model + ?Sized>(
     call: &CallOptions,
-    scope: &ProviderScope,
+    model: &M,
 ) -> Result<CohereEmbeddingOptions, ProviderOptionError> {
     merge_options(
         call,
-        ProviderOptionContext::new(
-            scope.provider_id(),
-            ModelFamily::Embedding,
-            scope.api_mode(),
-        ),
+        model,
         &["inputType", "truncate", "outputDimension"],
         canonical_embedding_field,
+        "Cohere embedding",
     )
 }
 
-pub(crate) fn rerank_options(
+pub(crate) fn rerank_options<M: Model + ?Sized>(
     call: &CallOptions,
-    scope: &ProviderScope,
+    model: &M,
 ) -> Result<CohereRerankOptions, ProviderOptionError> {
     merge_options(
         call,
-        ProviderOptionContext::new(scope.provider_id(), ModelFamily::Rerank, scope.api_mode()),
+        model,
         &["maxTokensPerDoc", "priority"],
         canonical_rerank_field,
+        "Cohere rerank",
     )
 }
 
-fn merge_options<T>(
+fn merge_options<T, M>(
     call: &CallOptions,
-    context: ProviderOptionContext<'_>,
+    model: &M,
     allowed: &'static [&'static str],
     canonicalize: fn(&str) -> Option<&'static str>,
+    mode: &'static str,
+) -> Result<T, ProviderOptionError>
+where
+    T: DeserializeOwned + TypedProviderOptions,
+    M: Model + ?Sized,
+{
+    let selection = call.provider_options_for(model)?;
+    merge_selected(&selection, allowed, canonicalize, mode)
+}
+
+fn merge_selected<T>(
+    selection: &ProviderOptionSelection<'_>,
+    allowed: &'static [&'static str],
+    canonicalize: fn(&str) -> Option<&'static str>,
+    mode: &'static str,
 ) -> Result<T, ProviderOptionError>
 where
     T: DeserializeOwned + TypedProviderOptions,
 {
-    let provider = siumai_core::ProviderId::new(T::NAMESPACE)
-        .map_err(|_| ProviderOptionError::InvalidNamespace(T::NAMESPACE.to_string()))?;
-    let layers = call.apply_provider_options(&provider, ProviderOptionLayers::default())?;
-    let value = layers.merge_for(
-        context,
-        &CohereOptionMerger {
-            allowed,
-            canonicalize,
-        },
-    )?;
-    decode_and_validate(value)
+    let mut merged = Map::new();
+    for options in selection.typed() {
+        let patch = canonicalize_patch(options, allowed, canonicalize)?;
+        decode_and_validate::<T>(Value::Object(patch.clone()))?;
+        merged.extend(patch);
+    }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: format!("{mode} only accepts typed provider options"),
+        });
+    }
+    decode_and_validate(Value::Object(merged))
 }
 
-struct CohereOptionMerger {
+fn canonicalize_patch(
+    options: &ProviderOptions,
     allowed: &'static [&'static str],
     canonicalize: fn(&str) -> Option<&'static str>,
-}
-
-impl ProviderOptionMerger for CohereOptionMerger {
-    type Output = Value;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        for field in options.value().keys() {
-            let Some(canonical) = (self.canonicalize)(field) else {
-                return Err(ProviderOptionError::Rejected {
-                    path: field.clone(),
-                    reason: "field is not valid for this Cohere model family".to_string(),
-                });
-            };
-            if !self.allowed.contains(&canonical) {
-                return Err(ProviderOptionError::Rejected {
-                    path: field.clone(),
-                    reason: "field is not valid for this Cohere model family".to_string(),
-                });
-            }
+) -> Result<Map<String, Value>, ProviderOptionError> {
+    let mut patch = Map::new();
+    for (field, value) in options.value() {
+        let canonical = canonicalize(field).ok_or_else(|| ProviderOptionError::Rejected {
+            path: field.clone(),
+            reason: "field is not valid for this Cohere model family".to_string(),
+        })?;
+        if !allowed.contains(&canonical) {
+            return Err(ProviderOptionError::Rejected {
+                path: field.clone(),
+                reason: "field is not valid for this Cohere model family".to_string(),
+            });
         }
-        Ok(())
+        patch.insert(canonical.to_string(), value.clone());
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = Map::new();
-        for (_, options) in layers.in_precedence_order() {
-            for (field, value) in options.value() {
-                let canonical =
-                    (self.canonicalize)(field).ok_or_else(|| ProviderOptionError::Rejected {
-                        path: field.clone(),
-                        reason: "field is not valid for this Cohere model family".to_string(),
-                    })?;
-                merged.insert(canonical.to_string(), value.clone());
-            }
-        }
-        Ok(Value::Object(merged))
-    }
+    Ok(patch)
 }
 
 fn decode_and_validate<T>(value: Value) -> Result<T, ProviderOptionError>

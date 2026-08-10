@@ -1,7 +1,7 @@
 use futures_util::StreamExt;
 use siumai_core::{
     CallOptions, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent, Message,
-    MessageRole, ProviderOptions, ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
+    MessageRole, ReplayDomain, ReplayDomainId, StreamTerminal, UsageValue,
 };
 use siumai_provider_moonshotai::{
     KIMI_K3, KimiAssistantPartial, KimiFileUpload, KimiFileUploadPurpose, KimiLanguageOptions,
@@ -44,12 +44,10 @@ async fn typed_kimi_options_and_cache_usage_survive_direct_generation() {
     let model = provider(format!("{}/v1", server.url()))
         .language(KIMI_K3)
         .expect("model");
-    let options = CallOptions::default().with_provider_options(
-        ProviderOptions::typed(
-            &KimiLanguageOptions::new().with_reasoning_effort(KimiReasoningEffort::High),
-        )
-        .expect("typed options"),
-    );
+    let kimi_options = KimiLanguageOptions::new().with_reasoning_effort(KimiReasoningEffort::High);
+    let options = CallOptions::default()
+        .with_provider_options_for(&model, &kimi_options)
+        .expect("call options");
 
     let response = model.generate(request(), options).await.expect("response");
 

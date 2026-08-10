@@ -9,8 +9,8 @@ use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, LanguageModel, LanguageRequest, LanguageResponse,
     LanguageStream, LanguageStreamDecoder, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, TypedProviderOptions,
+    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions,
+    TypedProviderOptions,
 };
 use siumai_protocol_gemini::generate_content::{
     DecodedGenerateContent, GenerateContentLanguageConfig, GenerateContentStreamDecoder,
@@ -146,21 +146,8 @@ impl GeminiGenerateContentModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiGenerateContentOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Language,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &GeminiGenerateContentOptionMerger {
-                    defaults: self.runtime.generate_content_defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.runtime.generate_content_defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -345,40 +332,35 @@ fn protocol_config(options: &GeminiGenerateContentOptions) -> GenerateContentLan
     config
 }
 
-struct GeminiGenerateContentOptionMerger {
-    defaults: GeminiGenerateContentOptions,
-}
-
-impl ProviderOptionMerger for GeminiGenerateContentOptionMerger {
-    type Output = GeminiGenerateContentOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).map(|_| ())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let value = decode_options(options)?;
-            if value.service_tier.is_some() {
-                merged.service_tier = value.service_tier;
-            }
-            if value.store.is_some() {
-                merged.store = value.store;
-            }
-            if value.top_k.is_some() {
-                merged.top_k = value.top_k;
-            }
-            if value.thinking.is_some() {
-                merged.thinking = value.thinking;
-            }
+fn merge_options(
+    defaults: &GeminiGenerateContentOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiGenerateContentOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let value = decode_options(options)?;
+        value.validate()?;
+        if value.service_tier.is_some() {
+            merged.service_tier = value.service_tier;
         }
-        Ok(merged)
+        if value.store.is_some() {
+            merged.store = value.store;
+        }
+        if value.top_k.is_some() {
+            merged.top_k = value.top_k;
+        }
+        if value.thinking.is_some() {
+            merged.thinking = value.thinking;
+        }
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini Generate Content only accepts typed provider options".to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(
@@ -412,8 +394,8 @@ fn request_build_error(source: RequestBuildError) -> Error {
 mod tests {
     use futures::StreamExt;
     use siumai_core::{
-        CallOptions, ContentPart, LanguageModel, LanguageStreamEvent, Message, ProviderOptions,
-        ReplayDomain, ReplayDomainId, StreamTerminal,
+        CallOptions, ContentPart, LanguageModel, LanguageStreamEvent, Message, ReplayDomain,
+        ReplayDomainId, StreamTerminal,
     };
     use siumai_transport::EndpointConfig;
 
@@ -504,12 +486,11 @@ mod tests {
                 .api_mode(),
             Some("interactions")
         );
-        let options = ProviderOptions::typed(
-            &GeminiGenerateContentOptions::new()
-                .with_service_tier(GeminiGenerateContentServiceTier::Priority),
-        )
-        .unwrap();
-        let call = CallOptions::default().with_provider_options(options);
+        let options = GeminiGenerateContentOptions::new()
+            .with_service_tier(GeminiGenerateContentServiceTier::Priority);
+        let call = CallOptions::default()
+            .with_provider_options_for(&model, &options)
+            .unwrap();
         let request = LanguageRequest::new(vec![Message::user("hello")]);
 
         let native = model

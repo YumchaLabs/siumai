@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -9,9 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, SpeechLimits, SpeechModel,
-    SpeechRequest, SpeechResponse, TypedProviderOptions,
+    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions, SpeechLimits,
+    SpeechModel, SpeechRequest, SpeechResponse, TypedProviderOptions,
 };
 use siumai_protocol_gemini::interactions::{
     InteractionSpeechConfig, V1BETA_SPEECH_TARGET, decode_speech_response, encode_speech_request,
@@ -81,21 +79,8 @@ impl GeminiSpeechModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<GeminiSpeechOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Speech,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &GeminiSpeechOptionMerger {
-                    defaults: self.runtime.speech_defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.runtime.speech_defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -205,51 +190,54 @@ impl SpeechModel for GeminiSpeechModel {
     }
 }
 
-struct GeminiSpeechOptionMerger {
-    defaults: GeminiSpeechOptions,
+fn merge_options(
+    defaults: &GeminiSpeechOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiSpeechOptions, ProviderOptionError> {
+    let mut merged = serde_json::to_value(defaults)
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
+        .as_object()
+        .cloned()
+        .unwrap_or_else(Map::new);
+    for options in selection.typed() {
+        decode_options(options)?;
+        merged.extend(options.value().clone());
+    }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini Interactions speech only accepts typed provider options".to_string(),
+        });
+    }
+    decode_options_value(merged)
 }
 
-impl ProviderOptionMerger for GeminiSpeechOptionMerger {
-    type Output = GeminiSpeechOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        let allowed = BTreeSet::from(["voice"]);
-        if let Some(field) = options
-            .value()
-            .keys()
-            .find(|field| !allowed.contains(field.as_str()))
-        {
-            return Err(ProviderOptionError::Rejected {
-                path: field.clone(),
-                reason: "field is not valid for Gemini Interactions speech".to_string(),
-            });
-        }
-        Ok(())
+fn decode_options(options: &ProviderOptions) -> Result<GeminiSpeechOptions, ProviderOptionError> {
+    if let Some(field) = options
+        .value()
+        .keys()
+        .find(|field| field.as_str() != "voice")
+    {
+        return Err(ProviderOptionError::Rejected {
+            path: field.clone(),
+            reason: "field is not valid for Gemini Interactions speech".to_string(),
+        });
     }
+    decode_options_value(options.value().clone())
+}
 
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = serde_json::to_value(&self.defaults)
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .as_object()
-            .cloned()
-            .unwrap_or_else(Map::new);
-        for (_, options) in layers.in_precedence_order() {
-            merged.extend(options.value().clone());
-        }
-        let output = serde_json::from_value::<GeminiSpeechOptions>(Value::Object(merged))
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-        if let Some(voice) = &output.voice {
-            validate_voice(voice).map_err(|error| ProviderOptionError::Rejected {
-                path: "voice".to_string(),
-                reason: error.to_string(),
-            })?;
-        }
-        Ok(output)
+fn decode_options_value(
+    options: Map<String, Value>,
+) -> Result<GeminiSpeechOptions, ProviderOptionError> {
+    let output = serde_json::from_value::<GeminiSpeechOptions>(Value::Object(options))
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
+    if let Some(voice) = &output.voice {
+        validate_voice(voice).map_err(|error| ProviderOptionError::Rejected {
+            path: "voice".to_string(),
+            reason: error.to_string(),
+        })?;
     }
+    Ok(output)
 }
 
 fn validate_voice(voice: &str) -> Result<(), Error> {

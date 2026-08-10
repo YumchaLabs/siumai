@@ -4,10 +4,9 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    InvalidId, ModelFamily, ModelId, ModelLookupError, Provider, ProviderInstanceId,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptions, ProviderRegistration, ProviderRegistrationError, ProviderScope,
-    SpeechModelProvider, TranscriptionModelProvider, TypedProviderOptions,
+    InvalidId, Model, ModelId, ModelLookupError, Provider, ProviderInstanceId, ProviderOptionError,
+    ProviderOptionSelection, ProviderOptions, ProviderRegistration, ProviderRegistrationError,
+    ProviderScope, SpeechModelProvider, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
@@ -223,7 +222,6 @@ impl DeepgramProviderBuilder {
             instance_id: instance_id.clone(),
             transport: transport.clone(),
             default_options,
-            option_merger: DeepgramOptionMerger,
         });
         let speech_runtime = Arc::new(DeepgramSpeechRuntime {
             scope: profile.speech_scope(),
@@ -281,7 +279,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) transport: ProviderTransport,
     default_options: ProviderOptions,
-    option_merger: DeepgramOptionMerger,
 }
 
 pub(crate) struct DeepgramSpeechRuntime {
@@ -291,21 +288,13 @@ pub(crate) struct DeepgramSpeechRuntime {
 }
 
 impl ProviderRuntime {
-    pub(crate) fn options(
+    pub(crate) fn options<M: Model + ?Sized>(
         &self,
+        model: &M,
         call: &siumai_core::CallOptions,
     ) -> Result<DeepgramTranscriptionOptions, ProviderOptionError> {
-        let layers =
-            ProviderOptionLayers::default().with_provider_default(self.default_options.clone())?;
-        call.apply_provider_options(self.scope.provider_id(), layers)?
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.scope.provider_id(),
-                    ModelFamily::Transcription,
-                    self.scope.api_mode(),
-                ),
-                &self.option_merger,
-            )
+        let selection = call.provider_options_for(model)?;
+        merge_options(&self.default_options, &selection)
     }
 }
 
@@ -320,31 +309,25 @@ impl fmt::Debug for ProviderRuntime {
     }
 }
 
-struct DeepgramOptionMerger;
-
-impl ProviderOptionMerger for DeepgramOptionMerger {
-    type Output = DeepgramTranscriptionOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: siumai_core::ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options.value()).and_then(|value| value.validate())
+fn merge_options(
+    defaults: &ProviderOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<DeepgramTranscriptionOptions, ProviderOptionError> {
+    let mut merged = defaults.value().clone();
+    for options in selection.typed() {
+        decode_options(options.value())?.validate()?;
+        merged.extend(options.value().clone());
     }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = Map::new();
-        for (_, options) in layers.in_precedence_order() {
-            for (name, value) in options.value() {
-                merged.insert(name.clone(), value.clone());
-            }
-        }
-        decode_options(&merged).and_then(|value| {
-            value.validate()?;
-            Ok(value)
-        })
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Deepgram prerecorded transcription only accepts typed provider options"
+                .to_string(),
+        });
     }
+    let options = decode_options(&merged)?;
+    options.validate()?;
+    Ok(options)
 }
 
 fn decode_options(
@@ -386,9 +369,7 @@ pub enum DeepgramConfigError {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{
-        ApiStability, CallOptions, Model, ModelFamily, ProviderId, VerifiedFidelity,
-    };
+    use siumai_core::{ApiStability, CallOptions, Model, ModelFamily, VerifiedFidelity};
 
     use super::*;
 
@@ -491,28 +472,31 @@ mod tests {
         let provider = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
             .build()
             .unwrap();
-        let call = CallOptions::default().with_provider_options(
-            ProviderOptions::typed(
+        let model = provider.transcription("nova-3").unwrap();
+        let call = CallOptions::default()
+            .with_provider_options_for(
+                &model,
                 &DeepgramTranscriptionOptions::new()
                     .with_diarize_model(crate::DeepgramDiarizeModel::V1),
             )
-            .unwrap(),
-        );
+            .unwrap();
         assert_eq!(
-            provider.runtime.options(&call).unwrap().diarize_model(),
+            provider
+                .runtime
+                .options(&model, &call)
+                .unwrap()
+                .diarize_model(),
             Some(crate::DeepgramDiarizeModel::V1)
         );
 
-        let raw = ProviderOptions::checked_raw(
-            ProviderId::new("deepgram").unwrap(),
-            serde_json::json!({"unknownFutureField": true}),
-        )
-        .unwrap();
-        assert!(
-            provider
-                .runtime
-                .options(&CallOptions::default().with_provider_options(raw))
-                .is_err()
-        );
+        let raw = CallOptions::default()
+            .with_raw_provider_options_for(&model, serde_json::json!({"unknownFutureField": true}))
+            .unwrap();
+        let error = provider.runtime.options(&model, &raw).unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderOptionError::Rejected { path, reason }
+                if path == "$" && reason.contains("typed provider options")
+        ));
     }
 }

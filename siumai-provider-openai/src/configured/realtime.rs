@@ -2203,7 +2203,10 @@ fn validate_resource_session(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai_core::{Cancellation, ProviderId, ProviderOptions};
+    use siumai_core::{Cancellation, ReplayDomain, ReplayDomainId};
+    use siumai_transport::EndpointConfig;
+
+    use crate::configured::OpenAiProvider;
 
     enum MockIncoming {
         Frame(WebSocketFrame),
@@ -2537,18 +2540,24 @@ mod tests {
     async fn realtime_rejects_language_model_provider_options_before_connecting() {
         let (socket, _sent, _incoming) = mock_socket();
         let (connector, requests) = connector_with_socket(socket);
-        let options = ProviderOptions::checked_raw(
-            ProviderId::new("openai").unwrap(),
-            json!({"future_language_option": true}),
-        )
-        .unwrap();
+        let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("realtime-option-test").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let model = provider.responses("gpt-5.6").unwrap();
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"future_language_option": true}))
+            .unwrap();
         let error = OpenAiRealtimeConfig::new(
             OpenAiCredential::unauthenticated(),
             OPENAI_REALTIME_MODEL,
             local_endpoint(),
         )
         .with_connector(connector)
-        .connect(CallOptions::default().with_provider_options(options))
+        .connect(options)
         .await
         .unwrap_err();
 

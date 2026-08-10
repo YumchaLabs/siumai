@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -13,10 +13,9 @@ use siumai_core::{
     EmbeddingResponse, Error, ErrorContext, ErrorKind, GenericSupportClaim, InvalidId, Model,
     ModelCatalog, ModelDescriptor, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
     ModelProfile, OfficialSource, ProfileError, ProfileId, ProtocolContractId, ProviderInstanceId,
-    ProviderOptionContext, ProviderOptionError, ProviderOptionLayers, ProviderOptionMerger,
-    ProviderOptionOrigin, ProviderOptions, ProviderProfile, ProviderScope, ResponseMetadata,
-    SupportScope, TypedProviderOptions, Usage, UsageValue, VerificationDate, VerificationEvidence,
-    VerifiedFidelity, VerifiedSupportClaim,
+    ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderProfile, ProviderScope,
+    ResponseMetadata, SupportScope, TypedProviderOptions, Usage, UsageValue, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_transport::{
     ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
@@ -272,10 +271,9 @@ impl EmbeddingModel for AlibabaEmbeddingModel {
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
-        let provider_options =
-            embedding_options(&options, self.descriptor.scope(), &self.runtime.defaults)
-                .map_err(option_error)
-                .map_err(|error| self.contextualize(error))?;
+        let provider_options = embedding_options(&options, self, &self.runtime.defaults)
+            .map_err(option_error)
+            .map_err(|error| self.contextualize(error))?;
         let dimensions = request.dimensions().map(|value| value.get());
         validate_output_type(self.model_id(), provider_options.output_type)
             .map_err(|error| self.contextualize(error))?;
@@ -511,60 +509,59 @@ fn max_inputs(_model: &ModelId) -> usize {
     10
 }
 
-fn embedding_options(
+fn embedding_options<M: Model + ?Sized>(
     call: &CallOptions,
-    scope: &ProviderScope,
+    model: &M,
     defaults: &AlibabaEmbeddingOptions,
 ) -> Result<AlibabaEmbeddingOptions, ProviderOptionError> {
-    let defaults = ProviderOptions::typed(defaults)?;
-    let layers = call.apply_provider_options(
-        scope.provider_id(),
-        ProviderOptionLayers::default().with_provider_default(defaults)?,
-    )?;
-    layers.merge_for(
-        ProviderOptionContext::new(
-            scope.provider_id(),
-            ModelFamily::Embedding,
-            scope.api_mode(),
-        ),
-        &EmbeddingOptionMerger,
-    )
+    let selection = call.provider_options_for(model)?;
+    merge_embedding_options(defaults, &selection)
 }
 
-struct EmbeddingOptionMerger;
-
-impl ProviderOptionMerger for EmbeddingOptionMerger {
-    type Output = AlibabaEmbeddingOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        let allowed = BTreeSet::from(["text_type", "output_type", "instruct"]);
-        if let Some(field) = options
-            .value()
-            .keys()
-            .find(|field| !allowed.contains(field.as_str()))
-        {
-            return Err(ProviderOptionError::Rejected {
-                path: field.clone(),
-                reason: "field is not valid for Alibaba embedding".to_string(),
-            });
-        }
-        Ok(())
+fn merge_embedding_options(
+    defaults: &AlibabaEmbeddingOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<AlibabaEmbeddingOptions, ProviderOptionError> {
+    let mut merged = serde_json::to_value(defaults)
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
+        .as_object()
+        .cloned()
+        .unwrap_or_else(Map::new);
+    for options in selection.typed() {
+        decode_embedding_options(options)?;
+        merged.extend(options.value().clone());
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Alibaba embedding only accepts typed provider options".to_string(),
+        });
+    }
+    let options = serde_json::from_value::<AlibabaEmbeddingOptions>(Value::Object(merged))
+        .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
+    options.validate()?;
+    Ok(options)
+}
 
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = Map::new();
-        for (_, options) in layers.in_precedence_order() {
-            merged.extend(options.value().clone());
-        }
-        let options = serde_json::from_value::<AlibabaEmbeddingOptions>(Value::Object(merged))
+fn decode_embedding_options(
+    options: &ProviderOptions,
+) -> Result<AlibabaEmbeddingOptions, ProviderOptionError> {
+    const ALLOWED_FIELDS: &[&str] = &["text_type", "output_type", "instruct"];
+    if let Some(field) = options
+        .value()
+        .keys()
+        .find(|field| !ALLOWED_FIELDS.contains(&field.as_str()))
+    {
+        return Err(ProviderOptionError::Rejected {
+            path: field.clone(),
+            reason: "field is not valid for Alibaba embedding".to_string(),
+        });
+    }
+    let options =
+        serde_json::from_value::<AlibabaEmbeddingOptions>(Value::Object(options.value().clone()))
             .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?;
-        options.validate()?;
-        Ok(options)
-    }
+    options.validate()?;
+    Ok(options)
 }
 
 fn option_error(source: ProviderOptionError) -> Error {

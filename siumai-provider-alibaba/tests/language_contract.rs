@@ -149,15 +149,13 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
         .with_prompt_cache_breakpoint(AlibabaPromptCacheBreakpoint::new(0, 0));
     let mut request = request("hello");
     request.generation.max_output_tokens = Some(2_048);
-    let response = provider(&server)
+    let model = provider(&server)
         .chat_completions("qwen3-coder-plus")
-        .unwrap()
-        .generate(
-            request,
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&options).unwrap()),
-        )
-        .await
         .unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .unwrap();
+    let response = model.generate(request, call_options).await.unwrap();
 
     assert!(
         response
@@ -225,15 +223,13 @@ async fn messages_direct_contract_preserves_thinking_cache_and_usage() {
     request.generation.max_output_tokens = Some(2_048);
     let options =
         AlibabaMessagesOptions::new().with_thinking(AlibabaMessagesThinking::enabled(1_024));
-    let response = messages_provider(&server)
+    let model = messages_provider(&server)
         .messages("future-qwen-messages")
-        .unwrap()
-        .generate(
-            request,
-            CallOptions::default().with_provider_options(options.provider_options().unwrap()),
-        )
-        .await
         .unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .unwrap();
+    let response = model.generate(request, call_options).await.unwrap();
 
     assert!(
         response
@@ -373,13 +369,14 @@ async fn responses_options_map_native_tools_reasoning_and_session_cache_to_wire(
         .with_reasoning_effort(AlibabaReasoningEffort::High)
         .with_session_cache(true)
         .with_native_tool(AlibabaResponsesTool::web_search());
-    let response = provider(&server)
+    let model = provider(&server)
         .responses("future-qwen-responses")
-        .unwrap()
-        .generate(
-            request("search"),
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&options).unwrap()),
-        )
+        .unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .unwrap();
+    let response = model
+        .generate(request("search"), call_options)
         .await
         .unwrap();
 
@@ -445,26 +442,24 @@ async fn invalid_native_tool_fails_before_wire_and_wrong_mode_options_are_reject
     let provider = provider(&server);
     let invalid =
         AlibabaResponsesOptions::new().with_native_tool(AlibabaResponsesTool::WebExtractor);
-    let error = provider
-        .responses("future-qwen")
-        .unwrap()
-        .generate(
-            request("extract"),
-            CallOptions::default().with_provider_options(ProviderOptions::typed(&invalid).unwrap()),
-        )
+    let responses = provider.responses("future-qwen").unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&responses, &invalid)
+        .unwrap();
+    let error = responses
+        .generate(request("extract"), call_options)
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
     let wrong_mode = AlibabaResponsesOptions::new().with_store(true);
-    let error = provider
-        .chat_completions("future-qwen")
-        .unwrap()
-        .generate(
-            request("hello"),
-            CallOptions::default()
-                .with_provider_options(ProviderOptions::typed(&wrong_mode).unwrap()),
-        )
+    let responses = provider.responses("future-qwen").unwrap();
+    let chat = provider.chat_completions("future-qwen").unwrap();
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&responses, &wrong_mode)
+        .unwrap();
+    let error = chat
+        .generate(request("hello"), call_options)
         .await
         .unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidInput);

@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use siumai_core::{
     CallOptions, Error, ErrorContext, ErrorKind, Model, ModelDescriptor, ModelFamily, ModelId,
-    ModelOperation, ProviderOptionContext, ProviderOptionError, ProviderOptionLayers,
-    ProviderOptionMerger, ProviderOptionOrigin, ProviderOptions, ProviderScope, SpeechLimits,
-    SpeechModel, SpeechRequest, SpeechResponse, TypedProviderOptions,
+    ModelOperation, ProviderOptionError, ProviderOptionSelection, ProviderOptions, ProviderScope,
+    SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, TypedProviderOptions,
 };
 use siumai_protocol_openai::speech::{
     API_MODE_ID, SpeechConfig, SpeechFormat, TARGET, decode_speech_response, encode_speech_request,
@@ -100,21 +99,8 @@ impl OpenAiSpeechModel {
     }
 
     fn options(&self, call: &CallOptions) -> Result<OpenAiSpeechOptions, Error> {
-        let layers = call
-            .apply_provider_options(self.provider_id(), ProviderOptionLayers::default())
-            .map_err(option_error)?;
-        layers
-            .merge_for(
-                ProviderOptionContext::new(
-                    self.provider_id(),
-                    ModelFamily::Speech,
-                    self.descriptor.scope().api_mode(),
-                ),
-                &OpenAiSpeechOptionMerger {
-                    defaults: self.defaults.clone(),
-                },
-            )
-            .map_err(option_error)
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.defaults, &selection).map_err(option_error)
     }
 
     fn plan(
@@ -245,32 +231,26 @@ impl SpeechModel for OpenAiSpeechModel {
     }
 }
 
-struct OpenAiSpeechOptionMerger {
-    defaults: OpenAiSpeechOptions,
-}
-
-impl ProviderOptionMerger for OpenAiSpeechOptionMerger {
-    type Output = OpenAiSpeechOptions;
-
-    fn validate_layer(
-        &self,
-        _origin: ProviderOptionOrigin,
-        options: &ProviderOptions,
-    ) -> Result<(), ProviderOptionError> {
-        decode_options(options).and_then(|options| options.validate())
-    }
-
-    fn merge(&self, layers: &ProviderOptionLayers) -> Result<Self::Output, ProviderOptionError> {
-        let mut merged = self.defaults.clone();
-        for (_, options) in layers.in_precedence_order() {
-            let options = decode_options(options)?;
-            if options.instructions.is_some() {
-                merged.instructions = options.instructions;
-            }
+fn merge_options(
+    defaults: &OpenAiSpeechOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<OpenAiSpeechOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let options = decode_options(options)?;
+        options.validate()?;
+        if options.instructions.is_some() {
+            merged.instructions = options.instructions;
         }
-        merged.validate()?;
-        Ok(merged)
     }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "OpenAI speech only accepts typed provider options".to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
 }
 
 fn decode_options(options: &ProviderOptions) -> Result<OpenAiSpeechOptions, ProviderOptionError> {
