@@ -28,8 +28,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Rebuilt the unified API as an ergonomic family-level portability layer that preserves provider-direct APIs instead of routing all capabilities through a universal client.
 - Moved network execution, retry safety, endpoint validation, sanitized diagnostics, and stream lifecycle into shared transport/protocol owners; compatible providers now reuse bounded Chat/Responses engines with provider-owned dialect policy.
 - Made provider construction synchronous and network-free, kept model identifiers open, and separated provider execution from host-owned account, region, availability, pricing, compliance, health, and fallback policy.
-- Reduced the base `Provider` trait to canonical identity. `ProviderScope` now describes one execution surface, while each non-empty `ProviderRegistration` family binding owns its own scope, model policy, and factory; alternate modes for one family remain explicit registrations.
-- Made `ModelOperation` determine its model family, hid shared `Arc` storage from public scope accessors and policy contexts, added family projection for combined registrations, and made facade provider registration return a typed error for native-resource-only configurations.
+- Reduced the base `Provider` trait to canonical identity. `ProviderScope` now describes one execution surface, while each non-empty `ProviderRegistration` family binding owns only its exact scope and factory; alternate modes for one family remain explicit registrations.
+- Removed model catalogs and lifecycle policy from Registry execution. Unknown, private, rolling, deprecated, and retired model IDs remain constructible; hosts own allowlists and commercial policy, while providers reject only stable technical request constraints they can prove locally.
+- Replaced public route/model/step/call provider-option origins with bounded ordered patches targeted to an opaque configured-provider instance, exact family, API mode, and optional Registry route. Typed explicit intent reaches the wire or fails with a typed structural error; raw body options are provider-owned, exact-target escape hatches and cannot alter authentication, endpoints, signing, or transport.
+- Added family projection for combined registrations, opaque configured-instance isolation for sensitive provider options, and typed facade registration errors for native-resource-only configurations.
 - Reworked Alibaba construction around caller-supplied workspace/family endpoints and named legacy Singapore opt-ins instead of SDK-maintained regions or a separate DashScope provider identity.
 - Added Alibaba's provider-owned Anthropic-compatible Messages mode with explicit endpoint/replay
   ownership, typed thinking and cache annotations, while preserving Responses as the default
@@ -42,13 +44,23 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   Responses and Chat Completions registrations language-only. OpenAI speech now requires an
   explicit voice, and unsupported embedding-dimension overrides fail before transport.
 - Made direct and streaming language paths share canonical tool-input, typed failure, terminal
-  settlement, replay-identity, and usage semantics. Provider-owned replay payloads remain opaque
-  native data instead of becoming executable portable tool calls.
+  settlement, replay-identity, and usage semantics. `LanguageResponse` now has one completed-or-
+  incomplete termination axis; direct failures use `LanguageCallError`, established failed or
+  cancelled streams retain only bounded non-executable partial output, and usage updates declare
+  snapshot or delta semantics. Provider-owned replay payloads remain opaque native data instead of
+  becoming executable portable tool calls.
+- Advanced durable runtime snapshots to schema version 6 for the new language termination, partial
+  failure, and exactly-once usage-settlement contracts.
 
 ### Removed
 
 - Removed the deprecated Google Imagen `models/*:predict` surface instead of shipping an endpoint scheduled to stop functioning on August 17, 2026.
 - Removed the legacy universal client, capability/downcast traits, compatibility builders, completion aliases, duplicate request/response systems, source-shape tests, and the obsolete `siumai-spec`, `siumai-provider-utils`, and `siumai-extras` packages.
+- Removed runtime `ModelPolicy`/support-state evaluation, `ProviderRegistration::evaluate`,
+  `Registry::evaluate`, the public provider-option origin/layer/merger stack, and the former
+  `LanguageResponseStatus`/`FinishReason` terminal axes. Lifecycle warning kinds for unknown,
+  deprecated, retired, and rolling-alias models are also removed; inspect provider support evidence
+  in host policy instead.
 - Removed Azure OpenAI, Amazon Bedrock, AI Gateway, Ollama, Together AI, broad Gemini/Vertex clients, and unverified named compatibility presets from the workspace, facade, and release feature graph.
 - Removed provider surfaces that still lack a bounded contract, including Cohere chat, OpenAI
   moderation and broad legacy compatibility resources, unverified compatibility presets, and

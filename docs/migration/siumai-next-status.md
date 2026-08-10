@@ -4,7 +4,7 @@ This page is the internal delivery summary for the breaking `0.11.0-beta.9` deve
 is intentionally shorter than the implementation plan and does not replace the architecture or
 provider-support documents.
 
-Status date: 2026-08-09
+Status date: 2026-08-10
 
 ## Checkpoint A — semantic trust boundary
 
@@ -75,25 +75,62 @@ for this checkpoint is:
 - Clippy with warnings denied for the OpenAI protocol, OpenAI provider, transport, and facade;
 - facade doctests, no-default feature compilation, formatting, architecture policy, and diff checks.
 
+## Checkpoint E — validation ownership and forward compatibility
+
+Status: complete.
+
+Mutable model catalogs and lifecycle hints no longer control Registry construction or provider
+execution. Explicit typed provider intent reaches the final wire or fails with a typed structural
+error; model-name allowlists no longer silently remove options. Provider call options are bounded,
+ordered patches bound to the exact configured instance, family, API mode, and optional route.
+Runtime keeps route/model/step/call precedence private, and provider modes without a reviewed raw
+body policy reject raw options.
+
+Portable language success now has one completed-or-incomplete termination axis. Direct failures use
+`LanguageCallError`; established failed or cancelled streams preserve only bounded non-executable
+partial output; usage events declare snapshot or delta semantics and runtime settles each provider
+call once. Runtime snapshots use schema version 6.
+
+The implementation units are `817cdedf`, `119562a5`, `4ca3a764`, `434e11d0`, `29f2b1aa`,
+`a4fcec9f`, `3d95dbdd`, `748c21b9`, `0f004f39`, and `e4daa4d7`. The serial verification baseline
+includes:
+
+- 1,058 workspace tests with all features;
+- workspace Clippy across all targets and features with warnings denied;
+- workspace formatting and diff checks;
+- 19 focused OpenAI-compatible tests and its all-target/all-feature Clippy lane after adding the
+  public validated custom-endpoint constructor.
+
 ### Opt-in live diagnostic
 
-The authorized `sub2api` diagnostic ran on 2026-08-09 after its status endpoint reported green. No
-credential, endpoint value, response text, tool argument, provider ID, or raw payload was recorded:
+The authorized `sub2api` diagnostic ran on 2026-08-10. Its status endpoint was partially green, not
+globally green: the selected `gpt-5.6-sol` lane was healthy while other listed models still had
+recent failures. No credential, response text, tool argument, raw provider payload, or response ID
+was recorded:
 
-- Chat streaming produced one canonical local tool call, and direct continuation accepted the
-  projected assistant/tool history. The upstream direct response itself carried null content;
-  Siumai preserved that empty result instead of fabricating text.
-- Responses text and tool SSE completed with canonical terminal responses after compatible recovery
-  restored metadata omitted by the abbreviated terminal event. Present semantic conflicts remain
-  deterministic protocol errors.
-- Repeated Responses calls using typed `prompt_cache_key` plus 24-hour retention produced a cache
-  hit on the second call. The relay accepted typed TTL options but returned HTTP 502 whenever a
-  content-level explicit breakpoint was present, so no named claim is made for that custom relay's
-  explicit-breakpoint fidelity.
-- The Responses WebSocket handshake returned HTTP 101 and accepted `response.create`, then the relay
-  closed with standard code 1013. Siumai now reports that as sanitized, retryable
-  `ErrorKind::Unavailable` rather than `UnexpectedEof`. The operational close is not evidence that
-  two-turn live continuation succeeded on this relay.
+- Branded OpenAI Responses direct and Chat direct completed with usage. Chat streaming retained the
+  late usage-only chunk. The repeated cache probes preserved cache-read/write telemetry, but the
+  first call already reported a cache read, so this run cannot attribute the observation to the
+  second call or to one cache key.
+- The relay rejected `previous_response_id` continuation as an OpenAI request error. That is a relay
+  product gap, not evidence for a model-policy gate or a portable contract change.
+- The relay abbreviates Responses terminal items. The branded `OpenAiProvider` correctly rejected
+  that stream under the strict OpenAI wire baseline. The generic OpenAI-compatible provider, with
+  an explicitly selected compatible dialect, completed both Responses and Chat streams and retained
+  usage.
+- A compatible Responses tool turn produced exactly one canonical caller-owned tool call. The
+  projected assistant history plus `ToolResult` continued successfully, with zero history
+  omissions. This validates the unified tool/history boundary without weakening native replay or
+  executable parity checks.
+- The Responses WebSocket handshake began a turn and then settled as sanitized, retryable
+  `ErrorKind::Unavailable`. It did not expose the provider-controlled close reason and is not
+  evidence that multi-turn WebSocket continuation works on this relay.
 
-Live provider canaries remain opt-in diagnostics. They are not release gates and must not be used to
-turn relay capacity, quota, or upstream availability into parser or API claims.
+The live run exposed one ergonomic gap rather than a semantic defect: a generic compatible caller
+could not previously preserve an already validated RFC 6598 `EndpointConfig` through a public
+constructor. `OpenAiCompatibleProfile::custom_endpoint` now accepts that transport policy while
+retaining generic claims, a custom replay audience, and a strict Responses default. Callers must
+explicitly select a compatible dialect only when their relay fixtures prove it.
+
+Live provider canaries remain opt-in diagnostics. They are not release gates and must not turn
+relay capacity, quota, or upstream availability into parser or API claims.

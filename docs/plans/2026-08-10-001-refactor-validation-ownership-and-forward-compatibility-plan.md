@@ -85,7 +85,12 @@ The local AI SDK reference provides useful evidence for open model IDs, provider
 - R16. Provider-specific merge semantics remain provider-owned. Runtime may assemble precedence, but it must not perform a generic deep merge or learn provider schemas.
 - R17. Remove the global recursive protected-name scan. Provider codecs reject protected canonical body fields for their exact schema; type and module boundaries prevent raw request JSON from becoming transport authority.
 - R18. The raw escape hatch may carry future provider-owned fields and future values of known provider fields without being decoded through the current release's closed enum set. For non-canonical provider body fields it is the authoritative final overlay; canonical request fields and provider-declared protected fields always fail instead of being overridden.
-- R41. The ordinary typed convenience entry infers its exact target from `TypedProviderOptions` and is required for the selected call; a target mismatch returns a typed error. Advanced Registry/fallback hosts opt into explicitly optional exact-target patches, whose non-selected targets remain inert and inspectable as unconsumed diagnostics.
+- R41. The ordinary typed convenience entry `CallOptions::with_provider_options_for(&model, &typed)`
+  infers its exact target from the concrete model and typed option, and is required for the selected
+  call; a target mismatch returns a typed error. The shorter `with_provider_options(&typed)` entry is
+  reserved for provider-owned types that explicitly opt into reusable, instance-insensitive
+  targeting. Advanced Registry/fallback hosts opt into explicitly optional exact-target patches,
+  whose non-selected targets remain inert and inspectable as unconsumed diagnostics.
 - R43. Ordinary single-provider callers do not construct `ProviderOptions` or `ProviderOptionTarget` manually. Public typed builders erase and target options internally; explicit target construction is reserved for raw and routing-aware fallback use.
 - R47. Every raw-consuming provider mode and compatibility codec must declare an explicit path-aware canonical/protected body policy. There is no permissive default: a mode without a reviewed policy rejects raw options.
 - R48. One `CallOptions` accepts at most 64 provider-option entries, 32 distinct targets, and 512 KiB of aggregate retained encoded option data across typed and raw patches. Bounded raw bytes are rejected before materialization; an already materialized `Value` is checked by an early-abort accounting walk before cloning, filtering, or provider merge, while caller-side allocation remains outside Siumai's guarantee.
@@ -200,7 +205,11 @@ The local AI SDK reference provides useful evidence for open model IDs, provider
 - AE16. Covers R37-R39. Authentication, HTTP setup, or initial codec failure returns outer `Err(Error)` and creates no established stream terminal; an HTTP-200 in-band provider error produces one failed terminal with the same safe category and retryability.
 - AE17. Covers R38-R39. A failed stream and failed direct call expose the same bounded non-executable `PartialLanguageOutput` shape; runtime counts usage only when it advances the current per-call snapshot, and server omits provider metadata and secrets.
 - AE18. Covers R39-R40. Cancellation, idle timeout, and unexpected EOF remain distinguishable typed outcomes through runtime and server; the facade public compile contract exports the new termination and partial-output types, and the server JSON/SSE shape intentionally replaces `status` plus `finish_reason` with `termination`.
-- AE19. Covers R41 and R43. `CallOptions::with_provider_options(typed)` infers the typed target and fails if the selected model differs; a routing-aware host may add optional OpenAI and Anthropic fallback patches, of which exactly the selected target is consumed and the remainder is available through bounded diagnostics.
+- AE19. Covers R41 and R43. `CallOptions::with_provider_options_for(&model, &typed)` infers the
+  exact target and fails if the selected model differs; `with_provider_options(&typed)` is limited
+  to explicitly reusable values. A routing-aware host may add optional OpenAI and Anthropic fallback
+  patches, of which exactly the selected target is consumed and the remainder is available through
+  bounded diagnostics.
 - AE20. Covers R42. A migration example retains a concrete provider/support manifest beside its Registry registration, performs an optional host-owned lifecycle/allowlist check, and then executes through Registry without any policy callback in the execution path.
 - AE21. Covers R48. Inserting the sixty-fifth patch, thirty-third distinct target, or data beyond the aggregate 512 KiB budget fails before route selection; a normal multi-target fallback remains within the budget.
 - AE22. Covers R46-R47. A sentinel secret in terminal native metadata or an MCP header never appears in public error/debug/server output. A reviewed codec may carry the bounded value through its native or sensitive channel; a codec without an explicit raw-body protection policy rejects raw options.
@@ -685,7 +694,10 @@ The following is the concrete initial workset from the current workspace audit. 
 **Approach:**
 
 - Delete `ProviderOptionOrigin`, `ProviderOptionLayers`, public `ProviderOptionMerger`, origin-specific `CallOptions` methods, and the recursive protected-field name scanner.
-- Make the primary `CallOptions::with_provider_options(typed)` path infer a required exact target from `TypedProviderOptions`; callers do not manually erase or target ordinary typed values.
+- Make the primary `CallOptions::with_provider_options_for(&model, &typed)` path infer a required
+  exact target from the concrete model and `TypedProviderOptions`; callers do not manually erase or
+  target ordinary typed values. Keep `with_provider_options(&typed)` only for explicitly reusable,
+  instance-insensitive option types.
 - Add an explicit optional/fallback insertion path for routing-aware hosts. Preserve bounded unconsumed-target diagnostics without exposing option values.
 - Retain typed erasure with provider namespace, model family, and exact API mode target. A mode-less target is valid only for a registration that itself has no API mode; it is not a wildcard for a multi-mode provider. Sensitive typed and every raw patch additionally carry the opaque configured-instance capability established in U8.
 - Add a bounded provider-facing ordered view that filters the selected exact target, yields typed patches in precedence order, and exposes at most one raw override last.

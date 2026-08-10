@@ -20,6 +20,26 @@ The base `Provider` trait now exposes canonical provider identity only. Exact pl
 and API mode are properties of a concrete model or family registration rather than provider-wide
 metadata.
 
+## Breaking ownership API map
+
+The following changes are intentional removals, not compatibility aliases:
+
+| Former surface | Current replacement | New owner |
+|---|---|---|
+| `ModelPolicy`, `SupportState`, `UnsupportedReason`, and provider/Registry `evaluate` calls | Optional host preflight over a provider-owned profile or support manifest | Host application |
+| `ProviderRegistration::new(scope, policy).with_*` | `ProviderRegistration::from_*(scope, factory)` plus `bind_*(scope, factory)` | Registry/core registration |
+| Public `ProviderOptionOrigin`, `ProviderOptionLayers`, `ProviderOptionContext`, and `ProviderOptionMerger` | `CallOptions::with_provider_options_for(&model, &typed)` with runtime-private ordered assembly | Core + runtime + provider |
+| Erased `CallOptions::with_provider_options(ProviderOptions)` | Typed `with_provider_options(&typed)` only for explicitly reusable values; otherwise exact-target insertion | Core |
+| Namespace-only raw body insertion | `with_raw_provider_json_for(&model, bytes)` or exact-target `Value` insertion | Core + provider codec |
+| `LanguageResponseStatus` × `FinishReason` | `LanguageTermination::{Completed, Incomplete}` | Core language contract |
+| Failed/cancelled terminal `response: Option<LanguageResponse>` | `LanguageCallError::partial()` or `StreamTerminal` partial output | Core language/runtime |
+| `LanguageStreamEvent::Usage(Usage)` | `LanguageStreamEvent::Usage(UsageUpdate)` with `Snapshot`/`Delta` | Core stream/runtime |
+| Lifecycle warning kinds (`UnknownModel`, `DeprecatedModel`, `RetiredModel`, `RollingModelAlias`) | Explicit support-profile inspection before host routing | Host/provider introspection |
+
+If a migration needs a provider field that this release does not yet model, use the provider's
+typed options or its reviewed raw-body escape hatch. Do not reintroduce a global field denylist or a
+model-name capability gate merely to preserve an old call site.
+
 ## Dependency features
 
 The facade no longer enables an AI provider by default. Select providers explicitly:
@@ -191,22 +211,46 @@ provider options carried by `CallOptions`:
 
 ```rust,no_run
 use siumai::providers::minimax::{
-    MinimaxMessagesOptions, MinimaxServiceTier, MinimaxThinking,
+    MinimaxCredential, MinimaxMessagesOptions, MinimaxProvider, MinimaxServiceTier,
+    MinimaxThinking,
 };
 use siumai::CallOptions;
 
+# let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
+# let model = provider.language("MiniMax-M3")?;
 let minimax = MinimaxMessagesOptions::new()
     .with_thinking(MinimaxThinking::Adaptive)
-    .with_service_tier(MinimaxServiceTier::Priority)
-    .provider_options()?;
-let options = CallOptions::default().with_provider_options(minimax);
+    .with_service_tier(MinimaxServiceTier::Priority);
+let options = CallOptions::default().with_provider_options_for(&model, &minimax)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+The ordinary builder binds typed options to the exact configured model instance, family, API mode,
+and selected Registry route. This prevents credentials, replay-sensitive state, and provider-body
+authorization from crossing two configurations that happen to share public provider labels. A
+typed option may use `with_provider_options(&options)` only when its provider-owned type explicitly
+opts into reusable, instance-insensitive targeting. Routing fallbacks use the `with_optional_*_for`
+methods. Raw forward-compatible body fields use `with_raw_provider_json_for(&model, bytes)` or the
+`Value` convenience method and remain subject to exact targeting, aggregate bounds, and the selected
+provider mode's protected-field policy.
 
 Do not move credentials, endpoints, authorization headers, or transport policy into provider
 options. The provider builder owns those settings.
 
-## Stream failures and terminal parity
+## Language outcomes, stream failures, and terminal parity
+
+`LanguageResponse` now represents successful provider generation only. Inspect its single
+termination axis through `response.termination()`:
+
+- `LanguageTermination::Completed(LanguageCompletionReason::...)` is a normal completion;
+- `LanguageTermination::Incomplete(LanguageIncompleteReason::...)` is a successful but truncated
+  or filtered generation.
+
+Direct provider failure and cancellation return `LanguageCallError`, not a successful response with
+a second status field. The error preserves the sanitized canonical `Error` and may expose a bounded
+`partial()` containing observational text, reasoning, refusal, and usage. It never contains tool
+execution authority, provider metadata, or replay material. Remove matches on the deleted
+`LanguageResponseStatus` and `FinishReason` types.
 
 An established language stream now settles exactly once through `StreamTerminal`. Provider errors
 delivered over a successful HTTP SSE response appear as `StreamTerminal::Failed { error, .. }` with
@@ -215,6 +259,11 @@ the canonical `Error` contract. Applications should match `ErrorKind` and inspec
 context-window and temporary-unavailability signals use the new
 `ErrorKind::ContextWindowExceeded` and `ErrorKind::Unavailable` variants. Raw provider envelopes are
 available only through the explicitly sensitive error accessor.
+
+Failed and cancelled stream terminals expose `partial`, not a failed `LanguageResponse`. Usage
+events now carry `UsageUpdate`; inspect `kind()` before reconciling a cumulative `Snapshot` or an
+explicit `Delta`. Runtime performs that reconciliation per provider call, treats terminal usage as
+the final snapshot, and charges budgets exactly once.
 
 `SafeResponseHeaders`, `DiagnosticHeaderError`, `ResponseDiagnostics::headers`, and
 `ResponseDiagnostics::with_headers` were removed. Header names cannot prove that provider-controlled
@@ -238,9 +287,36 @@ and replay status. Replay status is pending before settlement and becomes availa
 settled terminal resource has no replay-critical identity, reasoning-state, or provider-item
 conflicts.
 
-The branded OpenAI provider always uses the official Responses wire baseline. Relay and compatible
-provider callers select a `ResponsesWireDialect` on `OpenAiCompatibleProfile`; the generic default
-remains the OpenAI baseline, so abbreviated terminal fields require an explicit profile decision.
+The branded `OpenAiProvider` always uses the official Responses wire baseline, including when a
+caller supplies a custom endpoint. Use it only when the endpoint is OpenAI-faithful. Arbitrary
+relays belong on `OpenAiCompatibleProvider`; compatible callers select a `ResponsesWireDialect` on
+`OpenAiCompatibleProfile`. The generic default remains the strict OpenAI baseline, so abbreviated
+terminal fields require an explicit, evidence-backed profile decision.
+
+Advanced callers can preserve a previously validated transport policy, including an explicit RFC
+6598 grant, without using a doc-hidden composition constructor:
+
+```rust,ignore
+use siumai_core::{ProviderId, ReplayDomain, ReplayDomainId};
+use siumai_openai_compatible::{
+    OpenAiCompatibleApiMode, OpenAiCompatibleProfile, ResponsesWireDialect,
+};
+use siumai_transport::EndpointConfig;
+
+let endpoint = EndpointConfig::shared_address_space_explicit("http://100.64.0.10:8080/v1")?;
+let profile = OpenAiCompatibleProfile::custom_endpoint(
+    ProviderId::new("internal-relay")?,
+    endpoint,
+    ReplayDomain::custom(ReplayDomainId::new("internal-relay")?),
+    OpenAiCompatibleApiMode::Responses,
+)?
+.with_responses_wire_dialect(ResponsesWireDialect::compatible());
+```
+
+`custom_endpoint` never turns a caller-controlled transport policy into a named-provider support
+claim. Selecting `compatible()` is also not a generic “be permissive” switch: maintain the relay's
+dialect fixture and keep the strict portable/executable reconciler.
+
 The dialect may restore only its documented missing fields from one uniquely aligned completed
 item. One shared reconciler still rejects changed portable text, refusal, role, executable
 identity, tool name, caller ownership, or canonical JSON input. Provider-native bookkeeping drift
@@ -497,23 +573,49 @@ Custom providers now build non-empty registrations from a first family and add o
 families:
 
 ```rust,ignore
-let registration = ProviderRegistration::from_language(language_scope, language_policy, language)
-    .bind_transcription(transcription_scope, transcription_policy, transcription)?;
+let registration = ProviderRegistration::from_language(language_scope, language)
+    .bind_transcription(transcription_scope, transcription)?;
 ```
 
 The removed `ProviderRegistration::new(scope, policy).with_*` shape stored one provider-wide scope
-and policy. Query the replacement with an explicit family, for example
-`registration.api_mode(ModelFamily::Language)`. Same-family alternate API modes remain separate
-registrations and should be assigned distinct Registry routes when both are needed.
+and runtime model policy. Each replacement binding owns only an exact family scope and constructor.
+Query it with an explicit family, for example `registration.api_mode(ModelFamily::Language)`, and
+use `registration.for_family(ModelFamily::Rerank)` when a combined registration should be narrowed
+before assigning a route. Same-family alternate API modes remain separate registrations.
 
-`ModelOperation` now determines the family for policy evaluation, so calls use
-`registration.evaluate(model, ModelOperation::Embed)` rather than passing a second family value.
-Use `registration.for_family(ModelFamily::Rerank)` when a combined provider registration should be
-narrowed before assigning a route.
+`ModelPolicy`, `ProviderRegistration::evaluate`, and `Registry::evaluate` were removed. Registry
+does not treat dated model catalogs, lifecycle hints, or capability claims as callability truth.
+Hosts that need allowlists, lifecycle warnings, compliance, or availability decisions keep the
+provider support manifest beside their route configuration and evaluate that evidence before
+resolution. Unknown, private, and future model IDs remain constructible; stable request-shape
+validation stays in the concrete provider and the remote API remains authoritative for mutable
+product policy.
 
 Facade `register_provider` is fallible at both seams. It reports normal Registry build errors and
 `RegisterProviderError::NoPortableFamilyRegistration` when a provider is validly configured only for
 provider-native resources or jobs. It never creates an empty registration.
+
+Host-owned lifecycle policy is deliberately explicit. The following is schematic application code,
+not a Siumai Registry API:
+
+```rust,ignore
+let support = provider_support_manifest(&provider);
+let allowed = support.claims().any(|claim| {
+    claim.family() == ModelFamily::Language && host_allowlist.contains(claim.model_id())
+});
+if !allowed {
+    return Err(HostPolicyError::ModelNotAllowed);
+}
+
+let mut builder = Registry::builder();
+builder.register_provider("primary", &provider)?;
+let registry = builder.build()?;
+let model = registry.language_model("primary:future-model")?;
+```
+
+The host may instead warn, route to a different configured instance, or skip the evidence check.
+The important boundary is that Registry only resolves the host-selected registration and never
+performs a generic advisory evaluation.
 
 The standard MiniMax registration resolves the Messages mode. Register
 `provider.chat_completions_registration()` or `provider.responses_registration()` explicitly under
@@ -629,10 +731,11 @@ The former Google `gcp` credential helper is also removed. Supply a short-lived 
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token
 refresh remains under the application's credential policy.
 
-Runtime durable snapshots now use schema version 5. Earlier development snapshots lack the checked
-execution scope and assistant-history omission records required by this boundary and are not
-migrated automatically. Recreate them from trusted application history instead of synthesizing
-provider provenance.
+Runtime durable snapshots now use schema version 6. Version 5 and earlier development snapshots use
+the former response-status/finish-reason terminal shape and cannot represent bounded failure or
+cancellation partial output. They are rejected before typed payload decoding and are not migrated
+automatically. Recreate them from trusted application history instead of synthesizing provider
+provenance or terminal state.
 
 ## Migration checklist
 
@@ -642,23 +745,34 @@ provider provenance.
 - Replace direct `ToolCall` field construction with `ToolCall::local` and checked accessors.
 - Use role-safe message constructors and project responses with
   `LanguageResponse::project_assistant_history()` before appending assistant history.
-- Move provider call controls into the matching typed MiniMax options and `CallOptions`.
+- Move provider call controls into the matching typed MiniMax options and bind them with
+  `CallOptions::with_provider_options_for`.
+- Replace public provider-option origin/layer/merger code with ordered exact-target patches; keep
+  route, model, step, and call precedence inside runtime assembly.
+- Replace `LanguageResponseStatus`/`FinishReason` matches with `LanguageTermination`; handle direct
+  failures through `LanguageCallError`, stream failure/cancellation through bounded `partial`, and
+  usage events through `UsageUpdate`.
 - Move prompt-cache intent onto typed message, content, or tool annotations.
 - Update native Responses stream destructuring for the canonical terminal response returned by
   `OpenAiResponsesStreamFrame::into_parts()`.
 - Move custom Responses terminal contractions to
   `OpenAiCompatibleProfile::with_responses_wire_dialect`; the branded OpenAI builder no longer
   accepts a wire-dialect override.
+- Use `OpenAiCompatibleProfile::custom_endpoint` when a compatible relay needs a prevalidated
+  custom transport policy such as an RFC 6598 grant; do not model an arbitrary relay as branded
+  OpenAI.
 - Enable `openai-responses-websocket` only when the application needs persistent provider-owned
   Responses turns; configure a WebSocket endpoint explicitly for custom HTTP providers.
 - Acquire files, image, video, music, and speech APIs from `MinimaxProvider`.
 - Add Registry only for explicit local routing, and register each non-default API mode separately.
+- Move model lifecycle, allowlist, availability, compliance, and fallback decisions out of removed
+  `ModelPolicy`/`Registry::evaluate` execution paths and into explicit host policy.
 - Replace provider-wide `scope()` or `platform()` queries with `provider_id()` or an exact model or
   registration family scope.
 - Keep account, region, availability, pricing, and fallback policy in the host application.
 - Declare an explicit custom replay domain for every custom language endpoint, and separate material
   accounts, projects, workspaces, or deployments with non-secret caller scopes.
-- Recreate pre-version-5 runtime snapshots from trusted application history.
+- Recreate pre-version-6 runtime snapshots from trusted application history.
 - Replace removed provider/features with an explicitly supported slice or a generic compatible
   endpoint only when protocol compatibility is sufficient for the application.
 

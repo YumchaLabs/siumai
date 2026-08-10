@@ -1,7 +1,7 @@
 # Transport Contract
 
-- Status: Foundation implemented; provider migration pending
-- Date: 2026-08-04
+- Status: Current repository contract
+- Date: 2026-08-10
 - Owner: `siumai-transport`
 
 ## Purpose
@@ -12,7 +12,8 @@ separate structurally unauthenticated path for provider-returned resources.
 
 Protocol crates still own request/response codecs, provider error envelopes, and
 stateful stream decoders. Provider crates own credentials, signing, operation
-replay declarations, model policy, and typed options.
+replay declarations, stable request validation, and typed options. Mutable model
+lifecycle or capability advice is not transport or request-execution authority.
 
 ## Authenticated API Calls
 
@@ -133,7 +134,8 @@ finish path above this layer.
 
 ## Migration State
 
-This crate is the only target transport contract for new provider implementations.
-Legacy provider clients still using direct reqwest/tungstenite calls, outer retries,
-or old core streaming helpers must be migrated before the old execution modules are
-deleted and this work unit is complete.
+This crate is the target transport contract for provider implementations. Provider
+packages use the shared HTTP and WebSocket transports or a narrowly documented
+provider-owned transport when a protocol cannot fit the shared contract. New code
+must not reintroduce direct clients, outer retries, or detached stream readers that
+bypass endpoint, credential-audience, cancellation, replay, or resource-bound rules.

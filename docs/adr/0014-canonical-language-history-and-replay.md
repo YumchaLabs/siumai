@@ -8,6 +8,10 @@ Accepted
 
 2026-08-08
 
+Amended on 2026-08-10 by
+[`ADR-0015`](0015-validation-ownership-and-forward-compatibility.md), which replaces the former
+language terminal shape and advances durable runtime snapshots to schema version 6.
+
 ## Context
 
 Language providers expose three related but different representations:
@@ -152,8 +156,8 @@ wire fidelity remains available without entering the portable execution loop.
 - Custom compatible endpoints must declare a `ReplayDomain::custom(...)`.
 - Multi-account official configurations must provide distinct non-secret caller scopes when opaque
   replay could cross those accounts.
-- Runtime snapshot schema version 5 is intentionally incompatible with earlier development
-  snapshots.
+- Runtime snapshot schema version 6 is intentionally incompatible with version 5 and earlier
+  development snapshots.
 
 ## Migration
 
@@ -162,7 +166,8 @@ wire fidelity remains available without entering the portable execution loop.
 3. Use `LanguageResponse::project_assistant_history()` instead of copying response parts directly.
 4. Give every custom endpoint an explicit custom replay domain; add caller scope where account or
    deployment separation is material.
-5. Recreate pre-version-5 runtime snapshots rather than rewriting provider provenance manually.
+5. Recreate pre-version-6 runtime snapshots rather than rewriting provider provenance or terminal
+   state manually.
 
 ## References
 
@@ -170,4 +175,5 @@ wire fidelity remains available without entering the portable execution loop.
 - `docs/migration/siumai-next.md`
 - `docs/adr/0010-provider-plane-and-host-control-plane.md`
 - `docs/adr/0013-provider-identity-and-family-registration.md`
+- `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
 - `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

@@ -1,10 +1,11 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-08
+- Updated: 2026-08-10
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
-  `docs/adr/0014-canonical-language-history-and-replay.md`
+  `docs/adr/0014-canonical-language-history-and-replay.md`,
+  `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
 
 ## Product shape
 
@@ -69,27 +70,27 @@ construction is synchronous and model-independent.
 
 The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, API mode, and
 provider-native replay domain belong to an exact executable `ProviderScope` carried by model
-descriptors, policy contexts, and registrations. Dated portable and native evidence uses
+descriptors and registrations. Dated portable and native evidence uses
 `SupportScope` and `NativeSupportScope` instead. A composite provider does not invent one
 provider-wide scope by choosing a preferred mode or the first configured family.
 
 Model handles are cheap values containing a model ID plus shared provider runtime. Constructing a
 model does not perform remote discovery or network I/O. Unknown future model IDs remain callable;
-dated model catalogs are advisories used for exact known-policy checks, documentation, and release
-freshness rather than closed allowlists.
+dated model catalogs are explicit introspection, documentation, and release-freshness evidence
+rather than runtime policy or closed allowlists.
 
 Providers with multiple protocol modes expose them explicitly. One documented mode may be the
-ergonomic default, while alternate modes retain distinct typed options, registrations, request
-policy, and fidelity evidence.
+ergonomic default, while alternate modes retain distinct typed options, registrations, wire
+contracts, and fidelity evidence.
 
 A default `ProviderRegistration` may combine disjoint model families under one canonical provider
-identity. Each family binding retains its own exact scope, request policy, and erased model factory.
+identity. Each family binding retains its own exact scope and erased model factory.
 The normal path captures one configured provider, while explicit host-owned merge may combine
 disjoint same-provider bindings without claiming identical credentials or runtime origin. A host can
 project a combined registration to one family before assigning a route. Alternative API modes for
 the same family remain separate registrations so the host chooses them explicitly.
 Provider-owned profiles and support manifests describe dated evidence; Registry does not treat that
-metadata as an execution allowlist.
+metadata as an execution allowlist and exposes no generic policy-evaluation callback.
 
 ## Provider plane and host control plane
 
@@ -144,19 +145,33 @@ Reuse follows this order:
 
 A branded provider owns its compatibility profile, typed options, model advice, evidence, and
 fixtures. The shared engine exposes only a versioned provider-neutral codec seam and explicit
-generic/custom construction. Provider-specific policy remains in the branded provider package even
-when execution is delegated to that shared engine.
+generic/custom construction. Provider-specific dialect and codec behavior remains in the branded
+provider package even when execution is delegated to that shared engine.
+
+A caller-controlled endpoint policy never proves named-provider fidelity. The generic compatible
+profile may preserve a validated `EndpointConfig`, including an explicit private/shared-address
+grant, but it keeps generic claims and a caller-declared custom replay audience. Responses begins
+with the strict OpenAI wire baseline; documented compatible omissions require an explicit dialect
+descriptor backed by fixtures.
 
 ## Canonical stream lifecycle
 
+Direct language success has one portable termination axis: completed or incomplete. A provider
+failure or cancellation returns `LanguageCallError` with a sanitized `Error` and optional bounded
+non-executable partial output rather than a successful `LanguageResponse` state.
+
 Stable language streams use one canonical event vocabulary and exactly one terminal outcome:
-completed, failed, or cancelled. Protocol decoders own framing-specific state, reject unexpected
+completed, failed, or cancelled. Failed and cancelled terminals may carry the same bounded partial
+output shape as direct failures. Protocol decoders own framing-specific state, reject unexpected
 EOF, preserve known-zero versus unknown usage, and never infer success from a clean transport close.
 Failures reported inside an established provider stream use the failed terminal rather than a
 second raw error-event lane. Protocol decoders classify only explicit, bounded wire identifiers;
 transport passes bounded response diagnostics and retry hints into the decoder before body
 consumption. Provider messages and raw envelopes remain available only through explicitly accessed,
 bounded sensitive diagnostics.
+
+Usage events state whether they are cumulative snapshots or deltas. Runtime reconciles observations
+per provider call, treats the terminal usage as the final snapshot, and charges budgets exactly once.
 
 When an executable item appears in both stable stream events and the terminal response, both views
 must agree on item kind, identity, ownership, tool name, and normalized JSON input. A protocol may
@@ -186,6 +201,10 @@ may enter the runtime approval/execution loop, while provider-executed calls rem
 events and metadata.
 
 Common request fields contain only stable cross-provider semantics. Provider crates perform the
-final deterministic merge and validation for the selected family and API mode. Dynamic JSON, where
-available, is an explicit checked escape hatch; protected authentication, endpoint, and transport
-fields cannot be overridden through request options.
+final deterministic merge and validation for the selected family and API mode. `CallOptions` stores
+bounded ordered patches targeted to one exact configured model instance. Runtime may prepend its own
+route, model, and step defaults, but those origins stay private to runtime and never become provider
+API concepts. Dynamic JSON, where available, is an explicit exact-target body escape hatch;
+protected authentication, endpoint, signing, transport, and canonical request fields cannot be
+overridden through request options. Provider modes without a reviewed raw-body policy reject raw
+options.

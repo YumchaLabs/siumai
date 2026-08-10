@@ -1,7 +1,7 @@
 # Registry Contract
 
 - Status: Current repository contract
-- Updated: 2026-08-06
+- Updated: 2026-08-10
 - Owner: `siumai-registry`
 - Related decision: `docs/adr/0013-provider-identity-and-family-registration.md`
 
@@ -12,9 +12,9 @@ registration. It provides deterministic local model resolution while keeping pro
 remote discovery, and business routing outside the lookup path.
 
 A provider registration contains one or more default family bindings for one canonical provider.
-Every binding carries its own exact technical scope, model policy, and narrow constructor. This lets
-one route expose, for example, compatible language and native transcription without falsely assigning
-one protocol to the whole provider.
+Every binding carries its own exact technical scope and narrow constructor. This lets one route
+expose, for example, compatible language and native transcription without falsely assigning one
+protocol to the whole provider or making mutable model advice part of execution.
 
 A registration contains at most one binding per family. Providers with multiple API modes for the
 same family expose mode-specific registrations; the facade's `ProviderRegistrationSource` selects
@@ -27,8 +27,8 @@ empty registration. A combined registration may be narrowed with `for_family` be
 Merging disjoint bindings with the same canonical provider ID is explicit host composition and does
 not prove shared credentials, endpoint, account, or runtime origin.
 
-`ModelOperation` determines the family used for policy evaluation, so Registry does not accept a
-separate family value that could contradict the operation.
+Registry resolves the requested family directly from the selected registration. It has no model
+policy callback, support-state evaluation, lifecycle warning injection, or advisory query.
 
 ## Route semantics
 
@@ -37,8 +37,21 @@ commercial provider identity, geography, pricing, availability, or fallback from
 may attach any business meaning it wants before building the immutable Registry snapshot.
 
 Model references combine a route and an open model ID. Resolving a model is synchronous and does not
-contact a provider. Unknown future model IDs remain valid unless provider request policy rejects an
-exact documented incompatibility when the call is made.
+contact a provider. Unknown, rolling, deprecated, and retired model IDs remain constructible. A
+concrete provider may still reject a stable technical constraint when planning the request, and the
+remote service remains authoritative for mutable product capability.
+
+## Host-owned policy
+
+Applications that require model allowlists, lifecycle warnings, commercial availability checks, or
+compliance policy evaluate those concerns before Registry resolution. Keep the configured provider
+or its support manifest beside the route definition, inspect the dated evidence explicitly, then
+decide whether to expose or call the route. Registry intentionally does not provide a generic
+replacement for the removed `Registry::evaluate` API.
+
+This separation keeps support evidence useful without allowing stale catalogs to block a valid
+future model or mutate explicit provider options. Rebuilding an immutable Registry snapshot remains
+the host's mechanism for changing routes after its own policy changes.
 
 ## Non-goals
 
@@ -50,6 +63,7 @@ Registry does not:
 - implement provider fallback, load balancing, quota, health, or cost policy;
 - depend on built-in provider packages;
 - infer support from provider profiles or support manifests;
+- evaluate model lifecycle, allowlist, or product-capability policy;
 - choose between API modes within one family binding;
 - expose a universal provider factory or generic client.
 

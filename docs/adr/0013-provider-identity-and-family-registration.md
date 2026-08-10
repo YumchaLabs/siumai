@@ -8,6 +8,11 @@ Accepted
 
 2026-08-06
 
+Amended on 2026-08-10 by
+[`ADR-0015`](0015-validation-ownership-and-forward-compatibility.md), which removes runtime
+`ModelPolicy` authority while retaining this ADR's provider-identity and family-registration
+boundaries.
+
 ## Context
 
 A configured provider may expose several model families and several API modes. Those surfaces do
@@ -44,8 +49,8 @@ bag. Narrow family-provider traits describe which concrete model handles a provi
 ### Execution scope
 
 `ProviderScope` describes one exact executable technical surface: provider, optional platform,
-protocol, and API mode. It belongs to model descriptors, model-policy contexts, and family
-registrations. It is not a summary of the whole configured provider.
+protocol, and API mode. It belongs to model descriptors and family registrations. It is not a
+summary of the whole configured provider.
 
 Portable support evidence uses `SupportScope`, and provider-native evidence uses
 `NativeSupportScope`. Those evidence types carry the additional dimensions required for a dated
@@ -54,19 +59,16 @@ claim and must not be confused with executable `ProviderScope`.
 Public `scope()` accessors return the domain object rather than exposing the internal `Arc` used to
 share immutable scope data.
 
-`ModelOperation` uniquely determines `ModelFamily`. Policy contexts store the operation and derive
-the family, so Registry and third-party policies cannot observe or construct a contradictory pair.
-
 ### Dynamic registration
 
 A `ProviderRegistration` represents one canonical provider and contains at least one family binding.
 Each family binding owns:
 
 - its exact `ProviderScope`;
-- its `ModelPolicy`;
 - its erased model factory.
 
-Bindings for different families may share a runtime while retaining different protocols and policies.
+Bindings for different families may share a runtime while retaining different protocols and
+constructors.
 Merging registrations is allowed only for the same canonical provider and disjoint families. This
 is explicit host-owned composition: matching provider identity does not prove that credentials,
 endpoints, accounts, or runtime instances are identical. A combined registration can be projected
@@ -82,7 +84,7 @@ resources or jobs returns a typed `NoPortableFamilyRegistration` error instead o
 empty registration or being omitted from the ergonomic adapter trait.
 
 Registry consumes only the selected family binding. It does not infer capabilities from the provider
-type, inspect concrete providers, or choose an API mode.
+type, inspect concrete providers, choose an API mode, or evaluate model lifecycle/capability policy.
 
 ### Support evidence
 
@@ -102,7 +104,7 @@ named support assertion.
 Rejected because protocol and API mode are properties of an execution surface, not canonical provider
 identity. Any selected default becomes incorrect for another family or mode.
 
-### Option B: Keep one scope and policy per registration, then create one registration per family
+### Option B: Keep one execution scope per registration, then create one registration per family
 
 Rejected as the only representation because a host commonly wants one route to expose disjoint
 families from the same configured runtime. Forcing a route per family makes lookup less ergonomic
@@ -129,8 +131,7 @@ direct and routed model handles retain the same exact descriptors.
 ### Positive
 
 - Composite providers no longer publish an arbitrary provider-wide protocol identity.
-- Registry evaluates and constructs each model family with the correct scope and policy.
-- Policy evaluation cannot express an invalid family/operation combination.
+- Registry constructs each model family with the correct exact scope and factory.
 - Hosts can narrow a combined registration to one family before assigning a route.
 - Direct and routed model descriptors can be validated for exact provider, model, family, platform,
   protocol, and API mode parity.
@@ -153,7 +154,9 @@ direct and routed model handles retain the same exact descriptors.
 2. Replace the global registration constructor and `with_*` factory methods with `from_*` and
    `bind_*` family bindings.
 3. Query registration scope, platform, protocol, or API mode with an explicit `ModelFamily`.
-4. Call policy or Registry evaluation with a `ModelOperation`; its family is derived automatically.
+4. Remove `ProviderRegistration::evaluate`, `Registry::evaluate`, and runtime `ModelPolicy`
+   callbacks. Keep lifecycle, allowlist, availability, and compliance decisions in host-owned code
+   that may inspect provider support evidence explicitly.
 5. Merge only disjoint family registrations for the same provider, use `for_family` to narrow a
    combined registration, and keep same-family alternate modes as separate registrations.
 6. Handle `RegisterProviderError::NoPortableFamilyRegistration` when a provider may be configured
@@ -167,4 +170,5 @@ direct and routed model handles retain the same exact descriptors.
 - `docs/architecture/public-api.md`
 - `docs/architecture/registry.md`
 - `docs/adr/0010-provider-plane-and-host-control-plane.md`
+- `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
 - `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

@@ -1,7 +1,7 @@
 # Public API and Extension Policy
 
 - Status: Current repository contract
-- Updated: 2026-08-09
+- Updated: 2026-08-10
 
 ## Public entry points
 
@@ -34,19 +34,33 @@ explicit family registration when platform, protocol, or API-mode identity matte
 describe one execution surface and cannot truthfully summarize a composite provider.
 
 Dynamic registration starts with one `ProviderRegistration::from_*` family binding and may add
-disjoint families with `bind_*`. Each binding owns its exact scope, model policy, and erased factory.
-An empty registration is not constructible. `ModelOperation` determines which family policy is
-evaluated, and `for_family` can narrow a combined registration for a route-level allowlist.
+disjoint families with `bind_*`. Each binding owns only its exact scope and erased factory. An empty
+registration is not constructible, and `for_family` can narrow a combined registration before the
+host assigns a route.
 Alternative modes for one family use the provider's mode-specific registrations and distinct
 Registry routes. Facade `register_provider` returns a typed error when a valid provider configuration
 has only provider-native resources or jobs and therefore no portable family registration.
+
+Registry does not evaluate lifecycle, allowlist, or model-capability policy. A host that needs those
+decisions keeps the concrete provider or its support manifest beside the registration, evaluates the
+evidence before resolution, and owns any warning or rejection. Unknown and retired model IDs remain
+constructible; the concrete request planner rejects only stable technical constraints that it can
+prove locally.
 
 ## Typed provider extensions
 
 Provider-specific request behavior uses types owned by the provider package. A typed call option
 declares its provider namespace, model family, and API mode, validates before type erasure, and is
-attached through `CallOptions`. It configures one invocation and participates in the provider-owned
-precedence and merge policy.
+attached through `CallOptions::with_provider_options_for(&model, &options)`. The normal path binds
+the patch to one configured provider instance. A provider option type may opt into reusable
+unbound targeting only after its author proves that it carries no credentials, replay state, or
+instance-sensitive body data.
+
+Runtime may prepend route, model, and step defaults internally, but those host-level origins are not
+part of the provider-facing contract. Providers receive one ordered exact-target selection, apply
+typed patches in order, then either apply one explicitly supported raw body overlay or reject raw
+options. Raw options are also bound to an exact model instance and can never alter authentication,
+endpoints, signing, transport policy, or protected canonical request fields.
 
 Provider behavior attached to one message, content part, or tool definition uses a typed durable
 annotation stored beside that semantic node. Annotations have no precedence or recursive merge
@@ -65,6 +79,11 @@ types into core.
 Provider-owned profiles or support manifests expose dated claims for named surfaces. They are
 introspection and maintenance evidence, not capability gates: custom endpoints may carry generic or
 empty evidence while still constructing models that the selected protocol can encode safely.
+
+`OpenAiProvider` custom endpoints still assert the OpenAI wire baseline. A relay that intentionally
+deviates from that baseline uses `OpenAiCompatibleProfile::custom_endpoint`, an explicit custom
+replay audience, and a caller-selected `ResponsesWireDialect` only when fixtures prove the allowed
+omissions. Transport policy labels never promote a generic relay into a named-provider claim.
 
 ## Provider-owned sessions
 
@@ -120,12 +139,21 @@ facade feature must not activate unrelated providers, protocols, or job/session 
 
 ## Errors, streams, and cancellation
 
-Family calls return the canonical error type with operation/provider/model context, sanitized
-public diagnostics, retry hints, and bounded provider details where available. Credentials, signed
-URLs, raw headers, and unbounded response bodies never appear in ordinary `Debug` or display output.
+Family calls return sanitized errors with operation/provider/model context, retry hints, and bounded
+provider details where available. Language direct calls use `LanguageCallError`, which contains the
+canonical `Error` plus an optional bounded, non-executable `PartialLanguageOutput`. Other family
+calls return the canonical `Error` directly. Credentials, signed URLs, raw headers, and unbounded
+response bodies never appear in ordinary `Debug` or display output.
 `ErrorKind::ContextWindowExceeded` and `ErrorKind::Unavailable` distinguish exact provider signals
 that callers commonly handle differently from invalid input or an unknown provider failure. A
 provider message is never inspected heuristically to infer either category.
+
+`LanguageResponse` has one success termination axis: `LanguageTermination::Completed` or
+`LanguageTermination::Incomplete`. Provider-returned failure and cancellation are not successful
+response states. Established streams settle exactly once through `StreamTerminal::{Completed,
+Failed, Cancelled}`; failed and cancelled terminals may carry the same bounded partial-output shape
+as a direct `LanguageCallError`. Usage observations are explicitly `Snapshot` or `Delta`, so runtime
+can reconcile late usage-only frames without double charging a call.
 
 Language streaming begins only after the provider stream is established. The stream owns its
 transport resources and cancellation child; dropping it releases those resources. Consumers must
@@ -147,5 +175,5 @@ reason.
 Examples and README snippets use only current public paths and declare their required features.
 Named provider support claims include an official source, verification date, family/API-mode or
 native-surface scope, fidelity, and stability through a provider-owned profile or support manifest.
-Model constants are completion hints and exact known-policy evidence, not a closed union of every
-remotely available model.
+Model constants are completion hints and dated evidence, not a closed union of every remotely
+available model and never a runtime callability gate.

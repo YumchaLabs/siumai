@@ -17,8 +17,8 @@ superseded by a later accepted decision or current architecture contract.
   durable typed provider annotations. Message, content, and tool annotations live beside the
   semantic nodes they modify instead of using fragile request-level indexes or untyped maps.
 - `0013-provider-identity-and-family-registration.md` — The base provider exposes only canonical
-  identity. Exact execution scope and policy belong to non-empty per-family registration bindings;
-  support profiles and manifests remain separate evidence surfaces.
+  identity. Exact execution scope and factory belong to non-empty per-family registration bindings;
+  support profiles and manifests remain separate evidence surfaces rather than execution policy.
 - `0014-canonical-language-history-and-replay.md` — Portable tool calls use one checked local JSON
   input, response-to-history projection is explicit, and provider-native continuation requires an
   exact non-secret replay domain.

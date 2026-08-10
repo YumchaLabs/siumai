@@ -17,8 +17,10 @@ native surface instead of pretending to be a model family. Every public named sc
 official source and verification date through a provider-owned profile or support manifest.
 
 Profiles and manifests are evidence surfaces, not executable capability authorities. Registry uses
-the selected registration and request policy instead. A custom endpoint may expose generic claims or
-an explicitly identified empty manifest when Siumai makes no named support assertion.
+only the selected registration's exact scope and family factory. Concrete providers own stable
+request-shape validation, while mutable capability and lifecycle facts remain remote or host-owned.
+A custom endpoint may expose generic claims or an explicitly identified empty manifest when Siumai
+makes no named support assertion.
 
 A broad provider name alone is not a support claim. For example, a native language
 implementation does not imply native image or realtime support, and a cloud-hosted
@@ -213,11 +215,14 @@ it does not scrape websites or generate Rust from another SDK's model union.
 The generic OpenAI-compatible builder remains an escape hatch for private gateways
 and unlisted services. It requires an explicit endpoint policy and credential
 audience, exposes only protocol-baseline behavior, and does not inherit a named
-provider's fidelity claim.
+provider's fidelity claim. `OpenAiCompatibleProfile::custom_endpoint` may preserve an already
+validated private or shared-address `EndpointConfig`, but the profile remains generic and requires
+a custom replay audience. Responses defaults to the strict OpenAI baseline; a compatible dialect is
+an explicit caller decision backed by relay fixtures, not a general permissive mode.
 
 ## Maintenance workflow
 
 Provider changes are audited against official documentation first. The local
 Vercel AI SDK checkout is secondary evidence for fixtures and edge cases. A
-maintainer updates the provider policy, lifecycle data, and behavior fixtures in
+maintainer updates the provider support profile, lifecycle data, and behavior fixtures in
 one change; a static mega-list of remote gateway models is not accepted.

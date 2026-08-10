@@ -81,7 +81,9 @@ official session support claim.
 
 Provider-specific behavior stays available through typed call options, typed annotations attached
 to semantic nodes, or provider-native resources. Only semantics demonstrated to be portable belong
-in shared family requests.
+in shared family requests. Call-level provider options are bounded ordered patches and normally bind
+to the exact configured model instance; host route/model/step/call precedence remains private to
+runtime instead of becoming part of every provider API.
 
 ## MiniMax provider-direct example
 
@@ -105,15 +107,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let provider_options = MinimaxMessagesOptions::new()
         .with_thinking(MinimaxThinking::Adaptive)
-        .with_service_tier(MinimaxServiceTier::Standard)
-        .provider_options()?;
+        .with_service_tier(MinimaxServiceTier::Standard);
+    let options = CallOptions::default().with_provider_options_for(&model, &provider_options)?;
     let response = language::generate_with_options(
         &model,
         LanguageRequest::new(vec![Message::text(
             MessageRole::User,
             "Hello MiniMax!",
         )]),
-        CallOptions::default().with_provider_options(provider_options),
+        options,
     )
     .await?;
 
@@ -152,7 +154,7 @@ stability, resource boundaries, and deliberate streaming limitations.
 Registry stores immutable registrations from providers the caller has already configured. It does
 not discover remote models, read hidden credentials, choose a region, or apply business fallback
 policy. One route may expose several disjoint model families from the same provider; each family
-retains its own exact protocol scope and request policy.
+retains its own exact protocol scope and configured factory.
 
 ```rust,no_run
 use siumai::providers::minimax::{MinimaxCredential, MinimaxProvider};
