@@ -426,7 +426,11 @@ impl ProviderOptionTarget {
         matches!(self.binding, ProviderOptionBinding::Model { .. })
     }
 
-    fn matches_model<M: Model + ?Sized>(&self, model: &M) -> bool {
+    fn matches_model<M: Model + ?Sized>(
+        &self,
+        model: &M,
+        selected_route: Option<&RouteId>,
+    ) -> bool {
         if self.provider != *model.provider_id()
             || self.family != model.family()
             || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
@@ -440,7 +444,7 @@ impl ProviderOptionTarget {
                 scope,
                 instance_id,
             } => {
-                route.as_ref() == model.route_id()
+                route.as_ref() == selected_route
                     && scope == model.descriptor().scope()
                     && instance_id == model.descriptor().instance_id()
             }
@@ -745,6 +749,7 @@ pub struct CallOptions {
     deadline: Option<Instant>,
     cancellation: Cancellation,
     retry: RetryIntent,
+    selected_route_context: Option<RouteId>,
     provider_options: Vec<ProviderOptionEntry>,
     exact_provider_options: Vec<ExactProviderOptionEntry>,
 }
@@ -756,6 +761,7 @@ impl fmt::Debug for CallOptions {
             .field("deadline", &self.deadline)
             .field("cancellation", &self.cancellation)
             .field("retry", &self.retry)
+            .field("selected_route_context", &self.selected_route_context)
             .field(
                 "legacy_provider_option_namespaces",
                 &self
@@ -817,12 +823,13 @@ impl CallOptions {
         &self,
         model: &M,
     ) -> Result<ProviderOptionSelection<'_>, ProviderOptionError> {
+        let selected_route = model.route_id().or(self.selected_route_context.as_ref());
         let mut typed = Vec::new();
         let mut raw_override = None;
         let mut unconsumed = Vec::new();
 
         for entry in &self.exact_provider_options {
-            if !entry.target.matches_model(model) {
+            if !entry.target.matches_model(model, selected_route) {
                 if entry.applicability == ProviderOptionApplicability::Required {
                     return Err(entry.target.mismatch_error(model));
                 }
@@ -1064,6 +1071,18 @@ impl CallOptions {
 
     pub fn without_retry(mut self) -> Self {
         self.retry = RetryIntent::Never;
+        self
+    }
+
+    /// Preserve the Registry route selected by an outer model wrapper while
+    /// the configured provider consumes options through its route-less inner
+    /// model handle.
+    ///
+    /// This is an assembly seam for Registry and equivalent routing layers,
+    /// not a provider option or a business routing decision.
+    #[doc(hidden)]
+    pub fn with_selected_route_context(mut self, route: RouteId) -> Self {
+        self.selected_route_context = Some(route);
         self
     }
 
@@ -1775,6 +1794,26 @@ mod tests {
         assert_eq!(other.raw_override(), None);
         assert_eq!(other.unconsumed_count(), 1);
         assert!(!format!("{call:?}").contains("sentinel"));
+    }
+
+    #[test]
+    fn selected_route_context_preserves_binding_through_a_route_less_delegate() {
+        let routed = fake_model("openai", "responses", Some("primary"));
+        let inner = FakeModel {
+            descriptor: routed.descriptor.clone(),
+            route: None,
+        };
+        let call = CallOptions::default()
+            .with_raw_provider_options_for(&routed, json!({"future_provider_field": true}))
+            .unwrap();
+
+        assert!(matches!(
+            call.provider_options_for(&inner),
+            Err(ProviderOptionError::ExactTargetMismatch { .. })
+        ));
+        let delegated = call.with_selected_route_context(routed.route.clone().unwrap());
+        let selected = delegated.provider_options_for(&inner).unwrap();
+        assert!(selected.raw_override().is_some());
     }
 
     #[test]

@@ -289,7 +289,10 @@ impl LanguageModel for RouteLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, Error> {
         self.inner
-            .generate(request, options)
+            .generate(
+                request,
+                options.with_selected_route_context(self.route.clone()),
+            )
             .await
             .map_err(|error| error.with_route(self.route.clone()))
     }
@@ -300,7 +303,10 @@ impl LanguageModel for RouteLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         self.inner
-            .stream(request, options)
+            .stream(
+                request,
+                options.with_selected_route_context(self.route.clone()),
+            )
             .await
             .map(|stream| stream.with_route_context(self.route.clone()))
             .map_err(|error| error.with_route(self.route.clone()))
@@ -342,7 +348,10 @@ macro_rules! route_model_wrapper {
                 options: CallOptions,
             ) -> Result<$response, Error> {
                 self.inner
-                    .$method(request, options)
+                    .$method(
+                        request,
+                        options.with_selected_route_context(self.route.clone()),
+                    )
                     .await
                     .map_err(|error| error.with_route(self.route.clone()))
             }
