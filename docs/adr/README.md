@@ -22,6 +22,9 @@ superseded by a later accepted decision or current architecture contract.
 - `0014-canonical-language-history-and-replay.md` — Portable tool calls use one checked local JSON
   input, response-to-history projection is explicit, and provider-native continuation requires an
   exact non-secret replay domain.
+- `0015-validation-ownership-and-forward-compatibility.md` — Stable semantic and wire invariants
+  remain strict in their owning layers, while model lifecycle, product eligibility, and host option
+  origins no longer control provider execution.
 
 ## Conventions
 
