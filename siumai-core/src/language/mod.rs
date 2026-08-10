@@ -1513,14 +1513,13 @@ impl std::error::Error for LanguageCallError {
     }
 }
 
-/// Stable warning categories emitted without changing call success semantics.
+/// Stable request/result warning categories emitted without changing call success semantics.
+///
+/// Model lifecycle and catalog advice is provider-owned introspection and is not emitted during
+/// ordinary execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum WarningKind {
-    UnknownModel,
-    DeprecatedModel,
-    RetiredModel,
-    RollingModelAlias,
     UnsupportedOption,
     IgnoredOption,
     PartialResult,
