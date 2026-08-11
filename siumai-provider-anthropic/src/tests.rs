@@ -571,6 +571,29 @@ fn official_provider_is_network_free_and_catalog_is_introspection_only() {
     }));
 }
 
+#[test]
+fn official_provider_adds_caller_scope_without_reconstructing_its_replay_audience() {
+    let provider = AnthropicProvider::builder(AnthropicCredential::api_key("offline-test-key"))
+        .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope"))
+        .build()
+        .expect("network-free provider construction");
+
+    provider
+        .files()
+        .reference("file_from_prior_upload")
+        .expect("official caller-scoped file reference");
+    assert_eq!(
+        provider
+            .profile()
+            .scope()
+            .replay_domain()
+            .and_then(|domain| domain.caller_scope())
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("workspace-a")
+    );
+}
+
 #[tokio::test]
 async fn custom_endpoint_does_not_inherit_anthropic_native_claims() {
     let server = MockServer::start().await;

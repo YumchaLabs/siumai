@@ -36,12 +36,12 @@ use crate::resources::{
     AnthropicFiles, AnthropicMessageBatches, AnthropicSkills, AnthropicTokens, NativeRuntime,
 };
 
-const SUPPORT_VERIFIED_ON: &str = "2026-08-06";
-const FILES_SOURCE: &str = "https://platform.claude.com/docs/en/api/files-create";
+const SUPPORT_VERIFIED_ON: &str = "2026-08-11";
+const FILES_SOURCE: &str = "https://platform.claude.com/docs/en/build-with-claude/files";
 const MESSAGE_BATCHES_SOURCE: &str =
-    "https://platform.claude.com/docs/en/api/creating-message-batches";
+    "https://platform.claude.com/docs/en/build-with-claude/batch-processing";
 const TOKEN_COUNTING_SOURCE: &str = "https://platform.claude.com/docs/en/api/messages-count-tokens";
-const SKILLS_SOURCE: &str = "https://platform.claude.com/docs/en/api/skills/create-skill";
+const SKILLS_SOURCE: &str = "https://platform.claude.com/docs/en/build-with-claude/skills-guide";
 
 /// Long-lived configured Anthropic provider.
 #[derive(Clone)]
@@ -138,6 +138,7 @@ pub struct AnthropicProviderBuilder {
     endpoint: Result<EndpointConfig, EndpointError>,
     custom_endpoint: bool,
     replay_domain: Option<ReplayDomain>,
+    caller_scope: Option<ReplayDomainId>,
     defaults: AnthropicMessagesOptions,
     beta_features: Vec<String>,
     limits: TransportLimits,
@@ -162,6 +163,7 @@ impl AnthropicProviderBuilder {
             endpoint: official_endpoint(),
             custom_endpoint: false,
             replay_domain: None,
+            caller_scope: None,
             defaults: AnthropicMessagesOptions::default(),
             beta_features: Vec::new(),
             limits: TransportLimits::default(),
@@ -193,6 +195,16 @@ impl AnthropicProviderBuilder {
     /// Bind provider-native history to a non-secret endpoint and caller scope.
     pub fn with_replay_domain(mut self, replay_domain: ReplayDomain) -> Self {
         self.replay_domain = Some(replay_domain);
+        self
+    }
+
+    /// Bind replay-sensitive Anthropic resources to one caller-owned account or workspace scope.
+    ///
+    /// The provider keeps ownership of the official or custom replay audience selected by the
+    /// endpoint configuration. This method changes only the caller scope and is the preferred path
+    /// for Files-in-Messages and hosted-tool continuation on the official endpoint.
+    pub fn with_caller_scope(mut self, caller_scope: ReplayDomainId) -> Self {
+        self.caller_scope = Some(caller_scope);
         self
     }
 
@@ -240,6 +252,10 @@ impl AnthropicProviderBuilder {
             (Some(replay_domain), _) => replay_domain,
             (None, true) => ReplayDomain::official(ReplayDomainId::new("anthropic-public-api")?),
             (None, false) => return Err(AnthropicConfigError::CustomEndpointRequiresReplayDomain),
+        };
+        let replay_domain = match self.caller_scope {
+            Some(caller_scope) => replay_domain.with_caller_scope(caller_scope),
+            None => replay_domain,
         };
         if replay_domain.audience().is_official() != provider_verified_endpoint {
             return Err(AnthropicConfigError::ReplayAudienceMismatch);
