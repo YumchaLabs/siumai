@@ -195,6 +195,13 @@ struct TerminalAlignment {
     streamed_to_terminal: BTreeMap<u64, usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UniqueAlignmentCandidate {
+    None,
+    One(u64),
+    Ambiguous,
+}
+
 impl TerminalAlignment {
     fn terminal_index(&self, output_index: u64) -> Option<usize> {
         self.streamed_to_terminal.get(&output_index).copied()
@@ -219,6 +226,21 @@ impl TerminalAlignment {
             .range((Excluded(output_index), Unbounded))
             .next()
             .map(|(_, terminal_index)| *terminal_index)
+    }
+}
+
+fn unique_alignment_candidate(
+    indices: &BTreeSet<u64>,
+    lower: Option<u64>,
+    upper: Option<u64>,
+) -> UniqueAlignmentCandidate {
+    let lower = lower.map_or(Unbounded, Excluded);
+    let upper = upper.map_or(Unbounded, Excluded);
+    let mut candidates = indices.range((lower, upper));
+    match (candidates.next().copied(), candidates.next()) {
+        (None, _) => UniqueAlignmentCandidate::None,
+        (Some(output_index), None) => UniqueAlignmentCandidate::One(output_index),
+        (Some(_), Some(_)) => UniqueAlignmentCandidate::Ambiguous,
     }
 }
 
@@ -2023,8 +2045,28 @@ impl ResponsesStreamDecoder {
 
         self.validate_terminal_alignment_order(&alignment)?;
 
+        let mut unaligned_by_kind = BTreeMap::<String, BTreeSet<u64>>::new();
+        for (output_index, item) in &self.items {
+            if alignment.terminal_index(*output_index).is_none() {
+                unaligned_by_kind
+                    .entry(item.kind().to_string())
+                    .or_default()
+                    .insert(*output_index);
+            }
+        }
+        let mut next_anchor = vec![None; output.len()];
+        let mut following = None;
+        for position in (0..output.len()).rev() {
+            next_anchor[position] = following;
+            if let Some(output_index) = alignment.streamed_index(position) {
+                following = Some(output_index);
+            }
+        }
+        let mut previous_anchor = None;
+
         for (position, terminal) in output.iter().enumerate() {
-            if alignment.streamed_index(position).is_some() {
+            if let Some(output_index) = alignment.streamed_index(position) {
+                previous_anchor = Some(output_index);
                 continue;
             }
             let terminal = terminal.as_object().ok_or_else(|| {
@@ -2040,37 +2082,17 @@ impl ResponsesStreamDecoder {
                 .get("id")
                 .and_then(Value::as_str)
                 .filter(|id| !id.is_empty());
-            let lower = alignment.terminal_to_streamed[..position]
-                .iter()
-                .rev()
-                .flatten()
-                .next()
-                .copied();
-            let upper = alignment.terminal_to_streamed[position.saturating_add(1)..]
-                .iter()
-                .flatten()
-                .next()
-                .copied();
-            let candidates = self
-                .items
-                .iter()
-                .filter(|(output_index, item)| {
-                    !alignment.streamed_to_terminal.contains_key(output_index)
-                        && item.kind() == kind
-                        && lower.is_none_or(|lower| **output_index > lower)
-                        && upper.is_none_or(|upper| **output_index < upper)
-                })
-                .map(|(output_index, _)| *output_index)
-                .collect::<Vec<_>>();
-            let has_unaligned_same_kind = self.items.iter().any(|(output_index, item)| {
-                !alignment.streamed_to_terminal.contains_key(output_index) && item.kind() == kind
+            let candidates = unaligned_by_kind.get(kind);
+            let has_unaligned_same_kind = candidates.is_some_and(|indices| !indices.is_empty());
+            let candidate = candidates.map_or(UniqueAlignmentCandidate::None, |indices| {
+                unique_alignment_candidate(indices, previous_anchor, next_anchor[position])
             });
 
             let allows_position_identity = (kind == "message"
                 && (id.is_some() || self.wire_dialect.allows_message_position_identity()))
                 || kind == "reasoning";
             if !allows_position_identity {
-                if is_portable_kind(kind) && (has_unaligned_same_kind || !candidates.is_empty()) {
+                if is_portable_kind(kind) && has_unaligned_same_kind {
                     return Err(protocol_error(
                         "OpenAI terminal response could not uniquely align a portable output item",
                     ));
@@ -2078,12 +2100,16 @@ impl ResponsesStreamDecoder {
                 continue;
             }
 
-            match candidates.as_slice() {
-                [] => {}
-                [output_index] => {
-                    record_terminal_alignment(&mut alignment, *output_index, position)?;
+            match candidate {
+                UniqueAlignmentCandidate::None => {}
+                UniqueAlignmentCandidate::One(output_index) => {
+                    record_terminal_alignment(&mut alignment, output_index, position)?;
+                    if let Some(indices) = unaligned_by_kind.get_mut(kind) {
+                        indices.remove(&output_index);
+                    }
+                    previous_anchor = Some(output_index);
                 }
-                _ => {
+                UniqueAlignmentCandidate::Ambiguous => {
                     return Err(protocol_error(
                         "OpenAI terminal response had an ambiguous positional output identity",
                     ));

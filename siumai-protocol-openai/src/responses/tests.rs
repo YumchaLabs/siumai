@@ -1980,6 +1980,196 @@ fn terminal_alignment_keeps_portable_message_semantics_when_identity_drifts() {
 }
 
 #[test]
+fn terminal_alignment_preserves_large_anchored_output_order() {
+    const ITEM_COUNT: usize = 512;
+
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model())
+        .with_wire_dialect(ResponsesWireDialect::compatible());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let mut terminal = Vec::with_capacity(ITEM_COUNT);
+    let mut sequence_number = 1u64;
+    for output_index in 0..ITEM_COUNT {
+        let id = format!("msg_{output_index}");
+        let text = format!("item-{output_index}");
+        decoder
+            .decode(
+                &json!({
+                    "type": "response.output_item.added",
+                    "sequence_number": sequence_number,
+                    "output_index": output_index,
+                    "item": {
+                        "id": id,
+                        "type": "message",
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": []
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        sequence_number += 1;
+
+        let completed = json!({
+            "id": id,
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": text,
+                "annotations": []
+            }]
+        });
+        decoder
+            .decode(
+                &json!({
+                    "type": "response.output_item.done",
+                    "sequence_number": sequence_number,
+                    "output_index": output_index,
+                    "item": completed
+                })
+                .to_string(),
+            )
+            .unwrap();
+        sequence_number += 1;
+
+        terminal.push(json!({
+            "id": if output_index % 2 == 0 {
+                format!("msg_{output_index}")
+            } else {
+                format!("terminal_msg_{output_index}")
+            },
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": format!("item-{output_index}"),
+                "annotations": []
+            }]
+        }));
+    }
+
+    let events = decoder
+        .decode(&completed_function_response(
+            sequence_number,
+            json!(terminal),
+        ))
+        .unwrap();
+    let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })) = events.last()
+    else {
+        panic!("expected a completed terminal response");
+    };
+    let texts = response
+        .content()
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(texts.len(), ITEM_COUNT);
+    assert_eq!(texts.first().copied(), Some("item-0"));
+    assert_eq!(texts.last().copied(), Some("item-511"));
+    assert_eq!(
+        decoder.replay_status().item_identity_conflicts(),
+        ITEM_COUNT / 2
+    );
+    assert!(!decoder.replay_status().is_available());
+}
+
+#[test]
+fn terminal_alignment_rejects_ambiguous_positional_identity() {
+    let mut decoder = ResponsesStreamDecoder::new(scope(), model())
+        .with_wire_dialect(ResponsesWireDialect::compatible());
+    decoder
+        .decode(
+            &json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": progress_response("in_progress")
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let mut sequence_number = 1u64;
+    for output_index in 0..2 {
+        let id = format!("msg_{output_index}");
+        decoder
+            .decode(
+                &json!({
+                    "type": "response.output_item.added",
+                    "sequence_number": sequence_number,
+                    "output_index": output_index,
+                    "item": {
+                        "id": id,
+                        "type": "message",
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": []
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        sequence_number += 1;
+        decoder
+            .decode(
+                &json!({
+                    "type": "response.output_item.done",
+                    "sequence_number": sequence_number,
+                    "output_index": output_index,
+                    "item": {
+                        "id": id,
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [{
+                            "type": "output_text",
+                            "text": format!("item-{output_index}"),
+                            "annotations": []
+                        }]
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        sequence_number += 1;
+    }
+
+    let error = decoder
+        .decode(&completed_function_response(
+            sequence_number,
+            json!([{
+                "id": "terminal_msg",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "item-0",
+                    "annotations": []
+                }]
+            }]),
+        ))
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+    assert!(error.to_string().contains("ambiguous positional"));
+}
+
+#[test]
 fn terminal_alignment_rejects_uncovered_partial_message_lanes() {
     let mut decoder = partial_message_decoder("hel");
     let error = decoder
