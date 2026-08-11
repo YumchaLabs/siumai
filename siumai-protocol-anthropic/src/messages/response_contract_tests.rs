@@ -335,6 +335,53 @@ fn arbitrary_json_tool_inputs_preserve_direct_and_replay_semantics() {
 }
 
 #[test]
+fn ordinary_local_tool_inputs_round_trip_direct_history_and_request() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    for (index, input) in [
+        Value::Null,
+        json!(["array", 1]),
+        json!("scalar"),
+        json!(7),
+        json!(true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let block = json!({
+            "type": "tool_use",
+            "id": format!("local_{index}"),
+            "name": "lookup",
+            "input": input.clone()
+        });
+        let response = decode_response(
+            &response_with_content(json!([block.clone()]), "tool_use"),
+            &source_scope,
+            &model(),
+        )
+        .expect("decode ordinary local tool input");
+        assert!(matches!(
+            response.content(),
+            [ContentPart::ToolCall(call)] if call.arguments() == &input
+        ));
+
+        let history = response
+            .project_assistant_history()
+            .into_message()
+            .expect("local tool input projects to history");
+        let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+        continuation.generation.max_output_tokens = Some(2_048);
+        let encoded = encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &continuation,
+            &MessagesRequestOptions::default(),
+        )
+        .expect("replay ordinary local tool input");
+        assert_eq!(encoded["messages"][0]["content"], json!([block]));
+    }
+}
+
+#[test]
 fn hosted_replay_rejects_incomplete_foreign_and_unknown_native_state() {
     let source_scope = scoped_replay_domain("workspace-a");
     let response = decode_response(
@@ -704,6 +751,185 @@ fn unknown_native_callers_remain_observable_but_are_not_executable_or_replayable
             Err(MessagesCodecError::Unsupported { .. })
         ));
     }
+}
+
+#[test]
+fn streamed_unknown_tool_caller_stays_opaque_without_local_events() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let mut decoder = MessagesStreamDecoder::new(source_scope, model());
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_future_caller",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-fable-5",
+                "usage": {"input_tokens": 3}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "tool_use",
+                "id": "future_local_caller",
+                "name": "lookup",
+                "input": {},
+                "caller": {"type": "future_caller", "tool_id": "future_parent"}
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": "[\"future\"]"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use", "stop_sequence": null},
+            "usage": {"output_tokens": 2}
+        }),
+        json!({"type": "message_stop"}),
+    ];
+
+    let mut events = Vec::new();
+    for frame in frames {
+        events.extend(decoder.decode(&frame.to_string()).expect("decode frame"));
+    }
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        LanguageStreamEvent::ToolInputStart { .. }
+            | LanguageStreamEvent::ToolInputDelta { .. }
+            | LanguageStreamEvent::ToolCall(_)
+    )));
+    let native = events
+        .iter()
+        .find_map(|event| match event {
+            LanguageStreamEvent::ProviderOpaque(item) => Some(item),
+            _ => None,
+        })
+        .expect("unknown caller remains observable as native content");
+    assert_eq!(native.data()["input"], json!(["future"]));
+
+    let terminal = events
+        .iter()
+        .find_map(|event| match event {
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => Some(response),
+            _ => None,
+        })
+        .expect("terminal response");
+    assert!(matches!(
+        terminal.content(),
+        [ContentPart::ProviderOpaque(item)] if item.data()["input"] == json!(["future"])
+    ));
+}
+
+#[test]
+fn streamed_known_tool_caller_is_validated_before_local_events() {
+    let mut valid = MessagesStreamDecoder::new(scoped_replay_domain("workspace-a"), model());
+    valid
+        .decode(
+            &json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_valid_caller",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fable-5",
+                    "usage": {}
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode message start");
+    let events = valid
+        .decode(
+            &json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "local_from_code",
+                    "name": "lookup",
+                    "input": {},
+                    "caller": {
+                        "type": "code_execution_20250825",
+                        "tool_id": "srv_code"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("known caller is executable");
+    assert!(matches!(
+        events.as_slice(),
+        [LanguageStreamEvent::ToolInputStart {
+            id,
+            name,
+            owner: ExecutionOwner::Local,
+        }] if id == "local_from_code" && name == "lookup"
+    ));
+    let events = valid
+        .decode(
+            &json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": "{\"query\":\"siumai\"}"
+                }
+            })
+            .to_string(),
+        )
+        .expect("known caller input delta remains local");
+    assert!(matches!(
+        events.as_slice(),
+        [LanguageStreamEvent::ToolInputDelta { id, .. }] if id == "local_from_code"
+    ));
+    let events = valid
+        .decode(&json!({"type": "content_block_stop", "index": 0}).to_string())
+        .expect("known caller completes as a local call");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::ToolCall(call)
+            if call.id() == "local_from_code"
+                && call.arguments() == &json!({"query": "siumai"})
+    )));
+
+    let mut invalid = MessagesStreamDecoder::new(scoped_replay_domain("workspace-a"), model());
+    invalid
+        .decode(
+            &json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_invalid_caller",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fable-5",
+                    "usage": {}
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode message start");
+    let error = invalid
+        .decode(
+            &json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "invalid_code_caller",
+                    "name": "lookup",
+                    "input": {},
+                    "caller": {"type": "code_execution_20250825"}
+                }
+            })
+            .to_string(),
+        )
+        .expect_err("known caller without tool_id must fail before publication");
+    assert_eq!(error.kind(), ErrorKind::Protocol);
 }
 
 #[test]

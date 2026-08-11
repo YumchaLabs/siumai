@@ -883,11 +883,6 @@ fn encode_content_part(
                     reason: "tool call ID and name must not be empty",
                 });
             }
-            if !call.arguments().is_object() {
-                return Err(MessagesCodecError::Unsupported {
-                    feature: "non-object function-tool input",
-                });
-            }
             Ok(Some(json!({
                 "type": "tool_use",
                 "id": call.id(),

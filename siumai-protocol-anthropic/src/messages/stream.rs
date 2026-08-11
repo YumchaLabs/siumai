@@ -11,7 +11,7 @@ use siumai_core::{
 
 use super::MessagesCodecError;
 use super::error::classify_stream_failure;
-use super::native_content::{is_hosted_tool_use_kind, validate_caller};
+use super::native_content::{caller_is_replayable, is_hosted_tool_use_kind, validate_caller};
 use super::response::{
     StreamResponseParts, build_stream_response, decode_content_block, decode_refusal_reason,
     decode_usage,
@@ -605,15 +605,24 @@ impl ActiveBlock {
             "tool_use" => {
                 let id = required_object_string(&object, "id")?.to_string();
                 let name = required_object_string(&object, "name")?.to_string();
+                let caller_is_local = caller_is_replayable(validate_caller(&object)?);
                 let initial_input = object.get("input").cloned();
                 ensure_initial_tool_input_bound(initial_input.as_ref())?;
-                Ok(Self::ToolUse {
-                    object,
-                    id,
-                    name,
-                    initial_input,
-                    partial_input: String::new(),
-                })
+                if caller_is_local {
+                    Ok(Self::ToolUse {
+                        object,
+                        id,
+                        name,
+                        initial_input,
+                        partial_input: String::new(),
+                    })
+                } else {
+                    Ok(Self::ProviderToolUse {
+                        object,
+                        initial_input,
+                        partial_input: String::new(),
+                    })
+                }
             }
             kind if is_hosted_tool_use_kind(kind) => {
                 required_object_string(&object, "id")?;
