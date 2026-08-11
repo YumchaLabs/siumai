@@ -195,7 +195,7 @@ impl OpenAiConversationItemsCreateRequest {
 }
 
 /// A stored OpenAI conversation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiConversation {
     pub id: String,
     pub object: String,
@@ -206,14 +206,36 @@ pub struct OpenAiConversation {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl fmt::Debug for OpenAiConversation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiConversation")
+            .field("metadata_entries", &self.metadata.len())
+            .field("extra_fields", &self.extra.len())
+            .field("data", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Deletion acknowledgement for a conversation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiConversationDeleted {
     pub id: String,
     pub object: String,
     pub deleted: bool,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiConversationDeleted {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiConversationDeleted")
+            .field("deleted", &self.deleted)
+            .field("extra_fields", &self.extra.len())
+            .field("data", &"<redacted>")
+            .finish()
+    }
 }
 
 #[cfg(test)]
@@ -234,16 +256,37 @@ mod tests {
     }
 
     #[test]
-    fn conversation_item_debug_redacts_provider_payloads() {
+    fn conversation_resource_debug_redacts_provider_ids_and_payloads() {
         let sentinel = "conversation-debug-sentinel";
         let input = OpenAiConversationInputItem::message(OpenAiConversationRole::User, sentinel);
         let output: OpenAiConversationItem = serde_json::from_value(json!({
             "type": "message",
+            "id": sentinel,
             "content": sentinel
         }))
         .unwrap();
+        let conversation: OpenAiConversation = serde_json::from_value(json!({
+            "id": sentinel,
+            "object": "conversation",
+            "created_at": 1,
+            "metadata": {"private": sentinel},
+            "future": sentinel
+        }))
+        .unwrap();
+        let deleted: OpenAiConversationDeleted = serde_json::from_value(json!({
+            "id": sentinel,
+            "object": "conversation.deleted",
+            "deleted": true,
+            "future": sentinel
+        }))
+        .unwrap();
 
-        for debug in [format!("{input:?}"), format!("{output:?}")] {
+        for debug in [
+            format!("{input:?}"),
+            format!("{output:?}"),
+            format!("{conversation:?}"),
+            format!("{deleted:?}"),
+        ] {
             assert!(!debug.contains(sentinel));
             assert!(debug.contains("<redacted>"));
         }

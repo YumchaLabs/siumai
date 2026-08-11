@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,7 +25,7 @@ impl OpenAiListOrder {
 }
 
 /// A forward-compatible OpenAI cursor page.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct OpenAiCursorPage<T> {
     pub object: String,
     pub data: Vec<T>,
@@ -36,6 +36,20 @@ pub struct OpenAiCursorPage<T> {
     pub has_more: bool,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl<T> fmt::Debug for OpenAiCursorPage<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiCursorPage")
+            .field("data_len", &self.data.len())
+            .field("first_id_present", &self.first_id.is_some())
+            .field("last_id_present", &self.last_id.is_some())
+            .field("has_more", &self.has_more)
+            .field("extra_fields", &self.extra.len())
+            .field("data", &"<redacted>")
+            .finish()
+    }
 }
 
 /// A provider-native resource value could not be represented safely.
@@ -50,4 +64,29 @@ pub enum OpenAiResourceCodecError {
         "OpenAI resource string must be non-empty, trimmed, bounded, and free of control characters"
     )]
     InvalidResourceString,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn cursor_page_debug_redacts_ids_items_and_provider_extensions() {
+        let sentinel = "cursor-page-debug-sentinel";
+        let page = OpenAiCursorPage {
+            object: sentinel.to_string(),
+            data: vec![json!({"private": sentinel})],
+            first_id: Some(sentinel.to_string()),
+            last_id: Some(sentinel.to_string()),
+            has_more: true,
+            extra: BTreeMap::from([("private".to_string(), json!(sentinel))]),
+        };
+
+        let debug = format!("{page:?}");
+        assert!(!debug.contains(sentinel));
+        assert!(debug.contains("data_len"));
+        assert!(debug.contains("<redacted>"));
+    }
 }

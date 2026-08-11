@@ -38,11 +38,14 @@ pub enum OpenAiToolCaller {
 #[derive(Clone, PartialEq)]
 pub enum OpenAiResponsesTool {
     WebSearch(OpenAiWebSearchTool),
+    WebSearchPreview(OpenAiWebSearchPreviewTool),
     FileSearch(OpenAiFileSearchTool),
     CodeInterpreter(OpenAiCodeInterpreterTool),
     Computer,
+    ComputerUsePreview(OpenAiComputerUsePreviewTool),
     Mcp(OpenAiMcpTool),
     ImageGeneration(OpenAiImageGenerationTool),
+    LocalShell,
     Shell(OpenAiShellTool),
     ApplyPatch(OpenAiApplyPatchTool),
     ToolSearch(OpenAiToolSearchTool),
@@ -56,17 +59,26 @@ impl fmt::Debug for OpenAiResponsesTool {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WebSearch(value) => formatter.debug_tuple("WebSearch").field(value).finish(),
+            Self::WebSearchPreview(value) => formatter
+                .debug_tuple("WebSearchPreview")
+                .field(value)
+                .finish(),
             Self::FileSearch(value) => formatter.debug_tuple("FileSearch").field(value).finish(),
             Self::CodeInterpreter(value) => formatter
                 .debug_tuple("CodeInterpreter")
                 .field(value)
                 .finish(),
             Self::Computer => formatter.write_str("Computer"),
+            Self::ComputerUsePreview(value) => formatter
+                .debug_tuple("ComputerUsePreview")
+                .field(value)
+                .finish(),
             Self::Mcp(value) => formatter.debug_tuple("Mcp").field(value).finish(),
             Self::ImageGeneration(value) => formatter
                 .debug_tuple("ImageGeneration")
                 .field(value)
                 .finish(),
+            Self::LocalShell => formatter.write_str("LocalShell"),
             Self::Shell(value) => formatter.debug_tuple("Shell").field(value).finish(),
             Self::ApplyPatch(value) => formatter.debug_tuple("ApplyPatch").field(value).finish(),
             Self::ToolSearch(value) => formatter.debug_tuple("ToolSearch").field(value).finish(),
@@ -83,6 +95,16 @@ impl OpenAiResponsesTool {
         Self::WebSearch(OpenAiWebSearchTool::default())
     }
 
+    /// Construct the unversioned preview web-search tool.
+    pub fn web_search_preview() -> Self {
+        Self::WebSearchPreview(OpenAiWebSearchPreviewTool::default())
+    }
+
+    /// Construct the `web_search_preview_2025_03_11` tool.
+    pub fn web_search_preview_2025_03_11() -> Self {
+        Self::WebSearchPreview(OpenAiWebSearchPreviewTool::versioned_2025_03_11())
+    }
+
     /// Construct the default file-search tool.
     pub fn file_search(vector_store_ids: Vec<String>) -> Self {
         Self::FileSearch(OpenAiFileSearchTool::new(vector_store_ids))
@@ -91,6 +113,19 @@ impl OpenAiResponsesTool {
     /// Construct the default code-interpreter tool.
     pub fn code_interpreter() -> Self {
         Self::CodeInterpreter(OpenAiCodeInterpreterTool::default())
+    }
+
+    /// Construct the preview computer-use tool with an explicit display configuration.
+    pub fn computer_use_preview(
+        display_width: u32,
+        display_height: u32,
+        environment: OpenAiComputerEnvironment,
+    ) -> Self {
+        Self::ComputerUsePreview(OpenAiComputerUsePreviewTool::new(
+            display_width,
+            display_height,
+            environment,
+        ))
     }
 
     /// Construct the default apply-patch tool.
@@ -108,6 +143,11 @@ impl OpenAiResponsesTool {
         Self::ImageGeneration(OpenAiImageGenerationTool::default())
     }
 
+    /// Construct the provider-native local-shell tool.
+    pub const fn local_shell() -> Self {
+        Self::LocalShell
+    }
+
     /// Construct the default tool-search tool.
     pub fn tool_search() -> Self {
         Self::ToolSearch(OpenAiToolSearchTool::default())
@@ -123,7 +163,10 @@ impl OpenAiResponsesTool {
         Self::Custom(OpenAiCustomTool::new(name))
     }
 
-    /// Construct an unknown tool from its complete JSON object.
+    /// Construct a current or future tool from its complete JSON object.
+    ///
+    /// This escape hatch also preserves newly added fields on a known tool kind
+    /// before the typed variant adopts them.
     pub fn raw(value: Value) -> Result<Self, ProviderOptionError> {
         Ok(Self::Raw(OpenAiRawTool::new(value)?))
     }
@@ -131,9 +174,11 @@ impl OpenAiResponsesTool {
     pub(crate) fn validate(&self) -> Result<(), ProviderOptionError> {
         match self {
             Self::WebSearch(value) => value.validate(),
+            Self::WebSearchPreview(value) => value.validate(),
             Self::FileSearch(value) => value.validate(),
             Self::CodeInterpreter(value) => value.validate(),
-            Self::Computer | Self::ProgrammaticToolCalling => Ok(()),
+            Self::Computer | Self::LocalShell | Self::ProgrammaticToolCalling => Ok(()),
+            Self::ComputerUsePreview(_) => Ok(()),
             Self::ApplyPatch(value) => value.validate(),
             Self::Mcp(value) => value.validate(),
             Self::ImageGeneration(value) => value.validate(),
@@ -167,6 +212,12 @@ impl From<OpenAiWebSearchTool> for OpenAiResponsesTool {
     }
 }
 
+impl From<OpenAiWebSearchPreviewTool> for OpenAiResponsesTool {
+    fn from(value: OpenAiWebSearchPreviewTool) -> Self {
+        Self::WebSearchPreview(value)
+    }
+}
+
 impl From<OpenAiFileSearchTool> for OpenAiResponsesTool {
     fn from(value: OpenAiFileSearchTool) -> Self {
         Self::FileSearch(value)
@@ -176,6 +227,12 @@ impl From<OpenAiFileSearchTool> for OpenAiResponsesTool {
 impl From<OpenAiCodeInterpreterTool> for OpenAiResponsesTool {
     fn from(value: OpenAiCodeInterpreterTool) -> Self {
         Self::CodeInterpreter(value)
+    }
+}
+
+impl From<OpenAiComputerUsePreviewTool> for OpenAiResponsesTool {
+    fn from(value: OpenAiComputerUsePreviewTool) -> Self {
+        Self::ComputerUsePreview(value)
     }
 }
 
@@ -222,11 +279,14 @@ impl Serialize for OpenAiResponsesTool {
     {
         let value = match self {
             Self::WebSearch(tool) => tagged("web_search", tool),
+            Self::WebSearchPreview(tool) => tagged(tool.version.as_str(), tool),
             Self::FileSearch(tool) => tagged("file_search", tool),
             Self::CodeInterpreter(tool) => tagged("code_interpreter", tool),
             Self::Computer => Ok(unit_tagged("computer")),
+            Self::ComputerUsePreview(tool) => tagged("computer_use_preview", tool),
             Self::Mcp(tool) => tagged("mcp", tool),
             Self::ImageGeneration(tool) => tagged("image_generation", tool),
+            Self::LocalShell => Ok(unit_tagged("local_shell")),
             Self::Shell(tool) => tagged("shell", tool),
             Self::ApplyPatch(tool) => tagged("apply_patch", tool),
             Self::ToolSearch(tool) => tagged("tool_search", tool),
@@ -251,14 +311,27 @@ impl<'de> Deserialize<'de> for OpenAiResponsesTool {
             .ok_or_else(|| D::Error::custom("OpenAI Responses tool requires a string type"))?;
         let decoded = match kind {
             "web_search" => Self::WebSearch(decode_tagged(value)?),
+            "web_search_preview" => Self::WebSearchPreview(
+                decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
+                    .into_tool(OpenAiWebSearchPreviewVersion::Unversioned),
+            ),
+            "web_search_preview_2025_03_11" => Self::WebSearchPreview(
+                decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
+                    .into_tool(OpenAiWebSearchPreviewVersion::V20250311),
+            ),
             "file_search" => Self::FileSearch(decode_tagged(value)?),
             "code_interpreter" => Self::CodeInterpreter(decode_tagged(value)?),
             "computer" => {
                 decode_unit::<D::Error>(&value)?;
                 Self::Computer
             }
+            "computer_use_preview" => Self::ComputerUsePreview(decode_tagged(value)?),
             "mcp" => Self::Mcp(decode_tagged(value)?),
             "image_generation" => Self::ImageGeneration(decode_tagged(value)?),
+            "local_shell" => {
+                decode_unit::<D::Error>(&value)?;
+                Self::LocalShell
+            }
             "shell" => Self::Shell(decode_tagged(value)?),
             "apply_patch" => Self::ApplyPatch(decode_tagged(value)?),
             "tool_search" => Self::ToolSearch(decode_tagged(value)?),
@@ -419,6 +492,104 @@ impl OpenAiWebSearchTool {
     }
 }
 
+/// Wire version selected for the preview web-search tool.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OpenAiWebSearchPreviewVersion {
+    #[default]
+    Unversioned,
+    V20250311,
+}
+
+impl OpenAiWebSearchPreviewVersion {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unversioned => "web_search_preview",
+            Self::V20250311 => "web_search_preview_2025_03_11",
+        }
+    }
+}
+
+/// Preview web-search hosted tool controls.
+///
+/// This is an options payload rather than a standalone wire object. Serialize and deserialize the
+/// enclosing [`OpenAiResponsesTool`] when the versioned `type` discriminator must be preserved.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiWebSearchPreviewTool {
+    #[serde(skip)]
+    version: OpenAiWebSearchPreviewVersion,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_content_types: Vec<OpenAiWebSearchContentType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_context_size: Option<OpenAiWebSearchContextSize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_location: Option<OpenAiApproximateLocation>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenAiWebSearchPreviewToolWire {
+    #[serde(default)]
+    search_content_types: Vec<OpenAiWebSearchContentType>,
+    #[serde(default)]
+    search_context_size: Option<OpenAiWebSearchContextSize>,
+    #[serde(default)]
+    user_location: Option<OpenAiApproximateLocation>,
+}
+
+impl OpenAiWebSearchPreviewToolWire {
+    fn into_tool(self, version: OpenAiWebSearchPreviewVersion) -> OpenAiWebSearchPreviewTool {
+        OpenAiWebSearchPreviewTool {
+            version,
+            search_content_types: self.search_content_types,
+            search_context_size: self.search_context_size,
+            user_location: self.user_location,
+        }
+    }
+}
+
+impl Default for OpenAiWebSearchPreviewTool {
+    fn default() -> Self {
+        Self {
+            version: OpenAiWebSearchPreviewVersion::Unversioned,
+            search_content_types: Vec::new(),
+            search_context_size: None,
+            user_location: None,
+        }
+    }
+}
+
+impl OpenAiWebSearchPreviewTool {
+    pub fn versioned_2025_03_11() -> Self {
+        Self {
+            version: OpenAiWebSearchPreviewVersion::V20250311,
+            ..Self::default()
+        }
+    }
+
+    pub const fn version(&self) -> OpenAiWebSearchPreviewVersion {
+        self.version
+    }
+
+    pub fn with_search_context_size(mut self, value: OpenAiWebSearchContextSize) -> Self {
+        self.search_context_size = Some(value);
+        self
+    }
+
+    pub fn with_user_location(mut self, value: OpenAiApproximateLocation) -> Self {
+        self.user_location = Some(value);
+        self
+    }
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if let Some(location) = &self.user_location {
+            location.validate()?;
+        }
+        Ok(())
+    }
+}
+
 /// Content kinds returned by web search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -526,6 +697,42 @@ impl OpenAiApproximateLocation {
         }
         Ok(())
     }
+}
+
+/// Preview computer-use display and environment controls.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiComputerUsePreviewTool {
+    pub display_height: u32,
+    pub display_width: u32,
+    pub environment: OpenAiComputerEnvironment,
+}
+
+impl OpenAiComputerUsePreviewTool {
+    pub const fn new(
+        display_width: u32,
+        display_height: u32,
+        environment: OpenAiComputerEnvironment,
+    ) -> Self {
+        Self {
+            display_height,
+            display_width,
+            environment,
+        }
+    }
+}
+
+/// Computer environment understood by the preview computer-use tool.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiComputerEnvironment {
+    Windows,
+    Mac,
+    Linux,
+    Ubuntu,
+    Browser,
 }
 
 /// File-search tool filter.
@@ -1143,26 +1350,34 @@ impl<'de> Deserialize<'de> for OpenAiMcpTool {
 
 impl fmt::Debug for OpenAiMcpTool {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let endpoint_kind = match self.endpoint {
+            OpenAiMcpEndpoint::ServerUrl { .. } => "server_url",
+            OpenAiMcpEndpoint::Connector { .. } => "connector",
+            OpenAiMcpEndpoint::Tunnel { .. } => "tunnel",
+        };
+        let (allowed_tools_kind, allowed_tool_count) = match &self.allowed_tools {
+            None => (None, 0),
+            Some(OpenAiMcpAllowedTools::Names(names)) => (Some("names"), names.len()),
+            Some(OpenAiMcpAllowedTools::Filter { tool_names, .. }) => {
+                (Some("filter"), tool_names.as_ref().map_or(0, Vec::len))
+            }
+        };
         formatter
             .debug_struct("OpenAiMcpTool")
-            .field("server_label", &self.server_label)
-            .field("endpoint", &self.endpoint)
-            .field("allowed_tools", &self.allowed_tools)
-            .field("allowed_callers", &self.allowed_callers)
+            .field("server_label_bytes", &self.server_label.len())
+            .field("endpoint_kind", &endpoint_kind)
+            .field("allowed_tools_kind", &allowed_tools_kind)
+            .field("allowed_tool_count", &allowed_tool_count)
+            .field("allowed_caller_count", &self.allowed_callers.len())
+            .field("authorization_present", &self.authorization.is_some())
+            .field("header_count", &self.headers.len())
+            .field("approval_present", &self.require_approval.is_some())
             .field(
-                "authorization",
-                &self.authorization.as_ref().map(|_| "<redacted>"),
-            )
-            .field(
-                "headers",
-                &self.headers.keys().map(String::as_str).collect::<Vec<_>>(),
-            )
-            .field("require_approval", &self.require_approval)
-            .field(
-                "server_description",
-                &self.server_description.as_ref().map(|_| "<present>"),
+                "server_description_present",
+                &self.server_description.is_some(),
             )
             .field("defer_loading", &self.defer_loading)
+            .field("data", &"<redacted>")
             .finish()
     }
 }
@@ -1381,6 +1596,57 @@ impl OpenAiMcpApproval {
             }
         }
         Ok(())
+    }
+}
+
+/// OpenAI namespace metadata attached to an existing caller-owned function tool.
+///
+/// The Responses request encoder groups functions with identical namespace metadata into one
+/// provider-native `namespace` object. Function definitions remain owned by the shared `ToolSpec`
+/// contract instead of being duplicated here.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenAiToolNamespace {
+    pub name: String,
+    pub description: String,
+}
+
+impl fmt::Debug for OpenAiToolNamespace {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiToolNamespace")
+            .field("name_bytes", &self.name.len())
+            .field("description_bytes", &self.description.len())
+            .field("data", &"<redacted>")
+            .finish()
+    }
+}
+
+impl OpenAiToolNamespace {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+        }
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), ProviderOptionError> {
+        if self.name.is_empty() {
+            return Err(rejected(
+                "function_tool_options.namespace.name",
+                "namespace name must be non-empty",
+            ));
+        }
+        validate_control_free(
+            "function_tool_options.namespace.name",
+            &self.name,
+            MAX_ID_CHARS,
+        )?;
+        validate_control_free(
+            "function_tool_options.namespace.description",
+            &self.description,
+            MAX_TEXT_CHARS,
+        )
     }
 }
 
@@ -2020,27 +2286,130 @@ mod tests {
     }
 
     #[test]
+    fn bounded_hosted_tool_increment_has_exact_wire_shapes() {
+        let computer = OpenAiResponsesTool::computer_use_preview(
+            1440,
+            900,
+            OpenAiComputerEnvironment::Browser,
+        );
+        let computer_wire = computer.clone().into_value().unwrap();
+        assert_eq!(
+            computer_wire,
+            json!({
+                "type": "computer_use_preview",
+                "display_height": 900,
+                "display_width": 1440,
+                "environment": "browser",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<OpenAiResponsesTool>(computer_wire).unwrap(),
+            computer
+        );
+
+        let local_shell = OpenAiResponsesTool::local_shell();
+        let local_shell_wire = local_shell.clone().into_value().unwrap();
+        assert_eq!(local_shell_wire, json!({"type": "local_shell"}));
+        assert_eq!(
+            serde_json::from_value::<OpenAiResponsesTool>(local_shell_wire).unwrap(),
+            local_shell
+        );
+
+        let namespace = OpenAiToolNamespace::new("crm", "Customer relationship tools");
+        namespace.validate().unwrap();
+        assert_eq!(
+            serde_json::to_value(&namespace).unwrap(),
+            json!({
+                "name": "crm",
+                "description": "Customer relationship tools",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<OpenAiToolNamespace>(
+                serde_json::to_value(&namespace).unwrap()
+            )
+            .unwrap(),
+            namespace
+        );
+
+        let mut preview_options = OpenAiWebSearchPreviewTool::versioned_2025_03_11()
+            .with_search_context_size(OpenAiWebSearchContextSize::Low)
+            .with_user_location(OpenAiApproximateLocation {
+                r#type: approximate_location_type(),
+                country: Some("US".to_string()),
+                city: None,
+                region: None,
+                timezone: None,
+            });
+        preview_options.search_content_types = vec![OpenAiWebSearchContentType::Image];
+        let preview = OpenAiResponsesTool::WebSearchPreview(preview_options);
+        let preview_wire = preview.clone().into_value().unwrap();
+        assert_eq!(
+            preview_wire,
+            json!({
+                "type": "web_search_preview_2025_03_11",
+                "search_content_types": ["image"],
+                "search_context_size": "low",
+                "user_location": {"type": "approximate", "country": "US"},
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<OpenAiResponsesTool>(preview_wire).unwrap(),
+            preview
+        );
+
+        assert_eq!(
+            OpenAiResponsesTool::web_search_preview()
+                .into_value()
+                .unwrap(),
+            json!({"type": "web_search_preview"})
+        );
+    }
+
+    #[test]
     fn unknown_tool_round_trips_through_bounded_raw_escape_hatch() {
-        let value = json!({
-            "type": "future_tool",
-            "new_option": {"nested": true},
-        });
-        let tool: OpenAiResponsesTool = serde_json::from_value(value.clone()).unwrap();
-        assert!(matches!(tool, OpenAiResponsesTool::Raw(_)));
-        assert_eq!(serde_json::to_value(tool).unwrap(), value);
+        for value in [
+            json!({
+                "type": "future_tool",
+                "new_option": {"nested": true},
+            }),
+            json!({
+                "type": "local_shell",
+                "future_option": true,
+            }),
+        ] {
+            let tool = OpenAiResponsesTool::raw(value.clone()).unwrap();
+            assert!(matches!(tool, OpenAiResponsesTool::Raw(_)));
+            assert_eq!(serde_json::to_value(tool).unwrap(), value);
+        }
     }
 
     #[test]
     fn secret_tool_debug_is_redacted() {
-        let mcp = OpenAiMcpTool::server(
-            "calendar",
+        let mut mcp = OpenAiMcpTool::server(
+            "server-label-secret",
             "https://mcp.example.test/connect?signature=url-secret",
         )
         .with_authorization("oauth-secret")
         .with_approval(OpenAiMcpApproval::Never);
+        mcp.allowed_tools = Some(OpenAiMcpAllowedTools::Names(vec![
+            "tenant-tool-name-secret".to_string(),
+        ]));
+        mcp.headers.insert(
+            "tenant-header-name-secret".to_string(),
+            "nested-header-secret".to_string(),
+        );
         let debug = format!("{mcp:?}");
-        assert!(!debug.contains("oauth-secret"));
-        assert!(!debug.contains("url-secret"));
+        for secret in [
+            "server-label-secret",
+            "tenant-tool-name-secret",
+            "tenant-header-name-secret",
+            "oauth-secret",
+            "url-secret",
+            "nested-header-secret",
+        ] {
+            assert!(!debug.contains(secret));
+        }
         assert!(debug.contains("redacted"));
         let wire = serde_json::to_value(&mcp).unwrap();
         assert_eq!(
@@ -2081,6 +2450,31 @@ mod tests {
             path: "/private/tenant/path-secret".to_string(),
         };
         assert!(!format!("{skill:?}").contains("path-secret"));
+
+        let namespace =
+            OpenAiToolNamespace::new("namespace-name-secret", "namespace-description-secret");
+        let debug = format!("{namespace:?}");
+        assert!(!debug.contains("namespace-name-secret"));
+        assert!(!debug.contains("namespace-description-secret"));
+        assert!(debug.contains("redacted"));
+
+        let invalid = OpenAiToolNamespace::new("private\nnamespace", "description-secret");
+        let error = invalid.validate().unwrap_err().to_string();
+        assert!(error.contains("function_tool_options.namespace.name"));
+        assert!(!error.contains("private"));
+        assert!(!error.contains("description-secret"));
+    }
+
+    #[test]
+    fn provider_native_hosted_tools_do_not_use_the_portable_function_slot() {
+        for tool in [
+            OpenAiResponsesTool::computer_use_preview(1024, 768, OpenAiComputerEnvironment::Linux),
+            OpenAiResponsesTool::local_shell(),
+            OpenAiResponsesTool::web_search_preview_2025_03_11(),
+        ] {
+            let wire = tool.into_value().unwrap();
+            assert_ne!(wire["type"], "function");
+        }
     }
 
     #[test]

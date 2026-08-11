@@ -873,7 +873,8 @@ mod tests {
         OpenAiContextManagement, OpenAiCredential, OpenAiFunctionToolOptions,
         OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
         OpenAiPromptCacheTtl, OpenAiProvider, OpenAiReasoning, OpenAiReasoningEffort,
-        OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
+        OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
+        OpenAiToolNamespace,
     };
 
     fn provider() -> OpenAiProvider {
@@ -1268,8 +1269,11 @@ mod tests {
     fn explicit_max_reasoning_survives_future_model_ids_without_implicit_summary() {
         let provider = provider();
         let responses = provider.responses("private-reasoning-model").unwrap();
-        let responses_options = OpenAiResponsesOptions::default()
-            .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Max));
+        let responses_options = OpenAiResponsesOptions::default().with_reasoning(
+            OpenAiReasoning::default()
+                .with_effort(OpenAiReasoningEffort::Max)
+                .with_mode(OpenAiReasoningMode::new("deliberate_v2").unwrap()),
+        );
         let responses_call = CallOptions::default()
             .with_provider_options_for(&responses, &responses_options)
             .unwrap();
@@ -1280,6 +1284,7 @@ mod tests {
         let normalized = normalize_request(OpenAiApiMode::Responses, request()).unwrap();
         let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
         assert_eq!(responses_body["reasoning"]["effort"], "max");
+        assert_eq!(responses_body["reasoning"]["mode"], "deliberate_v2");
         assert!(responses_body["reasoning"].get("summary").is_none());
 
         let chat = provider
@@ -1380,6 +1385,116 @@ mod tests {
         assert_eq!(body["tools"][0]["output_schema"], json!({"type": "object"}));
         assert_eq!(body["tools"][1]["type"], "programmatic_tool_calling");
         assert!(body.get("function_tool_options").is_none());
+    }
+
+    #[test]
+    fn function_tool_namespaces_group_existing_portable_tools() {
+        let provider = provider();
+        let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let mut request = request();
+        request.tools.extend([
+            ToolSpec::new(
+                "lookup_customer",
+                Some("Look up one customer".to_string()),
+                json!({"type": "object"}),
+            )
+            .unwrap(),
+            ToolSpec::new(
+                "update_customer",
+                Some("Update one customer".to_string()),
+                json!({"type": "object"}),
+            )
+            .unwrap(),
+        ]);
+        let namespace = OpenAiToolNamespace::new("crm", "Customer relationship tools");
+        let typed = OpenAiResponsesOptions::default()
+            .with_function_tool_options(
+                "lookup_customer",
+                OpenAiFunctionToolOptions::default().with_namespace(namespace.clone()),
+            )
+            .with_function_tool_options(
+                "update_customer",
+                OpenAiFunctionToolOptions::default()
+                    .with_strict(true)
+                    .with_namespace(namespace),
+            )
+            .with_tool(OpenAiResponsesTool::local_shell());
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
+        let merged = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        let body = body_json(&model.plan(&request, false, merged).unwrap());
+
+        assert_eq!(body["tools"][0]["type"], "namespace");
+        assert_eq!(body["tools"][0]["name"], "crm");
+        assert_eq!(
+            body["tools"][0]["description"],
+            "Customer relationship tools"
+        );
+        assert_eq!(body["tools"][0]["tools"][0]["name"], "lookup_customer");
+        assert_eq!(body["tools"][0]["tools"][1]["name"], "update_customer");
+        assert_eq!(body["tools"][0]["tools"][1]["strict"], true);
+        assert_eq!(body["tools"][1], json!({"type": "local_shell"}));
+    }
+
+    #[test]
+    fn conflicting_function_tool_namespace_descriptions_fail_closed() {
+        let provider = provider();
+        let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let mut request = request();
+        request.tools.extend([
+            ToolSpec::new("lookup_customer", None, json!({"type": "object"})).unwrap(),
+            ToolSpec::new("update_customer", None, json!({"type": "object"})).unwrap(),
+        ]);
+        let typed = OpenAiResponsesOptions::default()
+            .with_function_tool_options(
+                "lookup_customer",
+                OpenAiFunctionToolOptions::default()
+                    .with_namespace(OpenAiToolNamespace::new("crm", "Description A")),
+            )
+            .with_function_tool_options(
+                "update_customer",
+                OpenAiFunctionToolOptions::default()
+                    .with_namespace(OpenAiToolNamespace::new("crm", "Description B")),
+            );
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
+        let merged = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        let error = model.plan(&request, false, merged).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert!(!error.to_string().contains("Description A"));
+        assert!(!format!("{error:?}").contains("Description B"));
+    }
+
+    #[test]
+    fn raw_extensions_on_known_hosted_tools_reach_the_final_wire() {
+        let provider = provider();
+        let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let raw_tool = OpenAiResponsesTool::raw(json!({
+            "type": "local_shell",
+            "future_option": {"enabled": true},
+        }))
+        .unwrap();
+        let typed = OpenAiResponsesOptions::default().with_tool(raw_tool);
+        let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap();
+        let merged = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
+            .unwrap();
+        let body = body_json(&model.plan(&request(), false, merged).unwrap());
+
+        assert_eq!(body["tools"][0]["type"], "local_shell");
+        assert_eq!(body["tools"][0]["future_option"]["enabled"], true);
     }
 
     #[test]

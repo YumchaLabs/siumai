@@ -13,6 +13,9 @@ readme = "../README.md"
 keywords = ["llm", "ai", "openai"]
 categories = ["api-bindings"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 doctest = false
 

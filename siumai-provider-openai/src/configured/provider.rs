@@ -49,6 +49,7 @@ use super::responses_websocket::{
     OpenAiResponsesWebSocketRuntime,
 };
 use super::speech::{OpenAiSpeechModel, OpenAiSpeechOptions};
+use super::tools::OpenAiResponsesTool;
 use super::transcription::{OpenAiTranscriptionModel, OpenAiTranscriptionOptions};
 
 const OFFICIAL_ORIGIN: &str = "https://api.openai.com";
@@ -1136,9 +1137,7 @@ impl OpenAiOptionMerger {
             });
         }
         match self.mode {
-            OptionMode::Responses => {
-                deserialize_options::<OpenAiResponsesOptions>(value)?.validate_values()
-            }
+            OptionMode::Responses => deserialize_responses_options(value)?.validate_values(),
             OptionMode::ChatCompletions => {
                 deserialize_options::<OpenAiChatCompletionsOptions>(value)?.validate_values()
             }
@@ -1182,8 +1181,7 @@ impl OpenAiOptionMerger {
         self.validate_typed(&typed)?;
         let (mut wire, native_tools, function_tools) = match self.mode {
             OptionMode::Responses => {
-                let options = deserialize_options::<OpenAiResponsesOptions>(&typed)?
-                    .into_request_options()?;
+                let options = deserialize_responses_options(&typed)?.into_request_options()?;
                 (options.wire, options.native_tools, options.function_tools)
             }
             OptionMode::ChatCompletions => {
@@ -1565,6 +1563,33 @@ fn deserialize_options<T: DeserializeOwned>(
             reason: error.to_string(),
         }
     })
+}
+
+fn deserialize_responses_options(
+    value: &Map<String, Value>,
+) -> Result<OpenAiResponsesOptions, ProviderOptionError> {
+    let mut request_options = value.clone();
+    let tools = request_options.remove("tools");
+    let mut options = deserialize_options::<OpenAiResponsesOptions>(&request_options)?;
+    let Some(tools) = tools else {
+        return Ok(options);
+    };
+    let Value::Array(tools) = tools else {
+        return Err(ProviderOptionError::Rejected {
+            path: "tools".to_string(),
+            reason: "OpenAI Responses tools must be a JSON array".to_string(),
+        });
+    };
+    options.tools = tools
+        .into_iter()
+        .map(
+            |value| match serde_json::from_value::<OpenAiResponsesTool>(value.clone()) {
+                Ok(tool) => Ok(tool),
+                Err(_) => OpenAiResponsesTool::raw(value),
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(options)
 }
 
 fn serialize_object<T: Serialize>(value: T) -> Result<Map<String, Value>, ProviderOptionError> {

@@ -1,19 +1,23 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
 use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
 use siumai_protocol_openai::responses::{FunctionToolCaller, FunctionToolEncodingOptions};
 
-use super::tools::{OpenAiResponsesTool, OpenAiToolCaller};
+use super::tools::{OpenAiResponsesTool, OpenAiToolCaller, OpenAiToolNamespace};
 
 const MAX_TOP_LOGPROBS: u8 = 20;
 const MAX_METADATA_ENTRIES: usize = 16;
 const MAX_METADATA_KEY_CHARS: usize = 64;
 const MAX_METADATA_VALUE_CHARS: usize = 512;
 const MAX_PROMPT_CACHE_KEY_CHARS: usize = 64;
+const MAX_REASONING_MODE_BYTES: usize = 512;
 const MAX_RESOURCE_ID_BYTES: usize = 512;
 const MAX_SAFETY_IDENTIFIER_CHARS: usize = 64;
 
@@ -31,12 +35,77 @@ pub enum OpenAiReasoningEffort {
     Max,
 }
 
-/// GPT-5.6 reasoning execution mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OpenAiReasoningMode {
-    Standard,
-    Pro,
+/// OpenAI reasoning execution mode.
+///
+/// Known values are exposed as constants while checked custom values keep this
+/// provider-owned option open to future protocol additions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct OpenAiReasoningMode(Cow<'static, str>);
+
+impl OpenAiReasoningMode {
+    /// The provider's standard reasoning execution mode.
+    pub const STANDARD: Self = Self(Cow::Borrowed("standard"));
+    /// The provider's higher-work reasoning execution mode.
+    pub const PRO: Self = Self(Cow::Borrowed("pro"));
+
+    /// Construct a checked current or future provider mode.
+    pub fn new(value: impl Into<String>) -> Result<Self, ProviderOptionError> {
+        let value = value.into();
+        validate_reasoning_mode(&value)?;
+        Ok(Self(Cow::Owned(value)))
+    }
+
+    /// Return the provider wire value.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for OpenAiReasoningMode {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Display for OpenAiReasoningMode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl TryFrom<String> for OpenAiReasoningMode {
+    type Error = ProviderOptionError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<&str> for OpenAiReasoningMode {
+    type Error = ProviderOptionError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl std::str::FromStr for OpenAiReasoningMode {
+    type Err = ProviderOptionError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::new(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for OpenAiReasoningMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
 }
 
 /// Reasoning history made available to a Responses request.
@@ -161,6 +230,8 @@ pub struct OpenAiFunctionToolOptions {
     pub allowed_callers: Vec<OpenAiToolCaller>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<OpenAiToolNamespace>,
 }
 
 impl OpenAiFunctionToolOptions {
@@ -190,6 +261,11 @@ impl OpenAiFunctionToolOptions {
         self
     }
 
+    pub fn with_namespace(mut self, namespace: OpenAiToolNamespace) -> Self {
+        self.namespace = Some(namespace);
+        self
+    }
+
     fn validate(&self, tool_name: &str) -> Result<(), ProviderOptionError> {
         validate_tool_name(tool_name)?;
         if self
@@ -215,6 +291,9 @@ impl OpenAiFunctionToolOptions {
                 "allowed callers must be unique",
             ));
         }
+        if let Some(namespace) = &self.namespace {
+            namespace.validate()?;
+        }
         Ok(())
     }
 
@@ -234,6 +313,9 @@ impl OpenAiFunctionToolOptions {
         }
         if let Some(output_schema) = self.output_schema {
             options = options.with_output_schema(output_schema);
+        }
+        if let Some(namespace) = self.namespace {
+            options = options.with_namespace(namespace.name, namespace.description);
         }
         options
     }
@@ -441,25 +523,17 @@ impl OpenAiResponsesOptions {
         {
             self.include.push(OpenAiResponseInclude::OutputTextLogprobs);
         }
-        let mut value = object_from(self)?;
-        let native_tools = value
-            .remove("tools")
-            .map(serde_json::from_value::<Vec<OpenAiResponsesTool>>)
-            .transpose()
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .unwrap_or_default()
+        let native_tools = std::mem::take(&mut self.tools)
             .into_iter()
             .map(OpenAiResponsesTool::into_value)
             .collect::<Result<Vec<_>, _>>()?;
-        let function_tools = value
-            .remove("function_tool_options")
-            .map(serde_json::from_value::<BTreeMap<String, OpenAiFunctionToolOptions>>)
-            .transpose()
-            .map_err(|error| ProviderOptionError::Serialization(error.to_string()))?
-            .unwrap_or_default()
+        let function_tools = std::mem::take(&mut self.function_tool_options)
             .into_iter()
             .map(|(name, options)| (name, options.into_encoding_options()))
             .collect();
+        let value = object_from(self)?;
+        debug_assert!(!value.contains_key("tools"));
+        debug_assert!(!value.contains_key("function_tool_options"));
         Ok(OpenAiResponsesRequestOptions {
             wire: value.into_iter().collect(),
             native_tools,
@@ -633,6 +707,19 @@ fn validate_prompt_cache_key(value: Option<&str>) -> Result<(), ProviderOptionEr
     Ok(())
 }
 
+fn validate_reasoning_mode(value: &str) -> Result<(), ProviderOptionError> {
+    if value.is_empty()
+        || value.len() > MAX_REASONING_MODE_BYTES
+        || value.chars().any(char::is_control)
+    {
+        return Err(rejected(
+            "reasoning.mode",
+            "reasoning mode must be non-empty, at most 512 bytes, and contain no control characters",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_optional_resource_id(
     path: &'static str,
     value: Option<&str>,
@@ -688,22 +775,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reasoning_modes_and_effort_encode_independently() {
-        for mode in [OpenAiReasoningMode::Standard, OpenAiReasoningMode::Pro] {
+    fn reasoning_modes_round_trip_known_and_future_values() {
+        for mode in [
+            OpenAiReasoningMode::STANDARD,
+            OpenAiReasoningMode::PRO,
+            OpenAiReasoningMode::new("deliberate_v2").unwrap(),
+        ] {
             let options = OpenAiResponsesOptions::default().with_reasoning(
                 OpenAiReasoning::default()
-                    .with_mode(mode)
+                    .with_mode(mode.clone())
                     .with_effort(OpenAiReasoningEffort::Low),
             );
-            let value = serde_json::to_value(options).unwrap();
+            let value = serde_json::to_value(&options).unwrap();
             assert_eq!(value["reasoning"]["effort"], "low");
-            assert_eq!(
-                value["reasoning"]["mode"],
-                match mode {
-                    OpenAiReasoningMode::Standard => "standard",
-                    OpenAiReasoningMode::Pro => "pro",
-                }
-            );
+            assert_eq!(value["reasoning"]["mode"], mode.as_str());
+
+            let decoded: OpenAiResponsesOptions = serde_json::from_value(value).unwrap();
+            assert_eq!(decoded.reasoning.unwrap().mode, Some(mode));
+        }
+    }
+
+    #[test]
+    fn reasoning_mode_rejects_invalid_values_without_disclosing_them() {
+        for invalid in [
+            String::new(),
+            "private\nmode".to_string(),
+            "x".repeat(MAX_REASONING_MODE_BYTES + 1),
+        ] {
+            let error = OpenAiReasoningMode::new(invalid.clone()).unwrap_err();
+            let message = error.to_string();
+            assert!(message.contains("reasoning.mode"));
+            if !invalid.is_empty() {
+                assert!(!message.contains(&invalid));
+            }
+
+            let encoded = serde_json::to_string(&invalid).unwrap();
+            let error = serde_json::from_str::<OpenAiReasoningMode>(&encoded).unwrap_err();
+            if !invalid.is_empty() {
+                assert!(!error.to_string().contains(&invalid));
+            }
         }
     }
 

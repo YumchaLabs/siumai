@@ -244,6 +244,56 @@ fn non_streaming_decode_preserves_native_items_identity_citations_and_usage() {
 }
 
 #[test]
+fn provider_hosted_tool_output_remains_opaque_and_non_executable() {
+    let sentinel = "hosted-tool-secret-sentinel";
+    let body = serde_json::to_vec(&json!({
+        "id": "resp_hosted_tool",
+        "object": "response",
+        "created_at": 1785811200,
+        "model": "gpt-5.6",
+        "status": "completed",
+        "output": [{
+            "id": "computer_call_1",
+            "type": "computer_call",
+            "call_id": "provider_call_1",
+            "status": "completed",
+            "action": {
+                "type": "open_url",
+                "url": format!("https://example.test/private?token={sentinel}"),
+                "headers": {"authorization": sentinel}
+            }
+        }],
+        "usage": null,
+        "error": null,
+        "incomplete_details": null,
+        "reasoning": null
+    }))
+    .unwrap();
+
+    let decoded = decode_response(&body, &scope(), &model()).unwrap();
+    let portable = decoded.portable().unwrap();
+
+    assert!(
+        !portable
+            .content()
+            .iter()
+            .any(|part| matches!(part, ContentPart::ToolCall(_)))
+    );
+    let opaque = portable
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) if item.item_id() == Some("computer_call_1") => {
+                Some(item)
+            }
+            _ => None,
+        })
+        .expect("provider-hosted output remains available for native replay");
+    assert_eq!(opaque.data()["type"], "computer_call");
+    assert!(!format!("{opaque:?}").contains(sentinel));
+}
+
+#[test]
 fn encrypted_reasoning_larger_than_legacy_limit_remains_replayable() {
     let mut response = fidelity_response();
     response["output"][0]["encrypted_content"] = Value::String("e".repeat(128 * 1024));
@@ -841,6 +891,18 @@ fn function_tool_options_enable_programmatic_callers_losslessly() {
     assert_eq!(body["tools"][0]["defer_loading"], true);
     assert_eq!(body["tools"][0]["allowed_callers"], json!(["programmatic"]));
     assert_eq!(body["tools"][0]["output_schema"], json!({"type": "object"}));
+}
+
+#[test]
+fn function_tool_namespace_debug_redacts_provider_identifiers() {
+    let name = "namespace-name-secret";
+    let description = "namespace-description-secret";
+    let options = FunctionToolEncodingOptions::default().with_namespace(name, description);
+
+    let debug = format!("{options:?}");
+    assert!(!debug.contains(name));
+    assert!(!debug.contains(description));
+    assert!(debug.contains("<redacted>"));
 }
 
 #[test]

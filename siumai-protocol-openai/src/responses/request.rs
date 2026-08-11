@@ -1,6 +1,9 @@
 //! Responses request encoding with strict native-history replay.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
@@ -86,6 +89,24 @@ pub struct FunctionToolEncodingOptions {
     defer_loading: Option<bool>,
     allowed_callers: BTreeSet<FunctionToolCaller>,
     output_schema: Option<Value>,
+    namespace: Option<FunctionToolNamespace>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct FunctionToolNamespace {
+    name: String,
+    description: String,
+}
+
+impl fmt::Debug for FunctionToolNamespace {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FunctionToolNamespace")
+            .field("name_bytes", &self.name.len())
+            .field("description_bytes", &self.description.len())
+            .field("data", &"<redacted>")
+            .finish()
+    }
 }
 
 impl FunctionToolEncodingOptions {
@@ -109,6 +130,18 @@ impl FunctionToolEncodingOptions {
         self
     }
 
+    pub fn with_namespace(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        self.namespace = Some(FunctionToolNamespace {
+            name: name.into(),
+            description: description.into(),
+        });
+        self
+    }
+
     fn validate(&self) -> Result<(), Error> {
         if self
             .output_schema
@@ -118,6 +151,18 @@ impl FunctionToolEncodingOptions {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
                 "OpenAI function output schema must be a JSON Schema object or boolean",
+            ));
+        }
+        if let Some(namespace) = &self.namespace
+            && (namespace.name.is_empty()
+                || namespace.name.chars().count() > 512
+                || namespace.name.chars().any(char::is_control)
+                || namespace.description.chars().count() > 16 * 1024
+                || namespace.description.chars().any(char::is_control))
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "OpenAI tool namespace exceeded stable string bounds",
             ));
         }
         Ok(())
@@ -303,48 +348,80 @@ pub fn encode_request_with_options_and_resolver(
     insert_optional_f64(&mut body, "temperature", request.generation.temperature)?;
     insert_optional_f64(&mut body, "top_p", request.generation.top_p)?;
 
-    let mut tools = request
-        .tools
-        .iter()
-        .map(|tool| {
-            let name = tool.name();
-            let tool_options = options.function_tools.get(name);
-            let mut object = Map::new();
-            object.insert("type".to_string(), Value::String("function".to_string()));
-            object.insert("name".to_string(), Value::String(name.to_string()));
-            if let Some(description) = tool.description() {
+    let mut tools = Vec::new();
+    let mut namespace_indexes = BTreeMap::<String, (String, usize)>::new();
+    for tool in &request.tools {
+        let name = tool.name();
+        let tool_options = options.function_tools.get(name);
+        let mut object = Map::new();
+        object.insert("type".to_string(), Value::String("function".to_string()));
+        object.insert("name".to_string(), Value::String(name.to_string()));
+        if let Some(description) = tool.description() {
+            object.insert(
+                "description".to_string(),
+                Value::String(description.to_string()),
+            );
+        }
+        object.insert("parameters".to_string(), tool.input_schema().clone());
+        if let Some(tool_options) = tool_options {
+            if let Some(strict) = tool_options.strict {
+                object.insert("strict".to_string(), Value::Bool(strict));
+            }
+            if let Some(defer_loading) = tool_options.defer_loading {
+                object.insert("defer_loading".to_string(), Value::Bool(defer_loading));
+            }
+            if !tool_options.allowed_callers.is_empty() {
                 object.insert(
-                    "description".to_string(),
-                    Value::String(description.to_string()),
+                    "allowed_callers".to_string(),
+                    Value::Array(
+                        tool_options
+                            .allowed_callers
+                            .iter()
+                            .map(|caller| Value::String(caller.as_str().to_string()))
+                            .collect(),
+                    ),
                 );
             }
-            object.insert("parameters".to_string(), tool.input_schema().clone());
-            if let Some(tool_options) = tool_options {
-                if let Some(strict) = tool_options.strict {
-                    object.insert("strict".to_string(), Value::Bool(strict));
-                }
-                if let Some(defer_loading) = tool_options.defer_loading {
-                    object.insert("defer_loading".to_string(), Value::Bool(defer_loading));
-                }
-                if !tool_options.allowed_callers.is_empty() {
-                    object.insert(
-                        "allowed_callers".to_string(),
-                        Value::Array(
-                            tool_options
-                                .allowed_callers
-                                .iter()
-                                .map(|caller| Value::String(caller.as_str().to_string()))
-                                .collect(),
-                        ),
-                    );
-                }
-                if let Some(output_schema) = &tool_options.output_schema {
-                    object.insert("output_schema".to_string(), output_schema.clone());
-                }
+            if let Some(output_schema) = &tool_options.output_schema {
+                object.insert("output_schema".to_string(), output_schema.clone());
             }
-            Value::Object(object)
-        })
-        .collect::<Vec<_>>();
+        }
+
+        let function = Value::Object(object);
+        let Some(namespace) = tool_options.and_then(|options| options.namespace.as_ref()) else {
+            tools.push(function);
+            continue;
+        };
+
+        if let Some((description, index)) = namespace_indexes.get(&namespace.name) {
+            if description != &namespace.description {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "OpenAI function tools used conflicting namespace descriptions",
+                ));
+            }
+            tools
+                .get_mut(*index)
+                .and_then(Value::as_object_mut)
+                .and_then(|namespace| namespace.get_mut("tools"))
+                .and_then(Value::as_array_mut)
+                .expect("namespace request entries are created with a tools array")
+                .push(function);
+            continue;
+        }
+
+        let index = tools.len();
+        tools.push(json!({
+            "type": "namespace",
+            "name": namespace.name.clone(),
+            "description": namespace.description.clone(),
+            "tools": [function],
+        }));
+        namespace_indexes.insert(
+            namespace.name.clone(),
+            (namespace.description.clone(), index),
+        );
+    }
     for tool in &options.native_tools {
         if !tool.is_object() || tool.get("type").and_then(Value::as_str).is_none() {
             return Err(Error::new(
