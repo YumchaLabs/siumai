@@ -47,6 +47,22 @@ The `flagship` suite is the deterministic PR gate for these exact packages:
 
 It does not run live tests or read provider credentials.
 
+## Facade and package preflight
+
+Feature ownership and package contents stay Cargo-native rather than being reimplemented in a
+repository script:
+
+```text
+cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features all-providers --lib -j 1
+cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
+cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
+cargo package --workspace --list --locked
+```
+
+The CI workflow runs these fixed checks directly. Do not add source parsing or a second feature,
+package, or publish-order analyzer to `scripts/`; Cargo and release-plz remain authoritative.
+
 ## Architecture checks
 
 ```text

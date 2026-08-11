@@ -13,8 +13,13 @@ python3 -B scripts/check_workspace_boundaries.py --target
 python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
+cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features all-providers --lib -j 1
+cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
+cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
+cargo package --workspace --list --locked
 ```
 
 Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
@@ -22,14 +27,22 @@ dependency or feature change. These checks are deterministic and offline; creden
 tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
 
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
-They also compile the facade without default features for bare, OpenAI, Anthropic, and the combined
-Responses WebSocket/Realtime feature ownership paths. This remains a small fixed gate rather than a
-provider-by-feature matrix.
+They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
+and combined Responses WebSocket/Realtime feature ownership paths. This remains a small fixed gate
+rather than a provider-by-feature matrix. The documentation lane builds the OpenAI provider with
+all optional modules enabled before the workspace docs pass.
 
-Before publishing, verify package contents with `cargo package --list -p <crate>` for changed crates
-and run `cargo package -p <crate> --allow-dirty` in dependency order where crates.io dependency
-resolution permits it. New unpublished workspace dependencies can make local dry runs fail even when
-the package graph is correct; the manual release job handles the real dependency-ordered publish.
+Before publishing, inspect the Cargo-native workspace file list with
+`cargo package --workspace --list --locked`. Confirm that it contains no credentials, local
+configuration, absolute local paths, `target/`, `repo-ref/`, temporary canary artifacts, or private
+payloads. For a dirty local release candidate, add `--allow-dirty`; this changes only Cargo's local
+cleanliness check and never authorizes publishing.
+
+Run `cargo package --workspace --locked --allow-dirty -j 1` as the local package dry run where
+crates.io dependency resolution permits it. New unpublished workspace dependencies can make this
+command fail even when package contents and the workspace graph are correct; record that bootstrap
+limitation separately and use the manual release-plz dry-run to exercise the maintained
+dependency-ordered release path. Neither command publishes, tags, pushes, or opens a release PR.
 
 Every package must carry the workspace license, repository, edition, MSRV, and a useful crate
 README/rustdoc entry point. The facade's documented feature set must match its `[package.metadata.docs.rs]`

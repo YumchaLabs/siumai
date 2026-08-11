@@ -44,6 +44,9 @@ jobs:
           python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
           python3 -B scripts/check_workspace_boundaries.py --target
 
+      - name: Inspect package file lists
+        run: cargo package --workspace --list --locked
+
       - name: Run focused PR tests
         if: ${{ github.event_name == 'pull_request' }}
         run: python3 -B scripts/test-workspace.py fast --runner nextest
@@ -58,9 +61,14 @@ jobs:
           cargo clippy -j 1 -p siumai-core -p siumai-transport -p siumai-runtime -p siumai-registry --all-targets -- -D warnings
           cargo clippy -j 1 -p siumai --no-default-features --features runtime,registry,openai,anthropic,google,google-vertex-anthropic,minimax --all-targets -- -D warnings
           cargo check -j 1 -p siumai-runtime --no-default-features --features json-schema
+
+      - name: Check facade feature ownership
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
           cargo check -j 1 -p siumai --no-default-features --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --lib
           cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
+          cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
 
       - name: Run release-level tests
@@ -108,5 +116,6 @@ jobs:
 
       - name: Build docs
         run: |
+          cargo doc -j 1 -p siumai-provider-openai --all-features --no-deps
           cargo doc -j 1 --workspace --all-features --no-deps
           cargo test -j 1 --doc --workspace --all-features
