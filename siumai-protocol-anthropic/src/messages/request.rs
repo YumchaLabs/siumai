@@ -1035,21 +1035,44 @@ fn encode_opaque_item(
             reason: "native content block was not an object",
         });
     }
-    let required_fields: &[&str] = match kind {
-        "thinking" => &["thinking", "signature"],
-        "redacted_thinking" => &["data"],
-        "compaction" => &["content"],
-        _ => &[],
-    };
-    if required_fields.iter().any(|field| {
-        block
-            .get(*field)
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-    }) {
-        return Err(MessagesCodecError::ProtocolViolation {
-            reason: "native content block omitted required replay state",
-        });
+    match kind {
+        "thinking" | "redacted_thinking" => {
+            let required_fields: &[&str] = match kind {
+                "thinking" => &["thinking", "signature"],
+                "redacted_thinking" => &["data"],
+                _ => unreachable!("matched native reasoning block"),
+            };
+            if required_fields.iter().any(|field| {
+                block
+                    .get(*field)
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+            }) {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "native content block omitted required replay state",
+                });
+            }
+        }
+        "compaction" => {
+            match block.get("content") {
+                Some(Value::Null) => {}
+                Some(Value::String(content)) if !content.is_empty() => {}
+                _ => {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "native compaction block omitted valid replay content",
+                    });
+                }
+            }
+            if block
+                .get("encrypted_content")
+                .is_some_and(|value| !value.is_null() && !value.is_string())
+            {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "native compaction block contained invalid encrypted replay state",
+                });
+            }
+        }
+        _ => unreachable!("validated native content block kind"),
     }
     Ok(block.clone())
 }

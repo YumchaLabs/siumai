@@ -480,7 +480,7 @@ enum ActiveBlock {
     Compaction {
         object: Map<String, Value>,
         content: Option<String>,
-        delta_seen: bool,
+        encrypted_content: Option<String>,
     },
     ToolUse {
         object: Map<String, Value>,
@@ -534,10 +534,7 @@ impl ActiveBlock {
             "compaction" => {
                 let content = match object.get("content") {
                     Some(Value::Null) => None,
-                    Some(Value::String(content)) => {
-                        ensure_compaction_content_bound(content.len())?;
-                        Some(content.clone())
-                    }
+                    Some(Value::String(content)) => Some(content.clone()),
                     Some(_) => {
                         return Err(MessagesCodecError::ProtocolViolation {
                             reason: "streamed compaction block content was not a string",
@@ -549,10 +546,19 @@ impl ActiveBlock {
                         });
                     }
                 };
+                let encrypted_content = optional_nullable_string(
+                    &object,
+                    "encrypted_content",
+                    "streamed compaction block encrypted_content was not a string or null",
+                )?;
+                ensure_compaction_state_bound(
+                    content.as_ref().map_or(0, String::len),
+                    encrypted_content.as_ref().map_or(0, String::len),
+                )?;
                 Ok(Self::Compaction {
                     object,
                     content,
-                    delta_seen: false,
+                    encrypted_content,
                 })
             }
             "tool_use" => {
@@ -669,29 +675,58 @@ impl ActiveBlock {
             }
             (
                 Self::Compaction {
+                    object: block,
                     content,
-                    delta_seen,
+                    encrypted_content,
                     ..
                 },
                 "compaction_delta",
             ) => {
-                if *delta_seen {
-                    return Err(MessagesCodecError::ProtocolViolation {
-                        reason: "stream emitted compaction_delta more than once",
-                    });
+                let encrypted_observed = object.contains_key("encrypted_content");
+                let content_delta = match object.get("content") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(content)) => Some(content.as_str()),
+                    Some(_) => {
+                        return Err(MessagesCodecError::ProtocolViolation {
+                            reason: "compaction_delta content was not a string or null",
+                        });
+                    }
+                };
+                let encrypted_delta = match object.get("encrypted_content") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(content)) => Some(content.as_str()),
+                    Some(_) => {
+                        return Err(MessagesCodecError::ProtocolViolation {
+                            reason: "compaction_delta encrypted_content was not a string or null",
+                        });
+                    }
+                };
+                let content_len = content
+                    .as_ref()
+                    .map_or(0, String::len)
+                    .checked_add(content_delta.map_or(0, str::len))
+                    .ok_or(MessagesCodecError::ProtocolViolation {
+                        reason: "streamed compaction state exceeded its retained-state bound",
+                    })?;
+                let encrypted_len = encrypted_delta
+                    .map(str::len)
+                    .unwrap_or_else(|| encrypted_content.as_ref().map_or(0, String::len));
+                ensure_compaction_state_bound(content_len, encrypted_len)?;
+
+                if let Some(delta) = content_delta {
+                    content.get_or_insert_with(String::new).push_str(delta);
                 }
-                let delta = required_object_string(object, "content")?;
-                ensure_compaction_content_bound(delta.len())?;
-                if content
-                    .as_deref()
-                    .is_some_and(|initial| !initial.is_empty() && initial != delta)
-                {
-                    return Err(MessagesCodecError::ProtocolViolation {
-                        reason: "compaction_delta disagreed with the started compaction content",
-                    });
+                if encrypted_observed {
+                    match encrypted_delta {
+                        // Anthropic's stream accumulator treats this as the
+                        // latest complete opaque blob, not a text fragment.
+                        Some(delta) => *encrypted_content = Some(delta.to_string()),
+                        None => {
+                            *encrypted_content = None;
+                            block.insert("encrypted_content".to_string(), Value::Null);
+                        }
+                    }
                 }
-                *content = Some(delta.to_string());
-                *delta_seen = true;
                 Ok(Vec::new())
             }
             (
@@ -780,12 +815,20 @@ impl ActiveBlock {
                 std::mem::take(object)
             }
             Self::Compaction {
-                object, content, ..
+                object,
+                content,
+                encrypted_content,
             } => {
                 object.insert(
                     "content".to_string(),
                     content.take().map_or(Value::Null, Value::String),
                 );
+                if let Some(encrypted_content) = encrypted_content.take() {
+                    object.insert(
+                        "encrypted_content".to_string(),
+                        Value::String(encrypted_content),
+                    );
+                }
                 std::mem::take(object)
             }
             Self::ToolUse {
@@ -815,13 +858,31 @@ impl ActiveBlock {
     }
 }
 
-fn ensure_compaction_content_bound(actual: usize) -> Result<(), MessagesCodecError> {
-    if actual > DEFAULT_OPAQUE_ITEM_LIMIT {
+fn ensure_compaction_state_bound(
+    content_bytes: usize,
+    encrypted_content_bytes: usize,
+) -> Result<(), MessagesCodecError> {
+    if content_bytes
+        .checked_add(encrypted_content_bytes)
+        .is_none_or(|actual| actual > DEFAULT_OPAQUE_ITEM_LIMIT)
+    {
         return Err(MessagesCodecError::ProtocolViolation {
-            reason: "streamed compaction content exceeded its retained-state bound",
+            reason: "streamed compaction state exceeded its retained-state bound",
         });
     }
     Ok(())
+}
+
+fn optional_nullable_string(
+    object: &Map<String, Value>,
+    field: &str,
+    reason: &'static str,
+) -> Result<Option<String>, MessagesCodecError> {
+    match object.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(MessagesCodecError::ProtocolViolation { reason }),
+    }
 }
 
 fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), MessagesCodecError> {

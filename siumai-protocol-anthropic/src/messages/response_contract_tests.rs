@@ -42,10 +42,30 @@ fn compaction_response_body(summary: &str) -> Vec<u8> {
         "type": "message",
         "role": "assistant",
         "model": "claude-fable-5",
-        "content": [{"type": "compaction", "content": summary}],
+        "content": [{
+            "type": "compaction",
+            "content": summary,
+            "encrypted_content": "encrypted-compaction-state"
+        }],
         "stop_reason": "compaction",
         "stop_sequence": null,
-        "usage": {"input_tokens": 120, "output_tokens": 4}
+        "usage": {
+            "input_tokens": 120,
+            "output_tokens": 4,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "output_tokens_details": {"thinking_tokens": 0},
+            "iterations": [
+                {
+                    "type": "compaction",
+                    "input_tokens": 30,
+                    "output_tokens": 2,
+                    "cache_read_input_tokens": 5,
+                    "cache_creation_input_tokens": 7
+                },
+                {"type": "message", "input_tokens": 120, "output_tokens": 4}
+            ]
+        }
     }))
     .expect("serialize compaction fixture")
 }
@@ -170,6 +190,16 @@ fn direct_compaction_is_incomplete_and_replays_only_in_the_same_scope() {
         })
         .expect("retained compaction block");
     assert_eq!(native.data()["content"], "Keep the verified decisions.");
+    assert_eq!(
+        native.data()["encrypted_content"],
+        "encrypted-compaction-state"
+    );
+    assert_eq!(response.usage().input_tokens, UsageValue::Known(150));
+    assert_eq!(response.usage().output_tokens, UsageValue::Known(6));
+    assert_eq!(response.usage().total_tokens, UsageValue::Known(156));
+    assert_eq!(response.usage().reasoning_tokens, UsageValue::Known(0));
+    assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(5));
+    assert_eq!(response.usage().cache_write_tokens, UsageValue::Known(7));
 
     let history = response
         .project_assistant_history()
@@ -188,7 +218,8 @@ fn direct_compaction_is_incomplete_and_replays_only_in_the_same_scope() {
         encoded["messages"][0]["content"][0],
         json!({
             "type": "compaction",
-            "content": "Keep the verified decisions."
+            "content": "Keep the verified decisions.",
+            "encrypted_content": "encrypted-compaction-state"
         })
     );
 
@@ -205,14 +236,14 @@ fn direct_compaction_is_incomplete_and_replays_only_in_the_same_scope() {
 }
 
 #[test]
-fn failed_compaction_retains_null_native_content_without_making_it_replayable() {
+fn null_compaction_state_round_trips_only_in_the_same_scope() {
     let source_scope = scoped_replay_domain("workspace-a");
     let body = serde_json::to_vec(&json!({
         "id": "msg_failed_compaction",
         "type": "message",
         "role": "assistant",
         "model": "claude-fable-5",
-        "content": [{"type": "compaction", "content": null}],
+        "content": [{"type": "compaction", "content": null, "encrypted_content": null}],
         "stop_reason": "compaction",
         "stop_sequence": null,
         "usage": {"input_tokens": 120, "output_tokens": 0}
@@ -240,14 +271,26 @@ fn failed_compaction_retains_null_native_content_without_making_it_replayable() 
         .expect("native failure remains inspectable in history projection");
     let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
     continuation.generation.max_output_tokens = Some(2_048);
+    let encoded = encode_request_for_scope(
+        &source_scope,
+        &model(),
+        &continuation,
+        &MessagesRequestOptions::default(),
+    )
+    .expect("replay null compaction state in the source scope");
+    assert_eq!(
+        encoded["messages"][0]["content"][0],
+        json!({"type": "compaction", "content": null, "encrypted_content": null})
+    );
+
     assert!(matches!(
         encode_request_for_scope(
-            &source_scope,
+            &scoped_replay_domain("workspace-b"),
             &model(),
             &continuation,
             &MessagesRequestOptions::default(),
         ),
-        Err(MessagesCodecError::ProtocolViolation { .. })
+        Err(MessagesCodecError::Unsupported { .. })
     ));
 }
 
@@ -275,21 +318,65 @@ fn streamed_compaction_delta_matches_direct_and_keeps_terminal_lifecycle_strict(
         json!({
             "type": "content_block_start",
             "index": 0,
-            "content_block": {"type": "compaction", "content": null}
+            "content_block": {
+                "type": "compaction",
+                "content": null,
+                "encrypted_content": null
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "compaction_delta"}
         }),
         json!({
             "type": "content_block_delta",
             "index": 0,
             "delta": {
                 "type": "compaction_delta",
-                "content": "Keep the verified decisions."
+                "content": null,
+                "encrypted_content": null
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "compaction_delta",
+                "content": "Keep the verified ",
+                "encrypted_content": "superseded-encrypted-state"
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "compaction_delta",
+                "content": "decisions.",
+                "encrypted_content": "encrypted-compaction-state"
             }
         }),
         json!({"type": "content_block_stop", "index": 0}),
         json!({
             "type": "message_delta",
             "delta": {"stop_reason": "compaction", "stop_sequence": null},
-            "usage": {"output_tokens": 4}
+            "usage": {
+                "input_tokens": 120,
+                "output_tokens": 4,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens_details": {"thinking_tokens": 0},
+                "iterations": [
+                    {
+                        "type": "compaction",
+                        "input_tokens": 30,
+                        "output_tokens": 2,
+                        "cache_read_input_tokens": 5,
+                        "cache_creation_input_tokens": 7
+                    },
+                    {"type": "message", "input_tokens": 120, "output_tokens": 4}
+                ]
+            }
         }),
         json!({"type": "message_stop"}),
     ];
@@ -315,6 +402,10 @@ fn streamed_compaction_delta_matches_direct_and_keeps_terminal_lifecycle_strict(
     assert_eq!(
         opaque_events[0].data()["content"],
         "Keep the verified decisions."
+    );
+    assert_eq!(
+        opaque_events[0].data()["encrypted_content"],
+        "encrypted-compaction-state"
     );
 
     let terminal = events
@@ -392,6 +483,98 @@ fn streamed_compaction_delta_matches_direct_and_keeps_terminal_lifecycle_strict(
             .kind(),
         ErrorKind::UnexpectedEof
     );
+}
+
+#[test]
+fn streamed_null_encrypted_compaction_state_clears_and_replays_in_scope() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let mut decoder = MessagesStreamDecoder::new(source_scope.clone(), model());
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_null_encrypted_compaction",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-fable-5",
+                "usage": {"input_tokens": 120}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "compaction",
+                "content": null,
+                "encrypted_content": null
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "compaction_delta",
+                "encrypted_content": "superseded-encrypted-state"
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "compaction_delta", "encrypted_content": null}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "compaction", "stop_sequence": null},
+            "usage": {"output_tokens": 0}
+        }),
+        json!({"type": "message_stop"}),
+    ];
+
+    let mut events = Vec::new();
+    for frame in frames {
+        events.extend(decoder.decode(&frame.to_string()).expect("decode frame"));
+    }
+    let terminal = events
+        .iter()
+        .find_map(|event| match event {
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => Some(response),
+            _ => None,
+        })
+        .expect("completed stream terminal");
+    let native = terminal
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) if item.data()["type"] == "compaction" => Some(item),
+            _ => None,
+        })
+        .expect("retained compaction block");
+    assert!(native.data()["content"].is_null());
+    assert!(native.data()["encrypted_content"].is_null());
+
+    let history = terminal
+        .project_assistant_history()
+        .into_message()
+        .expect("project compaction history");
+    let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+    continuation.generation.max_output_tokens = Some(2_048);
+    encode_request_for_scope(
+        &source_scope,
+        &model(),
+        &continuation,
+        &MessagesRequestOptions::default(),
+    )
+    .expect("replay streamed null compaction state in source scope");
+    assert!(matches!(
+        encode_request_for_scope(
+            &scoped_replay_domain("workspace-b"),
+            &model(),
+            &continuation,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::Unsupported { .. })
+    ));
 }
 
 #[test]
@@ -572,6 +755,9 @@ fn streamed_fallback_updates_served_model_and_keeps_iteration_metadata() {
         })
         .expect("completed terminal");
     assert_eq!(terminal.model().map(ModelId::as_str), Some("claude-opus-5"));
+    assert_eq!(terminal.usage().input_tokens, UsageValue::Known(412));
+    assert_eq!(terminal.usage().output_tokens, UsageValue::Known(264));
+    assert_eq!(terminal.usage().total_tokens, UsageValue::Known(676));
     assert!(terminal.content().iter().any(|part| matches!(
         part,
         ContentPart::ProviderOpaque(item) if item.data()["type"] == "fallback"
@@ -584,6 +770,33 @@ fn streamed_fallback_updates_served_model_and_keeps_iteration_metadata() {
     assert_eq!(metadata["iterations"][1]["type"], "fallback_message");
     assert_eq!(metadata["usage"]["speed"], "standard");
     assert_eq!(metadata["usage"]["inference_geo"], "global");
+}
+
+#[test]
+fn advisor_iterations_do_not_duplicate_top_level_usage() {
+    let body = serde_json::to_vec(&json!({
+        "id": "msg_advisor_usage",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-fable-5",
+        "content": [{"type": "text", "text": "done"}],
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+            "input_tokens": 20,
+            "output_tokens": 3,
+            "iterations": [
+                {"type": "advisor_message", "input_tokens": 7, "output_tokens": 2},
+                {"type": "message", "input_tokens": 20, "output_tokens": 3}
+            ]
+        }
+    }))
+    .expect("serialize advisor usage fixture");
+
+    let response = decode_response(&body, &scope(), &model()).expect("decode response");
+    assert_eq!(response.usage().input_tokens, UsageValue::Known(20));
+    assert_eq!(response.usage().output_tokens, UsageValue::Known(3));
+    assert_eq!(response.usage().total_tokens, UsageValue::Known(23));
 }
 
 #[test]

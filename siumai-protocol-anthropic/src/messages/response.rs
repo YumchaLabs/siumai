@@ -170,6 +170,14 @@ pub(crate) fn decode_content_block(
                     });
                 }
             }
+            if object
+                .get("encrypted_content")
+                .is_some_and(|value| !value.is_null() && !value.is_string())
+            {
+                return Err(MessagesCodecError::ProtocolViolation {
+                    reason: "compaction block encrypted_content was neither a string nor null",
+                });
+            }
             Ok(vec![ContentPart::ProviderOpaque(retain_native_block(
                 block, scope, model,
             )?)])
@@ -370,28 +378,98 @@ pub(crate) fn map_stop_reason(
 }
 
 pub(crate) fn decode_usage(wire: &UsageWire) -> Usage {
-    let total = match (wire.input_tokens, wire.output_tokens) {
-        (Some(input), Some(output)) => input
-            .checked_add(output)
-            .map_or(UsageValue::Unknown, UsageValue::Known),
-        _ => UsageValue::Unknown,
-    };
+    let compaction = CompactionUsage::from_wire(wire);
+    let input_tokens = add_compaction_usage(
+        UsageValue::from(wire.input_tokens),
+        compaction.as_ref().map(|usage| usage.input_tokens),
+    );
+    let output_tokens = add_compaction_usage(
+        UsageValue::from(wire.output_tokens),
+        compaction.as_ref().map(|usage| usage.output_tokens),
+    );
+    let reasoning_tokens = UsageValue::from(
+        wire.output_tokens_details
+            .as_ref()
+            .and_then(|details| details.thinking_tokens),
+    );
+    let cache_read_tokens = add_compaction_usage(
+        UsageValue::from(wire.cache_read_input_tokens),
+        compaction.as_ref().map(|usage| usage.cache_read_tokens),
+    );
+    let cache_write_tokens = add_compaction_usage(
+        UsageValue::from(wire.cache_creation_input_tokens),
+        compaction.as_ref().map(|usage| usage.cache_write_tokens),
+    );
+    let total = input_tokens.checked_add(output_tokens);
     let details = wire.provider_details();
     let mut usage = Usage::default()
-        .with_input_tokens(wire.input_tokens)
-        .with_output_tokens(wire.output_tokens)
+        .with_input_tokens(input_tokens)
+        .with_output_tokens(output_tokens)
         .with_total_tokens(total)
-        .with_reasoning_tokens(
-            wire.output_tokens_details
-                .as_ref()
-                .and_then(|details| details.thinking_tokens),
-        )
-        .with_cache_read_tokens(wire.cache_read_input_tokens)
-        .with_cache_write_tokens(wire.cache_creation_input_tokens);
+        .with_reasoning_tokens(reasoning_tokens)
+        .with_cache_read_tokens(cache_read_tokens)
+        .with_cache_write_tokens(cache_write_tokens);
     if !details.is_empty() {
         usage = usage.with_provider_value(PROTOCOL_ID, Value::Object(details));
     }
     usage
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CompactionUsage {
+    input_tokens: UsageValue,
+    output_tokens: UsageValue,
+    cache_read_tokens: UsageValue,
+    cache_write_tokens: UsageValue,
+}
+
+impl CompactionUsage {
+    fn from_wire(wire: &UsageWire) -> Option<Self> {
+        let iterations = wire.iterations()?.as_array()?;
+        let mut usage = None;
+        for iteration in iterations {
+            let Some(iteration) = iteration.as_object() else {
+                continue;
+            };
+            if iteration.get("type").and_then(Value::as_str) != Some("compaction") {
+                continue;
+            }
+            let current = usage.get_or_insert_with(Self::zero);
+            current.input_tokens = current
+                .input_tokens
+                .checked_add(iteration_number(iteration, "input_tokens"));
+            current.output_tokens = current
+                .output_tokens
+                .checked_add(iteration_number(iteration, "output_tokens"));
+            current.cache_read_tokens = current
+                .cache_read_tokens
+                .checked_add(iteration_number(iteration, "cache_read_input_tokens"));
+            current.cache_write_tokens = current
+                .cache_write_tokens
+                .checked_add(iteration_number(iteration, "cache_creation_input_tokens"));
+        }
+        usage
+    }
+
+    const fn zero() -> Self {
+        Self {
+            input_tokens: UsageValue::Known(0),
+            output_tokens: UsageValue::Known(0),
+            cache_read_tokens: UsageValue::Known(0),
+            cache_write_tokens: UsageValue::Known(0),
+        }
+    }
+}
+
+fn iteration_number(iteration: &Map<String, Value>, field: &str) -> UsageValue {
+    iteration
+        .get(field)
+        .and_then(Value::as_u64)
+        .map_or(UsageValue::Unknown, UsageValue::Known)
+}
+
+fn add_compaction_usage(base: UsageValue, compaction: Option<UsageValue>) -> UsageValue {
+    compaction.map_or(base, |compaction| base.checked_add(compaction))
 }
 
 pub(crate) fn decode_refusal_reason(
