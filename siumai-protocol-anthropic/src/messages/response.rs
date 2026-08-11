@@ -150,6 +150,30 @@ pub(crate) fn decode_content_block(
                 block, scope, model,
             )?)])
         }
+        "compaction" => {
+            match object.get("content") {
+                Some(Value::String(content)) if !content.is_empty() => {}
+                Some(Value::Null) => {}
+                Some(Value::String(_)) => {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "compaction block contained empty content",
+                    });
+                }
+                Some(_) => {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "compaction block content was neither a string nor null",
+                    });
+                }
+                None => {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "compaction block omitted its content",
+                    });
+                }
+            }
+            Ok(vec![ContentPart::ProviderOpaque(retain_native_block(
+                block, scope, model,
+            )?)])
+        }
         "tool_use" => {
             let id = required_non_empty_string(object, "id")?.to_string();
             let name = required_non_empty_string(object, "name")?.to_string();
@@ -333,10 +357,14 @@ pub(crate) fn map_stop_reason(
         "tool_use" => LanguageTermination::Completed(LanguageCompletionReason::ToolCalls),
         "max_tokens" => LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens),
         "refusal" => LanguageTermination::Completed(LanguageCompletionReason::Refusal),
-        "pause_turn" | "model_context_window_exceeded" => LanguageTermination::Incomplete(
-            LanguageIncompleteReason::Other(stop_reason.to_string()),
-        ),
-        other => LanguageTermination::Completed(LanguageCompletionReason::Other(other.to_string())),
+        "pause_turn" | "model_context_window_exceeded" | "compaction" => {
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
+                stop_reason.to_string(),
+            ))
+        }
+        other => {
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(other.to_string()))
+        }
     };
     Ok(mapping)
 }

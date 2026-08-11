@@ -10,10 +10,11 @@ use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentAnnotationTarget, ContentAnnotations, Error,
     ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent, Message, MessagePart,
     MessageRole, Model, ModelCatalog, ModelFamily, ModelId, ModelLifecycle, ModelOperation,
-    ModelProfile, OfficialSource, PlatformId, ProfileId, ProtocolContractId, ProtocolId,
-    ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId, StreamTerminal, SupportScope,
-    ToolAnnotationTarget, ToolAnnotations, ToolSpec, TypedProviderAnnotation, TypedProviderOptions,
-    VerificationDate, VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
+    ModelProfile, OfficialSource, PartialLanguageOutputPart, PlatformId, ProfileId,
+    ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId,
+    StreamTerminal, SupportScope, ToolAnnotationTarget, ToolAnnotations, ToolSpec,
+    TypedProviderAnnotation, TypedProviderOptions, UsageValue, VerificationDate,
+    VerificationEvidence, VerifiedFidelity, VerifiedSupportClaim,
 };
 use siumai_protocol_anthropic::messages::{
     API_MODE_ID, AnthropicTool, CacheControl, CacheTtl, ContentNodeOptions, InferenceGeo,
@@ -1070,6 +1071,131 @@ async fn streaming_rejects_frames_after_terminal_in_one_sse_batch() {
         StreamTerminal::Failed { error, .. } => assert_eq!(error.kind(), ErrorKind::Protocol),
         other => panic!("expected a failed terminal, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn in_band_stream_error_preserves_bounded_partial_output_and_safe_diagnostics() {
+    let server = MockServer::start().await;
+    let secret = "private-in-band-error-secret";
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_partial_error",
+                "type": "message",
+                "role": "assistant",
+                "model": "stream-model",
+                "usage": {"input_tokens": 7}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hello"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "thinking_delta", "thinking": "chain"}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "signature_delta", "signature": "signature"}
+        }),
+        json!({"type": "content_block_stop", "index": 1}),
+        json!({
+            "type": "message_delta",
+            "delta": {},
+            "usage": {"output_tokens": 3}
+        }),
+        json!({
+            "type": "error",
+            "error": {"type": "rate_limit_error", "message": secret},
+            "request_id": "request-safe"
+        }),
+    ];
+    let sse = frames
+        .into_iter()
+        .map(|frame| format!("data: {frame}\n\n"))
+        .collect::<String>();
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("accept", "text/event-stream"))
+        .and(body_json(request_body("stream-model", "hello", 64, true)))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse),
+        )
+        .mount(&server)
+        .await;
+
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let events = provider
+        .language("stream-model")
+        .unwrap()
+        .stream(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::TextDelta { delta, .. } if delta == "hello"
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::ReasoningDelta { delta, .. } if delta == "chain"
+    )));
+    let terminals = events
+        .iter()
+        .filter_map(LanguageStreamEvent::terminal)
+        .collect::<Vec<_>>();
+    assert_eq!(terminals.len(), 1);
+    let StreamTerminal::Failed { error, partial } = terminals[0] else {
+        panic!("expected a failed terminal, got {:?}", terminals[0]);
+    };
+    assert_eq!(error.kind(), ErrorKind::RateLimited);
+    let diagnostics = error.diagnostics().expect("safe diagnostics");
+    assert_eq!(diagnostics.status(), Some(200));
+    assert_eq!(diagnostics.request_id(), Some("request-safe"));
+    assert_eq!(diagnostics.provider_type(), Some("rate_limit_error"));
+    let partial = partial.as_ref().expect("bounded partial output");
+    assert_eq!(
+        partial.content(),
+        [
+            PartialLanguageOutputPart::Text {
+                text: "hello".to_string(),
+            },
+            PartialLanguageOutputPart::Reasoning {
+                text: "chain".to_string(),
+            },
+        ]
+    );
+    assert_eq!(partial.usage().input_tokens, UsageValue::Known(7));
+    assert_eq!(partial.usage().output_tokens, UsageValue::Known(3));
+    assert_eq!(partial.usage().total_tokens, UsageValue::Known(10));
+    let public = format!("{error:?} {error} {partial:?}");
+    assert!(!public.contains(secret));
+    assert!(error.sensitive_response().is_some());
 }
 
 #[tokio::test]

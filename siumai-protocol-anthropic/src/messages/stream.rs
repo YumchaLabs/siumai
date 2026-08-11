@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
-    LanguageStreamDecoder, LanguageStreamEvent, ModelId, PartialLanguageOutput,
-    PartialLanguageOutputPart, ProviderScope, ResponseDiagnostics, StreamTerminal, Usage,
-    UsageUpdate, UsageValue,
+    ContentPart, DEFAULT_OPAQUE_ITEM_LIMIT, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error,
+    ErrorKind, ExecutionOwner, LanguageStreamDecoder, LanguageStreamEvent, ModelId,
+    PartialLanguageOutput, PartialLanguageOutputPart, ProviderScope, ResponseDiagnostics,
+    StreamTerminal, Usage, UsageUpdate, UsageValue,
 };
 
 use super::MessagesCodecError;
@@ -477,6 +477,11 @@ enum ActiveBlock {
         thinking: String,
         signature: String,
     },
+    Compaction {
+        object: Map<String, Value>,
+        content: Option<String>,
+        delta_seen: bool,
+    },
     ToolUse {
         object: Map<String, Value>,
         id: String,
@@ -526,6 +531,30 @@ impl ActiveBlock {
                     .to_string(),
                 object,
             }),
+            "compaction" => {
+                let content = match object.get("content") {
+                    Some(Value::Null) => None,
+                    Some(Value::String(content)) => {
+                        ensure_compaction_content_bound(content.len())?;
+                        Some(content.clone())
+                    }
+                    Some(_) => {
+                        return Err(MessagesCodecError::ProtocolViolation {
+                            reason: "streamed compaction block content was not a string",
+                        });
+                    }
+                    None => {
+                        return Err(MessagesCodecError::ProtocolViolation {
+                            reason: "streamed compaction block omitted its content",
+                        });
+                    }
+                };
+                Ok(Self::Compaction {
+                    object,
+                    content,
+                    delta_seen: false,
+                })
+            }
             "tool_use" => {
                 let id = required_object_string(&object, "id")?.to_string();
                 let name = required_object_string(&object, "name")?.to_string();
@@ -576,6 +605,7 @@ impl ActiveBlock {
                 }
                 events
             }
+            Self::Compaction { .. } => Vec::new(),
             Self::ToolUse { id, name, .. } => vec![LanguageStreamEvent::ToolInputStart {
                 id: id.clone(),
                 name: name.clone(),
@@ -638,6 +668,33 @@ impl ActiveBlock {
                 Ok(Vec::new())
             }
             (
+                Self::Compaction {
+                    content,
+                    delta_seen,
+                    ..
+                },
+                "compaction_delta",
+            ) => {
+                if *delta_seen {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "stream emitted compaction_delta more than once",
+                    });
+                }
+                let delta = required_object_string(object, "content")?;
+                ensure_compaction_content_bound(delta.len())?;
+                if content
+                    .as_deref()
+                    .is_some_and(|initial| !initial.is_empty() && initial != delta)
+                {
+                    return Err(MessagesCodecError::ProtocolViolation {
+                        reason: "compaction_delta disagreed with the started compaction content",
+                    });
+                }
+                *content = Some(delta.to_string());
+                *delta_seen = true;
+                Ok(Vec::new())
+            }
+            (
                 Self::ToolUse {
                     id, partial_input, ..
                 },
@@ -667,7 +724,7 @@ impl ActiveBlock {
             Self::Thinking { index, .. } => Some(LanguageStreamEvent::ReasoningEnd {
                 id: block_id("thinking", *index),
             }),
-            Self::ToolUse { .. } | Self::Static { .. } => None,
+            Self::Compaction { .. } | Self::ToolUse { .. } | Self::Static { .. } => None,
         }
     }
 
@@ -694,6 +751,7 @@ impl ActiveBlock {
             }
             Self::Text { .. }
             | Self::Thinking { .. }
+            | Self::Compaction { .. }
             | Self::ToolUse { .. }
             | Self::Static { .. } => Vec::new(),
         }
@@ -718,6 +776,15 @@ impl ActiveBlock {
                 object.insert(
                     "signature".to_string(),
                     Value::String(std::mem::take(signature)),
+                );
+                std::mem::take(object)
+            }
+            Self::Compaction {
+                object, content, ..
+            } => {
+                object.insert(
+                    "content".to_string(),
+                    content.take().map_or(Value::Null, Value::String),
                 );
                 std::mem::take(object)
             }
@@ -746,6 +813,15 @@ impl ActiveBlock {
         };
         Ok(Value::Object(object))
     }
+}
+
+fn ensure_compaction_content_bound(actual: usize) -> Result<(), MessagesCodecError> {
+    if actual > DEFAULT_OPAQUE_ITEM_LIMIT {
+        return Err(MessagesCodecError::ProtocolViolation {
+            reason: "streamed compaction content exceeded its retained-state bound",
+        });
+    }
+    Ok(())
 }
 
 fn append_tool_input(buffer: &mut String, delta: &str) -> Result<(), MessagesCodecError> {

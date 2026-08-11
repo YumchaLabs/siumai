@@ -22,7 +22,7 @@ use crate::{
     AnthropicThinking, AnthropicTokenCountOptions, AnthropicTool, AnthropicToolOptions,
     CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
     CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, MessagesMetadata,
-    OutputEffort, ServerFallbacks, ThinkingDisplay, current_models,
+    OutputEffort, ServerFallbacks, ThinkingDisplay, TokenTaskBudget, current_models,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -165,6 +165,127 @@ async fn fallback_options_encode_and_add_the_required_beta_header() {
         .generate(request("fallback", 64), call_options)
         .await
         .expect("fallback request");
+}
+
+#[tokio::test]
+async fn future_model_accepts_low_task_budget_and_deduplicates_the_beta_header() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("anthropic-beta", "task-budgets-2026-03-13"))
+        .and(body_json(json!({
+            "model": "future-budget-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "budget"}]
+            }],
+            "stream": false,
+            "output_config": {
+                "task_budget": {
+                    "type": "tokens",
+                    "total": 1_024,
+                    "remaining": 512
+                }
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-budget-model",
+            "msg_budget",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = AnthropicProvider::builder(AnthropicCredential::unauthenticated())
+        .with_endpoint(
+            EndpointConfig::local_explicit(format!("{}/v1/", server.uri()))
+                .expect("local endpoint"),
+        )
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("anthropic-budget-test-relay").expect("replay domain"),
+        ))
+        .with_beta_feature("task-budgets-2026-03-13")
+        .build()
+        .expect("provider");
+    let model = provider
+        .language("future-budget-model")
+        .expect("future model");
+    let budget = TokenTaskBudget::new(1_024)
+        .expect("positive task budget")
+        .with_remaining(512)
+        .expect("remaining budget");
+    let options = AnthropicMessagesOptions::new().with_task_budget(budget);
+    let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("call options");
+
+    model
+        .generate(request("budget", 64), call_options)
+        .await
+        .expect("future model task budget");
+}
+
+#[test]
+fn task_budget_requires_positive_total_and_bounded_remaining_tokens() {
+    assert!(matches!(
+        TokenTaskBudget::new(0),
+        Err(MessagesCodecError::InvalidOption {
+            field: "output_config.task_budget.total",
+            ..
+        })
+    ));
+    assert!(matches!(
+        TokenTaskBudget::new(1_024)
+            .expect("positive task budget")
+            .with_remaining(1_025),
+        Err(MessagesCodecError::InvalidOption {
+            field: "output_config.task_budget.remaining",
+            ..
+        })
+    ));
+
+    let exhausted = TokenTaskBudget::new(1)
+        .expect("positive task budget")
+        .with_remaining(0)
+        .expect("exhausted budget");
+    assert_eq!(exhausted.total(), 1);
+    assert_eq!(exhausted.remaining(), Some(0));
+}
+
+#[tokio::test]
+async fn mid_conversation_system_message_emits_no_retired_beta_header() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-system-model",
+            "msg_system",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = local_provider(&server, AnthropicCredential::unauthenticated());
+    let model = provider
+        .language("future-system-model")
+        .expect("future model");
+    let mut language_request = request("start", 64);
+    language_request.messages.push(Message::text(
+        MessageRole::System,
+        "updated system guidance",
+    ));
+
+    model
+        .generate(language_request, CallOptions::default())
+        .await
+        .expect("mid-conversation system message");
+
+    let requests = server.received_requests().await.expect("recorded requests");
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].headers.get("anthropic-beta").is_none());
 }
 
 #[tokio::test]

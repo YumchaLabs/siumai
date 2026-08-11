@@ -753,6 +753,68 @@ fn serializes_request_only_messages_service_tier_preferences() {
 }
 
 #[test]
+fn compaction_trigger_uses_the_versioned_fifty_thousand_token_minimum() {
+    let future_model = ModelId::new("claude-future-compact").expect("valid future model");
+    let options = MessagesRequestOptions::default().with_context_management(
+        ContextManagement::new().with_edit(CompactionEdit::new().with_trigger_input_tokens(50_000)),
+    );
+
+    let encoded = encode_request(&future_model, &request(), &options).expect("encode compaction");
+    assert_eq!(
+        encoded["context_management"]["edits"][0],
+        json!({
+            "type": "compact_20260112",
+            "trigger": {"type": "input_tokens", "value": 50_000}
+        })
+    );
+
+    let below_minimum = MessagesRequestOptions::default().with_context_management(
+        ContextManagement::new().with_edit(CompactionEdit::new().with_trigger_input_tokens(49_999)),
+    );
+    assert!(matches!(
+        encode_request(&future_model, &request(), &below_minimum),
+        Err(MessagesCodecError::InvalidOption {
+            field: "context_management.edits[].trigger.value",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn task_budget_accepts_positive_future_values_below_twenty_thousand() {
+    let future_model = ModelId::new("claude-future-task-budget").expect("valid future model");
+    let budget = TokenTaskBudget::new(8_000)
+        .expect("positive budget")
+        .with_remaining(3_000)
+        .expect("remaining budget within total");
+    let encoded = encode_request(
+        &future_model,
+        &request(),
+        &MessagesRequestOptions::default().with_task_budget(budget),
+    )
+    .expect("encode future task budget");
+
+    assert_eq!(
+        encoded["output_config"]["task_budget"],
+        json!({"type": "tokens", "total": 8_000, "remaining": 3_000})
+    );
+    assert!(matches!(
+        TokenTaskBudget::new(0),
+        Err(MessagesCodecError::InvalidOption {
+            field: "output_config.task_budget.total",
+            ..
+        })
+    ));
+    assert!(matches!(
+        TokenTaskBudget::new(1).and_then(|budget| budget.with_remaining(2)),
+        Err(MessagesCodecError::InvalidOption {
+            field: "output_config.task_budget.remaining",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn encodes_current_typed_request_controls_and_redacts_mcp_tokens() {
     let container = MessagesContainer::configured()
         .with_id("container-1")

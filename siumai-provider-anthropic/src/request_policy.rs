@@ -17,7 +17,6 @@ const SKILLS_BETA: &str = "skills-2025-10-02";
 const ADVISOR_TOOL_BETA: &str = "advisor-tool-2026-03-01";
 const MCP_CLIENT_BETA: &str = "mcp-client-2025-11-20";
 const COMPUTER_USE_BETA: &str = "computer-use-2025-11-24";
-const MID_CONVERSATION_SYSTEM_BETA: &str = "mid-conversation-system-2026-04-07";
 const MID_CONVERSATION_TOOL_CHANGES_BETA: &str = "mid-conversation-tool-changes-2026-07-01";
 
 /// Anthropic-owned feature-driven beta contracts.
@@ -32,11 +31,7 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
         options: &mut MessagesCallOptions,
     ) -> Result<MessagesRequestRequirements, Error> {
         let mut requirements = MessagesRequestRequirements::new();
-        let mid_conversation = mid_conversation_features(request)?;
-        if mid_conversation.system {
-            requirements = requirements.with_beta_feature(MID_CONVERSATION_SYSTEM_BETA)?;
-        }
-        if mid_conversation.tool_changes {
+        if has_mid_conversation_tool_changes(request)? {
             requirements = requirements.with_beta_feature(MID_CONVERSATION_TOOL_CHANGES_BETA)?;
         }
         if let Some(fallbacks) = options.fallbacks() {
@@ -107,25 +102,18 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct MidConversationFeatures {
-    system: bool,
-    tool_changes: bool,
-}
-
-fn mid_conversation_features(request: &LanguageRequest) -> Result<MidConversationFeatures, Error> {
+fn has_mid_conversation_tool_changes(request: &LanguageRequest) -> Result<bool, Error> {
     let mut conversation_started = false;
-    let mut features = MidConversationFeatures::default();
+    let mut has_tool_changes = false;
     for message in &request.messages {
         match message.role() {
             MessageRole::System if conversation_started => {
-                features.system = true;
                 for part in message.content() {
                     let annotation = part
                         .annotations()
                         .decode::<AnthropicContentOptions>()
                         .map_err(annotation_error)?;
-                    features.tool_changes |= annotation
+                    has_tool_changes |= annotation
                         .as_ref()
                         .and_then(AnthropicContentOptions::tool_change)
                         .is_some();
@@ -137,7 +125,7 @@ fn mid_conversation_features(request: &LanguageRequest) -> Result<MidConversatio
             _ => {}
         }
     }
-    Ok(features)
+    Ok(has_tool_changes)
 }
 
 fn annotation_error(source: siumai_core::ProviderAnnotationError) -> Error {
@@ -206,10 +194,10 @@ mod tests {
     }
 
     #[test]
-    fn preparation_collects_current_option_betas_once() {
+    fn preparation_collects_current_option_betas_once_for_a_future_model() {
         let mut options = MessagesCallOptions::new()
             .with_speed(InferenceSpeed::Fast)
-            .with_task_budget(TokenTaskBudget::new(20_000).expect("task budget"))
+            .with_task_budget(TokenTaskBudget::new(1_024).expect("task budget"))
             .with_context_management(
                 siumai_protocol_anthropic::messages::ContextManagement::new()
                     .with_edit(CompactionEdit::new()),
@@ -290,7 +278,24 @@ mod tests {
     }
 
     #[test]
-    fn future_model_tool_changes_are_typed_and_feature_gated() {
+    fn mid_conversation_system_message_needs_no_beta() {
+        let request = LanguageRequest::new(vec![
+            Message::text(MessageRole::User, "start"),
+            Message::text(MessageRole::System, "updated policy"),
+        ]);
+        let requirements = AnthropicRequestPolicy
+            .prepare(
+                &ModelId::new("future-claude").expect("model"),
+                &request,
+                &mut MessagesCallOptions::new(),
+            )
+            .expect("native mid-conversation system message");
+
+        assert!(requirements.beta_features().next().is_none());
+    }
+
+    #[test]
+    fn future_model_tool_changes_keep_only_their_feature_beta() {
         let anchor = AnthropicContentOptions::tool_change_part(MidConversationToolChange::remove(
             AnthropicToolReference::tool("lookup").expect("tool reference"),
         ))
@@ -310,15 +315,9 @@ mod tests {
                 &mut MessagesCallOptions::new(),
             )
             .expect("supported tool changes");
-        assert!(
-            requirements
-                .beta_features()
-                .any(|feature| feature == MID_CONVERSATION_SYSTEM_BETA)
-        );
-        assert!(
-            requirements
-                .beta_features()
-                .any(|feature| feature == MID_CONVERSATION_TOOL_CHANGES_BETA)
+        assert_eq!(
+            requirements.beta_features().collect::<Vec<_>>(),
+            vec![MID_CONVERSATION_TOOL_CHANGES_BETA]
         );
     }
 }

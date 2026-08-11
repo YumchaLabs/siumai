@@ -22,7 +22,6 @@ const MAX_DOMAIN_BYTES: usize = 253;
 const MAX_TOOL_CONFIGS: usize = 256;
 const MAX_TOOL_NAME_BYTES: usize = 128;
 const MAX_ALLOWED_CALLERS: usize = 4;
-const MIN_TASK_BUDGET_TOKENS: u64 = 20_000;
 const MAX_CONTAINER_ID_BYTES: usize = 256;
 const MAX_CONTAINER_SKILLS: usize = 8;
 const MAX_SKILL_ID_BYTES: usize = 256;
@@ -30,6 +29,7 @@ const MAX_SKILL_VERSION_BYTES: usize = 128;
 const MAX_CONTEXT_EDITS: usize = 16;
 const MAX_CONTEXT_TOOL_NAMES: usize = 256;
 const MAX_CONTEXT_INSTRUCTIONS_BYTES: usize = 16 * 1024;
+const MIN_COMPACTION_TRIGGER_INPUT_TOKENS: u64 = 50_000;
 const MAX_MCP_SERVERS: usize = 20;
 const MAX_MCP_SERVER_NAME_BYTES: usize = 128;
 const MAX_MCP_SERVER_URL_BYTES: usize = 2_048;
@@ -226,6 +226,10 @@ impl InferenceGeo {
 }
 
 /// Token budget carried by `output_config.task_budget`.
+///
+/// This open protocol carrier requires a positive total and, when present, a
+/// remaining budget no greater than that total. Model-specific minima belong
+/// to the provider policy that selects the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenTaskBudget {
@@ -259,10 +263,10 @@ impl TokenTaskBudget {
     }
 
     pub(crate) fn validate(&self) -> Result<(), MessagesCodecError> {
-        if self.total < MIN_TASK_BUDGET_TOKENS {
+        if self.total == 0 {
             return Err(MessagesCodecError::InvalidOption {
                 field: "output_config.task_budget.total",
-                reason: "must be at least 20000 tokens",
+                reason: "must be greater than zero",
             });
         }
         if self
@@ -563,6 +567,9 @@ impl ClearThinkingEdit {
 }
 
 /// Configuration for the `compact_20260112` edit.
+///
+/// Its optional input-token trigger follows the versioned edit's current
+/// 50,000-token minimum.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompactionEdit {
     instructions: Option<String>,
@@ -603,10 +610,16 @@ impl CompactionEdit {
                 "must be a non-empty printable value of at most 16 KiB",
             )?;
         }
-        validate_positive_optional(
-            self.trigger_input_tokens,
-            "context_management.edits[].trigger.value",
-        )
+        if self
+            .trigger_input_tokens
+            .is_some_and(|value| value < MIN_COMPACTION_TRIGGER_INPUT_TOKENS)
+        {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "context_management.edits[].trigger.value",
+                reason: "compact_20260112 requires at least 50000 input tokens",
+            });
+        }
+        Ok(())
     }
 }
 

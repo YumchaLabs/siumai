@@ -409,12 +409,18 @@ fn maps_current_stop_reasons_without_collapsing_unknown_values() {
             )),
         ),
         (
+            "compaction",
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
+                "compaction".to_string(),
+            )),
+        ),
+        (
             "unknown",
-            LanguageTermination::Completed(LanguageCompletionReason::Other("unknown".to_string())),
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other("unknown".to_string())),
         ),
         (
             "future_reason",
-            LanguageTermination::Completed(LanguageCompletionReason::Other(
+            LanguageTermination::Incomplete(LanguageIncompleteReason::Other(
                 "future_reason".to_string(),
             )),
         ),

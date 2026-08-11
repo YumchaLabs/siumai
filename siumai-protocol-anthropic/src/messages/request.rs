@@ -1014,7 +1014,7 @@ fn encode_opaque_item(
         || item.kind() != OPAQUE_CONTENT_BLOCK_KIND
     {
         return Err(MessagesCodecError::Unsupported {
-            feature: "opaque content from another protocol",
+            feature: "opaque content outside the current Anthropic replay scope",
         });
     }
     let block = item.data();
@@ -1025,7 +1025,7 @@ fn encode_opaque_item(
             .ok_or(MessagesCodecError::ProtocolViolation {
                 reason: "native content block omitted its type",
             })?;
-    if !matches!(kind, "thinking" | "redacted_thinking") {
+    if !matches!(kind, "thinking" | "redacted_thinking" | "compaction") {
         return Err(MessagesCodecError::Unsupported {
             feature: "replay of this native Anthropic content block",
         });
@@ -1038,6 +1038,7 @@ fn encode_opaque_item(
     let required_fields: &[&str] = match kind {
         "thinking" => &["thinking", "signature"],
         "redacted_thinking" => &["data"],
+        "compaction" => &["content"],
         _ => &[],
     };
     if required_fields.iter().any(|field| {
@@ -1047,7 +1048,7 @@ fn encode_opaque_item(
             .is_none_or(str::is_empty)
     }) {
         return Err(MessagesCodecError::ProtocolViolation {
-            reason: "native reasoning block omitted required replay state",
+            reason: "native content block omitted required replay state",
         });
     }
     Ok(block.clone())
