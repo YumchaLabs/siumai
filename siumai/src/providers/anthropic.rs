@@ -49,10 +49,17 @@ pub mod messages {
 pub mod resources {
     pub use siumai_provider_anthropic::resources::{
         AnthropicBatchDeleteResult, AnthropicBatchItem, AnthropicBatchList,
-        AnthropicBatchListQuery, AnthropicBatchRequest, AnthropicFile, AnthropicFileDeleteResult,
-        AnthropicFileList, AnthropicFileListQuery, AnthropicFileUpload, AnthropicFiles,
-        AnthropicMessageBatch, AnthropicMessageBatches, AnthropicSkill, AnthropicSkillFile,
+        AnthropicBatchListQuery, AnthropicBatchProcessingStatus, AnthropicBatchRequest,
+        AnthropicBatchRequestCounts, AnthropicBatchResult, AnthropicBatchResultBody,
+        AnthropicBatchResultStatus, AnthropicBatchResultsDecodeError, AnthropicBatchResultsDecoder,
+        AnthropicBatchResultsStream, AnthropicBatchResultsStreamError, AnthropicFile,
+        AnthropicFileDeleteResult, AnthropicFileList, AnthropicFileListQuery, AnthropicFileUpload,
+        AnthropicFiles, AnthropicMessageBatch, AnthropicMessageBatches, AnthropicSkill,
+        AnthropicSkillDeleteResult, AnthropicSkillFile, AnthropicSkillList,
+        AnthropicSkillListQuery, AnthropicSkillResponseType, AnthropicSkillSource,
         AnthropicSkillUpload, AnthropicSkillUploadResult, AnthropicSkillVersion,
-        AnthropicSkillVersionList, AnthropicSkills, AnthropicTokenCount, AnthropicTokens,
+        AnthropicSkillVersionDeleteResult, AnthropicSkillVersionList,
+        AnthropicSkillVersionListQuery, AnthropicSkillVersionUpload, AnthropicSkills,
+        AnthropicTokenCount, AnthropicTokens,
     };
 }

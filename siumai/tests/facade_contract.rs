@@ -765,6 +765,10 @@ fn facade_exposes_anthropic_as_a_curated_provider() {
         MessagesCodecError,
     };
     use siumai::providers::anthropic::options::{AnthropicMessagesOptions, AnthropicThinking};
+    use siumai::providers::anthropic::resources::{
+        AnthropicBatchResultsStreamError, AnthropicSkillFile, AnthropicSkillVersionListQuery,
+        AnthropicSkillVersionUpload,
+    };
     use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
     use siumai::registry::ProviderRegistrationSource;
 
@@ -783,8 +787,15 @@ fn facade_exposes_anthropic_as_a_curated_provider() {
     assert_public_type::<AnthropicHostedToolBlockRef<'static>>();
     assert_public_type::<AnthropicHostedToolResultKind>();
     assert_public_type::<MessagesCodecError>();
+    assert_public_type::<AnthropicBatchResultsStreamError>();
+    assert_public_type::<AnthropicSkillVersionListQuery>();
     assert_opaque_extension::<siumai::core::OpaqueProviderItem>();
     let _inspect_native = inspect_native;
+    let _version_upload = AnthropicSkillVersionUpload::new(vec![
+        AnthropicSkillFile::new("fixture/SKILL.md", "text/plain", "instructions")
+            .expect("Skill file"),
+    ])
+    .expect("version upload");
 
     let provider = AnthropicProvider::builder(AnthropicCredential::api_key("test-key"))
         .build()

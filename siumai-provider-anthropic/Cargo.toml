@@ -25,17 +25,18 @@ siumai-transport = { workspace = true, default-features = false }
 async-trait.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+futures-util.workspace = true
 http.workspace = true
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+unicode-normalization = "0.1"
 url.workspace = true
 
 [features]
 default = []
 
 [dev-dependencies]
-futures-util.workspace = true
 tokio.workspace = true
 wiremock.workspace = true

@@ -737,6 +737,34 @@ cancellation partial output. They are rejected before typed payload decoding and
 automatically. Recreate them from trusted application history instead of synthesizing provider
 provenance or terminal state.
 
+## Anthropic Message Batches and Skills
+
+`AnthropicMessageBatches::results` now returns `AnthropicBatchResultsStream` instead of a buffered
+`Bytes` body. The stream incrementally decodes unordered JSONL records, applies encoded and decoded
+resource budgets while constructing each JSON value, and reports one typed terminal error for a
+malformed or truncated record. Use `futures_util::StreamExt` and correlate records through
+`AnthropicBatchResult::custom_id`:
+
+```rust,ignore
+use futures_util::StreamExt;
+
+let mut results = provider.message_batches().results(batch_id).await?;
+while let Some(result) = results.next().await {
+    let result = result?;
+    println!("{}: {}", result.custom_id, result.status().as_str());
+}
+```
+
+Batch and Skills response discriminants now use bounded open wrappers such as
+`AnthropicBatchProcessingStatus`, `AnthropicBatchResultStatus`, `AnthropicSkillResponseType`, and
+`AnthropicSkillSource`. Replace `Option<String>::as_deref()` calls with the wrapper's `as_str()`
+accessor. Unknown future values remain available; they are not converted into a closed allowlist.
+
+Skills now expose list, retrieve, delete, version-list, version-create, version-retrieve, and
+version-delete operations. `versions` remains the first-page convenience. Use `versions_page` with
+`AnthropicSkillVersionListQuery` to follow `next_page`. Multipart file uploads require one common
+top-level directory and a root `SKILL.md`; ZIP input remains opaque and server-validated.
+
 ## Migration checklist
 
 - Replace `MinimaxConfig` and `MinimaxClient` with `MinimaxCredential` and `MinimaxProvider`.

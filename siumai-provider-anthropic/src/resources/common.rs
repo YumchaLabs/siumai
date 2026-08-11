@@ -1,13 +1,14 @@
 use std::collections::BTreeSet;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use futures_util::StreamExt;
 use http::header::{ACCEPT, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use serde::{Deserialize, de::DeserializeOwned};
 use siumai_core::{CallOptions, Error, ErrorKind, PublicDiagnosticText, SensitiveResponse};
 use siumai_transport::{
     MultipartBody, ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget,
-    ResponseHeaders, TransportResponse,
+    ResponseHeaders, TransportByteStream, TransportResponse,
 };
 
 use super::NativeRuntime;
@@ -15,21 +16,6 @@ use super::NativeRuntime;
 pub(crate) const ANTHROPIC_VERSION_HEADER: HeaderName =
     HeaderName::from_static("anthropic-version");
 pub(crate) const ANTHROPIC_BETA_HEADER: HeaderName = HeaderName::from_static("anthropic-beta");
-
-pub(crate) fn validate_resource_id(id: &str) -> Result<(), Error> {
-    if id.is_empty()
-        || id.len() > 256
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Anthropic resource identifier is invalid",
-        ));
-    }
-    Ok(())
-}
 
 pub(crate) fn target(value: impl Into<String>) -> Result<RequestTarget, Error> {
     RequestTarget::new(value.into()).map_err(|source| {
@@ -115,6 +101,14 @@ pub(crate) async fn execute_download(
     Ok(body)
 }
 
+pub(crate) async fn collect_stream_body(mut body: TransportByteStream) -> Result<Bytes, Error> {
+    let mut collected = BytesMut::new();
+    while let Some(chunk) = body.next().await {
+        collected.extend_from_slice(&chunk?);
+    }
+    Ok(collected.freeze())
+}
+
 pub(crate) fn multipart_body(body: MultipartBody) -> RequestBody {
     RequestBody::multipart(body)
 }
@@ -150,7 +144,11 @@ struct ErrorBody {
     kind: Option<String>,
 }
 
-fn resource_status_error(status: StatusCode, headers: ResponseHeaders, body: Bytes) -> Error {
+pub(crate) fn resource_status_error(
+    status: StatusCode,
+    headers: ResponseHeaders,
+    body: Bytes,
+) -> Error {
     let envelope = serde_json::from_slice::<ErrorEnvelope>(&body).ok();
     let provider_type = envelope
         .as_ref()

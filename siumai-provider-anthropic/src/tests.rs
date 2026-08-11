@@ -9,7 +9,7 @@ use siumai_protocol_anthropic::messages::{
     MessagesCodecError, MessagesRequestOptions, encode_request_with_resolver,
 };
 use siumai_transport::{EndpointConfig, OfficialOrigin};
-use wiremock::matchers::{body_json, body_string_contains, header, method, path};
+use wiremock::matchers::{body_json, body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::resources::{
@@ -976,10 +976,11 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
         .await;
     Mock::given(method("POST"))
         .and(path("/v1/skills"))
+        .and(query_param("beta", "true"))
         .and(header("x-api-key", "resource-key"))
         .and(header("anthropic-beta", "skills-2025-10-02"))
         .and(body_string_contains(
-            "name=\"files[]\"; filename=\"index.ts\"",
+            "name=\"files[]\"; filename=\"fixture/SKILL.md\"",
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "skill_123",
@@ -1021,7 +1022,12 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
     );
 
     let skill = AnthropicSkillUpload::new(vec![
-        AnthropicSkillFile::new("index.ts", "text/typescript", "export {};").expect("skill file"),
+        AnthropicSkillFile::new(
+            "fixture/SKILL.md",
+            "text/markdown",
+            "---\nname: fixture\n---",
+        )
+        .expect("skill file"),
     ])
     .expect("skill upload")
     .with_display_title("Fixture")
