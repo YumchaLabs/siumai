@@ -718,6 +718,30 @@ mod tests {
     }
 
     #[test]
+    fn opaque_path_segment_preserves_origin_base_path_and_queries() {
+        let origin = OfficialOrigin::new("https://api.example.com").unwrap();
+        let endpoint =
+            EndpointConfig::official("https://api.example.com/openai/v1?api-version=next", origin)
+                .unwrap();
+        let target = RequestTarget::new("responses?include=future.value")
+            .unwrap()
+            .with_opaque_path_segment("resp/\\?#%2F资源")
+            .unwrap();
+        let url = endpoint.request_url(&target).unwrap();
+
+        assert_eq!(
+            url.origin().ascii_serialization(),
+            "https://api.example.com"
+        );
+        assert_eq!(
+            url.path(),
+            "/openai/v1/responses/resp%2F%5C%3F%23%252F%E8%B5%84%E6%BA%90"
+        );
+        assert_eq!(url.query(), Some("api-version=next&include=future.value"));
+        assert!(endpoint.audience().matches(&url));
+    }
+
+    #[test]
     fn official_endpoint_requires_the_provider_owned_exact_origin() {
         let origin = OfficialOrigin::new("https://api.example.com").unwrap();
         EndpointConfig::official("https://api.example.com/v1", origin.clone()).unwrap();

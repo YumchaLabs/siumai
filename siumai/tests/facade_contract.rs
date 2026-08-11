@@ -428,7 +428,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     let _ = OpenAiImageOptions::default();
     let _ = OpenAiSpeechOptions::default();
     let _ = OpenAiTranscriptionOptions::default();
-    let _ = OpenAiContentOptions::cache_write_candidate();
+    let _ = OpenAiContentOptions::prompt_cache_breakpoint();
     let _ = OpenAiConversationCreateRequest::new();
     let _ = OpenAiVectorStoreCreateRequest::new();
     let _: Option<OpenAiSkillUpload> = None;

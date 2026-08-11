@@ -1279,10 +1279,15 @@ fn validate_forward_compatible_wire(
 fn validate_forward_compatible_responses_wire(
     wire: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
+    validate_string_field(wire, "instructions")?;
+    validate_string_field(wire, "user")?;
     validate_string_field(wire, "service_tier")?;
-    validate_unsigned_field(wire, "max_tool_calls", Some(1), Some(u32::MAX as u64))?;
+    validate_bounded_string_field(wire, "prompt_cache_key", 64, false)?;
+    validate_bounded_string_field(wire, "safety_identifier", 64, true)?;
+    validate_metadata_field(wire)?;
+    validate_unsigned_field(wire, "max_tool_calls", Some(0), Some(u32::MAX as u64))?;
     validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
-    validate_string_array_field(wire, "include", true)?;
+    validate_string_array_field(wire, "include")?;
     validate_reasoning_field(wire)?;
 
     if wire.contains_key("conversation") && wire.contains_key("previous_response_id") {
@@ -1297,7 +1302,11 @@ fn validate_forward_compatible_responses_wire(
 fn validate_forward_compatible_chat_wire(
     wire: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
+    validate_string_field(wire, "user")?;
     validate_string_field(wire, "service_tier")?;
+    validate_bounded_string_field(wire, "prompt_cache_key", 64, false)?;
+    validate_bounded_string_field(wire, "safety_identifier", 64, true)?;
+    validate_metadata_field(wire)?;
     validate_bool_field(wire, "logprobs")?;
     validate_string_field(wire, "reasoning_effort")?;
     validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
@@ -1323,6 +1332,65 @@ fn validate_string_field(
     };
     if !value.is_string() {
         return Err(rejected_wire(field, "field must be a JSON string"));
+    }
+    Ok(())
+}
+
+fn validate_bounded_string_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+    maximum_chars: usize,
+    require_trimmed_nonempty: bool,
+) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get(field) else {
+        return Ok(());
+    };
+    let Some(value) = value.as_str() else {
+        return Err(rejected_wire(field, "field must be a JSON string"));
+    };
+    if value.chars().count() > maximum_chars
+        || value.chars().any(char::is_control)
+        || (require_trimmed_nonempty && (value.trim().is_empty() || value != value.trim()))
+    {
+        return Err(rejected_wire(
+            field,
+            "string value violates the documented length or identifier bounds",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_metadata_field(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
+    let Some(value) = wire.get("metadata") else {
+        return Ok(());
+    };
+    let Some(metadata) = value.as_object() else {
+        return Err(rejected_wire("metadata", "metadata must be a JSON object"));
+    };
+    if metadata.len() > 16 {
+        return Err(rejected_wire(
+            "metadata",
+            "metadata must not exceed 16 entries",
+        ));
+    }
+    for (key, value) in metadata {
+        if key.is_empty() || key.chars().count() > 64 || key.chars().any(char::is_control) {
+            return Err(rejected_wire(
+                "metadata",
+                "metadata keys must contain 1..=64 non-control characters",
+            ));
+        }
+        match value {
+            Value::String(value)
+                if value.chars().count() <= 512 && !value.chars().any(char::is_control) => {}
+            Value::Bool(_) | Value::Number(_) => {}
+            _ => {
+                return Err(rejected_wire(
+                    format!("metadata.{key}"),
+                    "metadata values must be bounded strings, numbers, or booleans",
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -1366,7 +1434,6 @@ fn validate_unsigned_field(
 fn validate_string_array_field(
     wire: &Map<String, Value>,
     field: &'static str,
-    unique: bool,
 ) -> Result<(), ProviderOptionError> {
     let Some(value) = wire.get(field) else {
         return Ok(());
@@ -1374,13 +1441,9 @@ fn validate_string_array_field(
     let Some(values) = value.as_array() else {
         return Err(rejected_wire(field, "field must be a JSON array"));
     };
-    let mut seen = std::collections::BTreeSet::new();
     for value in values {
-        let Some(value) = value.as_str() else {
+        if !value.is_string() {
             return Err(rejected_wire(field, "array entries must be JSON strings"));
-        };
-        if unique && !seen.insert(value) {
-            return Err(rejected_wire(field, "array entries must be unique"));
         }
     }
     Ok(())
@@ -1438,41 +1501,58 @@ fn rejected_wire(path: impl Into<String>, reason: impl Into<String>) -> Provider
 }
 
 fn is_protected_field(mode: OptionMode, field: &str) -> bool {
-    let common = matches!(
-        field,
-        "model"
-            | "stream"
-            | "temperature"
-            | "top_p"
-            | "max_output_tokens"
-            | "stop"
-            | "seed"
-            | "tools"
-            | "tool_choice"
-            | "prompt_cache_options"
-            | "prompt_cache_retention"
-            | "prompt_cache_breakpoints"
-    );
+    let common = [
+        "model",
+        "stream",
+        "stream_options",
+        "temperature",
+        "top_p",
+        "max_output_tokens",
+        "stop",
+        "seed",
+        "tools",
+        "tool_choice",
+        "prompt_cache_options",
+        "prompt_cache_retention",
+        "prompt_cache_breakpoints",
+        "method",
+        "target",
+        "endpoint",
+        "base_url",
+        "authorization",
+        "api_key",
+        "headers",
+        "retry",
+        "retry_policy",
+        "timeout",
+        "connect_timeout",
+        "read_timeout",
+        "call_timeout",
+    ]
+    .iter()
+    .any(|protected| field.eq_ignore_ascii_case(protected));
     common
         || match mode {
-            OptionMode::Responses => matches!(
-                field,
-                "input"
-                    | "text"
-                    | "background"
-                    | "tools"
-                    | "function_tool_options"
-                    | "type"
-                    | "generate"
-            ),
-            OptionMode::ChatCompletions => matches!(
-                field,
-                "messages"
-                    | "response_format"
-                    | "stream_options"
-                    | "max_tokens"
-                    | "max_completion_tokens"
-            ),
+            OptionMode::Responses => [
+                "input",
+                "text",
+                "background",
+                "tools",
+                "function_tool_options",
+                "type",
+                "generate",
+            ]
+            .iter()
+            .any(|protected| field.eq_ignore_ascii_case(protected)),
+            OptionMode::ChatCompletions => [
+                "messages",
+                "response_format",
+                "stream_options",
+                "max_tokens",
+                "max_completion_tokens",
+            ]
+            .iter()
+            .any(|protected| field.eq_ignore_ascii_case(protected)),
         }
 }
 

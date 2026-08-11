@@ -1,6 +1,6 @@
 //! Provider-native OpenAI Responses resource lifecycle operations.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -22,9 +22,11 @@ use super::options::{
     OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTruncation,
 };
 use super::provider::OpenAiRuntime;
+use super::resources::common::{
+    invalid_input, target, target_with_segments, target_with_segments_and_query,
+    validate_resource_id_with_message,
+};
 use super::tools::OpenAiResponsesTool;
-
-const MAX_RESOURCE_ID_BYTES: usize = 512;
 
 /// A newly created background response.
 #[derive(Clone, PartialEq)]
@@ -75,13 +77,12 @@ impl OpenAiResponsesResource {
         call_options: CallOptions,
     ) -> Result<ResponseWire, Error> {
         validate_resource_id("response_id", response_id)?;
-        options.validate()?;
         let pairs = options
             .include
             .into_iter()
             .map(|include| ("include", include.as_str().to_string()))
             .collect::<Vec<_>>();
-        let target = target_with_query(&format!("responses/{response_id}"), pairs)?;
+        let target = target_with_segments_and_query("responses", [response_id], pairs)?;
         let response = self
             .execute(
                 request_plan(Method::GET, target, ReplaySafety::SemanticallyIdempotent)?,
@@ -98,7 +99,7 @@ impl OpenAiResponsesResource {
         call_options: CallOptions,
     ) -> Result<OpenAiDeletedResponse, Error> {
         validate_resource_id("response_id", response_id)?;
-        let target = target(&format!("responses/{response_id}"))?;
+        let target = target_with_segments("responses", [response_id])?;
         let response = self
             .execute(
                 request_plan(Method::DELETE, target, ReplaySafety::Never)?,
@@ -118,7 +119,7 @@ impl OpenAiResponsesResource {
         call_options: CallOptions,
     ) -> Result<ResponseWire, Error> {
         validate_resource_id("response_id", response_id)?;
-        let target = target(&format!("responses/{response_id}/cancel"))?;
+        let target = target_with_segments("responses", [response_id, "cancel"])?;
         let response = self
             .execute(
                 json_request_plan(
@@ -158,7 +159,8 @@ impl OpenAiResponsesResource {
                 .into_iter()
                 .map(|include| ("include", include.as_str().to_string())),
         );
-        let target = target_with_query(&format!("responses/{response_id}/input_items"), pairs)?;
+        let target =
+            target_with_segments_and_query("responses", [response_id, "input_items"], pairs)?;
         let response = self
             .execute(
                 request_plan(Method::GET, target, ReplaySafety::SemanticallyIdempotent)?,
@@ -291,10 +293,6 @@ impl OpenAiResponsesRetrieveOptions {
         }
         self
     }
-
-    fn validate(&self) -> Result<(), Error> {
-        validate_unique_includes(&self.include)
-    }
 }
 
 /// Input-item ordering for the Responses resource API.
@@ -352,7 +350,7 @@ impl OpenAiResponsesInputItemsOptions {
         if let Some(after) = &self.after {
             validate_resource_id("after", after)?;
         }
-        validate_unique_includes(&self.include)
+        Ok(())
     }
 }
 
@@ -463,15 +461,6 @@ impl OpenAiResponsesCompactRequest {
     fn validate(&self) -> Result<(), Error> {
         if let Some(response_id) = &self.previous_response_id {
             validate_resource_id("previous_response_id", response_id)?;
-        }
-        if self
-            .instructions
-            .as_deref()
-            .is_some_and(|instructions| instructions.trim().is_empty())
-        {
-            return Err(invalid_input(
-                "Responses compaction instructions cannot be empty",
-            ));
         }
         if self.input.is_none() && self.previous_response_id.is_none() {
             return Err(invalid_input(
@@ -681,14 +670,6 @@ impl OpenAiResponsesInputTokenCountRequest {
         if let Some(previous_response_id) = &self.previous_response_id {
             validate_resource_id("previous_response_id", previous_response_id)?;
         }
-        if self.input.is_none()
-            && self.conversation.is_none()
-            && self.previous_response_id.is_none()
-        {
-            return Err(invalid_input(
-                "Responses input-token count requires input, conversation, or previous_response_id",
-            ));
-        }
         if self
             .input
             .as_ref()
@@ -698,22 +679,11 @@ impl OpenAiResponsesInputTokenCountRequest {
                 "Responses input-token count input must be a string or item array",
             ));
         }
-        if self
-            .instructions
-            .as_deref()
-            .is_some_and(|instructions| instructions.trim().is_empty())
-        {
-            return Err(invalid_input(
-                "Responses input-token count instructions cannot be empty",
-            ));
-        }
         if self.personality.as_deref().is_some_and(|personality| {
-            personality.trim().is_empty()
-                || personality != personality.trim()
-                || personality.chars().count() > 64
+            personality.chars().count() > 64 || personality.chars().any(char::is_control)
         }) {
             return Err(invalid_input(
-                "Responses input-token count personality must contain 1..=64 trimmed characters",
+                "Responses input-token count personality exceeds the local structural bound",
             ));
         }
         if self.text.as_ref().is_some_and(|text| !text.is_object()) {
@@ -818,55 +788,15 @@ fn json_request_plan<T: Serialize>(
     })?))
 }
 
-fn target(value: &str) -> Result<RequestTarget, Error> {
-    RequestTarget::new(value).map_err(|source| {
-        http_error::request_build_error(
-            "OpenAI Responses resource request violates the transport contract",
-            source,
-        )
-    })
-}
-
-fn target_with_query(
-    path: &str,
-    pairs: Vec<(&'static str, String)>,
-) -> Result<RequestTarget, Error> {
-    if pairs.is_empty() {
-        return target(path);
-    }
-    let query = pairs
-        .into_iter()
-        .map(|(name, value)| format!("{name}={}", urlencoding::encode(&value)))
-        .collect::<Vec<_>>()
-        .join("&");
-    target(&format!("{path}?{query}"))
-}
-
 fn validate_resource_id(field: &'static str, value: &str) -> Result<(), Error> {
-    if value.is_empty()
-        || value.len() > MAX_RESOURCE_ID_BYTES
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
-        return Err(invalid_input(match field {
+    validate_resource_id_with_message(
+        value,
+        match field {
             "after" => "Responses input item cursor is invalid",
             "previous_response_id" => "Responses previous response ID is invalid",
             _ => "OpenAI response ID is invalid",
-        }));
-    }
-    Ok(())
-}
-
-fn validate_unique_includes(includes: &[OpenAiResponseInclude]) -> Result<(), Error> {
-    if includes.iter().copied().collect::<BTreeSet<_>>().len() != includes.len() {
-        return Err(invalid_input("Responses include values must be unique"));
-    }
-    Ok(())
-}
-
-fn invalid_input(message: &'static str) -> Error {
-    Error::new(ErrorKind::InvalidInput, message)
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1142,11 +1072,152 @@ mod tests {
         assert!(!error.to_string().contains("input-token-secret"));
     }
 
+    #[tokio::test]
+    async fn input_token_count_preserves_optional_future_request_shapes() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .and(body_json(json!({
+                "model": "future-reasoning-model",
+                "instructions": "",
+                "personality": "  future profile  "
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "response.input_tokens",
+                "input_tokens": 3
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let counted = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("future-reasoning-model").unwrap())
+                    .with_instructions("")
+                    .with_personality("  future profile  "),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(counted.input_tokens, 3);
+    }
+
+    #[tokio::test]
+    async fn retrieve_passes_through_repeated_include_values() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/v1/responses/resp%2Fpart%5Cname%3Fview%23fragment%252F%25252F%E8%B5%84%E6%BA%90",
+            ))
+            .and(query_param("include", "reasoning.encrypted_content"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "resp_opaque",
+                "model": "future-model",
+                "status": "completed",
+                "output": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = resource(&server)
+            .await
+            .retrieve(
+                "resp/part\\name?view#fragment%2F%252F资源",
+                OpenAiResponsesRetrieveOptions {
+                    include: vec![
+                        OpenAiResponseInclude::ReasoningEncryptedContent,
+                        OpenAiResponseInclude::ReasoningEncryptedContent,
+                    ],
+                },
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.id, "resp_opaque");
+
+        let requests = server.received_requests().await.unwrap();
+        let include_values = requests[0]
+            .url
+            .query_pairs()
+            .filter_map(|(name, value)| (name == "include").then_some(value.into_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            include_values,
+            vec![
+                "reasoning.encrypted_content".to_owned(),
+                "reasoning.encrypted_content".to_owned(),
+            ]
+        );
+    }
+
     #[test]
-    fn resource_ids_cannot_escape_the_provider_endpoint() {
-        assert!(validate_resource_id("response_id", "resp_123").is_ok());
-        for invalid in ["", "../models", "resp/123", "resp%2f123", "resp?admin=true"] {
+    fn input_token_count_keeps_structural_bounds_without_composition_policy() {
+        OpenAiResponsesInputTokenCountRequest::new()
+            .with_conversation("conversation/opaque")
+            .with_instructions("")
+            .with_personality("  future profile  ")
+            .validate()
+            .unwrap();
+
+        let error = OpenAiResponsesInputTokenCountRequest::new()
+            .with_conversation("conversation/opaque")
+            .with_previous_response_id("response?opaque#value")
+            .validate()
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+
+        OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("response/opaque")
+            .with_instructions("")
+            .validate()
+            .unwrap();
+
+        assert!(
+            OpenAiResponsesInputTokenCountRequest::new()
+                .with_personality("x".repeat(65))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputTokenCountRequest::new()
+                .with_personality("control\nvalue")
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn resource_ids_are_opaque_bounded_values() {
+        for valid in [
+            "resp_123",
+            "resp/123",
+            "resp\\123",
+            ".",
+            "..",
+            "resp?admin=true#fragment",
+            "resp%2F123",
+            "resp%252F123",
+            "响应-资源",
+        ] {
+            assert!(
+                validate_resource_id("response_id", valid).is_ok(),
+                "resource ID should remain opaque: {valid:?}"
+            );
+        }
+        for invalid in ["", "control\nvalue"] {
             assert!(validate_resource_id("response_id", invalid).is_err());
         }
+        assert!(
+            validate_resource_id(
+                "response_id",
+                &"x".repeat(crate::configured::resources::common::MAX_RESOURCE_ID_BYTES + 1),
+            )
+            .is_err()
+        );
     }
 }

@@ -12,8 +12,8 @@ use siumai_transport::{ReplaySafety, RequestBody};
 
 use super::super::provider::OpenAiRuntime;
 use super::common::{
-    OpenAiNativeRuntime, invalid_input, json_body, target, target_with_query, validate_metadata,
-    validate_resource_id,
+    OpenAiNativeRuntime, invalid_input, json_body, target, target_with_segments,
+    target_with_segments_and_query, validate_metadata, validate_resource_id,
 };
 
 const MAX_ITEMS_PER_MUTATION: usize = 20;
@@ -111,7 +111,7 @@ impl OpenAiConversations {
         self.runtime
             .execute_json(
                 Method::GET,
-                target(format!("conversations/{conversation_id}"))?,
+                target_with_segments("conversations", [conversation_id])?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -139,7 +139,7 @@ impl OpenAiConversations {
         self.runtime
             .execute_json(
                 Method::POST,
-                target(format!("conversations/{conversation_id}"))?,
+                target_with_segments("conversations", [conversation_id])?,
                 json_body(&request)?,
                 ReplaySafety::Never,
                 options,
@@ -161,7 +161,7 @@ impl OpenAiConversations {
         self.runtime
             .execute_json(
                 Method::DELETE,
-                target(format!("conversations/{conversation_id}"))?,
+                target_with_segments("conversations", [conversation_id])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,
@@ -189,7 +189,7 @@ impl OpenAiConversations {
         self.runtime
             .execute_json(
                 Method::POST,
-                target(format!("conversations/{conversation_id}/items"))?,
+                target_with_segments("conversations", [conversation_id, "items"])?,
                 json_body(&request)?,
                 ReplaySafety::Never,
                 options,
@@ -217,8 +217,9 @@ impl OpenAiConversations {
         self.runtime
             .execute_json(
                 Method::GET,
-                target_with_query(
-                    &format!("conversations/{conversation_id}/items"),
+                target_with_segments_and_query(
+                    "conversations",
+                    [conversation_id, "items"],
                     list.query(),
                 )?,
                 RequestBody::Empty,

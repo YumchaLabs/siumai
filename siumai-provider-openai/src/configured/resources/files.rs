@@ -13,7 +13,7 @@ use siumai_transport::{MultipartBody, MultipartPart, ReplaySafety, RequestBody};
 use super::super::provider::OpenAiRuntime;
 use super::common::{
     OpenAiBinaryContent, OpenAiNativeRuntime, invalid_input, target, target_with_query,
-    validate_bounded_text, validate_file_expiration, validate_resource_id,
+    target_with_segments, validate_bounded_text, validate_file_expiration, validate_resource_id,
 };
 
 const MAX_FILE_NAME_BYTES: usize = 1_024;
@@ -219,7 +219,7 @@ impl OpenAiFiles {
         self.runtime
             .execute_json(
                 Method::GET,
-                target(format!("files/{file_id}"))?,
+                target_with_segments("files", [file_id])?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -240,7 +240,7 @@ impl OpenAiFiles {
         validate_resource_id(file_id)?;
         self.runtime
             .execute_bytes(
-                target(format!("files/{file_id}/content"))?,
+                target_with_segments("files", [file_id, "content"])?,
                 "application/octet-stream",
                 options,
             )
@@ -261,7 +261,7 @@ impl OpenAiFiles {
         self.runtime
             .execute_json(
                 Method::DELETE,
-                target(format!("files/{file_id}"))?,
+                target_with_segments("files", [file_id])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,

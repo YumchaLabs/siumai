@@ -27,7 +27,7 @@ use siumai_transport::{
     TransportResponse, TransportStreamResponse,
 };
 
-use super::annotations::{OpenAiAnnotationResolver, validate_prompt_cache_annotations};
+use super::annotations::OpenAiAnnotationResolver;
 use super::http_error;
 use super::mode::OpenAiApiMode;
 use super::provider::{OpenAiMergedOptions, OpenAiRuntime};
@@ -195,7 +195,7 @@ impl OpenAiResponsesModel {
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+        let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let body = self
             .encode_body(
@@ -225,7 +225,7 @@ impl OpenAiResponsesModel {
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+        let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .background_plan(&request, merged)
@@ -260,7 +260,7 @@ impl OpenAiResponsesModel {
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+        let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, false, merged)
@@ -304,7 +304,7 @@ impl OpenAiResponsesModel {
             .map_err(|source| {
                 self.contextualize(operation, option_error(OpenAiApiMode::Responses, source))
             })?;
-        let request = normalize_request(OpenAiApiMode::Responses, request, &merged)
+        let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, true, merged)
@@ -463,7 +463,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
                     option_error(OpenAiApiMode::ChatCompletions, source),
                 )
             })?;
-        let request = normalize_request(OpenAiApiMode::ChatCompletions, request, &merged)
+        let request = normalize_request(OpenAiApiMode::ChatCompletions, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, false, merged)
@@ -507,7 +507,7 @@ impl LanguageModel for OpenAiChatCompletionsModel {
                     option_error(OpenAiApiMode::ChatCompletions, source),
                 )
             })?;
-        let request = normalize_request(OpenAiApiMode::ChatCompletions, request, &merged)
+        let request = normalize_request(OpenAiApiMode::ChatCompletions, request)
             .map_err(|error| self.contextualize(operation, error))?;
         let plan = self
             .plan(&request, true, merged)
@@ -552,7 +552,6 @@ fn official_chat_dialect() -> ChatCompletionsDialect {
 fn normalize_request(
     mode: OpenAiApiMode,
     request: LanguageRequest,
-    merged: &OpenAiMergedOptions,
 ) -> Result<LanguageRequest, Error> {
     if mode == OpenAiApiMode::Responses {
         if request.generation.seed.is_some() {
@@ -569,31 +568,7 @@ fn normalize_request(
         }
     }
 
-    let cache_mode = prompt_cache_mode(&merged.wire);
-    validate_prompt_cache_annotations(&request, cache_mode).map_err(|source| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            "OpenAI prompt-cache annotations are invalid",
-        )
-        .with_source(source)
-    })?;
     Ok(request)
-}
-
-fn prompt_cache_mode(
-    wire: &std::collections::BTreeMap<String, Value>,
-) -> super::options::OpenAiPromptCacheMode {
-    if wire
-        .get("prompt_cache_options")
-        .and_then(Value::as_object)
-        .and_then(|options| options.get("mode"))
-        .and_then(Value::as_str)
-        == Some("explicit")
-    {
-        super::options::OpenAiPromptCacheMode::Explicit
-    } else {
-        super::options::OpenAiPromptCacheMode::Implicit
-    }
 }
 
 fn request_plan(
@@ -894,10 +869,11 @@ mod tests {
 
     use super::*;
     use crate::configured::{
-        GPT_5_5, GPT_5_6_SOL, OpenAiChatCompletionsOptions, OpenAiContentOptions, OpenAiCredential,
-        OpenAiFunctionToolOptions, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
-        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl, OpenAiProvider, OpenAiReasoning,
-        OpenAiReasoningEffort, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
+        GPT_5_5, GPT_5_6_SOL, OpenAiChatCompletionsOptions, OpenAiContentOptions,
+        OpenAiContextManagement, OpenAiCredential, OpenAiFunctionToolOptions,
+        OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
+        OpenAiPromptCacheTtl, OpenAiProvider, OpenAiReasoning, OpenAiReasoningEffort,
+        OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
     };
 
     fn provider() -> OpenAiProvider {
@@ -914,12 +890,14 @@ mod tests {
         LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")])
     }
 
-    fn request_with_cache_marker(annotation: OpenAiContentOptions) -> LanguageRequest {
+    fn request_with_cache_markers(count: usize) -> LanguageRequest {
         LanguageRequest::new(vec![Message::new(
             MessageRole::User,
-            [MessagePart::text("hello")
-                .with_provider_annotation(&annotation)
-                .expect("OpenAI annotation")],
+            (0..count).map(|index| {
+                MessagePart::text(format!("prefix-{index}"))
+                    .with_provider_annotation(&OpenAiContentOptions::prompt_cache_breakpoint())
+                    .expect("OpenAI annotation")
+            }),
         )])
     }
 
@@ -1014,6 +992,9 @@ mod tests {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
         let typed = OpenAiResponsesOptions {
+            instructions: Some(String::new()),
+            max_tool_calls: Some(0),
+            prompt_cache_key: Some(String::new()),
             prompt_cache_options: Some(OpenAiPromptCacheOptions {
                 mode: Some(OpenAiPromptCacheMode::Explicit),
                 ttl: Some(OpenAiPromptCacheTtl::ThirtyMinutes),
@@ -1021,6 +1002,8 @@ mod tests {
             top_logprobs: Some(5),
             reasoning: Some(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::None)),
             text_verbosity: Some(OpenAiTextVerbosity::High),
+            user: Some(String::new()),
+            context_management: vec![OpenAiContextManagement::compaction(0)],
             tools: vec![
                 OpenAiResponsesTool::web_search(),
                 OpenAiResponsesTool::programmatic_tool_calling(),
@@ -1035,17 +1018,18 @@ mod tests {
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let plan = model
-            .plan(
-                &request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-                false,
-                merged,
-            )
+            .plan(&request_with_cache_markers(12), false, merged)
             .unwrap();
         let body = body_json(&plan);
 
         assert_eq!(body["text"]["verbosity"], "high");
         assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(body["instructions"], "");
+        assert_eq!(body["max_tool_calls"], 0);
+        assert_eq!(body["prompt_cache_key"], "");
+        assert_eq!(body["user"], "");
+        assert_eq!(body["context_management"][0]["compact_threshold"], 0);
         assert_eq!(body["top_logprobs"], 5);
         assert!(
             body["include"]
@@ -1053,9 +1037,12 @@ mod tests {
                 .unwrap()
                 .contains(&json!("message.output_text.logprobs"))
         );
-        assert_eq!(
-            body["input"][0]["content"][0]["prompt_cache_breakpoint"],
-            json!({"mode": "explicit"})
+        let content = body["input"][0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 12);
+        assert!(
+            content
+                .iter()
+                .all(|part| { part["prompt_cache_breakpoint"] == json!({"mode": "explicit"}) })
         );
         assert_eq!(body["tools"][0]["type"], "web_search");
         assert_eq!(body["tools"][1]["type"], "programmatic_tool_calling");
@@ -1098,8 +1085,12 @@ mod tests {
     fn typed_chat_options_shape_explicit_cache_annotation() {
         let provider = provider();
         let model = provider.chat_completions(GPT_5_6_SOL).unwrap();
-        let typed = OpenAiChatCompletionsOptions::default()
-            .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes());
+        let typed = OpenAiChatCompletionsOptions {
+            prompt_cache_key: Some("  ".to_string()),
+            user: Some(String::new()),
+            ..OpenAiChatCompletionsOptions::default()
+                .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes())
+        };
         let call_options = CallOptions::default()
             .with_provider_options_for(&model, &typed)
             .unwrap();
@@ -1108,16 +1099,14 @@ mod tests {
             .merge_options_for(&model, OpenAiApiMode::ChatCompletions, &call_options)
             .unwrap();
         let plan = model
-            .plan(
-                &request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-                false,
-                merged,
-            )
+            .plan(&request_with_cache_markers(1), false, merged)
             .unwrap();
         let body = body_json(&plan);
 
         assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(body["prompt_cache_key"], "  ");
+        assert_eq!(body["user"], "");
         assert_eq!(
             body["messages"][0]["content"][0]["prompt_cache_breakpoint"],
             json!({"mode": "explicit"})
@@ -1136,7 +1125,17 @@ mod tests {
                     "future_feature": {"mode": "next"},
                     "service_tier": "future-priority",
                     "reasoning": {"effort": "future-max", "summary": "future-brief"},
-                    "include": ["future.output.metadata"]
+                    "include": ["future.output.metadata", "future.output.metadata"],
+                    "instructions": "",
+                    "max_tool_calls": 0,
+                    "metadata": {
+                        "label": "future",
+                        "priority": 2,
+                        "enabled": true
+                    },
+                    "prompt_cache_key": "",
+                    "safety_identifier": "future-user",
+                    "user": ""
                 }),
             )
             .unwrap();
@@ -1150,39 +1149,97 @@ mod tests {
         assert_eq!(body["service_tier"], "future-priority");
         assert_eq!(body["reasoning"]["effort"], "future-max");
         assert_eq!(body["reasoning"]["summary"], "future-brief");
-        assert_eq!(body["include"], json!(["future.output.metadata"]));
-
-        let options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({"model": "gpt-5.6-luna"}))
-            .unwrap();
-        let result = model
-            .runtime
-            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
-        assert!(
-            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "model")
+        assert_eq!(
+            body["include"],
+            json!(["future.output.metadata", "future.output.metadata"])
         );
+        assert_eq!(body["instructions"], "");
+        assert_eq!(body["max_tool_calls"], 0);
+        assert_eq!(body["metadata"]["label"], "future");
+        assert_eq!(body["metadata"]["priority"], 2);
+        assert_eq!(body["metadata"]["enabled"], true);
+        assert_eq!(body["prompt_cache_key"], "");
+        assert_eq!(body["safety_identifier"], "future-user");
+        assert_eq!(body["user"], "");
 
-        let options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({"background": true}))
-            .unwrap();
-        let result = model
-            .runtime
-            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
-        assert!(
-            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "background")
-        );
+        for (field, value) in [
+            ("prompt_cache_key", json!("x".repeat(65))),
+            ("safety_identifier", json!("unsafe\nidentifier")),
+            (
+                "metadata",
+                Value::Object(
+                    (0..17)
+                        .map(|index| (format!("key-{index}"), json!("value")))
+                        .collect(),
+                ),
+            ),
+        ] {
+            let mut raw = serde_json::Map::new();
+            raw.insert(field.to_string(), value);
+            let options = CallOptions::default()
+                .with_raw_provider_options_for(&model, Value::Object(raw))
+                .unwrap();
+            let result =
+                model
+                    .runtime
+                    .merge_options_for(&model, OpenAiApiMode::Responses, &options);
+            assert!(
+                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
+                "unbounded raw field {field} reached the request body"
+            );
+        }
 
-        let options = CallOptions::default()
+        for field in [
+            "model",
+            "Model",
+            "input",
+            "text",
+            "tools",
+            "stream",
+            "stream_options",
+            "background",
+            "prompt_cache_options",
+            "method",
+            "target",
+            "endpoint",
+            "authorization",
+            "headers",
+            "retry_policy",
+            "timeout",
+        ] {
+            let mut raw = serde_json::Map::new();
+            raw.insert(field.to_string(), json!(true));
+            let options = CallOptions::default()
+                .with_raw_provider_options_for(&model, Value::Object(raw))
+                .unwrap();
+            let result =
+                model
+                    .runtime
+                    .merge_options_for(&model, OpenAiApiMode::Responses, &options);
+            assert!(
+                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
+                "protected raw field {field} reached the request body"
+            );
+        }
+
+        let nested_body_data = CallOptions::default()
             .with_raw_provider_options_for(
                 &model,
-                json!({"prompt_cache_options": {"mode": "explicit"}}),
+                json!({
+                    "future_remote_tool": {
+                        "url": "https://provider.example/tool",
+                        "headers": {"Authorization": "provider-body-value"}
+                    }
+                }),
             )
             .unwrap();
-        let result = model
+        let merged = model
             .runtime
-            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
-        assert!(
-            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "prompt_cache_options")
+            .merge_options_for(&model, OpenAiApiMode::Responses, &nested_body_data)
+            .unwrap();
+        assert_eq!(
+            merged.wire["future_remote_tool"]["headers"]["Authorization"],
+            "provider-body-value"
         );
 
         let options = CallOptions::default()
@@ -1220,7 +1277,7 @@ mod tests {
             .runtime
             .merge_options_for(&responses, OpenAiApiMode::Responses, &responses_call)
             .unwrap();
-        let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
+        let normalized = normalize_request(OpenAiApiMode::Responses, request()).unwrap();
         let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
         assert_eq!(responses_body["reasoning"]["effort"], "max");
         assert!(responses_body["reasoning"].get("summary").is_none());
@@ -1239,8 +1296,7 @@ mod tests {
             .runtime
             .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &chat_call)
             .unwrap();
-        let normalized =
-            normalize_request(OpenAiApiMode::ChatCompletions, request(), &merged).unwrap();
+        let normalized = normalize_request(OpenAiApiMode::ChatCompletions, request()).unwrap();
         let chat_body = body_json(&chat.plan(&normalized, false, merged).unwrap());
         assert_eq!(chat_body["reasoning_effort"], "max");
     }
@@ -1261,7 +1317,7 @@ mod tests {
             .runtime
             .merge_options_for(&responses_5_6, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let normalized = normalize_request(OpenAiApiMode::Responses, request(), &merged).unwrap();
+        let normalized = normalize_request(OpenAiApiMode::Responses, request()).unwrap();
         let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
         assert_eq!(body["prompt_cache_retention"], "in_memory");
 
@@ -1277,12 +1333,8 @@ mod tests {
             .runtime
             .merge_options_for(&responses_5_5, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let normalized = normalize_request(
-            OpenAiApiMode::Responses,
-            request_with_cache_marker(OpenAiContentOptions::cache_write_candidate()),
-            &merged,
-        )
-        .unwrap();
+        let normalized =
+            normalize_request(OpenAiApiMode::Responses, request_with_cache_markers(1)).unwrap();
         let body = body_json(&responses_5_5.plan(&normalized, false, merged).unwrap());
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
         assert_eq!(
@@ -1585,7 +1637,7 @@ mod tests {
             .unwrap();
 
         let normalized_request =
-            normalize_request(OpenAiApiMode::Responses, caller_request, &merged).unwrap();
+            normalize_request(OpenAiApiMode::Responses, caller_request).unwrap();
 
         assert_eq!(normalized_request.generation.temperature, Some(0.7));
         assert_eq!(normalized_request.generation.top_p, Some(0.9));
@@ -1593,12 +1645,12 @@ mod tests {
 
         let mut with_seed = request();
         with_seed.generation.seed = Some(42);
-        let error = normalize_request(OpenAiApiMode::Responses, with_seed, &merged).unwrap_err();
+        let error = normalize_request(OpenAiApiMode::Responses, with_seed).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
         let mut with_stop = request();
         with_stop.generation.stop_sequences = vec!["stop".to_string()];
-        let error = normalize_request(OpenAiApiMode::Responses, with_stop, &merged).unwrap_err();
+        let error = normalize_request(OpenAiApiMode::Responses, with_stop).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
         let body = body_json(

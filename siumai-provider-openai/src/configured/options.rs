@@ -13,6 +13,8 @@ const MAX_TOP_LOGPROBS: u8 = 20;
 const MAX_METADATA_ENTRIES: usize = 16;
 const MAX_METADATA_KEY_CHARS: usize = 64;
 const MAX_METADATA_VALUE_CHARS: usize = 512;
+const MAX_PROMPT_CACHE_KEY_CHARS: usize = 64;
+const MAX_RESOURCE_ID_BYTES: usize = 512;
 const MAX_SAFETY_IDENTIFIER_CHARS: usize = 64;
 
 /// GPT-5.6 reasoning effort.
@@ -253,23 +255,6 @@ impl OpenAiContextManagement {
             compact_threshold: compact_threshold.into(),
         }
     }
-
-    fn validate(&self) -> Result<(), ProviderOptionError> {
-        match self {
-            Self::Compaction {
-                compact_threshold: Some(compact_threshold),
-            } if *compact_threshold < 1_000 => Err(rejected(
-                "context_management.compact_threshold",
-                "compaction threshold must be at least 1000 tokens",
-            )),
-            Self::Compaction {
-                compact_threshold: None,
-            } => Ok(()),
-            Self::Compaction {
-                compact_threshold: Some(_),
-            } => Ok(()),
-        }
-    }
 }
 
 /// Additional Responses payloads requested from OpenAI.
@@ -423,36 +408,25 @@ impl OpenAiResponsesOptions {
                 "conversation and previous_response_id are mutually exclusive",
             ));
         }
-        validate_optional_text("conversation", self.conversation.as_deref())?;
-        validate_optional_text("instructions", self.instructions.as_deref())?;
-        validate_optional_text("previous_response_id", self.previous_response_id.as_deref())?;
-        validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
+        validate_optional_resource_id("conversation", self.conversation.as_deref())?;
+        validate_optional_resource_id(
+            "previous_response_id",
+            self.previous_response_id.as_deref(),
+        )?;
+        validate_prompt_cache_key(self.prompt_cache_key.as_deref())?;
         validate_safety_identifier(self.safety_identifier.as_deref())?;
-        validate_optional_text("user", self.user.as_deref())?;
         validate_metadata(self.metadata.as_ref())?;
-        if self.max_tool_calls == Some(0) {
-            return Err(rejected(
-                "max_tool_calls",
-                "maximum tool calls must be greater than zero",
-            ));
-        }
         if self
             .top_logprobs
             .is_some_and(|value| value > MAX_TOP_LOGPROBS)
         {
             return Err(rejected("top_logprobs", "top_logprobs must not exceed 20"));
         }
-        for entry in &self.context_management {
-            entry.validate()?;
-        }
         for tool in &self.tools {
             tool.validate()?;
         }
         for (name, options) in &self.function_tool_options {
             options.validate(name)?;
-        }
-        if self.include.iter().copied().collect::<BTreeSet<_>>().len() != self.include.len() {
-            return Err(rejected("include", "include values must be unique"));
         }
         Ok(())
     }
@@ -551,8 +525,7 @@ impl OpenAiChatCompletionsOptions {
     }
 
     pub(crate) fn validate_values(&self) -> Result<(), ProviderOptionError> {
-        validate_optional_text("user", self.user.as_deref())?;
-        validate_optional_text("prompt_cache_key", self.prompt_cache_key.as_deref())?;
+        validate_prompt_cache_key(self.prompt_cache_key.as_deref())?;
         validate_safety_identifier(self.safety_identifier.as_deref())?;
         validate_metadata(self.metadata.as_ref())?;
         if self
@@ -634,9 +607,11 @@ fn validate_metadata(
 }
 
 fn validate_safety_identifier(value: Option<&str>) -> Result<(), ProviderOptionError> {
-    validate_optional_text("safety_identifier", value)?;
     if value.is_some_and(|value| {
-        value.chars().count() > MAX_SAFETY_IDENTIFIER_CHARS || value.chars().any(char::is_control)
+        value.trim().is_empty()
+            || value != value.trim()
+            || value.chars().count() > MAX_SAFETY_IDENTIFIER_CHARS
+            || value.chars().any(char::is_control)
     }) {
         return Err(rejected(
             "safety_identifier",
@@ -646,12 +621,31 @@ fn validate_safety_identifier(value: Option<&str>) -> Result<(), ProviderOptionE
     Ok(())
 }
 
-fn validate_optional_text(
+fn validate_prompt_cache_key(value: Option<&str>) -> Result<(), ProviderOptionError> {
+    if value.is_some_and(|value| {
+        value.chars().count() > MAX_PROMPT_CACHE_KEY_CHARS || value.chars().any(char::is_control)
+    }) {
+        return Err(rejected(
+            "prompt_cache_key",
+            "prompt_cache_key must not contain control characters or exceed 64 characters",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_resource_id(
     path: &'static str,
     value: Option<&str>,
 ) -> Result<(), ProviderOptionError> {
-    if value.is_some_and(|value| value.trim().is_empty() || value != value.trim()) {
-        return Err(rejected(path, "value must be non-empty and trimmed"));
+    if value.is_some_and(|value| {
+        value.is_empty()
+            || value.len() > MAX_RESOURCE_ID_BYTES
+            || value.chars().any(char::is_control)
+    }) {
+        return Err(rejected(
+            path,
+            "resource identifier must be non-empty, bounded, and contain no control characters",
+        ));
     }
     Ok(())
 }
@@ -745,6 +739,12 @@ mod tests {
         };
 
         assert!(options.validate_values().is_err());
+
+        let opaque = OpenAiResponsesOptions {
+            conversation: Some("conv/part?view#fragment%2F资源".to_string()),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(opaque.validate_values().is_ok());
     }
 
     #[test]
@@ -780,10 +780,22 @@ mod tests {
             ..OpenAiResponsesOptions::default()
         };
         assert!(oversized_safety.validate_values().is_err());
+
+        let oversized_cache_key = OpenAiChatCompletionsOptions {
+            prompt_cache_key: Some("x".repeat(65)),
+            ..OpenAiChatCompletionsOptions::default()
+        };
+        assert!(oversized_cache_key.validate_values().is_err());
+
+        let control_cache_key = OpenAiResponsesOptions {
+            prompt_cache_key: Some("cache\nkey".to_string()),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(control_cache_key.validate_values().is_err());
     }
 
     #[test]
-    fn current_response_include_service_tier_and_compaction_bounds_are_typed() {
+    fn current_response_include_service_tier_and_zero_values_are_typed() {
         assert_eq!(
             serde_json::to_value(OpenAiServiceTier::Fast).unwrap(),
             serde_json::json!("fast")
@@ -797,16 +809,27 @@ mod tests {
             serde_json::json!("web_search_call.results")
         );
 
-        let too_small = OpenAiResponsesOptions {
-            context_management: vec![OpenAiContextManagement::compaction(999)],
+        let zero_values = OpenAiResponsesOptions {
+            instructions: Some(String::new()),
+            max_tool_calls: Some(0),
+            prompt_cache_key: Some(String::new()),
+            user: Some(String::new()),
+            context_management: vec![OpenAiContextManagement::compaction(0)],
             ..OpenAiResponsesOptions::default()
         };
-        assert!(too_small.validate_values().is_err());
+        assert!(zero_values.validate_values().is_ok());
+        let value = serde_json::to_value(zero_values).unwrap();
+        assert_eq!(value["instructions"], "");
+        assert_eq!(value["max_tool_calls"], 0);
+        assert_eq!(value["prompt_cache_key"], "");
+        assert_eq!(value["user"], "");
+        assert_eq!(value["context_management"][0]["compact_threshold"], 0);
 
-        let minimum = OpenAiResponsesOptions {
-            context_management: vec![OpenAiContextManagement::compaction(1_000)],
-            ..OpenAiResponsesOptions::default()
+        let chat = OpenAiChatCompletionsOptions {
+            prompt_cache_key: Some("  ".to_string()),
+            user: Some(String::new()),
+            ..OpenAiChatCompletionsOptions::default()
         };
-        assert!(minimum.validate_values().is_ok());
+        assert!(chat.validate_values().is_ok());
     }
 }

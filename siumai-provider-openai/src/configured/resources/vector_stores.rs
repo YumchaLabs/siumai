@@ -13,9 +13,9 @@ use siumai_transport::{ReplaySafety, RequestBody};
 
 use super::super::provider::OpenAiRuntime;
 use super::common::{
-    OpenAiNativeRuntime, invalid_input, json_body, target, target_with_query, validate_attributes,
-    validate_bounded_text, validate_chunking, validate_metadata, validate_resource_id,
-    validate_vector_store_expiration,
+    OpenAiNativeRuntime, invalid_input, json_body, target, target_with_query, target_with_segments,
+    target_with_segments_and_query, validate_attributes, validate_bounded_text, validate_chunking,
+    validate_metadata, validate_resource_id, validate_vector_store_expiration,
 };
 
 const MAX_VECTOR_STORE_NAME_BYTES: usize = 256;
@@ -193,7 +193,7 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::GET,
-                target(format!("vector_stores/{vector_store_id}"))?,
+                target_with_segments("vector_stores", [vector_store_id])?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -221,7 +221,7 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::POST,
-                target(format!("vector_stores/{vector_store_id}"))?,
+                target_with_segments("vector_stores", [vector_store_id])?,
                 json_body(&request)?,
                 ReplaySafety::Never,
                 options,
@@ -243,7 +243,7 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::DELETE,
-                target(format!("vector_stores/{vector_store_id}"))?,
+                target_with_segments("vector_stores", [vector_store_id])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,
@@ -299,7 +299,7 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::POST,
-                target(format!("vector_stores/{vector_store_id}/files"))?,
+                target_with_segments("vector_stores", [vector_store_id, "files"])?,
                 json_body(&request)?,
                 ReplaySafety::Never,
                 options,
@@ -327,8 +327,9 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::GET,
-                target_with_query(
-                    &format!("vector_stores/{vector_store_id}/files"),
+                target_with_segments_and_query(
+                    "vector_stores",
+                    [vector_store_id, "files"],
                     list.query(),
                 )?,
                 RequestBody::Empty,
@@ -358,7 +359,7 @@ impl OpenAiVectorStores {
         self.runtime
             .execute_vector_store_json(
                 Method::DELETE,
-                target(format!("vector_stores/{vector_store_id}/files/{file_id}"))?,
+                target_with_segments("vector_stores", [vector_store_id, "files", file_id])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,

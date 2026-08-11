@@ -1,6 +1,6 @@
 //! Provider-owned OpenAI resource lifecycles.
 
-mod common;
+pub(super) mod common;
 mod conversations;
 mod files;
 pub(crate) mod skills;
@@ -109,6 +109,35 @@ mod tests {
 
         assert_eq!(file.id, "file_1");
         assert_eq!(file.extra["future"], true);
+    }
+
+    #[tokio::test]
+    async fn opaque_file_id_is_encoded_as_one_resource_path_segment() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/v1/files/file%2Fpart%5Cname%3Fview%23fragment%252F%25252F%E8%B5%84%E6%BA%90",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "file_opaque",
+                "object": "file",
+                "bytes": 4,
+                "created_at": 1,
+                "filename": "note.txt",
+                "purpose": "user_data"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let file = provider(&server)
+            .await
+            .files()
+            .retrieve("file/part\\name?view#fragment%2F%252F资源")
+            .await
+            .unwrap();
+
+        assert_eq!(file.id, "file_opaque");
     }
 
     #[tokio::test]

@@ -255,12 +255,7 @@ pub(crate) fn json_body(value: &impl Serialize) -> Result<RequestBody, Error> {
 }
 
 pub(crate) fn target(path: impl Into<String>) -> Result<RequestTarget, Error> {
-    RequestTarget::new(path.into()).map_err(|source| {
-        http_error::request_build_error(
-            "OpenAI resource target violates the transport contract",
-            source,
-        )
-    })
+    RequestTarget::new(path.into()).map_err(target_error)
 }
 
 pub(crate) fn target_with_query(
@@ -279,14 +274,61 @@ pub(crate) fn target_with_query(
     target(format!("{path}?{query}"))
 }
 
+pub(crate) fn target_with_segments<I, S>(path: &str, segments: I) -> Result<RequestTarget, Error>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    append_segments(target(path)?, segments)
+}
+
+pub(crate) fn target_with_segments_and_query<I, S>(
+    path: &str,
+    segments: I,
+    pairs: impl IntoIterator<Item = (&'static str, String)>,
+) -> Result<RequestTarget, Error>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    append_segments(target_with_query(path, pairs)?, segments)
+}
+
+fn append_segments<I, S>(mut target: RequestTarget, segments: I) -> Result<RequestTarget, Error>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    for segment in segments {
+        let segment = segment.as_ref();
+        validate_resource_id(segment)?;
+        target = target
+            .with_opaque_path_segment(segment)
+            .map_err(target_error)?;
+    }
+    Ok(target)
+}
+
+fn target_error(source: siumai_transport::RequestBuildError) -> Error {
+    http_error::request_build_error(
+        "OpenAI resource target violates the transport contract",
+        source,
+    )
+}
+
 pub(crate) fn validate_resource_id(value: &str) -> Result<(), Error> {
+    validate_resource_id_with_message(value, "OpenAI resource identifier is invalid")
+}
+
+pub(crate) fn validate_resource_id_with_message(
+    value: &str,
+    message: &'static str,
+) -> Result<(), Error> {
     if value.is_empty()
         || value.len() > MAX_RESOURCE_ID_BYTES
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        || value.chars().any(char::is_control)
     {
-        return Err(invalid_input("OpenAI resource identifier is invalid"));
+        return Err(invalid_input(message));
     }
     Ok(())
 }
@@ -372,4 +414,64 @@ pub(crate) fn validate_bounded_text(
 
 pub(crate) fn invalid_input(message: &'static str) -> Error {
     Error::new(ErrorKind::InvalidInput, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opaque_resource_segments_encode_once_across_resource_families() {
+        let raw = "opaque/\\?#%2F%252F资源";
+        let encoded = "opaque%2F%5C%3F%23%252F%25252F%E8%B5%84%E6%BA%90";
+
+        for root in [
+            "conversations",
+            "files",
+            "vector_stores",
+            "skills",
+            "responses",
+        ] {
+            let target = target_with_segments_and_query(
+                root,
+                [raw],
+                [("after", "cursor/value".to_string())],
+            )
+            .unwrap();
+            assert_eq!(
+                target.as_str(),
+                format!("{root}/{encoded}?after=cursor%2Fvalue")
+            );
+            assert!(!format!("{target:?}").contains(raw));
+        }
+    }
+
+    #[test]
+    fn opaque_resource_id_validation_keeps_only_structural_bounds() {
+        for valid in [
+            "resource_123",
+            "resource/part",
+            "resource\\part",
+            ".",
+            "..",
+            "resource?query#fragment",
+            "resource%2Fpart",
+            "resource%252Fpart",
+            "资源-识别符",
+        ] {
+            validate_resource_id(valid).unwrap();
+        }
+
+        for invalid in ["", "control\nvalue", "control\u{7f}value"] {
+            validate_resource_id(invalid).unwrap_err();
+        }
+        for segment in [".", ".."] {
+            target_with_segments("resources", [segment]).unwrap_err();
+        }
+        let sentinel = "opaque-resource-secret\n";
+        let error = validate_resource_id(sentinel).unwrap_err();
+        assert!(!format!("{error:?}").contains("opaque-resource-secret"));
+        assert!(!error.to_string().contains("opaque-resource-secret"));
+        validate_resource_id(&"x".repeat(MAX_RESOURCE_ID_BYTES + 1)).unwrap_err();
+    }
 }

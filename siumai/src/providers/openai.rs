@@ -18,9 +18,8 @@ pub mod chat_completions {
 
 pub mod prompt_cache {
     pub use siumai_provider_openai::prompt_cache::{
-        OpenAiAnnotationError, OpenAiContentOptions, OpenAiPromptCacheMarker,
-        OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
-        OpenAiPromptCacheTtl,
+        OpenAiContentOptions, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
+        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl,
     };
 }
 

@@ -29,7 +29,7 @@ mod speech;
 mod tools;
 mod transcription;
 
-pub use annotations::{OpenAiAnnotationError, OpenAiContentOptions, OpenAiPromptCacheMarker};
+pub use annotations::OpenAiContentOptions;
 pub use catalog::{
     GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
     classify_model,

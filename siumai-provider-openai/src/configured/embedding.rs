@@ -60,15 +60,11 @@ impl TypedProviderOptions for OpenAiEmbeddingOptions {
 
     fn validate(&self) -> Result<(), ProviderOptionError> {
         if let Some(user) = self.user.as_deref()
-            && (user.trim().is_empty()
-                || user.len() > MAX_USER_BYTES
-                || user.chars().any(char::is_control))
+            && (user.len() > MAX_USER_BYTES || user.chars().any(char::is_control))
         {
             return Err(ProviderOptionError::Rejected {
                 path: "user".to_string(),
-                reason:
-                    "must be non-empty, contain no control characters, and be at most 2048 bytes"
-                        .to_string(),
+                reason: "must contain no control characters and be at most 2048 bytes".to_string(),
             });
         }
         Ok(())
@@ -113,7 +109,6 @@ impl OpenAiEmbeddingModel {
         request: &EmbeddingRequest,
         options: &OpenAiEmbeddingOptions,
     ) -> Result<RequestPlan, Error> {
-        validate_dimensions(self.model_id(), request)?;
         let mut config = EmbeddingConfig::new();
         if let Some(user) = options.user.as_deref() {
             config = config.with_user(user);
@@ -253,21 +248,6 @@ fn decode_options(
     })
 }
 
-fn validate_dimensions(model: &ModelId, request: &EmbeddingRequest) -> Result<(), Error> {
-    if request.dimensions().is_some()
-        && !matches!(
-            model.as_str(),
-            TEXT_EMBEDDING_3_SMALL | TEXT_EMBEDDING_3_LARGE
-        )
-    {
-        return Err(Error::new(
-            ErrorKind::Unsupported,
-            "OpenAI embedding dimensions are verified only for text-embedding-3 models",
-        ));
-    }
-    Ok(())
-}
-
 fn option_error(source: ProviderOptionError) -> Error {
     Error::new(
         ErrorKind::InvalidInput,
@@ -294,11 +274,14 @@ fn response_request_id(headers: &siumai_transport::ResponseHeaders) -> Option<St
 
 #[cfg(test)]
 mod tests {
+    use crate::configured::{OpenAiCredential, OpenAiProvider};
+
     use super::*;
 
     #[test]
-    fn options_reject_unbounded_or_empty_user_ids() {
+    fn options_bound_user_ids_without_inventing_nonempty_semantics() {
         assert!(OpenAiEmbeddingOptions::new().with_user("user-1").is_ok());
+        assert!(OpenAiEmbeddingOptions::new().with_user("").is_ok());
         assert!(OpenAiEmbeddingOptions::new().with_user("\n").is_err());
         assert!(
             OpenAiEmbeddingOptions::new()
@@ -308,21 +291,23 @@ mod tests {
     }
 
     #[test]
-    fn dimensions_fail_closed_for_legacy_and_unknown_models() {
+    fn future_models_forward_explicit_dimensions_to_the_wire() {
         let request = EmbeddingRequest::new(["hello"])
             .unwrap()
             .with_dimensions(256)
             .unwrap();
-
-        assert!(
-            validate_dimensions(&ModelId::new(TEXT_EMBEDDING_3_SMALL).unwrap(), &request).is_ok()
-        );
-        assert!(
-            validate_dimensions(&ModelId::new(TEXT_EMBEDDING_ADA_002).unwrap(), &request).is_err()
-        );
-        assert!(
-            validate_dimensions(&ModelId::new("future-embedding-model").unwrap(), &request)
-                .is_err()
-        );
+        let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-key"))
+            .build()
+            .unwrap();
+        let model = provider.embedding("future-embedding-model").unwrap();
+        let plan = model
+            .plan(&request, &OpenAiEmbeddingOptions::default())
+            .unwrap();
+        let RequestBody::Bytes { data, .. } = plan.body() else {
+            panic!("expected a JSON embedding body");
+        };
+        let body: Value = serde_json::from_slice(data).unwrap();
+        assert_eq!(body["model"], "future-embedding-model");
+        assert_eq!(body["dimensions"], 256);
     }
 }

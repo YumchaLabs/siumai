@@ -39,6 +39,57 @@ impl RequestTarget {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Append one provider-owned opaque identifier as a single path segment.
+    ///
+    /// Provider codecs should pass the raw identifier to this method after
+    /// applying their provider-specific byte bound. The segment is encoded
+    /// exactly once and inserted before any existing query. Generic callers
+    /// should continue to use [`RequestTarget::new`], whose traversal checks
+    /// remain intentionally strict.
+    ///
+    /// Exact `.` and `..` segments are rejected because URL implementations
+    /// normalize them before dispatch. Other dots remain ordinary identifier
+    /// data.
+    pub fn with_opaque_path_segment(
+        self,
+        segment: impl AsRef<str>,
+    ) -> Result<Self, RequestBuildError> {
+        let segment = segment.as_ref();
+        if segment.is_empty()
+            || matches!(segment, "." | "..")
+            || segment.chars().any(char::is_control)
+        {
+            return Err(RequestBuildError::InvalidTarget);
+        }
+
+        let path_end = self.0.find('?').unwrap_or(self.0.len());
+        let path = &self.0[..path_end];
+        let query = &self.0[path_end..];
+        let separator = usize::from(!path.is_empty() && !path.ends_with('/'));
+        let encoded_bytes = segment.as_bytes().iter().fold(0_usize, |length, byte| {
+            length.saturating_add(if is_unreserved_path_byte(*byte) { 1 } else { 3 })
+        });
+        let total_bytes = path
+            .len()
+            .saturating_add(separator)
+            .saturating_add(encoded_bytes)
+            .saturating_add(query.len());
+        if total_bytes > MAX_TARGET_BYTES {
+            return Err(RequestBuildError::TargetTooLong {
+                maximum: MAX_TARGET_BYTES,
+            });
+        }
+
+        let mut value = String::with_capacity(total_bytes);
+        value.push_str(path);
+        if separator != 0 {
+            value.push('/');
+        }
+        push_encoded_path_segment(&mut value, segment.as_bytes());
+        value.push_str(query);
+        Ok(Self(value))
+    }
 }
 
 impl fmt::Debug for RequestTarget {
@@ -463,6 +514,24 @@ fn is_unsafe_path_segment(segment: &str) -> bool {
     }
 }
 
+fn is_unreserved_path_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~')
+}
+
+fn push_encoded_path_segment(output: &mut String, segment: &[u8]) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    for byte in segment {
+        if is_unreserved_path_byte(*byte) {
+            output.push(char::from(*byte));
+        } else {
+            output.push('%');
+            output.push(char::from(HEX[usize::from(*byte >> 4)]));
+            output.push(char::from(HEX[usize::from(*byte & 0x0f)]));
+        }
+    }
+}
+
 fn percent_decode_once(input: &[u8]) -> Option<Vec<u8>> {
     let mut decoded = Vec::with_capacity(input.len());
     let mut changed = false;
@@ -541,6 +610,50 @@ mod tests {
         }
 
         assert!(RequestTarget::new("responses?cursor=a%2Fb%5Cc").is_ok());
+    }
+
+    #[test]
+    fn opaque_path_segments_are_encoded_once_without_changing_the_query() {
+        let target = RequestTarget::new("responses?include=reasoning.encrypted_content")
+            .unwrap()
+            .with_opaque_path_segment("resp/\\?#%2F%252F资源")
+            .unwrap()
+            .with_opaque_path_segment("input_items")
+            .unwrap();
+
+        assert_eq!(
+            target.as_str(),
+            "responses/resp%2F%5C%3F%23%252F%25252F%E8%B5%84%E6%BA%90/input_items?include=reasoning.encrypted_content"
+        );
+        assert!(!format!("{target:?}").contains("resp/"));
+    }
+
+    #[test]
+    fn opaque_path_segments_reject_ambiguous_or_unbounded_inputs() {
+        for segment in ["", ".", "..", "control\nvalue", "control\u{7f}value"] {
+            assert_eq!(
+                RequestTarget::new("responses")
+                    .unwrap()
+                    .with_opaque_path_segment(segment)
+                    .unwrap_err(),
+                RequestBuildError::InvalidTarget
+            );
+        }
+
+        assert_eq!(
+            RequestTarget::new("responses")
+                .unwrap()
+                .with_opaque_path_segment("x".repeat(MAX_TARGET_BYTES))
+                .unwrap_err(),
+            RequestBuildError::TargetTooLong {
+                maximum: MAX_TARGET_BYTES,
+            }
+        );
+
+        assert_eq!(
+            RequestTarget::new("responses/%2F").unwrap_err(),
+            RequestBuildError::InvalidTarget
+        );
     }
 
     #[test]

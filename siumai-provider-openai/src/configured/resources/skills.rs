@@ -14,7 +14,8 @@ use siumai_transport::{MultipartBody, MultipartPart, ReplaySafety, RequestBody};
 use super::super::provider::{OpenAiProvider, OpenAiRuntime};
 use super::common::{
     OpenAiBinaryContent, OpenAiNativeRuntime, invalid_input, json_body, target, target_with_query,
-    validate_bounded_text, validate_resource_id,
+    target_with_segments, target_with_segments_and_query, validate_bounded_text,
+    validate_resource_id,
 };
 
 const MAX_SKILL_FILE_PATH_BYTES: usize = 1_024;
@@ -242,7 +243,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::GET,
-                target(format!("skills/{skill_id}"))?,
+                target_with_segments("skills", [skill_id])?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -270,7 +271,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::POST,
-                target(format!("skills/{skill_id}"))?,
+                target_with_segments("skills", [skill_id])?,
                 json_body(&request)?,
                 ReplaySafety::Never,
                 options,
@@ -291,7 +292,7 @@ impl OpenAiSkills {
         validate_resource_id(skill_id)?;
         self.runtime
             .execute_bytes(
-                target(format!("skills/{skill_id}/content"))?,
+                target_with_segments("skills", [skill_id, "content"])?,
                 "application/octet-stream",
                 options,
             )
@@ -312,7 +313,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::DELETE,
-                target(format!("skills/{skill_id}"))?,
+                target_with_segments("skills", [skill_id])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,
@@ -339,7 +340,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::POST,
-                target(format!("skills/{skill_id}/versions"))?,
+                target_with_segments("skills", [skill_id, "versions"])?,
                 skill_multipart(upload.files, upload.make_default)?,
                 ReplaySafety::Never,
                 options,
@@ -367,7 +368,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::GET,
-                target_with_query(&format!("skills/{skill_id}/versions"), list.query())?,
+                target_with_segments_and_query("skills", [skill_id, "versions"], list.query())?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -394,7 +395,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::GET,
-                target(format!("skills/{skill_id}/versions/{version}"))?,
+                target_with_segments("skills", [skill_id, "versions", version])?,
                 RequestBody::Empty,
                 ReplaySafety::SemanticallyIdempotent,
                 options,
@@ -420,7 +421,7 @@ impl OpenAiSkills {
         validate_skill_version_ids(skill_id, version)?;
         self.runtime
             .execute_bytes(
-                target(format!("skills/{skill_id}/versions/{version}/content"))?,
+                target_with_segments("skills", [skill_id, "versions", version, "content"])?,
                 "application/octet-stream",
                 options,
             )
@@ -446,7 +447,7 @@ impl OpenAiSkills {
         self.runtime
             .execute_json(
                 Method::DELETE,
-                target(format!("skills/{skill_id}/versions/{version}"))?,
+                target_with_segments("skills", [skill_id, "versions", version])?,
                 RequestBody::Empty,
                 ReplaySafety::Never,
                 options,
