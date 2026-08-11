@@ -25,20 +25,24 @@ pub mod options {
 pub mod annotations {
     pub use siumai_provider_anthropic::{
         AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions,
-        AnthropicMessageCache, AnthropicToolOptions, AnthropicToolSpecError,
+        AnthropicFileReference, AnthropicMessageCache, AnthropicMessageFile, AnthropicToolOptions,
+        AnthropicToolSpecError,
     };
 }
 
 pub mod messages {
     pub use siumai_provider_anthropic::{
-        AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ClearThinkingEdit,
+        AdvisorToolOptions, AnthropicHostedToolBlockRef, AnthropicHostedToolResultKind,
+        AnthropicHostedToolResultRef, AnthropicMcpToolUseRef, AnthropicOpaqueContentExt,
+        AnthropicServerToolUseRef, AnthropicTool, AnthropicToolReference, ClearThinkingEdit,
         ClearThinkingKeep, ClearToolInputs, ClearToolUsesEdit, CompactionEdit, ComputerToolOptions,
         ContainerSkill, ContainerSkillType, ContextManagement, ContextManagementEdit,
         ContextManagementTrigger, FallbackOutputConfig, InferenceGeo, InferenceSpeed,
-        McpAuthorizationToken, McpServer, McpToolConfig, McpToolsetOptions, MessagesContainer,
-        MessagesMetadata, MessagesServiceTierPreference, MidConversationToolChange, OutputEffort,
-        ResponseInclusion, ServerFallback, ServerFallbacks, TextEditorToolOptions, ThinkingDisplay,
-        TokenTaskBudget, ToolCaller, UserLocation, WebFetchToolOptions, WebSearchToolOptions,
+        McpAuthorizationToken, McpServer, McpToolConfig, McpToolsetOptions, MessagesCodecError,
+        MessagesContainer, MessagesMetadata, MessagesServiceTierPreference,
+        MidConversationToolChange, OutputEffort, ResponseInclusion, ServerFallback,
+        ServerFallbacks, TextEditorToolOptions, ThinkingDisplay, TokenTaskBudget, ToolCaller,
+        UserLocation, WebFetchToolOptions, WebSearchToolOptions,
     };
 }
 

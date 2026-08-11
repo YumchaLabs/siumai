@@ -759,13 +759,32 @@ fn facade_exposes_minimax_as_a_curated_composite_provider() {
 #[test]
 fn facade_exposes_anthropic_as_a_curated_provider() {
     use siumai::core::ProviderOptions;
+    use siumai::providers::anthropic::annotations::{AnthropicFileReference, AnthropicMessageFile};
+    use siumai::providers::anthropic::messages::{
+        AnthropicHostedToolBlockRef, AnthropicHostedToolResultKind, AnthropicOpaqueContentExt,
+        MessagesCodecError,
+    };
     use siumai::providers::anthropic::options::{AnthropicMessagesOptions, AnthropicThinking};
     use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
     use siumai::registry::ProviderRegistrationSource;
 
     fn assert_registration_source<T: ProviderRegistrationSource>() {}
+    fn assert_public_type<T>() {}
+    fn assert_opaque_extension<T: AnthropicOpaqueContentExt + ?Sized>() {}
+    fn inspect_native(
+        item: &siumai::core::OpaqueProviderItem,
+    ) -> Result<Option<AnthropicHostedToolBlockRef<'_>>, MessagesCodecError> {
+        item.anthropic_hosted_tool()
+    }
 
     assert_registration_source::<AnthropicProvider>();
+    assert_public_type::<AnthropicFileReference>();
+    assert_public_type::<AnthropicMessageFile>();
+    assert_public_type::<AnthropicHostedToolBlockRef<'static>>();
+    assert_public_type::<AnthropicHostedToolResultKind>();
+    assert_public_type::<MessagesCodecError>();
+    assert_opaque_extension::<siumai::core::OpaqueProviderItem>();
+    let _inspect_native = inspect_native;
 
     let provider = AnthropicProvider::builder(AnthropicCredential::api_key("test-key"))
         .build()

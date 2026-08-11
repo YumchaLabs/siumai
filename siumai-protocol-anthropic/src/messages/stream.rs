@@ -1,15 +1,17 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde_json::{Map, Value};
 use siumai_core::{
     ContentPart, DEFAULT_OPAQUE_ITEM_LIMIT, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error,
     ErrorKind, ExecutionOwner, LanguageStreamDecoder, LanguageStreamEvent, ModelId,
-    PartialLanguageOutput, PartialLanguageOutputPart, ProviderScope, ResponseDiagnostics,
-    StreamTerminal, Usage, UsageUpdate, UsageValue,
+    OpaqueProviderBudget, PartialLanguageOutput, PartialLanguageOutputPart, ProviderScope,
+    ResponseDiagnostics, StreamTerminal, Usage, UsageUpdate, UsageValue,
 };
 
 use super::MessagesCodecError;
 use super::error::classify_stream_failure;
+use super::native_content::{is_hosted_tool_use_kind, validate_caller};
 use super::response::{
     StreamResponseParts, build_stream_response, decode_content_block, decode_refusal_reason,
     decode_usage,
@@ -21,7 +23,6 @@ use super::wire::{StreamEventWire, StreamMessageDeltaWire, StreamMessageStartWir
 /// Transport owns SSE framing and passes each `data` payload to [`decode`](LanguageStreamDecoder::decode).
 /// The explicit `message_stop` event is the only successful protocol terminal;
 /// clean EOF before it is an unexpected-EOF failure.
-#[derive(Debug)]
 pub struct MessagesStreamDecoder {
     scope: ProviderScope,
     requested_model: ModelId,
@@ -38,6 +39,23 @@ pub struct MessagesStreamDecoder {
     active_blocks: BTreeMap<u64, ActiveBlock>,
     completed_blocks: BTreeMap<u64, Vec<ContentPart>>,
     response_diagnostics: ResponseDiagnostics,
+}
+
+impl fmt::Debug for MessagesStreamDecoder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesStreamDecoder")
+            .field("started", &self.started)
+            .field("message_id_present", &self.message_id.is_some())
+            .field("response_model_present", &self.response_model.is_some())
+            .field("stop_reason_present", &self.stop_reason.is_some())
+            .field("stop_sequence_present", &self.stop_sequence.is_some())
+            .field("stop_details_present", &self.stop_details.is_some())
+            .field("provider_metadata_fields", &self.provider_metadata.len())
+            .field("active_block_count", &self.active_blocks.len())
+            .field("completed_block_count", &self.completed_blocks.len())
+            .finish()
+    }
 }
 
 impl MessagesStreamDecoder {
@@ -206,6 +224,7 @@ impl MessagesStreamDecoder {
                 reason: "content block completed before message identity",
             })?;
         let parts = decode_content_block(&wire_block, &self.scope, model)?;
+        validate_stream_opaque_budget(&self.completed_blocks, &parts)?;
         let mut events = Vec::new();
         for part in &parts {
             match part {
@@ -464,7 +483,6 @@ impl LanguageStreamDecoder for MessagesStreamDecoder {
     }
 }
 
-#[derive(Debug)]
 enum ActiveBlock {
     Text {
         index: u64,
@@ -486,12 +504,35 @@ enum ActiveBlock {
         object: Map<String, Value>,
         id: String,
         name: String,
-        initial_input: Value,
+        initial_input: Option<Value>,
+        partial_input: String,
+    },
+    ProviderToolUse {
+        object: Map<String, Value>,
+        initial_input: Option<Value>,
         partial_input: String,
     },
     Static {
         object: Map<String, Value>,
     },
+}
+
+fn validate_stream_opaque_budget(
+    completed: &BTreeMap<u64, Vec<ContentPart>>,
+    current: &[ContentPart],
+) -> Result<(), MessagesCodecError> {
+    OpaqueProviderBudget::default()
+        .validate(
+            completed
+                .values()
+                .flatten()
+                .chain(current)
+                .filter_map(|part| match part {
+                    ContentPart::ProviderOpaque(item) => Some(item),
+                    _ => None,
+                }),
+        )
+        .map_err(MessagesCodecError::InvalidOpaqueItem)
 }
 
 impl ActiveBlock {
@@ -564,19 +605,27 @@ impl ActiveBlock {
             "tool_use" => {
                 let id = required_object_string(&object, "id")?.to_string();
                 let name = required_object_string(&object, "name")?.to_string();
-                let initial_input = object.get("input").cloned().unwrap_or(Value::Null);
-                let initial_bytes = serde_json::to_vec(&initial_input)
-                    .map_err(MessagesCodecError::JsonEncode)?
-                    .len();
-                if initial_bytes > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
-                    return Err(MessagesCodecError::ToolInputTooLarge {
-                        maximum: DEFAULT_TOOL_INPUT_BYTE_LIMIT,
-                    });
-                }
+                let initial_input = object.get("input").cloned();
+                ensure_initial_tool_input_bound(initial_input.as_ref())?;
                 Ok(Self::ToolUse {
                     object,
                     id,
                     name,
+                    initial_input,
+                    partial_input: String::new(),
+                })
+            }
+            kind if is_hosted_tool_use_kind(kind) => {
+                required_object_string(&object, "id")?;
+                required_object_string(&object, "name")?;
+                if kind == "mcp_tool_use" {
+                    required_object_string(&object, "server_name")?;
+                }
+                validate_caller(&object)?;
+                let initial_input = object.get("input").cloned();
+                ensure_initial_tool_input_bound(initial_input.as_ref())?;
+                Ok(Self::ProviderToolUse {
+                    object,
                     initial_input,
                     partial_input: String::new(),
                 })
@@ -617,7 +666,7 @@ impl ActiveBlock {
                 name: name.clone(),
                 owner: ExecutionOwner::Local,
             }],
-            Self::Static { .. } => Vec::new(),
+            Self::ProviderToolUse { .. } | Self::Static { .. } => Vec::new(),
         }
     }
 
@@ -742,6 +791,11 @@ impl ActiveBlock {
                     delta: delta.to_string(),
                 }])
             }
+            (Self::ProviderToolUse { partial_input, .. }, "input_json_delta") => {
+                let delta = required_object_string(object, "partial_json")?;
+                append_tool_input(partial_input, delta)?;
+                Ok(Vec::new())
+            }
             (Self::Static { .. }, _) => Err(MessagesCodecError::Unsupported {
                 feature: "deltas for this native Anthropic content block",
             }),
@@ -759,7 +813,10 @@ impl ActiveBlock {
             Self::Thinking { index, .. } => Some(LanguageStreamEvent::ReasoningEnd {
                 id: block_id("thinking", *index),
             }),
-            Self::Compaction { .. } | Self::ToolUse { .. } | Self::Static { .. } => None,
+            Self::Compaction { .. }
+            | Self::ToolUse { .. }
+            | Self::ProviderToolUse { .. }
+            | Self::Static { .. } => None,
         }
     }
 
@@ -788,6 +845,7 @@ impl ActiveBlock {
             | Self::Thinking { .. }
             | Self::Compaction { .. }
             | Self::ToolUse { .. }
+            | Self::ProviderToolUse { .. }
             | Self::Static { .. } => Vec::new(),
         }
     }
@@ -837,18 +895,16 @@ impl ActiveBlock {
                 partial_input,
                 ..
             } => {
-                let input = if partial_input.is_empty() {
-                    std::mem::take(initial_input)
-                } else {
-                    if !initial_input.is_null()
-                        && !initial_input.as_object().is_some_and(Map::is_empty)
-                    {
-                        return Err(MessagesCodecError::ProtocolViolation {
-                            reason: "tool input mixed a populated start value with JSON deltas",
-                        });
-                    }
-                    serde_json::from_str(partial_input).map_err(MessagesCodecError::JsonDecode)?
-                };
+                let input = assemble_tool_input(initial_input, partial_input)?;
+                object.insert("input".to_string(), input);
+                std::mem::take(object)
+            }
+            Self::ProviderToolUse {
+                object,
+                initial_input,
+                partial_input,
+            } => {
+                let input = assemble_tool_input(initial_input, partial_input)?;
                 object.insert("input".to_string(), input);
                 std::mem::take(object)
             }
@@ -856,6 +912,45 @@ impl ActiveBlock {
         };
         Ok(Value::Object(object))
     }
+}
+
+fn assemble_tool_input(
+    initial_input: &mut Option<Value>,
+    partial_input: &str,
+) -> Result<Value, MessagesCodecError> {
+    let input = if partial_input.is_empty() {
+        initial_input
+            .take()
+            .ok_or(MessagesCodecError::ProtocolViolation {
+                reason: "streamed tool input was omitted",
+            })?
+    } else {
+        if initial_input
+            .as_ref()
+            .is_some_and(|value| !value.as_object().is_some_and(Map::is_empty))
+        {
+            return Err(MessagesCodecError::ProtocolViolation {
+                reason: "tool input mixed a populated start value with JSON deltas",
+            });
+        }
+        serde_json::from_str(partial_input).map_err(MessagesCodecError::JsonDecode)?
+    };
+    Ok(input)
+}
+
+fn ensure_initial_tool_input_bound(input: Option<&Value>) -> Result<(), MessagesCodecError> {
+    let Some(input) = input else {
+        return Ok(());
+    };
+    let input_bytes = serde_json::to_vec(input)
+        .map_err(MessagesCodecError::JsonEncode)?
+        .len();
+    if input_bytes > DEFAULT_TOOL_INPUT_BYTE_LIMIT {
+        return Err(MessagesCodecError::ToolInputTooLarge {
+            maximum: DEFAULT_TOOL_INPUT_BYTE_LIMIT,
+        });
+    }
+    Ok(())
 }
 
 fn ensure_compaction_state_bound(

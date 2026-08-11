@@ -7,6 +7,7 @@
 
 mod annotations;
 mod error;
+mod native_content;
 mod options;
 mod request;
 mod response;
@@ -16,9 +17,14 @@ mod wire;
 
 pub use annotations::{
     AnthropicToolReference, CacheControl, CacheTtl, ContentNodeOptions, MessageNodeOptions,
-    MessagesAnnotationResolver, MidConversationToolChange, NoMessagesAnnotations, ToolNodeOptions,
+    MessagesAnnotationResolver, MessagesFileBlock, MessagesFileReference,
+    MidConversationToolChange, NoMessagesAnnotations, ToolNodeOptions,
 };
 pub use error::MessagesCodecError;
+pub use native_content::{
+    AnthropicHostedToolBlockRef, AnthropicHostedToolResultKind, AnthropicHostedToolResultRef,
+    AnthropicMcpToolUseRef, AnthropicOpaqueContentExt, AnthropicServerToolUseRef,
+};
 pub use options::{
     AdvisorToolOptions, AnthropicTool, ClearThinkingEdit, ClearThinkingKeep, ClearToolInputs,
     ClearToolUsesEdit, CompactionEdit, ComputerToolOptions, ContainerSkill, ContainerSkillType,

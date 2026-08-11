@@ -9,7 +9,12 @@ use siumai_core::{
 
 use super::annotations::{
     AnthropicToolReferenceKind, CacheControl, CacheTtl, MessagesAnnotationResolver,
-    MidConversationToolChange, MidConversationToolChangeKind, NoMessagesAnnotations,
+    MessagesFileBlock, MidConversationToolChange, MidConversationToolChangeKind,
+    NoMessagesAnnotations, file_scope_is_complete,
+};
+use super::native_content::{
+    AnthropicHostedToolBlockRef, caller_is_replayable, inspect_hosted_tool_value,
+    is_maintained_hosted_kind, validate_caller,
 };
 use super::options::{
     AnthropicTool, McpServer, McpToolConfig, MessagesContainer, MessagesRequestOptions,
@@ -260,7 +265,7 @@ fn encode_count_tokens_request_with_optional_scope(
     }
     let tools = encode_tools(&request.tools, resolver, cache_style)?;
     validate_tool_change_references(&messages, &tools)?;
-    validate_mcp_and_skills_bindings(&tools, None, options.mcp_servers.as_deref())?;
+    validate_mcp_and_skills_bindings(&tools, &messages, None, options.mcp_servers.as_deref())?;
     if tools.is_empty()
         && request
             .tool_choice
@@ -424,6 +429,7 @@ fn encode_request_with_optional_scope(
     validate_tool_change_references(&messages, &tools)?;
     validate_mcp_and_skills_bindings(
         &tools,
+        &messages,
         options.container.as_ref(),
         options.mcp_servers.as_deref(),
     )?;
@@ -615,6 +621,12 @@ fn encode_system_message(
     let mut blocks = Vec::with_capacity(message.content().len());
     for part in message.content() {
         let content_options = resolver.resolve_content(part.annotations())?;
+        if content_options.file().is_some() {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.file",
+                reason: "must appear in a user message",
+            });
+        }
         if let Some(tool_change) = content_options.tool_change() {
             if placement != SystemMessagePlacement::Conversation {
                 return Err(MessagesCodecError::InvalidOption {
@@ -762,14 +774,43 @@ fn encode_conversation_message(
         }
     };
     let suppress_native_reasoning = validate_native_reasoning_projection(message, scope)?;
+    let suppress_native_tool_calls = validate_native_tool_call_projection(message, scope)?;
     let mut blocks = Vec::with_capacity(message.content().len());
-    for part in message.content() {
+    for (content_index, part) in message.content().iter().enumerate() {
         let content_options = resolver.resolve_content(part.annotations())?;
         if content_options.tool_change().is_some() {
             return Err(MessagesCodecError::InvalidOption {
                 field: "messages.tool_change",
                 reason: "must be attached to a mid-conversation system message",
             });
+        }
+        if let Some(file) = content_options.file() {
+            if message.role() != MessageRole::User {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "messages.file",
+                    reason: "must appear in a user message",
+                });
+            }
+            if !matches!(part.content(), ContentPart::Text { text } if text.is_empty()) {
+                return Err(MessagesCodecError::InvalidOption {
+                    field: "messages.file.anchor",
+                    reason: "must use the empty text anchor created by the provider helper",
+                });
+            }
+            let mut block = encode_file_block(file, scope)?;
+            if let Some(cache_control) = content_options.cache_control() {
+                apply_cache_control(&mut block, cache_control, cache_style)?;
+            }
+            blocks.push(block);
+            continue;
+        }
+        if suppress_native_tool_calls.contains(&content_index) {
+            if content_options.cache_control().is_some() {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "cache annotation on a suppressed native tool projection",
+                });
+            }
+            continue;
         }
         let Some(mut block) = encode_content_part(
             message.role(),
@@ -969,6 +1010,74 @@ fn encode_media(media: &MediaPart, video_input: bool) -> Result<Value, MessagesC
     Ok(Value::Object(block))
 }
 
+fn encode_file_block(
+    file: &MessagesFileBlock,
+    selected_scope: Option<&ProviderScope>,
+) -> Result<Value, MessagesCodecError> {
+    let selected_scope = selected_scope.ok_or(MessagesCodecError::Unsupported {
+        feature: "Anthropic file references without an exact provider scope",
+    })?;
+    if !file_scope_is_complete(selected_scope) {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "Anthropic file references without a complete replay scope",
+        });
+    }
+    if !file
+        .reference()
+        .scope()
+        .shares_replay_domain(selected_scope)
+    {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "Anthropic file references outside the current replay scope",
+        });
+    }
+    validate_file_id(file.reference().file_id())?;
+
+    let file_id = file.reference().file_id();
+    Ok(match file {
+        MessagesFileBlock::Image(_) => json!({
+            "type": "image",
+            "source": {"type": "file", "file_id": file_id},
+        }),
+        MessagesFileBlock::Document {
+            title,
+            context,
+            citations,
+            ..
+        } => {
+            let mut block = Map::new();
+            block.insert("type".to_string(), Value::String("document".to_string()));
+            block.insert(
+                "source".to_string(),
+                json!({"type": "file", "file_id": file_id}),
+            );
+            if let Some(title) = title {
+                block.insert("title".to_string(), Value::String(title.clone()));
+            }
+            if let Some(context) = context {
+                block.insert("context".to_string(), Value::String(context.clone()));
+            }
+            if let Some(enabled) = citations {
+                block.insert("citations".to_string(), json!({"enabled": enabled}));
+            }
+            Value::Object(block)
+        }
+        MessagesFileBlock::ContainerUpload(_) => {
+            json!({"type": "container_upload", "file_id": file_id})
+        }
+    })
+}
+
+fn validate_file_id(file_id: &str) -> Result<(), MessagesCodecError> {
+    if file_id.is_empty() || file_id.len() > 512 || file_id.chars().any(char::is_control) {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.file.file_id",
+            reason: "must be non-empty, bounded, and free of control characters",
+        });
+    }
+    Ok(())
+}
+
 fn encode_tool_result(result: &ToolResult) -> Result<Value, MessagesCodecError> {
     if result.call_id.trim().is_empty() {
         return Err(MessagesCodecError::InvalidOption {
@@ -1025,7 +1134,11 @@ fn encode_opaque_item(
             .ok_or(MessagesCodecError::ProtocolViolation {
                 reason: "native content block omitted its type",
             })?;
-    if !matches!(kind, "thinking" | "redacted_thinking" | "compaction") {
+    if !matches!(
+        kind,
+        "thinking" | "redacted_thinking" | "compaction" | "tool_use"
+    ) && !is_maintained_hosted_kind(kind)
+    {
         return Err(MessagesCodecError::Unsupported {
             feature: "replay of this native Anthropic content block",
         });
@@ -1072,9 +1185,283 @@ fn encode_opaque_item(
                 });
             }
         }
-        _ => unreachable!("validated native content block kind"),
+        "tool_use" => {
+            let object = block
+                .as_object()
+                .expect("native content block was validated as an object");
+            let caller = validate_caller(object)?;
+            if caller.is_none() {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "replay of a native tool_use block without caller metadata",
+                });
+            }
+            if !caller_is_replayable(caller) {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "replay of a native tool_use block with an unknown caller",
+                });
+            }
+            validate_native_caller_tool_use(object)?;
+            validate_complete_native_replay_scope(item, scope)?;
+        }
+        kind if is_maintained_hosted_kind(kind) => {
+            let hosted =
+                inspect_hosted_tool_value(block)?.ok_or(MessagesCodecError::ProtocolViolation {
+                    reason: "maintained hosted-tool block could not be inspected",
+                })?;
+            if !caller_is_replayable(hosted.caller()) {
+                return Err(MessagesCodecError::Unsupported {
+                    feature: "replay of a native hosted-tool block with an unknown caller",
+                });
+            }
+            validate_maintained_hosted_identity(item, hosted)?;
+            validate_complete_native_replay_scope(item, scope)?;
+        }
+        _ => {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "replay of this native Anthropic content block",
+            });
+        }
     }
     Ok(block.clone())
+}
+
+fn validate_native_tool_call_projection(
+    message: &Message,
+    scope: Option<&ProviderScope>,
+) -> Result<BTreeSet<usize>, MessagesCodecError> {
+    if message.role() != MessageRole::Assistant {
+        return Ok(BTreeSet::new());
+    }
+
+    let local_calls = message
+        .content()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| match part.content() {
+            ContentPart::ToolCall(call) if matches!(call.owner(), ExecutionOwner::Local) => {
+                Some((index, call))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut suppressed = BTreeSet::new();
+
+    for part in message.content() {
+        let ContentPart::ProviderOpaque(item) = part.content() else {
+            continue;
+        };
+        if item.kind() != OPAQUE_CONTENT_BLOCK_KIND
+            || item.data().get("type").and_then(Value::as_str) != Some("tool_use")
+        {
+            continue;
+        }
+        let object = item
+            .data()
+            .as_object()
+            .ok_or(MessagesCodecError::ProtocolViolation {
+                reason: "native tool_use replay block was not an object",
+            })?;
+        let caller = validate_caller(object)?;
+        if caller.is_none() {
+            continue;
+        }
+        if !caller_is_replayable(caller) {
+            return Err(MessagesCodecError::Unsupported {
+                feature: "replay of a native tool_use block with an unknown caller",
+            });
+        }
+        validate_complete_native_replay_scope(item, scope)?;
+        let (id, name, input) = validate_native_caller_tool_use(object)?;
+        if item.item_id() != Some(id) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_use.id",
+                reason: "native tool identity does not match its retained item ID",
+            });
+        }
+        validate_caller_relation(item, caller)?;
+        validate_relation_kinds(item, &["caller"])?;
+
+        let matching = local_calls
+            .iter()
+            .filter(|(_, call)| call.id() == id)
+            .collect::<Vec<_>>();
+        if matching.len() != 1 {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_use",
+                reason: "native caller tool replay requires exactly one matching local tool call",
+            });
+        }
+        let &(index, call) = matching[0];
+        if call.name() != name || call.arguments() != input {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_use",
+                reason: "native caller tool replay does not match the local tool call semantics",
+            });
+        }
+        if !suppressed.insert(index) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.tool_use",
+                reason: "more than one native replay block referenced the same local tool call",
+            });
+        }
+    }
+    Ok(suppressed)
+}
+
+fn validate_maintained_hosted_identity(
+    item: &OpaqueProviderItem,
+    hosted: AnthropicHostedToolBlockRef<'_>,
+) -> Result<(), MessagesCodecError> {
+    match hosted {
+        AnthropicHostedToolBlockRef::ServerToolUse(value) => {
+            validate_retained_item_id(item, value.id())?;
+            validate_caller_relation(item, value.caller())?;
+            validate_relation_kinds(item, &["caller"])
+        }
+        AnthropicHostedToolBlockRef::McpToolUse(value) => {
+            validate_retained_item_id(item, value.id())?;
+            validate_caller_relation(item, value.caller())?;
+            validate_relation_kinds(item, &["caller"])
+        }
+        AnthropicHostedToolBlockRef::Result(value) => {
+            validate_single_relation(item, "related_item", value.tool_use_id())?;
+            validate_caller_relation(item, value.caller())?;
+            validate_relation_kinds(item, &["related_item", "caller"])
+        }
+    }
+}
+
+fn validate_retained_item_id(
+    item: &OpaqueProviderItem,
+    expected: &str,
+) -> Result<(), MessagesCodecError> {
+    if item.item_id() != Some(expected) {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.native.item_id",
+            reason: "native hosted-tool identity does not match its retained item ID",
+        });
+    }
+    Ok(())
+}
+
+fn validate_caller_relation(
+    item: &OpaqueProviderItem,
+    caller: Option<&Value>,
+) -> Result<(), MessagesCodecError> {
+    let caller_id = caller
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("tool_id"))
+        .and_then(Value::as_str);
+    match caller_id {
+        Some(caller_id) => validate_single_relation(item, "caller", caller_id),
+        None if item
+            .relations()
+            .iter()
+            .any(|relation| relation.kind() == "caller") =>
+        {
+            Err(MessagesCodecError::InvalidOption {
+                field: "messages.native.relations",
+                reason: "native hosted-tool caller relation was absent from the wire block",
+            })
+        }
+        None => Ok(()),
+    }
+}
+
+fn validate_relation_kinds(
+    item: &OpaqueProviderItem,
+    allowed: &[&str],
+) -> Result<(), MessagesCodecError> {
+    if item
+        .relations()
+        .iter()
+        .any(|relation| !allowed.contains(&relation.kind()))
+    {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.native.relations",
+            reason: "native hosted-tool item contained an unsupported identity relation",
+        });
+    }
+    Ok(())
+}
+
+fn validate_single_relation(
+    item: &OpaqueProviderItem,
+    kind: &str,
+    expected: &str,
+) -> Result<(), MessagesCodecError> {
+    let matching = item
+        .relations()
+        .iter()
+        .filter(|relation| relation.kind() == kind)
+        .collect::<Vec<_>>();
+    if matching.len() != 1 || matching[0].target_id() != expected {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.native.relations",
+            reason: "native hosted-tool relation does not match its retained wire identity",
+        });
+    }
+    Ok(())
+}
+
+fn validate_native_caller_tool_use(
+    object: &Map<String, Value>,
+) -> Result<(&str, &str, &Value), MessagesCodecError> {
+    let id = required_native_identifier(object, "id")?;
+    let name = required_native_identifier(object, "name")?;
+    let input = object
+        .get("input")
+        .ok_or(MessagesCodecError::ProtocolViolation {
+            reason: "native caller tool_use omitted its input",
+        })?;
+    Ok((id, name, input))
+}
+
+fn validate_complete_native_replay_scope(
+    item: &OpaqueProviderItem,
+    selected_scope: Option<&ProviderScope>,
+) -> Result<(), MessagesCodecError> {
+    let selected_scope = selected_scope.ok_or(MessagesCodecError::Unsupported {
+        feature: "native Anthropic hosted-tool replay without an exact provider scope",
+    })?;
+    let item_scope = item.provenance().scope();
+    let complete = |scope: &ProviderScope| {
+        scope.platform().is_some()
+            && scope.protocol().is_some()
+            && scope.api_mode().is_some()
+            && scope
+                .replay_domain()
+                .and_then(|domain| domain.caller_scope())
+                .is_some()
+    };
+    if !complete(selected_scope)
+        || !complete(item_scope)
+        || !item.provenance().matches_replay_target(selected_scope)
+    {
+        return Err(MessagesCodecError::Unsupported {
+            feature: "native Anthropic hosted-tool content outside the complete replay scope",
+        });
+    }
+    Ok(())
+}
+
+fn required_native_identifier<'a>(
+    object: &'a Map<String, Value>,
+    field: &'static str,
+) -> Result<&'a str, MessagesCodecError> {
+    let value =
+        object
+            .get(field)
+            .and_then(Value::as_str)
+            .ok_or(MessagesCodecError::ProtocolViolation {
+                reason: "native caller tool_use omitted a required identifier",
+            })?;
+    if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
+        return Err(MessagesCodecError::ProtocolViolation {
+            reason: "native caller tool_use contained an invalid identifier",
+        });
+    }
+    Ok(value)
 }
 
 fn is_native_reasoning_block(item: &OpaqueProviderItem, scope: Option<&ProviderScope>) -> bool {
@@ -1131,6 +1518,7 @@ fn encode_tools(
 
 fn validate_mcp_and_skills_bindings(
     tools: &[Value],
+    messages: &[Value],
     container: Option<&MessagesContainer>,
     mcp_servers: Option<&[McpServer]>,
 ) -> Result<(), MessagesCodecError> {
@@ -1181,6 +1569,17 @@ fn validate_mcp_and_skills_bindings(
     if container.is_some_and(MessagesContainer::has_skills) && !has_code_execution {
         return Err(MessagesCodecError::InvalidOption {
             field: "container.skills",
+            reason: "requires an Anthropic code-execution tool",
+        });
+    }
+    let has_container_upload = messages
+        .iter()
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten()
+        .any(|block| block.get("type").and_then(Value::as_str) == Some("container_upload"));
+    if has_container_upload && !has_code_execution {
+        return Err(MessagesCodecError::InvalidOption {
+            field: "messages.container_upload",
             reason: "requires an Anthropic code-execution tool",
         });
     }

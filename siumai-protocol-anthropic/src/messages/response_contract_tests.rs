@@ -1,9 +1,9 @@
-use serde_json::json;
+use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ContentPart, ErrorKind, LanguageCompletionReason, LanguageIncompleteReason,
-    LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent, LanguageTermination, Message,
-    ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope, ReplayDomain, ReplayDomainId,
-    StreamTerminal, UsageValue,
+    ApiModeId, ContentPart, ErrorKind, ExecutionOwner, LanguageCompletionReason,
+    LanguageIncompleteReason, LanguageRequest, LanguageStreamDecoder, LanguageStreamEvent,
+    LanguageTermination, Message, MessageRole, ModelId, PlatformId, ProtocolId, ProviderId,
+    ProviderScope, ReplayDomain, ReplayDomainId, StreamTerminal, ToolCall, UsageValue,
 };
 
 use super::*;
@@ -68,6 +68,929 @@ fn compaction_response_body(summary: &str) -> Vec<u8> {
         }
     }))
     .expect("serialize compaction fixture")
+}
+
+fn response_with_content(content: serde_json::Value, stop_reason: &str) -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "id": "msg_native_tools",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-fable-5",
+        "content": content,
+        "stop_reason": stop_reason,
+        "stop_sequence": null,
+        "usage": {"input_tokens": 12, "output_tokens": 6}
+    }))
+    .expect("serialize native tool fixture")
+}
+
+#[test]
+fn direct_hosted_tools_remain_provider_owned_and_replay_exactly_in_scope() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let blocks = json!([
+        {
+            "type": "server_tool_use",
+            "id": "srv_web",
+            "name": "web_search",
+            "input": {"query": "siumai"},
+            "future_state": {"retained": true}
+        },
+        {
+            "type": "web_search_tool_result",
+            "tool_use_id": "srv_web",
+            "content": [{
+                "type": "web_search_result",
+                "title": "Siumai",
+                "url": "https://example.invalid/siumai"
+            }]
+        },
+        {
+            "type": "web_fetch_tool_result",
+            "tool_use_id": "srv_fetch",
+            "content": {"type": "web_fetch_result", "future": "preserved"}
+        },
+        {
+            "type": "code_execution_tool_result",
+            "tool_use_id": "srv_code",
+            "content": {"type": "code_execution_result", "stdout": "ok"}
+        },
+        {
+            "type": "bash_code_execution_tool_result",
+            "tool_use_id": "srv_bash",
+            "content": {"type": "bash_code_execution_result", "stdout": "ok"}
+        },
+        {
+            "type": "text_editor_code_execution_tool_result",
+            "tool_use_id": "srv_editor",
+            "content": {"type": "text_editor_code_execution_result", "path": "notes.md"}
+        },
+        {
+            "type": "tool_search_tool_result",
+            "tool_use_id": "srv_search",
+            "content": {"type": "tool_search_tool_result", "names": ["lookup"]}
+        },
+        {
+            "type": "advisor_tool_result",
+            "tool_use_id": "srv_advisor",
+            "content": {"type": "advisor_result", "answer": "bounded"}
+        },
+        {
+            "type": "mcp_tool_use",
+            "id": "mcp_use",
+            "name": "lookup",
+            "server_name": "knowledge",
+            "input": {
+                "query": "siumai",
+                "headers": {"authorization": "hosted-secret-sentinel"}
+            }
+        },
+        {
+            "type": "mcp_tool_result",
+            "tool_use_id": "mcp_use",
+            "content": "MCP result",
+            "is_error": false
+        }
+    ]);
+    let response = decode_response(
+        &response_with_content(blocks.clone(), "end_turn"),
+        &source_scope,
+        &model(),
+    )
+    .expect("decode hosted-tool response");
+
+    assert!(
+        response
+            .content()
+            .iter()
+            .all(|part| !matches!(part, ContentPart::ToolCall(_) | ContentPart::ToolResult(_)))
+    );
+    let native = response
+        .content()
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ProviderOpaque(item) => Some(item),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        native.len(),
+        blocks.as_array().expect("fixture array").len()
+    );
+    assert!(matches!(
+        native[0]
+            .anthropic_hosted_tool()
+            .expect("inspect server tool"),
+        Some(AnthropicHostedToolBlockRef::ServerToolUse(value))
+            if value.id() == "srv_web"
+                && value.name() == "web_search"
+                && value.input() == &json!({"query": "siumai"})
+    ));
+    assert!(matches!(
+        native[8]
+            .anthropic_hosted_tool()
+            .expect("inspect MCP tool"),
+        Some(AnthropicHostedToolBlockRef::McpToolUse(value))
+            if value.id() == "mcp_use"
+                && value.server_name() == "knowledge"
+    ));
+    assert!(matches!(
+        native[9]
+            .anthropic_hosted_tool()
+            .expect("inspect MCP result"),
+        Some(AnthropicHostedToolBlockRef::Result(value))
+            if value.kind() == AnthropicHostedToolResultKind::Mcp
+                && value.tool_use_id() == "mcp_use"
+                && value.content() == &json!("MCP result")
+                && value.is_error() == Some(false)
+    ));
+    let expected_results = [
+        AnthropicHostedToolResultKind::WebSearch,
+        AnthropicHostedToolResultKind::WebFetch,
+        AnthropicHostedToolResultKind::CodeExecution,
+        AnthropicHostedToolResultKind::BashCodeExecution,
+        AnthropicHostedToolResultKind::TextEditorCodeExecution,
+        AnthropicHostedToolResultKind::ToolSearch,
+        AnthropicHostedToolResultKind::Advisor,
+    ];
+    for (item, expected) in native[1..8].iter().zip(expected_results) {
+        assert!(matches!(
+            item.anthropic_hosted_tool()
+                .expect("inspect hosted-tool result"),
+            Some(AnthropicHostedToolBlockRef::Result(value)) if value.kind() == expected
+        ));
+    }
+    assert_eq!(native[1].relations()[0].kind(), "related_item");
+    assert_eq!(native[1].relations()[0].target_id(), "srv_web");
+    let opaque_debug = format!("{:?}", native[8]);
+    let inspection_debug = format!(
+        "{:?}",
+        native[8]
+            .anthropic_hosted_tool()
+            .expect("inspect for diagnostics")
+    );
+    let response_debug = format!("{response:?}");
+    for sensitive in ["mcp_use", "knowledge", "siumai", "hosted-secret-sentinel"] {
+        assert!(!opaque_debug.contains(sensitive));
+        assert!(!inspection_debug.contains(sensitive));
+        assert!(!response_debug.contains(sensitive));
+    }
+
+    let history = response
+        .project_assistant_history()
+        .into_message()
+        .expect("hosted tools project to assistant history");
+    let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+    continuation.generation.max_output_tokens = Some(2_048);
+    let encoded = encode_request_for_scope(
+        &source_scope,
+        &model(),
+        &continuation,
+        &MessagesRequestOptions::default(),
+    )
+    .expect("replay hosted tools in the source scope");
+    assert_eq!(encoded["messages"][0]["content"], blocks);
+
+    assert!(matches!(
+        encode_request_for_scope(
+            &scoped_replay_domain("workspace-b"),
+            &model(),
+            &continuation,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::Unsupported { .. })
+    ));
+}
+
+#[test]
+fn arbitrary_json_tool_inputs_preserve_direct_and_replay_semantics() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    for (index, input) in [
+        Value::Null,
+        json!(["array", 1]),
+        json!("scalar"),
+        json!(7),
+        json!(true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mcp_id = format!("mcp_{index}");
+        let call_id = format!("call_{index}");
+        let blocks = json!([
+            {
+                "type": "mcp_tool_use",
+                "id": mcp_id,
+                "name": "lookup",
+                "server_name": "knowledge",
+                "input": input.clone()
+            },
+            {
+                "type": "tool_use",
+                "id": call_id,
+                "name": "local_lookup",
+                "input": input.clone(),
+                "caller": {
+                    "type": "code_execution_20250825",
+                    "tool_id": "srv_code"
+                }
+            }
+        ]);
+        let response = decode_response(
+            &response_with_content(blocks.clone(), "tool_use"),
+            &source_scope,
+            &model(),
+        )
+        .expect("decode arbitrary tool inputs");
+
+        assert!(response.content().iter().any(|part| matches!(
+            part,
+            ContentPart::ToolCall(call)
+                if call.id() == call_id && call.arguments() == &input
+        )));
+        assert!(response.content().iter().any(|part| matches!(
+            part,
+            ContentPart::ProviderOpaque(item)
+                if matches!(
+                    item.anthropic_hosted_tool().expect("inspect MCP input"),
+                    Some(AnthropicHostedToolBlockRef::McpToolUse(value))
+                        if value.id() == mcp_id && value.input() == &input
+                )
+        )));
+
+        let history = response
+            .project_assistant_history()
+            .into_message()
+            .expect("arbitrary tool inputs project to history");
+        let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+        continuation.generation.max_output_tokens = Some(2_048);
+        let encoded = encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &continuation,
+            &MessagesRequestOptions::default(),
+        )
+        .expect("replay arbitrary tool inputs");
+        assert_eq!(encoded["messages"][0]["content"], blocks);
+    }
+}
+
+#[test]
+fn hosted_replay_rejects_incomplete_foreign_and_unknown_native_state() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let response = decode_response(
+        &response_with_content(
+            json!([{
+                "type": "server_tool_use",
+                "id": "srv_replay",
+                "name": "web_search",
+                "input": {"query": "siumai"}
+            }]),
+            "end_turn",
+        ),
+        &source_scope,
+        &model(),
+    )
+    .expect("decode hosted replay fixture");
+    let history = response
+        .project_assistant_history()
+        .into_message()
+        .expect("hosted replay history");
+    let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+    continuation.generation.max_output_tokens = Some(2_048);
+
+    let base_scope = || {
+        ProviderScope::new(ProviderId::new("anthropic").expect("provider"))
+            .with_platform(PlatformId::new("anthropic-api").expect("platform"))
+            .with_protocol(ProtocolId::new(PROTOCOL_ID).expect("protocol"))
+            .with_api_mode(ApiModeId::new(API_MODE_ID).expect("API mode"))
+    };
+    let foreign_scopes = [
+        base_scope().with_replay_domain(
+            ReplayDomain::official(
+                ReplayDomainId::new("different-audience").expect("replay domain"),
+            )
+            .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope")),
+        ),
+        base_scope().with_replay_domain(
+            ReplayDomain::official(
+                ReplayDomainId::new("anthropic-compaction").expect("replay domain"),
+            )
+            .with_caller_scope(ReplayDomainId::new("workspace-b").expect("caller scope")),
+        ),
+        base_scope()
+            .with_protocol(ProtocolId::new("other-protocol").expect("protocol"))
+            .with_replay_domain(
+                ReplayDomain::official(
+                    ReplayDomainId::new("anthropic-compaction").expect("replay domain"),
+                )
+                .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope")),
+            ),
+        base_scope()
+            .with_api_mode(ApiModeId::new("other-mode").expect("API mode"))
+            .with_replay_domain(
+                ReplayDomain::official(
+                    ReplayDomainId::new("anthropic-compaction").expect("replay domain"),
+                )
+                .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope")),
+            ),
+        base_scope().with_replay_domain(ReplayDomain::official(
+            ReplayDomainId::new("anthropic-compaction").expect("replay domain"),
+        )),
+        base_scope(),
+    ];
+    for foreign_scope in foreign_scopes {
+        assert!(matches!(
+            encode_request_for_scope(
+                &foreign_scope,
+                &model(),
+                &continuation,
+                &MessagesRequestOptions::default(),
+            ),
+            Err(MessagesCodecError::Unsupported { .. })
+        ));
+    }
+
+    let future = decode_response(
+        &response_with_content(
+            json!([{
+                "type": "future_hosted_tool_result",
+                "tool_use_id": "future_use",
+                "content": {"future": true}
+            }]),
+            "end_turn",
+        ),
+        &source_scope,
+        &model(),
+    )
+    .expect("unknown future native output remains observable");
+    let future_native = future
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) => Some(item),
+            _ => None,
+        })
+        .expect("future native block");
+    assert!(
+        future_native
+            .anthropic_hosted_tool()
+            .expect("inspect future block")
+            .is_none()
+    );
+    let history = future
+        .project_assistant_history()
+        .into_message()
+        .expect("future block projects to bounded history");
+    let mut request = LanguageRequest::new(vec![history, Message::user("Continue")]);
+    request.generation.max_output_tokens = Some(2_048);
+    assert!(matches!(
+        encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &request,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::Unsupported { .. })
+    ));
+}
+
+#[test]
+fn hosted_replay_rejects_tampered_retained_identity_metadata() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let response = decode_response(
+        &response_with_content(
+            json!([{
+                "type": "web_search_tool_result",
+                "tool_use_id": "srv_expected",
+                "content": [{"type": "web_search_result", "title": "Siumai"}]
+            }]),
+            "end_turn",
+        ),
+        &source_scope,
+        &model(),
+    )
+    .expect("decode hosted result");
+    let native = response
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) => Some(item.clone()),
+            _ => None,
+        })
+        .expect("native result");
+    let mut wire = serde_json::to_value(native).expect("serialize retained item");
+    wire["relations"][0]["target_id"] = json!("srv_tampered");
+    let tampered = serde_json::from_value::<siumai_core::OpaqueProviderItem>(wire)
+        .expect("structurally valid tampered item");
+    let mut request = LanguageRequest::new(vec![
+        Message::new(
+            MessageRole::Assistant,
+            [ContentPart::ProviderOpaque(tampered)],
+        ),
+        Message::user("Continue"),
+    ]);
+    request.generation.max_output_tokens = Some(2_048);
+
+    assert!(matches!(
+        encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &request,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "messages.native.relations",
+            ..
+        })
+    ));
+
+    let response = decode_response(
+        &response_with_content(
+            json!([{
+                "type": "server_tool_use",
+                "id": "srv_without_caller",
+                "name": "web_search",
+                "input": {"query": "siumai"}
+            }]),
+            "end_turn",
+        ),
+        &source_scope,
+        &model(),
+    )
+    .expect("decode hosted use without caller");
+    let native = response
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) => Some(item.clone()),
+            _ => None,
+        })
+        .expect("native hosted use");
+    let mut wire = serde_json::to_value(native).expect("serialize retained use");
+    wire["relations"] = json!([{"kind": "caller", "target_id": "forged-caller"}]);
+    let tampered = serde_json::from_value::<siumai_core::OpaqueProviderItem>(wire)
+        .expect("structurally valid forged caller relation");
+    let mut request = LanguageRequest::new(vec![
+        Message::new(
+            MessageRole::Assistant,
+            [ContentPart::ProviderOpaque(tampered)],
+        ),
+        Message::user("Continue"),
+    ]);
+    request.generation.max_output_tokens = Some(2_048);
+    assert!(matches!(
+        encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &request,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "messages.native.relations",
+            ..
+        })
+    ));
+
+    assert!(matches!(
+        decode_response(
+            &response_with_content(
+                json!([{
+                    "type": "tool_use",
+                    "id": "missing_caller_tool_id",
+                    "name": "lookup",
+                    "input": null,
+                    "caller": {"type": "code_execution_20250825"}
+                }]),
+                "tool_use",
+            ),
+            &source_scope,
+            &model(),
+        ),
+        Err(MessagesCodecError::ProtocolViolation { .. })
+    ));
+}
+
+#[test]
+fn caller_linked_tool_use_keeps_one_local_call_and_one_native_replay_block() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let raw = json!({
+        "type": "tool_use",
+        "id": "local_call",
+        "name": "lookup",
+        "input": {"query": "siumai"},
+        "caller": {"type": "code_execution_20250825", "tool_id": "srv_code"},
+        "future_state": {"retained": true}
+    });
+    let response = decode_response(
+        &response_with_content(json!([raw.clone()]), "tool_use"),
+        &source_scope,
+        &model(),
+    )
+    .expect("decode caller-linked tool use");
+
+    let local = response
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ToolCall(call) => Some(call),
+            _ => None,
+        })
+        .expect("local tool call");
+    assert_eq!(local.owner(), &ExecutionOwner::Local);
+    assert_eq!(local.id(), "local_call");
+    let native = response
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ProviderOpaque(item) => Some(item),
+            _ => None,
+        })
+        .expect("native caller replay");
+    assert_eq!(native.item_id(), Some("local_call"));
+    assert_eq!(native.relations()[0].kind(), "caller");
+    assert_eq!(native.relations()[0].target_id(), "srv_code");
+
+    let history = response
+        .project_assistant_history()
+        .into_message()
+        .expect("caller-linked call projects to history");
+    let mut continuation = LanguageRequest::new(vec![history.clone(), Message::user("Continue")]);
+    continuation.generation.max_output_tokens = Some(2_048);
+    let encoded = encode_request_for_scope(
+        &source_scope,
+        &model(),
+        &continuation,
+        &MessagesRequestOptions::default(),
+    )
+    .expect("replay caller-linked tool use");
+    assert_eq!(encoded["messages"][0]["content"], json!([raw]));
+
+    let mismatched = Message::new(
+        MessageRole::Assistant,
+        [
+            ContentPart::ToolCall(
+                ToolCall::local("local_call", "different", json!({"query": "siumai"}))
+                    .expect("local call"),
+            ),
+            history.content()[1].content().clone(),
+        ],
+    );
+    let mut invalid = LanguageRequest::new(vec![mismatched, Message::user("Continue")]);
+    invalid.generation.max_output_tokens = Some(2_048);
+    assert!(matches!(
+        encode_request_for_scope(
+            &source_scope,
+            &model(),
+            &invalid,
+            &MessagesRequestOptions::default(),
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "messages.tool_use",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn unknown_native_callers_remain_observable_but_are_not_executable_or_replayable() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    for (raw, stop_reason) in [
+        (
+            json!({
+                "type": "tool_use",
+                "id": "future_local_caller",
+                "name": "lookup",
+                "input": ["future"],
+                "caller": {"type": "future_caller", "tool_id": "future_parent"}
+            }),
+            "tool_use",
+        ),
+        (
+            json!({
+                "type": "server_tool_use",
+                "id": "future_hosted_caller",
+                "name": "web_search",
+                "input": "future",
+                "caller": {"type": "future_caller", "tool_id": "future_parent"}
+            }),
+            "end_turn",
+        ),
+    ] {
+        let response = decode_response(
+            &response_with_content(json!([raw]), stop_reason),
+            &source_scope,
+            &model(),
+        )
+        .expect("unknown caller remains observable");
+        assert!(
+            response
+                .content()
+                .iter()
+                .all(|part| !matches!(part, ContentPart::ToolCall(_)))
+        );
+        let history = response
+            .project_assistant_history()
+            .into_message()
+            .expect("unknown caller projects as opaque history");
+        let mut continuation = LanguageRequest::new(vec![history, Message::user("Continue")]);
+        continuation.generation.max_output_tokens = Some(2_048);
+        assert!(matches!(
+            encode_request_for_scope(
+                &source_scope,
+                &model(),
+                &continuation,
+                &MessagesRequestOptions::default(),
+            ),
+            Err(MessagesCodecError::Unsupported { .. })
+        ));
+    }
+}
+
+#[test]
+fn streamed_hosted_tool_input_never_enters_the_local_tool_event_lane() {
+    let source_scope = scoped_replay_domain("workspace-a");
+    let mut decoder = MessagesStreamDecoder::new(source_scope, model());
+    let frames = [
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_hosted_stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-fable-5",
+                "usage": {"input_tokens": 3}
+            }
+        }),
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+                "type": "server_tool_use",
+                "id": "srv_stream",
+                "name": "web_search",
+                "input": {}
+            }
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": "{\"query\":"}
+        }),
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": "\"siumai\"}"}
+        }),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": 2}
+        }),
+        json!({"type": "message_stop"}),
+    ];
+
+    let mut events = Vec::new();
+    for frame in frames {
+        events.extend(decoder.decode(&frame.to_string()).expect("decode frame"));
+    }
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        LanguageStreamEvent::ToolInputStart { .. }
+            | LanguageStreamEvent::ToolInputDelta { .. }
+            | LanguageStreamEvent::ToolCall(_)
+    )));
+    let native = events
+        .iter()
+        .find_map(|event| match event {
+            LanguageStreamEvent::ProviderOpaque(item) => Some(item),
+            _ => None,
+        })
+        .expect("provider-owned streamed tool item");
+    assert_eq!(native.data()["input"], json!({"query": "siumai"}));
+    assert!(matches!(
+        native
+            .anthropic_hosted_tool()
+            .expect("inspect streamed hosted tool"),
+        Some(AnthropicHostedToolBlockRef::ServerToolUse(value))
+            if value.id() == "srv_stream"
+    ));
+
+    let terminal = events
+        .iter()
+        .find_map(|event| match event {
+            LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => Some(response),
+            _ => None,
+        })
+        .expect("terminal response");
+    assert!(
+        terminal
+            .content()
+            .iter()
+            .all(|part| !matches!(part, ContentPart::ToolCall(_) | ContentPart::ToolResult(_)))
+    );
+}
+
+#[test]
+fn streamed_hosted_tool_inputs_preserve_arbitrary_json_values() {
+    for (index, input) in [
+        Value::Null,
+        json!(["array", 1]),
+        json!("scalar"),
+        json!(7),
+        json!(true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for use_delta in [false, true] {
+            let mut decoder =
+                MessagesStreamDecoder::new(scoped_replay_domain("workspace-a"), model());
+            let mut frames = vec![
+                json!({
+                    "type": "message_start",
+                    "message": {
+                        "id": format!("msg_arbitrary_{index}_{use_delta}"),
+                        "type": "message",
+                        "role": "assistant",
+                        "model": "claude-fable-5",
+                        "usage": {"input_tokens": 1}
+                    }
+                }),
+                json!({
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {
+                        "type": "mcp_tool_use",
+                        "id": format!("mcp_arbitrary_{index}_{use_delta}"),
+                        "name": "lookup",
+                        "server_name": "knowledge",
+                        "input": if use_delta { json!({}) } else { input.clone() }
+                    }
+                }),
+            ];
+            if use_delta {
+                frames.push(json!({
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": serde_json::to_string(&input).expect("encode input delta")
+                    }
+                }));
+            }
+            frames.extend([
+                json!({"type": "content_block_stop", "index": 0}),
+                json!({
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+                    "usage": {"output_tokens": 1}
+                }),
+                json!({"type": "message_stop"}),
+            ]);
+
+            let mut events = Vec::new();
+            for frame in frames {
+                events.extend(
+                    decoder
+                        .decode(&frame.to_string())
+                        .expect("decode arbitrary input"),
+                );
+            }
+            let native = events
+                .iter()
+                .find_map(|event| match event {
+                    LanguageStreamEvent::ProviderOpaque(item) => Some(item),
+                    _ => None,
+                })
+                .expect("streamed MCP item");
+            assert_eq!(native.data()["input"], input);
+            assert!(events.iter().all(|event| !matches!(
+                event,
+                LanguageStreamEvent::ToolInputStart { .. }
+                    | LanguageStreamEvent::ToolInputDelta { .. }
+                    | LanguageStreamEvent::ToolCall(_)
+            )));
+        }
+    }
+}
+
+#[test]
+fn streamed_hosted_tool_input_is_bounded_before_native_publication() {
+    let mut decoder = MessagesStreamDecoder::new(scoped_replay_domain("workspace-a"), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_hosted_bounded",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fable-5",
+                    "usage": {}
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode message start");
+    decoder
+        .decode(
+            &json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "mcp_tool_use",
+                    "id": "mcp_bounded",
+                    "name": "lookup",
+                    "server_name": "knowledge",
+                    "input": {}
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode hosted tool start");
+    let error = decoder
+        .decode(
+            &json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": " ".repeat(siumai_core::DEFAULT_TOOL_INPUT_BYTE_LIMIT + 1)
+                }
+            })
+            .to_string(),
+        )
+        .expect_err("oversized hosted input must fail before publication");
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+}
+
+#[test]
+fn streamed_native_items_are_bounded_and_redacted_before_publication() {
+    let sentinel = "private-hosted-input-sentinel";
+    let mut decoder = MessagesStreamDecoder::new(scoped_replay_domain("workspace-a"), model());
+    decoder
+        .decode(
+            &json!({
+                "type": "message_start",
+                "message": {
+                    "id": "msg_native_budget",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-fable-5",
+                    "usage": {}
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode message start");
+    decoder
+        .decode(
+            &json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "mcp_tool_use",
+                    "id": "mcp_redacted",
+                    "name": "lookup",
+                    "server_name": "knowledge",
+                    "input": sentinel
+                }
+            })
+            .to_string(),
+        )
+        .expect("decode redacted block start");
+    assert!(!format!("{decoder:?}").contains(sentinel));
+    decoder
+        .decode(&json!({"type": "content_block_stop", "index": 0}).to_string())
+        .expect("decode first native block");
+
+    for index in 1..=siumai_core::DEFAULT_OPAQUE_ITEM_COUNT_LIMIT {
+        decoder
+            .decode(
+                &json!({
+                    "type": "content_block_start",
+                    "index": index,
+                    "content_block": {
+                        "type": "future_native_block",
+                        "value": index
+                    }
+                })
+                .to_string(),
+            )
+            .expect("decode native block start");
+        let result =
+            decoder.decode(&json!({"type": "content_block_stop", "index": index}).to_string());
+        if index < siumai_core::DEFAULT_OPAQUE_ITEM_COUNT_LIMIT {
+            assert!(matches!(
+                result.as_deref(),
+                Ok([LanguageStreamEvent::ProviderOpaque(_)])
+            ));
+        } else {
+            let error = result.expect_err("aggregate opaque budget must fail before publication");
+            assert_eq!(error.kind(), ErrorKind::Protocol);
+        }
+    }
 }
 
 #[test]

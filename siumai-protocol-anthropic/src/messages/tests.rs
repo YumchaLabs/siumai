@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind,
+    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, ErrorKind, ExecutionOwner,
     LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest, LanguageStreamDecoder,
     LanguageStreamEvent, LanguageTermination, MediaData, MediaPart, Message,
     MessageAnnotationTarget, MessageAnnotations, MessagePart, MessageRole, ModelId, ProtocolId,
@@ -501,7 +501,7 @@ fn automatic_cache_without_an_eligible_target_keeps_the_request_valid() {
 }
 
 #[test]
-fn response_rejects_non_object_tool_input_before_execution() {
+fn response_accepts_checked_non_object_tool_input() {
     for input in [json!(["value"]), json!("value"), Value::Null] {
         let body = serde_json::to_vec(&json!({
             "id": "msg_tool_input",
@@ -511,7 +511,7 @@ fn response_rejects_non_object_tool_input_before_execution() {
                 "type": "tool_use",
                 "id": "call_1",
                 "name": "lookup",
-                "input": input
+                "input": input.clone()
             }],
             "model": "claude-fable-5",
             "stop_reason": "tool_use",
@@ -520,11 +520,11 @@ fn response_rejects_non_object_tool_input_before_execution() {
         }))
         .unwrap();
 
+        let response = decode_response(&body, &scope(), &model()).expect("decode tool input");
         assert!(matches!(
-            decode_response(&body, &scope(), &model()),
-            Err(MessagesCodecError::ProtocolViolation {
-                reason: "tool_use input must be a JSON object",
-            })
+            response.content(),
+            [ContentPart::ToolCall(call)]
+                if call.owner() == &ExecutionOwner::Local && call.arguments() == &input
         ));
     }
 }

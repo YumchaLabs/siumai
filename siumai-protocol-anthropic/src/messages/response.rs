@@ -4,10 +4,11 @@ use base64::Engine as _;
 use serde_json::{Map, Value};
 use siumai_core::{
     Citation, ContentPart, LanguageCompletionReason, LanguageIncompleteReason, LanguageResponse,
-    LanguageTermination, MediaData, MediaPart, ModelId, OpaqueProviderItem, ProviderProvenance,
-    ProviderScope, ToolCall, Usage, UsageValue,
+    LanguageTermination, MediaData, MediaPart, ModelId, OpaqueProviderItem, ProviderItemRelation,
+    ProviderProvenance, ProviderScope, ToolCall, Usage, UsageValue,
 };
 
+use super::native_content::{caller_is_replayable, inspect_hosted_tool_value, validate_caller};
 use super::wire::{MessageResponseWire, UsageWire};
 use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND, PROTOCOL_ID};
 
@@ -192,14 +193,20 @@ pub(crate) fn decode_content_block(
                     .ok_or(MessagesCodecError::ProtocolViolation {
                         reason: "tool_use block omitted its input",
                     })?;
-            if !input.is_object() {
-                return Err(MessagesCodecError::ProtocolViolation {
-                    reason: "tool_use input must be a JSON object",
-                });
+            let caller = validate_caller(object)?;
+            let mut parts = Vec::new();
+            if caller_is_replayable(caller) {
+                parts.push(ContentPart::ToolCall(
+                    ToolCall::local(id, name, input)
+                        .map_err(MessagesCodecError::InvalidToolCall)?,
+                ));
             }
-            Ok(vec![ContentPart::ToolCall(
-                ToolCall::local(id, name, input).map_err(MessagesCodecError::InvalidToolCall)?,
-            )])
+            if caller.is_some() {
+                parts.push(ContentPart::ProviderOpaque(retain_native_block(
+                    block, scope, model,
+                )?));
+            }
+            Ok(parts)
         }
         "refusal" => Ok(vec![ContentPart::Refusal {
             reason: object
@@ -346,6 +353,38 @@ fn retain_native_block(
         OpaqueProviderItem::builder(provenance, OPAQUE_CONTENT_BLOCK_KIND, block.clone());
     if let Some(id) = block.get("id").and_then(Value::as_str) {
         builder = builder.item_id(id);
+    }
+    if let Some(hosted) = inspect_hosted_tool_value(block)? {
+        if let Some(id) = hosted.item_id() {
+            builder = builder.item_id(id);
+        }
+        if let Some(tool_use_id) = hosted.related_tool_use_id() {
+            builder = builder.relation(
+                ProviderItemRelation::related_item(tool_use_id)
+                    .map_err(MessagesCodecError::InvalidOpaqueItem)?,
+            );
+        }
+        if let Some(caller_id) = hosted.caller_tool_id() {
+            builder = builder.relation(
+                ProviderItemRelation::caller(caller_id)
+                    .map_err(MessagesCodecError::InvalidOpaqueItem)?,
+            );
+        }
+    } else if block.get("type").and_then(Value::as_str) == Some("tool_use")
+        && let Some(caller) = validate_caller(
+            block
+                .as_object()
+                .expect("retained response block was validated as an object"),
+        )?
+        && let Some(caller_id) = caller
+            .as_object()
+            .and_then(|object| object.get("tool_id"))
+            .and_then(Value::as_str)
+    {
+        builder = builder.relation(
+            ProviderItemRelation::caller(caller_id)
+                .map_err(MessagesCodecError::InvalidOpaqueItem)?,
+        );
     }
     builder
         .build()

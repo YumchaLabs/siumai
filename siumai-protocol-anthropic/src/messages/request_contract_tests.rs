@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use siumai_core::{
-    ContentAnnotationTarget, ContentAnnotations, ContentPart, LanguageRequest, Message,
-    MessagePart, MessageRole, ModelId, StructuredOutputSpec, ToolAnnotationTarget, ToolAnnotations,
+    ApiModeId, ContentAnnotationTarget, ContentAnnotations, ContentPart, LanguageRequest, Message,
+    MessagePart, MessageRole, ModelId, PlatformId, ProtocolId, ProviderId, ProviderScope,
+    ReplayDomain, ReplayDomainId, StructuredOutputSpec, ToolAnnotationTarget, ToolAnnotations,
     ToolChoice, ToolSpec, TypedProviderAnnotation,
 };
 
 use super::annotations::{
     AnthropicToolReference, CacheControl, CacheTtl, ContentNodeOptions, MessagesAnnotationResolver,
-    MidConversationToolChange, ToolNodeOptions,
+    MessagesFileBlock, MessagesFileReference, MidConversationToolChange, ToolNodeOptions,
 };
 use super::options::{
     AdvisorToolOptions, AnthropicTool, ClearThinkingEdit, ClearThinkingKeep, ClearToolUsesEdit,
@@ -22,8 +23,8 @@ use super::options::{
 use super::request::{
     anthropic_tool_anchor_schema, encode_count_tokens_request,
     encode_count_tokens_request_with_resolver_and_rules, encode_request,
-    encode_request_with_resolver, encode_request_with_resolver_and_rules,
-    encode_request_with_rules,
+    encode_request_for_scope_with_resolver, encode_request_with_resolver,
+    encode_request_with_resolver_and_rules, encode_request_with_rules,
 };
 use super::rules::{CacheControlWireStyle, MessagesEncodingRules, TemperatureEncodingRule};
 use super::{API_MODE_ID, MessagesCodecError};
@@ -118,6 +119,46 @@ impl MessagesAnnotationResolver for TestResolver {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FileResolver {
+    file: MessagesFileBlock,
+    cache_control: Option<CacheControl>,
+}
+
+impl FileResolver {
+    fn new(file: MessagesFileBlock) -> Self {
+        Self {
+            file,
+            cache_control: None,
+        }
+    }
+
+    fn with_cache_control(mut self, cache_control: CacheControl) -> Self {
+        self.cache_control = Some(cache_control);
+        self
+    }
+}
+
+impl MessagesAnnotationResolver for FileResolver {
+    fn resolve_content(
+        &self,
+        _annotations: &ContentAnnotations,
+    ) -> Result<ContentNodeOptions, MessagesCodecError> {
+        let mut options = ContentNodeOptions::default().with_file(self.file.clone());
+        if let Some(cache_control) = self.cache_control {
+            options = options.with_cache_control(cache_control);
+        }
+        Ok(options)
+    }
+
+    fn resolve_tool(
+        &self,
+        annotations: &ToolAnnotations,
+    ) -> Result<ToolNodeOptions, MessagesCodecError> {
+        TestResolver.resolve_tool(annotations)
+    }
+}
+
 fn model() -> ModelId {
     ModelId::new("claude-fable-5").unwrap()
 }
@@ -125,6 +166,26 @@ fn model() -> ModelId {
 fn request() -> LanguageRequest {
     let mut request = LanguageRequest::new(vec![Message::text(MessageRole::User, "Hello")]);
     request.generation.max_output_tokens = Some(4_096);
+    request
+}
+
+fn file_scope(caller_scope: &str) -> ProviderScope {
+    ProviderScope::new(ProviderId::new("anthropic").expect("provider"))
+        .with_platform(PlatformId::new("anthropic-api").expect("platform"))
+        .with_protocol(ProtocolId::new("anthropic-messages").expect("protocol"))
+        .with_api_mode(ApiModeId::new(API_MODE_ID).expect("API mode"))
+        .with_replay_domain(
+            ReplayDomain::custom(ReplayDomainId::new("anthropic-test").expect("domain"))
+                .with_caller_scope(ReplayDomainId::new(caller_scope).expect("caller replay scope")),
+        )
+}
+
+fn file_request() -> LanguageRequest {
+    let mut request = LanguageRequest::new(vec![Message::new(
+        MessageRole::User,
+        [MessagePart::text("")],
+    )]);
+    request.generation.max_output_tokens = Some(64);
     request
 }
 
@@ -163,6 +224,207 @@ fn compatible_baseline_rejects_unverified_mid_conversation_system_messages() {
 
     let native = encode_request(&model(), &request, &MessagesRequestOptions::default()).unwrap();
     assert_eq!(native["messages"][1]["role"], "system");
+}
+
+#[test]
+fn encodes_scope_bound_image_and_document_file_blocks() {
+    let scope = file_scope("workspace-a");
+    let image = MessagesFileBlock::Image(
+        MessagesFileReference::new("file/image?#资源", scope.clone())
+            .expect("complete image file reference"),
+    );
+    let image_request = encode_request_for_scope_with_resolver(
+        &scope,
+        &model(),
+        &file_request(),
+        &MessagesRequestOptions::default(),
+        &FileResolver::new(image).with_cache_control(CacheControl::new(CacheTtl::FiveMinutes)),
+    )
+    .expect("image file block");
+    assert_eq!(
+        image_request["messages"][0]["content"][0],
+        json!({
+            "type": "image",
+            "source": {"type": "file", "file_id": "file/image?#资源"},
+            "cache_control": {"type": "ephemeral", "ttl": "5m"}
+        })
+    );
+
+    let document = MessagesFileBlock::Document {
+        reference: MessagesFileReference::new("file_document", scope.clone())
+            .expect("complete document file reference"),
+        title: Some("A title".to_string()),
+        context: Some("A bounded context".to_string()),
+        citations: Some(true),
+    };
+    let document_request = encode_request_for_scope_with_resolver(
+        &scope,
+        &model(),
+        &file_request(),
+        &MessagesRequestOptions::default(),
+        &FileResolver::new(document),
+    )
+    .expect("document file block");
+    assert_eq!(
+        document_request["messages"][0]["content"][0],
+        json!({
+            "type": "document",
+            "source": {"type": "file", "file_id": "file_document"},
+            "title": "A title",
+            "context": "A bounded context",
+            "citations": {"enabled": true}
+        })
+    );
+}
+
+#[test]
+fn file_blocks_require_exact_replay_scope_and_user_placement() {
+    let scope = file_scope("workspace-a");
+    let foreign_scope = file_scope("workspace-b");
+    let file = MessagesFileBlock::Image(
+        MessagesFileReference::new("file_foreign", foreign_scope)
+            .expect("complete foreign file reference"),
+    );
+    assert!(matches!(
+        encode_request_for_scope_with_resolver(
+            &scope,
+            &model(),
+            &file_request(),
+            &MessagesRequestOptions::default(),
+            &FileResolver::new(file),
+        ),
+        Err(MessagesCodecError::Unsupported {
+            feature: "Anthropic file references outside the current replay scope",
+        })
+    ));
+
+    let mut system_request = file_request();
+    system_request.messages = vec![Message::new(MessageRole::System, [MessagePart::text("")])];
+    let file = MessagesFileBlock::Image(
+        MessagesFileReference::new("file_system", scope.clone())
+            .expect("complete system file reference"),
+    );
+    assert!(matches!(
+        encode_request_for_scope_with_resolver(
+            &scope,
+            &model(),
+            &system_request,
+            &MessagesRequestOptions::default(),
+            &FileResolver::new(file),
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "messages.file",
+            reason: "must appear in a user message",
+        })
+    ));
+}
+
+#[test]
+fn file_reference_construction_rejects_incomplete_replay_scopes() {
+    let provider = ProviderId::new("anthropic").expect("provider");
+    let platform = PlatformId::new("anthropic-api").expect("platform");
+    let protocol = ProtocolId::new("anthropic-messages").expect("protocol");
+    let api_mode = ApiModeId::new(API_MODE_ID).expect("API mode");
+    let replay_domain =
+        ReplayDomain::official(ReplayDomainId::new("anthropic-files").expect("replay domain"))
+            .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope"));
+    let incomplete = [
+        ProviderScope::new(provider.clone())
+            .with_protocol(protocol.clone())
+            .with_api_mode(api_mode.clone())
+            .with_replay_domain(replay_domain.clone()),
+        ProviderScope::new(provider.clone())
+            .with_platform(platform.clone())
+            .with_api_mode(api_mode.clone())
+            .with_replay_domain(replay_domain.clone()),
+        ProviderScope::new(provider.clone())
+            .with_platform(platform.clone())
+            .with_protocol(protocol.clone())
+            .with_replay_domain(replay_domain.clone()),
+        ProviderScope::new(provider.clone())
+            .with_platform(platform.clone())
+            .with_protocol(protocol.clone())
+            .with_api_mode(api_mode.clone()),
+        ProviderScope::new(provider)
+            .with_platform(platform)
+            .with_protocol(protocol)
+            .with_api_mode(api_mode)
+            .with_replay_domain(ReplayDomain::official(
+                ReplayDomainId::new("anthropic-files").expect("replay domain"),
+            )),
+    ];
+
+    for scope in &incomplete {
+        assert!(matches!(
+            MessagesFileReference::new("file_incomplete", scope.clone()),
+            Err(MessagesCodecError::InvalidOption {
+                field: "messages.file.scope",
+                ..
+            })
+        ));
+    }
+
+    let valid_file = MessagesFileBlock::Image(
+        MessagesFileReference::new("file_valid", file_scope("workspace-a"))
+            .expect("complete file reference"),
+    );
+    for scope in incomplete {
+        assert!(matches!(
+            encode_request_for_scope_with_resolver(
+                &scope,
+                &model(),
+                &file_request(),
+                &MessagesRequestOptions::default(),
+                &FileResolver::new(valid_file.clone()),
+            ),
+            Err(MessagesCodecError::Unsupported {
+                feature: "Anthropic file references without a complete replay scope",
+            })
+        ));
+    }
+}
+
+#[test]
+fn container_upload_requires_code_execution_tool() {
+    let scope = file_scope("workspace-a");
+    let file = MessagesFileBlock::ContainerUpload(
+        MessagesFileReference::new("file_container", scope.clone())
+            .expect("complete container file reference"),
+    );
+    let mut request = file_request();
+    assert!(matches!(
+        encode_request_for_scope_with_resolver(
+            &scope,
+            &model(),
+            &request,
+            &MessagesRequestOptions::default(),
+            &FileResolver::new(file.clone()),
+        ),
+        Err(MessagesCodecError::InvalidOption {
+            field: "messages.container_upload",
+            reason: "requires an Anthropic code-execution tool",
+        })
+    ));
+
+    request.tools.push(anthropic_tool(
+        AnthropicTool::CodeExecution20260521,
+        None,
+        Vec::new(),
+        None,
+        None,
+    ));
+    let encoded = encode_request_for_scope_with_resolver(
+        &scope,
+        &model(),
+        &request,
+        &MessagesRequestOptions::default(),
+        &FileResolver::new(file),
+    )
+    .expect("container upload with code execution");
+    assert_eq!(
+        encoded["messages"][0]["content"][0],
+        json!({"type": "container_upload", "file_id": "file_container"})
+    );
 }
 
 fn anthropic_tool(

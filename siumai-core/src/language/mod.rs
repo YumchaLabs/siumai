@@ -124,11 +124,9 @@ impl fmt::Debug for OpaqueProviderItem {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpaqueProviderItem")
-            .field("provenance", &self.provenance)
             .field("kind", &self.kind)
-            .field("item_id", &self.item_id)
-            .field("relations", &self.relations)
-            .field("data", &"<redacted>")
+            .field("has_item_id", &self.item_id.is_some())
+            .field("relation_count", &self.relations.len())
             .field("encoded_json_bytes", &self.encoded_json_bytes)
             .finish()
     }
@@ -144,10 +142,20 @@ impl fmt::Debug for OpaqueProviderItem {
 /// new identity edges without changing the stable core contract. The built-in
 /// constructors cover the item, call, and caller relations used by current
 /// Responses items.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ProviderItemRelation {
     kind: String,
     target_id: String,
+}
+
+impl fmt::Debug for ProviderItemRelation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderItemRelation")
+            .field("kind", &self.kind)
+            .field("target_id_bytes", &self.target_id.len())
+            .finish()
+    }
 }
 
 impl ProviderItemRelation {
@@ -366,11 +374,9 @@ impl fmt::Debug for OpaqueProviderItemBuilder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpaqueProviderItemBuilder")
-            .field("provenance", &self.provenance)
             .field("kind", &self.kind)
-            .field("item_id", &self.item_id)
-            .field("relations", &self.relations)
-            .field("data", &"<redacted>")
+            .field("has_item_id", &self.item_id.is_some())
+            .field("relation_count", &self.relations.len())
             .field("maximum_bytes", &self.maximum_bytes)
             .finish()
     }
@@ -1863,22 +1869,44 @@ mod tests {
     }
 
     #[test]
-    fn opaque_item_debug_redacts_provider_payload() {
+    fn opaque_item_debug_redacts_provider_state() {
+        let item_id = "provider-item-secret-canary";
+        let relation_target = "provider-relation-secret-canary";
+        let relation = ProviderItemRelation::caller(relation_target).unwrap();
+        let relation_debug = format!("{relation:?}");
+        assert!(!relation_debug.contains(relation_target));
+        assert!(relation_debug.contains("kind: \"caller\""));
+        assert!(relation_debug.contains(&format!("target_id_bytes: {}", relation_target.len())));
+
         let builder = OpaqueProviderItem::builder(
             provenance(),
             "encrypted_reasoning",
             json!({"encrypted_content": "provider-secret-canary"}),
         )
-        .item_id("reasoning-1");
+        .item_id(item_id)
+        .relation(relation);
         let builder_debug = format!("{builder:?}");
         assert!(!builder_debug.contains("provider-secret-canary"));
-        assert!(builder_debug.contains("<redacted>"));
+        assert!(!builder_debug.contains(item_id));
+        assert!(!builder_debug.contains(relation_target));
+        assert!(!builder_debug.contains("provenance"));
+        assert!(!builder_debug.contains("data"));
+        assert!(builder_debug.contains("kind: \"encrypted_reasoning\""));
+        assert!(builder_debug.contains("has_item_id: true"));
+        assert!(builder_debug.contains("relation_count: 1"));
+        assert!(builder_debug.contains("maximum_bytes"));
 
         let item = builder.build().unwrap();
         let item_debug = format!("{item:?}");
         assert!(!item_debug.contains("provider-secret-canary"));
-        assert!(item_debug.contains("<redacted>"));
-        assert!(item_debug.contains("reasoning-1"));
+        assert!(!item_debug.contains(item_id));
+        assert!(!item_debug.contains(relation_target));
+        assert!(!item_debug.contains("provenance"));
+        assert!(!item_debug.contains("data"));
+        assert!(item_debug.contains("kind: \"encrypted_reasoning\""));
+        assert!(item_debug.contains("has_item_id: true"));
+        assert!(item_debug.contains("relation_count: 1"));
+        assert!(item_debug.contains("encoded_json_bytes"));
     }
 
     #[test]

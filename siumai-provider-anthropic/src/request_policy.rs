@@ -1,9 +1,10 @@
 use siumai_anthropic_compatible::{
     MessagesCallOptions, MessagesRequestPolicy, MessagesRequestRequirements,
 };
-use siumai_core::{Error, ErrorKind, LanguageRequest, MessageRole, ModelId};
+use siumai_core::{ContentPart, Error, ErrorKind, LanguageRequest, MessageRole, ModelId};
 use siumai_protocol_anthropic::messages::{
-    AnthropicTool, ContextManagementEdit, InferenceSpeed, ServerFallbacks,
+    AnthropicTool, ContextManagementEdit, InferenceSpeed, OPAQUE_CONTENT_BLOCK_KIND, PROTOCOL_ID,
+    ServerFallbacks,
 };
 
 use crate::annotations::{AnthropicContentOptions, AnthropicToolOptions};
@@ -18,6 +19,7 @@ const ADVISOR_TOOL_BETA: &str = "advisor-tool-2026-03-01";
 const MCP_CLIENT_BETA: &str = "mcp-client-2025-11-20";
 const COMPUTER_USE_BETA: &str = "computer-use-2025-11-24";
 const MID_CONVERSATION_TOOL_CHANGES_BETA: &str = "mid-conversation-tool-changes-2026-07-01";
+const FILES_BETA: &str = "files-api-2025-04-14";
 
 /// Anthropic-owned feature-driven beta contracts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,6 +35,9 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
         let mut requirements = MessagesRequestRequirements::new();
         if has_mid_conversation_tool_changes(request)? {
             requirements = requirements.with_beta_feature(MID_CONVERSATION_TOOL_CHANGES_BETA)?;
+        }
+        if has_file_references(request)? {
+            requirements = requirements.with_beta_feature(FILES_BETA)?;
         }
         if let Some(fallbacks) = options.fallbacks() {
             requirements = requirements.with_beta_feature(SERVER_FALLBACK_BETA)?;
@@ -98,8 +103,55 @@ impl MessagesRequestPolicy for AnthropicRequestPolicy {
             requirements = requirements.with_beta_feature(MCP_CLIENT_BETA)?;
         }
 
+        for message in &request.messages {
+            for part in message.content() {
+                let ContentPart::ProviderOpaque(item) = part.content() else {
+                    continue;
+                };
+                if item.kind() != OPAQUE_CONTENT_BLOCK_KIND
+                    || item.provenance().protocol().as_str() != PROTOCOL_ID
+                {
+                    continue;
+                }
+                match item.data().get("type").and_then(serde_json::Value::as_str) {
+                    Some("mcp_tool_use" | "mcp_tool_result") => {
+                        requirements = requirements.with_beta_feature(MCP_CLIENT_BETA)?;
+                    }
+                    Some("advisor_tool_result") => {
+                        requirements = requirements.with_beta_feature(ADVISOR_TOOL_BETA)?;
+                    }
+                    Some("server_tool_use")
+                        if item.data().get("name").and_then(serde_json::Value::as_str)
+                            == Some("advisor") =>
+                    {
+                        requirements = requirements.with_beta_feature(ADVISOR_TOOL_BETA)?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         Ok(requirements)
     }
+}
+
+fn has_file_references(request: &LanguageRequest) -> Result<bool, Error> {
+    for message in &request.messages {
+        for part in message.content() {
+            let annotation = part
+                .annotations()
+                .decode::<AnthropicContentOptions>()
+                .map_err(annotation_error)?;
+            if annotation
+                .as_ref()
+                .and_then(AnthropicContentOptions::file)
+                .is_some()
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn has_mid_conversation_tool_changes(request: &LanguageRequest) -> Result<bool, Error> {
@@ -134,7 +186,11 @@ fn annotation_error(source: siumai_core::ProviderAnnotationError) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{LanguageRequest, Message, MessageRole, ModelId};
+    use siumai_core::{
+        ApiModeId, ContentPart, LanguageRequest, Message, MessageRole, ModelId, OpaqueProviderItem,
+        PlatformId, ProtocolId, ProviderId, ProviderProvenance, ProviderScope, ReplayDomain,
+        ReplayDomainId,
+    };
     use siumai_protocol_anthropic::messages::{
         AdvisorToolOptions, AnthropicTool, AnthropicToolReference, CompactionEdit,
         ComputerToolOptions, ContainerSkill, ContextManagement, InferenceGeo, InferenceSpeed,
@@ -143,6 +199,25 @@ mod tests {
     };
 
     use super::*;
+
+    fn replay_item(data: serde_json::Value) -> OpaqueProviderItem {
+        let scope = ProviderScope::new(ProviderId::new("anthropic").expect("provider"))
+            .with_platform(PlatformId::new("anthropic-api").expect("platform"))
+            .with_protocol(ProtocolId::new(PROTOCOL_ID).expect("protocol"))
+            .with_api_mode(ApiModeId::new("messages").expect("API mode"))
+            .with_replay_domain(
+                ReplayDomain::official(
+                    ReplayDomainId::new("anthropic-api").expect("replay domain"),
+                )
+                .with_caller_scope(ReplayDomainId::new("workspace-a").expect("caller scope")),
+            );
+        let provenance =
+            ProviderProvenance::from_scope(&scope, ModelId::new("future-model").expect("model"))
+                .expect("provenance");
+        OpaqueProviderItem::builder(provenance, OPAQUE_CONTENT_BLOCK_KIND, data)
+            .build()
+            .expect("opaque item")
+    }
 
     #[test]
     fn preparation_collects_fallback_and_anthropic_tool_beta_contracts() {
@@ -190,6 +265,51 @@ mod tests {
                 MCP_CLIENT_BETA,
                 SERVER_FALLBACK_BETA,
             ]
+        );
+    }
+
+    #[test]
+    fn replayed_mcp_and_advisor_blocks_derive_each_beta_contract_once() {
+        let request = LanguageRequest::new(vec![Message::new(
+            MessageRole::Assistant,
+            [
+                ContentPart::ProviderOpaque(replay_item(serde_json::json!({
+                    "type": "mcp_tool_use",
+                    "id": "mcp_use",
+                    "name": "lookup",
+                    "server_name": "knowledge",
+                    "input": {}
+                }))),
+                ContentPart::ProviderOpaque(replay_item(serde_json::json!({
+                    "type": "mcp_tool_result",
+                    "tool_use_id": "mcp_use",
+                    "content": "ok"
+                }))),
+                ContentPart::ProviderOpaque(replay_item(serde_json::json!({
+                    "type": "server_tool_use",
+                    "id": "advisor_use",
+                    "name": "advisor",
+                    "input": {}
+                }))),
+                ContentPart::ProviderOpaque(replay_item(serde_json::json!({
+                    "type": "advisor_tool_result",
+                    "tool_use_id": "advisor_use",
+                    "content": {"type": "advisor_result", "answer": "ok"}
+                }))),
+            ],
+        )]);
+
+        let requirements = AnthropicRequestPolicy
+            .prepare(
+                &ModelId::new("future-model").expect("model"),
+                &request,
+                &mut MessagesCallOptions::new(),
+            )
+            .expect("history-derived beta requirements");
+
+        assert_eq!(
+            requirements.beta_features().collect::<Vec<_>>(),
+            vec![ADVISOR_TOOL_BETA, MCP_CLIENT_BETA]
         );
     }
 

@@ -1,5 +1,7 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
-use siumai_core::{ContentAnnotations, MessageAnnotations, ToolAnnotations};
+use siumai_core::{ContentAnnotations, MessageAnnotations, ProviderScope, ToolAnnotations};
 
 use super::MessagesCodecError;
 use super::options::{AnthropicTool, ToolCaller};
@@ -30,6 +32,7 @@ pub struct CacheControl {
 }
 
 const MAX_TOOL_REFERENCE_COMPONENT_BYTES: usize = 256;
+const MAX_FILE_ID_BYTES: usize = 512;
 
 /// A typed reference to one tool declared in the request's stable tool set.
 ///
@@ -175,6 +178,129 @@ impl CacheControl {
     }
 }
 
+/// Scope-bound Anthropic file reference projected by a branded provider.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MessagesFileReference {
+    file_id: String,
+    scope: ProviderScope,
+}
+
+impl MessagesFileReference {
+    pub fn new(
+        file_id: impl Into<String>,
+        scope: ProviderScope,
+    ) -> Result<Self, MessagesCodecError> {
+        let reference = Self {
+            file_id: file_id.into(),
+            scope,
+        };
+        reference.validate()?;
+        Ok(reference)
+    }
+
+    pub fn file_id(&self) -> &str {
+        &self.file_id
+    }
+
+    pub fn scope(&self) -> &ProviderScope {
+        &self.scope
+    }
+
+    fn validate(&self) -> Result<(), MessagesCodecError> {
+        if self.file_id.is_empty()
+            || self.file_id.len() > MAX_FILE_ID_BYTES
+            || self.file_id.chars().any(char::is_control)
+        {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.file.file_id",
+                reason: "must be non-empty, bounded, and free of control characters",
+            });
+        }
+        if !file_scope_is_complete(&self.scope) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "messages.file.scope",
+                reason: "must include platform, protocol, API mode, replay domain, and caller scope",
+            });
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn file_scope_is_complete(scope: &ProviderScope) -> bool {
+    scope.platform().is_some()
+        && scope.protocol().is_some()
+        && scope.api_mode().is_some()
+        && scope
+            .replay_domain()
+            .and_then(|domain| domain.caller_scope())
+            .is_some()
+}
+
+impl fmt::Debug for MessagesFileReference {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesFileReference")
+            .field("file_id_bytes", &self.file_id.len())
+            .field("scope", &"bound")
+            .finish()
+    }
+}
+
+/// One Anthropic Files API reference projected into a Messages content block.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MessagesFileBlock {
+    Image(MessagesFileReference),
+    Document {
+        reference: MessagesFileReference,
+        title: Option<String>,
+        context: Option<String>,
+        citations: Option<bool>,
+    },
+    ContainerUpload(MessagesFileReference),
+}
+
+impl fmt::Debug for MessagesFileBlock {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Image(reference) => formatter
+                .debug_tuple("MessagesFileBlock::Image")
+                .field(reference)
+                .finish(),
+            Self::Document {
+                reference,
+                title,
+                context,
+                citations,
+            } => formatter
+                .debug_struct("MessagesFileBlock::Document")
+                .field("reference", reference)
+                .field("title_bytes", &title.as_ref().map(String::len))
+                .field("context_bytes", &context.as_ref().map(String::len))
+                .field("citations", citations)
+                .finish(),
+            Self::ContainerUpload(reference) => formatter
+                .debug_tuple("MessagesFileBlock::ContainerUpload")
+                .field(reference)
+                .finish(),
+        }
+    }
+}
+
+impl MessagesFileBlock {
+    pub fn reference(&self) -> &MessagesFileReference {
+        match self {
+            Self::Image(reference)
+            | Self::Document { reference, .. }
+            | Self::ContainerUpload(reference) => reference,
+        }
+    }
+
+    pub const fn is_container_upload(&self) -> bool {
+        matches!(self, Self::ContainerUpload(_))
+    }
+}
+
 /// Wire controls resolved for one complete message node.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MessageNodeOptions {
@@ -197,6 +323,7 @@ impl MessageNodeOptions {
 pub struct ContentNodeOptions {
     cache_control: Option<CacheControl>,
     tool_change: Option<MidConversationToolChange>,
+    file: Option<MessagesFileBlock>,
 }
 
 impl ContentNodeOptions {
@@ -216,6 +343,15 @@ impl ContentNodeOptions {
 
     pub fn tool_change(&self) -> Option<&MidConversationToolChange> {
         self.tool_change.as_ref()
+    }
+
+    pub fn with_file(mut self, file: MessagesFileBlock) -> Self {
+        self.file = Some(file);
+        self
+    }
+
+    pub fn file(&self) -> Option<&MessagesFileBlock> {
+        self.file.as_ref()
     }
 }
 

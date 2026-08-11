@@ -18,11 +18,12 @@ use crate::resources::{
 };
 use crate::{
     AdvisorToolOptions, AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions,
-    AnthropicCredential, AnthropicMessageCache, AnthropicMessagesOptions, AnthropicProvider,
-    AnthropicThinking, AnthropicTokenCountOptions, AnthropicTool, AnthropicToolOptions,
-    CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
-    CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, MessagesMetadata,
-    OutputEffort, ServerFallbacks, ThinkingDisplay, TokenTaskBudget, current_models,
+    AnthropicCredential, AnthropicMessageCache, AnthropicMessageFile, AnthropicMessagesOptions,
+    AnthropicProvider, AnthropicThinking, AnthropicTokenCountOptions, AnthropicTool,
+    AnthropicToolOptions, CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_OPUS_4_1_20250805,
+    CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6,
+    CLAUDE_SONNET_5, MessagesMetadata, OutputEffort, ServerFallbacks, ThinkingDisplay,
+    TokenTaskBudget, current_models,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -449,6 +450,26 @@ fn local_provider(server: &MockServer, credential: AnthropicCredential) -> Anthr
         .with_replay_domain(ReplayDomain::custom(
             ReplayDomainId::new("anthropic-test-relay").expect("replay domain"),
         ))
+        .build()
+        .expect("provider")
+}
+
+fn local_provider_with_caller_scope(
+    server: &MockServer,
+    credential: AnthropicCredential,
+    caller_scope: &str,
+) -> AnthropicProvider {
+    AnthropicProvider::builder(credential)
+        .with_endpoint(
+            EndpointConfig::local_explicit(format!("{}/v1/", server.uri()))
+                .expect("local endpoint"),
+        )
+        .with_replay_domain(
+            ReplayDomain::custom(
+                ReplayDomainId::new("anthropic-test-relay").expect("replay domain"),
+            )
+            .with_caller_scope(ReplayDomainId::new(caller_scope).expect("caller scope")),
+        )
         .build()
         .expect("provider")
 }
@@ -1015,6 +1036,139 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
             .id,
         "skill_123"
     );
+}
+
+#[tokio::test]
+async fn scoped_file_references_encode_messages_blocks_and_files_beta_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("anthropic-beta", "files-api-2025-04-14"))
+        .and(body_json(json!({
+            "model": "future-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {"type": "file", "file_id": "file/image?#资源"}
+                    },
+                    {
+                        "type": "document",
+                        "source": {"type": "file", "file_id": "file_document"},
+                        "title": "A title",
+                        "context": "A bounded context",
+                        "citations": {"enabled": true}
+                    }
+                ]
+            }],
+            "stream": false
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-model",
+            "msg_files",
+            "file-aware",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = local_provider_with_caller_scope(
+        &server,
+        AnthropicCredential::unauthenticated(),
+        "workspace-a",
+    );
+    let files = provider.files();
+    let image = AnthropicContentOptions::file_part(AnthropicMessageFile::image(
+        files
+            .reference("file/image?#资源")
+            .expect("image reference"),
+    ))
+    .expect("image annotation");
+    let document = AnthropicMessageFile::document(
+        files
+            .reference("file_document")
+            .expect("document reference"),
+    )
+    .with_title("A title")
+    .expect("document title")
+    .with_context("A bounded context")
+    .expect("document context")
+    .with_citations(true)
+    .expect("document citations");
+    let document = AnthropicContentOptions::file_part(document).expect("document annotation");
+    let mut request =
+        LanguageRequest::new(vec![Message::new(MessageRole::User, [image, document])]);
+    request.generation.max_output_tokens = Some(64);
+
+    let model = provider.language("future-model").expect("model");
+    let response = model
+        .generate(request, CallOptions::default())
+        .await
+        .expect("file-aware request");
+    assert_eq!(response.id(), Some("msg_files"));
+}
+
+#[tokio::test]
+async fn file_references_require_caller_scope_and_allow_same_scope_replay_across_instances() {
+    let first_server = MockServer::start().await;
+    let first_provider = local_provider(&first_server, AnthropicCredential::unauthenticated());
+    assert!(
+        first_provider
+            .files()
+            .reference("file_without_workspace")
+            .is_err()
+    );
+
+    let second_server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "future-model",
+            "max_tokens": 64,
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "image",
+                    "source": {"type": "file", "file_id": "file_shared"}
+                }]
+            }],
+            "stream": false
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-model",
+            "msg_shared_file",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&second_server)
+        .await;
+
+    let first_provider = local_provider_with_caller_scope(
+        &first_server,
+        AnthropicCredential::unauthenticated(),
+        "workspace-a",
+    );
+    let second_provider = local_provider_with_caller_scope(
+        &second_server,
+        AnthropicCredential::unauthenticated(),
+        "workspace-a",
+    );
+    let reference = first_provider
+        .files()
+        .reference("file_shared")
+        .expect("reference");
+    let part = AnthropicContentOptions::file_part(AnthropicMessageFile::image(reference))
+        .expect("file annotation");
+    let mut request = LanguageRequest::new(vec![Message::new(MessageRole::User, [part])]);
+    request.generation.max_output_tokens = Some(64);
+    second_provider
+        .language("future-model")
+        .expect("model")
+        .generate(request, CallOptions::default())
+        .await
+        .expect("same durable scope should replay across instances");
 }
 
 #[tokio::test]

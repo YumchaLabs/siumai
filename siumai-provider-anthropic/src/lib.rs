@@ -17,8 +17,9 @@ mod request_policy;
 pub mod resources;
 
 pub use annotations::{
-    AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions, AnthropicMessageCache,
-    AnthropicToolOptions, AnthropicToolSpecError,
+    AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions,
+    AnthropicFileReference, AnthropicMessageCache, AnthropicMessageFile, AnthropicToolOptions,
+    AnthropicToolSpecError,
 };
 pub use auth::{AnthropicCredential, AnthropicCredentialError};
 pub use metadata::{
@@ -36,16 +37,18 @@ pub use profile::AnthropicProfileError;
 pub use provider::{
     AnthropicConfigError, AnthropicLanguageModel, AnthropicProvider, AnthropicProviderBuilder,
 };
-pub use siumai_protocol_anthropic::messages::MessagesMetadata;
 pub use siumai_protocol_anthropic::messages::{
-    AdvisorToolOptions, AnthropicTool, AnthropicToolReference, ClearThinkingEdit,
+    AdvisorToolOptions, AnthropicHostedToolBlockRef, AnthropicHostedToolResultKind,
+    AnthropicHostedToolResultRef, AnthropicMcpToolUseRef, AnthropicOpaqueContentExt,
+    AnthropicServerToolUseRef, AnthropicTool, AnthropicToolReference, ClearThinkingEdit,
     ClearThinkingKeep, ClearToolInputs, ClearToolUsesEdit, CompactionEdit, ComputerToolOptions,
     ContainerSkill, ContainerSkillType, ContextManagement, ContextManagementEdit,
     ContextManagementTrigger, FallbackOutputConfig, InferenceGeo, InferenceSpeed,
-    McpAuthorizationToken, McpServer, McpToolConfig, McpToolsetOptions, MessagesContainer,
-    MessagesServiceTierPreference, MidConversationToolChange, OutputEffort, ResponseInclusion,
-    ServerFallback, ServerFallbacks, TextEditorToolOptions, ThinkingDisplay, TokenTaskBudget,
-    ToolCaller, UserLocation, WebFetchToolOptions, WebSearchToolOptions,
+    McpAuthorizationToken, McpServer, McpToolConfig, McpToolsetOptions, MessagesCodecError,
+    MessagesContainer, MessagesMetadata, MessagesServiceTierPreference, MidConversationToolChange,
+    OutputEffort, ResponseInclusion, ServerFallback, ServerFallbacks, TextEditorToolOptions,
+    ThinkingDisplay, TokenTaskBudget, ToolCaller, UserLocation, WebFetchToolOptions,
+    WebSearchToolOptions,
 };
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
