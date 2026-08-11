@@ -15,6 +15,9 @@ standard Python launcher.
 # Fast core, transport, registry, and facade loop
 python3 scripts/test-workspace.py fast
 
+# Flagship OpenAI and Anthropic protocol/provider loop
+python3 scripts/test-workspace.py flagship
+
 # One release-level workspace/all-features suite
 python3 scripts/test-workspace.py full
 ```
@@ -32,6 +35,17 @@ cargo nextest run -p siumai-provider-minimax --all-features -j 1
 
 Credentialed or live-provider tests remain explicit provider-owned targets and are never part of
 the default local suite.
+
+The `flagship` suite is the deterministic PR gate for these exact packages:
+
+- `siumai-protocol-openai`
+- `siumai-provider-openai`
+- `siumai-openai-compatible`
+- `siumai-protocol-anthropic`
+- `siumai-anthropic-compatible`
+- `siumai-provider-anthropic`
+
+It does not run live tests or read provider credentials.
 
 ## Architecture checks
 

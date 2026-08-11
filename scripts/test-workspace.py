@@ -10,13 +10,28 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+FAST_PACKAGES = (
+    "siumai-core",
+    "siumai-runtime",
+    "siumai-transport",
+    "siumai-registry",
+    "siumai",
+)
+FLAGSHIP_PACKAGES = (
+    "siumai-protocol-openai",
+    "siumai-provider-openai",
+    "siumai-openai-compatible",
+    "siumai-protocol-anthropic",
+    "siumai-anthropic-compatible",
+    "siumai-provider-anthropic",
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run current, no-network Siumai test suites without parallel Cargo jobs."
     )
-    parser.add_argument("suite", choices=("fast", "full"))
+    parser.add_argument("suite", choices=("fast", "flagship", "full"))
     parser.add_argument(
         "--runner",
         choices=("auto", "nextest", "cargo-test"),
@@ -48,7 +63,12 @@ def resolve_runner(requested: str) -> str:
     return requested
 
 
-def package_test_command(runner: str, packages: tuple[str, ...]) -> list[str]:
+def package_test_command(
+    runner: str,
+    packages: tuple[str, ...],
+    *,
+    single_threaded_tests: bool = False,
+) -> list[str]:
     package_args = [argument for package in packages for argument in ("-p", package)]
     if runner == "nextest":
         return [
@@ -60,7 +80,17 @@ def package_test_command(runner: str, packages: tuple[str, ...]) -> list[str]:
             "--no-fail-fast",
             *package_args,
         ]
-    return ["cargo", "test", "-j", "1", "--no-fail-fast", *package_args]
+    command = [
+        "cargo",
+        "test",
+        "-j",
+        "1",
+        "--no-fail-fast",
+        *package_args,
+    ]
+    if single_threaded_tests:
+        command.extend(("--", "--test-threads=1"))
+    return command
 
 
 def workspace_test_command(runner: str) -> list[str]:
@@ -96,17 +126,15 @@ def common_checks() -> list[list[str]]:
 
 def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
     if args.suite == "fast":
+        return [package_test_command(runner, FAST_PACKAGES)]
+
+    if args.suite == "flagship":
         return [
             package_test_command(
                 runner,
-                (
-                    "siumai-core",
-                    "siumai-runtime",
-                    "siumai-transport",
-                    "siumai-registry",
-                    "siumai",
-                ),
-            ),
+                FLAGSHIP_PACKAGES,
+                single_threaded_tests=True,
+            )
         ]
 
     return [

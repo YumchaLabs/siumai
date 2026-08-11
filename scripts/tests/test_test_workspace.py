@@ -30,6 +30,63 @@ class WorkspaceTestRunnerTests(unittest.TestCase):
         self.assertIn("siumai-registry", cargo)
         self.assertIn("siumai", cargo)
 
+        cargo_test = WORKSPACE.commands_for(args, "cargo-test")[-1]
+        self.assertNotIn("--test-threads=1", cargo_test)
+
+    def test_flagship_suite_uses_exact_protocol_provider_packages_with_nextest(
+        self,
+    ) -> None:
+        args = SimpleNamespace(suite="flagship")
+
+        commands = WORKSPACE.commands_for(args, "nextest")
+
+        self.assertEqual(
+            commands,
+            [
+                [
+                    "cargo",
+                    "nextest",
+                    "run",
+                    "-j",
+                    "1",
+                    "--no-fail-fast",
+                    "-p",
+                    "siumai-protocol-openai",
+                    "-p",
+                    "siumai-provider-openai",
+                    "-p",
+                    "siumai-openai-compatible",
+                    "-p",
+                    "siumai-protocol-anthropic",
+                    "-p",
+                    "siumai-anthropic-compatible",
+                    "-p",
+                    "siumai-provider-anthropic",
+                ]
+            ],
+        )
+
+    def test_flagship_suite_keeps_cargo_test_single_threaded(self) -> None:
+        args = SimpleNamespace(suite="flagship")
+
+        commands = WORKSPACE.commands_for(args, "cargo-test")
+        cargo = commands[0]
+
+        self.assertEqual(cargo[:4], ["cargo", "test", "-j", "1"])
+        self.assertIn("--no-fail-fast", cargo)
+        self.assertEqual(cargo[-2:], ["--", "--test-threads=1"])
+        self.assertEqual(
+            [cargo[index + 1] for index, value in enumerate(cargo) if value == "-p"],
+            [
+                "siumai-protocol-openai",
+                "siumai-provider-openai",
+                "siumai-openai-compatible",
+                "siumai-protocol-anthropic",
+                "siumai-anthropic-compatible",
+                "siumai-provider-anthropic",
+            ],
+        )
+
     def test_full_suite_runs_python_checks_before_serial_workspace_tests(self) -> None:
         args = SimpleNamespace(suite="full")
 

@@ -10,6 +10,7 @@ Run the maintained release gates serially from a clean release candidate:
 cargo fmt --all -- --check
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
 python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
 cargo doc --workspace --all-features --no-deps -j 1
@@ -19,6 +20,11 @@ cargo test --doc --workspace --all-features -j 1
 Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
 dependency or feature change. These checks are deterministic and offline; credentialed provider
 tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
+
+Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
+They also compile the facade without default features for bare, OpenAI, Anthropic, and the combined
+Responses WebSocket/Realtime feature ownership paths. This remains a small fixed gate rather than a
+provider-by-feature matrix.
 
 Before publishing, verify package contents with `cargo package --list -p <crate>` for changed crates
 and run `cargo package -p <crate> --allow-dirty` in dependency order where crates.io dependency
