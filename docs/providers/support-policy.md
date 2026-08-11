@@ -53,17 +53,31 @@ not make that assertion; it is not a claim that the surface is active or stable.
 infers upstream state from model names, recommendation prose, or the absence of a deprecation
 notice, and these fields never act as runtime capability or routing authority.
 
+### Completion labels
+
+Current support and migration material uses three exact completion labels:
+
+- `claimed slice complete` means the named family, API mode, resource, session, or job slice has the
+  documented implementation and deterministic fixtures for this release;
+- `provider platform complete` means every material product surface of a provider is covered;
+- `intentionally deferred` names a known surface that remains outside the current claim.
+
+Siumai currently makes `claimed slice complete` claims only. It does not make a `provider platform
+complete` claim for any provider. The non-claims in the facade inventory are `intentionally
+deferred`, not implied defects in the implemented slice.
+
 ## Current facade surface
 
-The `0.11.0-beta.9` facade intentionally exposes narrow provider slices. This table is an inventory
-of compiled public scope, not a promise that every account can use every model or endpoint.
+The `0.11.0-beta.9` facade intentionally exposes narrow provider slices. Every row is `claimed
+slice complete`; the last column is `intentionally deferred`. This inventory is not a promise that
+every account can use every model or endpoint.
 
-| Facade feature | Public scope | Deliberately not claimed |
+| Facade feature | Public scope | `intentionally deferred` |
 |---|---|---|
 | `openai` | Native Chat Completions and Responses; portable text embedding, image generation, buffered speech, and final-result transcription; provider-owned Responses, Conversations, Files, Vector Stores, and Skills slices | Image edits/streaming, realtime transcription, vector search/batches, zip skill upload, or a universal resource client |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `openai-responses-websocket` | Experimental provider-owned persistent Responses WebSocket sessions over the official OpenAI endpoint | A provider-neutral session family, concurrent turns on one connection, or an official claim for caller-controlled endpoints |
-| `anthropic` | Native Messages plus Anthropic-owned files, message batches, token counting, and skills | OpenAI-shaped language modes |
+| `anthropic` | Native Messages plus Anthropic-owned Files, Message Batches, token counting, and Skills | OpenAI-shaped language modes, hidden batch polling or result-count reconciliation, client-side ZIP inspection, or a universal native-resource client |
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions, Responses, and Anthropic-compatible Messages modes, native embeddings, and experimental Wan video jobs | Complete Anthropic parity, a separate DashScope provider identity, or business-region routing |
@@ -79,17 +93,18 @@ of compiled public scope, not a promise that every account can use every model o
 | `elevenlabs` | Native speech synthesis plus portable final-result/batch transcription | Realtime transcription sessions or broad resource clients |
 
 `all-providers` activates the retained branded provider slices but intentionally does not enable
-the generic `openai-compatible` escape hatch or experimental `openai-realtime` transport.
+the generic `openai-compatible` escape hatch, experimental `openai-realtime` transport, or
+experimental `openai-responses-websocket` session.
 
 ## Exact portable claim matrix
 
-The rows below mirror the provider-owned profiles compiled on 2026-08-09. `Protocol / API mode`
+The rows below mirror the provider-owned profiles shipped in this release. `Protocol / API mode`
 names the exact execution surface; it is not provider-wide identity.
 
 | Facade feature / provider | Provider / platform | Family | Protocol / API mode | Fidelity | Stability | Official source | Verified |
 |---|---|---|---|---|---|---|---|
-| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai.responses` / `responses` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
-| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai` / `chat-completions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/latest-model | 2026-08-04 |
+| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai.responses` / `responses` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-11 |
+| `openai` / OpenAI | `openai` / `openai-api` | Language | `openai` / `chat-completions` | `native` | `stable` | https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create | 2026-08-11 |
 | `openai` / OpenAI | `openai` / `openai-api` | Embedding | `openai.embeddings` / `embeddings` | `native` | `stable` | https://developers.openai.com/api/docs/guides/embeddings | 2026-08-08 |
 | `openai` / OpenAI | `openai` / `openai-api` | Image | `openai.images` / `image-generations` | `native` | `stable` | https://developers.openai.com/api/docs/guides/image-generation | 2026-08-08 |
 | `openai` / OpenAI | `openai` / `openai-api` | Speech | `openai.audio` / `audio-speech` | `native` | `stable` | https://developers.openai.com/api/docs/guides/text-to-speech | 2026-08-08 |
@@ -147,18 +162,18 @@ portable model families.
 
 | Facade feature / provider | Provider / platform | Kind / surface | Fidelity | Stability | Official source | Verified |
 |---|---|---|---|---|---|---|
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `responses-resource-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-06 |
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `conversations-basic-items` | `native` | `stable` | https://developers.openai.com/api/reference/resources/conversations/methods/create | 2026-08-08 |
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `files-basic-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/files/methods/create | 2026-08-08 |
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `vector-stores-basic-files` | `native` | `stable` | https://developers.openai.com/api/reference/resources/vector-stores/methods/create | 2026-08-08 |
-| `openai` / OpenAI | `openai` / `openai-api` | Resource / `skills-directory-lifecycle` | `native` | `experimental` | https://developers.openai.com/api/reference/resources/skills/methods/create | 2026-08-08 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `responses-resource-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/responses/methods/create | 2026-08-11 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `conversations-basic-items` | `native` | `stable` | https://developers.openai.com/api/reference/resources/conversations/methods/create | 2026-08-11 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `files-basic-lifecycle` | `native` | `stable` | https://developers.openai.com/api/reference/resources/files/methods/create | 2026-08-11 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `vector-stores-basic-files` | `native` | `stable` | https://developers.openai.com/api/reference/resources/vector-stores/methods/create | 2026-08-11 |
+| `openai` / OpenAI | `openai` / `openai-api` | Resource / `skills-directory-lifecycle` | `native` | `experimental` | https://developers.openai.com/api/reference/resources/skills/methods/create | 2026-08-11 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-websocket | 2026-08-06 |
 | `openai-realtime` / OpenAI | `openai` / `openai-api` | Session / `realtime-translation` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/realtime-translation | 2026-08-06 |
-| `openai-responses-websocket` / OpenAI | `openai` / `openai-api` | Session / `responses-websocket` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/websocket-mode | 2026-08-09 |
-| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `files` | `native` | `experimental` | https://platform.claude.com/docs/en/api/files-create | 2026-08-06 |
-| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Job / `message-batches` | `native` | `stable` | https://platform.claude.com/docs/en/api/creating-message-batches | 2026-08-06 |
-| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-06 |
-| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/api/skills/create-skill | 2026-08-06 |
+| `openai-responses-websocket` / OpenAI | `openai` / `openai-api` | Session / `responses-websocket` | `native` | `experimental` | https://developers.openai.com/api/docs/guides/websocket-mode | 2026-08-11 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `files` | `native` | `experimental` | https://platform.claude.com/docs/en/build-with-claude/files | 2026-08-11 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Job / `message-batches` | `native` | `stable` | https://platform.claude.com/docs/en/build-with-claude/batch-processing | 2026-08-11 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-11 |
+| `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/build-with-claude/skills-guide | 2026-08-11 |
 | `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-08 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |

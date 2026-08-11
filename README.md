@@ -43,9 +43,9 @@ Provider features describe the exact retained slice, not every product sold unde
 | Feature | Current public scope |
 |---|---|
 | `openai` | Responses and Chat language, embeddings, image generation, buffered speech, final-result transcription, and typed Conversations/Files/Vector Stores/Skills resources |
-| `openai-realtime` | Experimental OpenAI Realtime support |
+| `openai-realtime` | Experimental provider-owned OpenAI Realtime bootstrap and session transport |
 | `openai-responses-websocket` | Experimental persistent OpenAI Responses WebSocket sessions; also enables `openai` |
-| `anthropic` | Messages and Anthropic-native resources |
+| `anthropic` | Messages plus Files, Message Batches, token counting, and Skills lifecycle APIs |
 | `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, Anthropic-compatible Messages, embeddings, and experimental Wan video |
@@ -63,6 +63,27 @@ Provider features describe the exact retained slice, not every product sold unde
 See the [provider support policy](docs/providers/support-policy.md) for fidelity, stability, and
 host-control-plane boundaries. Model identifiers remain open; constants are dated hints rather
 than allowlists.
+
+Each row is a `claimed slice complete` inventory for this release, not a `provider platform
+complete` claim. Surfaces outside a row's exact scope are `intentionally deferred` and remain
+available for future provider-owned additions without widening the portable core.
+
+## Flagship OpenAI and Anthropic journeys
+
+The facade ships two compile-checked, offline-by-default examples:
+
+- [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines an exact-target typed
+  Responses option, the portable language family, and a provider-owned Conversations read;
+- [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
+  options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
+  Skills list.
+
+Compile them independently with only their documented provider feature:
+
+```text
+cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
+cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
+```
 
 OpenAI Responses WebSocket is intentionally provider-owned rather than a portable family. Enable
 `openai-responses-websocket`, acquire a Responses model, call `model.websocket()?`, and connect the

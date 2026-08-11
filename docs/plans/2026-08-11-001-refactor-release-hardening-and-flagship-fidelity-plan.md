@@ -560,7 +560,7 @@ The Responses performance change remains internal to `siumai-protocol-openai`: d
   - related provider tests
 - **Approach:**
   1. Run each batch item through the same feature/request-policy derivation used by ordinary Messages and emit the union of required beta headers.
-  2. Reject only current documented batch exclusions: `stream: true`, speed/Fast mode, `store`, `previous_thread_event_id`, `cache_hint`, `context_hint`, `max_tokens: 0`, and active `research_preview_2026_02`; preserve prompt caching and server-side fallbacks.
+  2. Reject current documented batch exclusions: `stream: true`, speed/Fast mode, `store`, `previous_thread_event_id`, `cache_hint`, `context_hint`, `max_tokens: 0`, and active `research_preview_2026_02`; preserve prompt caching and server-side fallbacks while rejecting a fallback that itself requests unsupported speed/Fast mode.
   3. Add a bounded incremental JSONL result decoder/stream whose records retain request identity and do not assume input order. Bound encoded and decoded bytes, line length, record count, JSON depth/node count, string lengths, and diagnostic excerpts; reject malformed UTF-8/JSON, truncated final lines, and over-limit records with one typed error after already-emitted records, never skip or log the raw line.
   4. Use open provider-owned wrappers for processing/result status so future values remain inspectable within the same string/control-character bounds.
   5. Add list/delete skill and create/delete version operations, marking delete/version-delete as `ReplaySafety::Never` and auditing existing cancel/update/delete methods for the same post-submission no-retry policy.

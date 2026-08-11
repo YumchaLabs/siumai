@@ -4,11 +4,15 @@ This page is the internal delivery summary for the breaking `0.11.0-beta.9` deve
 is intentionally shorter than the implementation plan and does not replace the architecture or
 provider-support documents.
 
-Status date: 2026-08-10
+Status date: 2026-08-11
+
+The completion label `claimed slice complete` means the declared beta-release slice is implemented
+and covered by its recorded deterministic gates. It is not a `provider platform complete` claim.
+Known product surfaces outside the declared slice are `intentionally deferred`.
 
 ## Checkpoint A — semantic trust boundary
 
-Status: complete.
+Status: claimed slice complete.
 
 The shared language contract now has one canonical success-or-error stream settlement. Caller-owned
 tool calls use checked, bounded JSON input; provider-executed and unknown native items remain opaque
@@ -21,7 +25,7 @@ server, MCP, compatibility engines, and the facade rather than by a parallel con
 
 ## Checkpoint B — provider ownership and API modes
 
-Status: complete.
+Status: claimed slice complete.
 
 Branded Moonshot AI and Volcengine ARK surfaces now have provider-owned crates instead of public
 profiles inside the generic OpenAI-compatible engine. Alibaba endpoint provenance, Gemini's
@@ -35,13 +39,14 @@ This checkpoint includes the provider extraction and Gemini work (`12027215`, `b
 
 ## Checkpoint C — flagship product surfaces
 
-Status: complete.
+Status: claimed slice complete.
 
-The current line includes the planned typed OpenAI lifecycle/media slices, Gemini language and
-product resources, Alibaba/DeepSeek Anthropic-compatible Messages, MiniMax portable media adapters,
-Kimi and ARK native breadth, xAI Files/image/video/speech/transcription, Groq audio and Remote MCP,
-and Deepgram/ElevenLabs portable audio families. The relevant delivery commits are `5832445a`,
-`86a73026`, `53982be0`, `d71acbce`, and `af6f0558`.
+The current line includes the planned typed OpenAI lifecycle/media slices, Anthropic Files, Message
+Batches, token counting, hosted-tool replay, and Skills lifecycle, Gemini language and product
+resources, Alibaba/DeepSeek Anthropic-compatible Messages, MiniMax portable media adapters, Kimi and
+ARK native breadth, xAI Files/image/video/speech/transcription, Groq audio and Remote MCP, and
+Deepgram/ElevenLabs portable audio families. The relevant delivery commits include `5832445a`,
+`86a73026`, `53982be0`, `d71acbce`, `af6f0558`, `3f6ecc85`, `0fa5c402`, and `4c4d32ba`.
 
 The earlier revival workspace gate established a broad provider baseline. It remains historical
 evidence for that checkpoint, not proof that every future provider field, event shape, or product
@@ -49,13 +54,14 @@ surface is permanently complete.
 
 ## Checkpoint D — OpenAI conversation conformance
 
-Status: complete.
+Status: claimed slice complete.
 
 Chat tool identity continuation, trailing usage, and bounded metadata now match observed protocol
 ordering. Responses SSE reconstructs only policy-permitted abbreviated terminal fields and exposes
-the canonical terminal resource separately from the exact native event. Prompt-cache intent is
-node-scoped, current-write budgets are mode-specific, and TTL and retention remain independent typed
-controls. RFC 6598 relay endpoints require an exact explicit transport grant.
+the canonical terminal resource separately from the exact native event. Prompt-cache intent is one
+node-scoped wire breakpoint; provider-side cache read/write selection is not predicted locally, and
+TTL and deprecated retention remain distinct typed wire controls. RFC 6598 relay endpoints require
+an exact explicit transport grant.
 
 The OpenAI provider now also owns an experimental persistent Responses WebSocket session behind the
 independent `openai-responses-websocket` feature. HTTP and WebSocket turns share request
@@ -66,7 +72,7 @@ publishes the dated native support claim.
 
 The implementation units are `fe1295c9`, `d2409ee3`, `eb8c27d1`, `73439125`, `e2dce58d`,
 `997ff09e`, `26a641d1`, `4387e9a9`, `566ecd27`, and `bba1abff`. The focused serial release evidence
-for this checkpoint is:
+recorded on 2026-08-10 for this checkpoint is:
 
 - 112 OpenAI protocol tests;
 - 105 OpenAI provider tests;
@@ -77,7 +83,7 @@ for this checkpoint is:
 
 ## Checkpoint E — validation ownership and forward compatibility
 
-Status: complete.
+Status: claimed slice complete.
 
 Mutable model catalogs and lifecycle hints no longer control Registry construction or provider
 execution. Explicit typed provider intent reaches the final wire or fails with a typed structural
@@ -93,7 +99,7 @@ call once. Runtime snapshots use schema version 6.
 
 The implementation units are `817cdedf`, `119562a5`, `4ca3a764`, `434e11d0`, `29f2b1aa`,
 `a4fcec9f`, `3d95dbdd`, `748c21b9`, `0f004f39`, and `e4daa4d7`. The serial verification baseline
-includes:
+recorded on 2026-08-10 includes:
 
 - 1,058 workspace tests with all features;
 - workspace Clippy across all targets and features with warnings denied;

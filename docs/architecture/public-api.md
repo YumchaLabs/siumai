@@ -1,7 +1,7 @@
 # Public API and Extension Policy
 
 - Status: Current repository contract
-- Updated: 2026-08-10
+- Updated: 2026-08-11
 
 ## Public entry points
 
@@ -67,6 +67,10 @@ annotation stored beside that semantic node. Annotations have no precedence or r
 algorithm. Foreign history annotations remain inert; a provider reads only its exact namespace,
 API mode, and node target. Provider-native state required for faithful replay remains a
 bounded provenance-bearing opaque item rather than an optional annotation.
+
+An OpenAI prompt-cache content annotation expresses one provider wire breakpoint only. It does not
+predict a cache read or write, classify history, or select a provider-side lookback window. Request
+mode, TTL, retention, and cache key remain separate provider-owned options; see ADR 0016.
 
 Use a common request field only when its semantics are stable across providers. Examples of
 provider-owned behavior include prompt-cache controls, reasoning modes, hosted search, MCP or code
@@ -134,8 +138,9 @@ Facade provider features activate only the selected optional provider dependency
 features represent real compile-time behavior, such as an optional protocol or message capability;
 empty relay features are removed.
 
-Applications that need the full provider surface should depend on the provider crate directly. A
-facade feature must not activate unrelated providers, protocols, or job/session integrations.
+Applications that need the full implemented provider-owned surface should depend on the provider
+crate directly. A facade feature must not activate unrelated providers, protocols, or job/session
+integrations.
 
 ## Errors, streams, and cancellation
 

@@ -42,13 +42,17 @@ pub(crate) const PLATFORM_ID: &str = "openai-api";
 const CUSTOM_PLATFORM_ID: &str = "custom-openai-api";
 
 const MODEL_GUIDANCE_SOURCE: &str = "https://developers.openai.com/api/docs/guides/latest-model";
+const RESPONSES_SOURCE: &str =
+    "https://developers.openai.com/api/reference/resources/responses/methods/create";
+const CHAT_COMPLETIONS_SOURCE: &str = "https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create";
 const EMBEDDING_SOURCE: &str = "https://developers.openai.com/api/docs/guides/embeddings";
 const IMAGE_SOURCE: &str = "https://developers.openai.com/api/docs/guides/image-generation";
 const SPEECH_SOURCE: &str = "https://developers.openai.com/api/docs/guides/text-to-speech";
 const TRANSCRIPTION_SOURCE: &str = "https://developers.openai.com/api/docs/guides/speech-to-text";
 
-const RESPONSES_CONTRACT: &str = "openai-responses-2026-08-04";
-const CHAT_COMPLETIONS_CONTRACT: &str = "openai-chat-completions-2026-08-04";
+const MODEL_GUIDANCE_CONTRACT: &str = "openai-model-guidance-2026-08-04";
+const RESPONSES_CONTRACT: &str = "openai-responses-2026-08-11";
+const CHAT_COMPLETIONS_CONTRACT: &str = "openai-chat-completions-2026-08-11";
 const EMBEDDING_CONTRACT: &str = "openai-embeddings-2026-08-08";
 const IMAGE_CONTRACT: &str = "openai-image-generations-2026-08-08";
 const SPEECH_CONTRACT: &str = "openai-audio-speech-2026-08-08";
@@ -136,8 +140,15 @@ impl OpenAiProfile {
             &replay_domain,
         )?;
 
-        let responses_evidence = evidence(MODEL_GUIDANCE_SOURCE, RESPONSES_CONTRACT, 2026, 8, 4)?;
-        let chat_evidence = evidence(MODEL_GUIDANCE_SOURCE, CHAT_COMPLETIONS_CONTRACT, 2026, 8, 4)?;
+        let model_evidence = evidence(MODEL_GUIDANCE_SOURCE, MODEL_GUIDANCE_CONTRACT, 2026, 8, 4)?;
+        let responses_evidence = evidence(RESPONSES_SOURCE, RESPONSES_CONTRACT, 2026, 8, 11)?;
+        let chat_evidence = evidence(
+            CHAT_COMPLETIONS_SOURCE,
+            CHAT_COMPLETIONS_CONTRACT,
+            2026,
+            8,
+            11,
+        )?;
         let embedding_evidence = evidence(EMBEDDING_SOURCE, EMBEDDING_CONTRACT, 2026, 8, 8)?;
         let image_evidence = evidence(IMAGE_SOURCE, IMAGE_CONTRACT, 2026, 8, 8)?;
         let speech_evidence = evidence(SPEECH_SOURCE, SPEECH_CONTRACT, 2026, 8, 8)?;
@@ -156,14 +167,14 @@ impl OpenAiProfile {
         extend_models(
             &mut models,
             &responses_scope,
-            &responses_evidence,
+            &model_evidence,
             [ModelOperation::Generate, ModelOperation::Stream],
             language_models(),
         )?;
         extend_models(
             &mut models,
             &chat_completions_scope,
-            &chat_evidence,
+            &model_evidence,
             [ModelOperation::Generate, ModelOperation::Stream],
             language_models(),
         )?;

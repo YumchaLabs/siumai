@@ -30,7 +30,17 @@ annotations, native resources, and experimental session APIs behind their owning
 Enable `registry` for deterministic lookup over caller-configured providers and `runtime` for
 provider-neutral multi-step execution.
 
+The packaged facade includes two compile-checked flagship examples:
+
+- `examples/openai_flagship.rs` combines an exact-target Responses option, the portable language
+  family, and the provider-owned Conversations lifecycle;
+- `examples/anthropic_flagship.rs` combines Messages options, scope-bound Files-in-Messages,
+  assistant-history replay, and the provider-owned Skills lifecycle.
+
+Both examples are offline by default and perform network calls only after their provider credential
+environment variable is set.
+
 See the [repository README](https://github.com/YumchaLabs/siumai#readme),
 [migration guide](https://github.com/YumchaLabs/siumai/blob/main/docs/migration/siumai-next.md), and
 [provider support policy](https://github.com/YumchaLabs/siumai/blob/main/docs/providers/support-policy.md)
-for the complete user journey and current support evidence.
+for the primary user journey and current support evidence.

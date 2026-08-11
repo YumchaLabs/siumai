@@ -97,6 +97,16 @@ all-providers = [
 name = "facade_contract"
 path = "tests/facade_contract.rs"
 
+[[example]]
+name = "openai_flagship"
+path = "examples/openai_flagship.rs"
+required-features = ["openai"]
+
+[[example]]
+name = "anthropic_flagship"
+path = "examples/anthropic_flagship.rs"
+required-features = ["anthropic"]
+
 [dev-dependencies]
 async-trait.workspace = true
 serde_json.workspace = true

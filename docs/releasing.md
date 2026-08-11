@@ -32,6 +32,10 @@ and combined Responses WebSocket/Realtime feature ownership paths. This remains 
 rather than a provider-by-feature matrix. The documentation lane builds the OpenAI provider with
 all optional modules enabled before the workspace docs pass.
 
+The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
+`claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
+claim. Product surfaces outside the documented package slice remain `intentionally deferred`.
+
 Before publishing, inspect the Cargo-native workspace file list with
 `cargo package --workspace --list --locked`. Confirm that it contains no credentials, local
 configuration, absolute local paths, `target/`, `repo-ref/`, temporary canary artifacts, or private

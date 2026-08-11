@@ -64,15 +64,15 @@ const VECTOR_STORES_SOURCE: &str =
     "https://developers.openai.com/api/reference/resources/vector-stores/methods/create";
 const SKILLS_SOURCE: &str =
     "https://developers.openai.com/api/reference/resources/skills/methods/create";
-const RESPONSES_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
+const RESPONSES_SUPPORT_VERIFIED_ON: &str = "2026-08-11";
 #[cfg(feature = "openai-responses-websocket")]
 const RESPONSES_WEBSOCKET_SOURCE: &str =
     "https://developers.openai.com/api/docs/guides/websocket-mode";
 #[cfg(feature = "openai-responses-websocket")]
-const RESPONSES_WEBSOCKET_SUPPORT_VERIFIED_ON: &str = "2026-08-09";
+const RESPONSES_WEBSOCKET_SUPPORT_VERIFIED_ON: &str = "2026-08-11";
 #[cfg(feature = "openai-realtime")]
 const REALTIME_SUPPORT_VERIFIED_ON: &str = "2026-08-06";
-const RESOURCE_SUPPORT_VERIFIED_ON: &str = "2026-08-08";
+const RESOURCE_SUPPORT_VERIFIED_ON: &str = "2026-08-11";
 
 /// One synchronously configured OpenAI provider with portable families and native resources.
 #[derive(Clone)]

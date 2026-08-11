@@ -401,6 +401,22 @@ Use stable labels, not URLs, hostnames, API keys, signed values, or private acco
 that configure multiple accounts, projects, workspaces, or deployments on one official audience
 must give each replay boundary a distinct non-secret caller scope.
 
+The official Anthropic builder keeps ownership of its replay audience and accepts only the
+caller-owned scope when that is the missing boundary:
+
+```rust,ignore
+use siumai::{ReplayDomainId, providers::anthropic::AnthropicProvider};
+
+let provider = AnthropicProvider::builder(credential)
+    .with_caller_scope(ReplayDomainId::new("workspace-a")?)
+    .build()?;
+```
+
+Prefer this helper for Anthropic Files-in-Messages and hosted-tool continuation on the official
+endpoint. Do not reconstruct the provider-owned `anthropic-public-api` audience in application
+code. Custom endpoints still require an explicit custom `ReplayDomain`; the caller-scope helper
+only augments the selected audience.
+
 Anthropic on Vertex requires this boundary explicitly because the project is material technical
 addressing data but must not be serialized into durable history automatically:
 
@@ -464,38 +480,38 @@ let request = LanguageRequest::new(vec![Message::new(
 Message- and tool-level equivalents are `MinimaxMessageCache` and `MinimaxToolCache`. These markers
 apply only to the Messages API mode and encode MiniMax's fixed ephemeral cache control.
 
-OpenAI prompt-cache markers use the same node-scoped principle, but distinguish retained history from
-the current request's write budget:
+OpenAI prompt-cache markers use the same node-scoped principle. A marker represents one provider
+wire breakpoint; it does not classify the node as historical or as a write candidate and does not
+predict whether OpenAI will read or write cache state:
 
 ```rust,no_run
 use siumai::core::MessagePart;
 use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
 use siumai::{LanguageRequest, Message, MessageRole};
 
-let history = MessagePart::text("A stable reusable prefix")
-    .with_provider_annotation(&OpenAiContentOptions::historical_cache_marker())?;
-let write = MessagePart::text("The current reusable suffix")
-    .with_provider_annotation(&OpenAiContentOptions::cache_write_candidate())?;
+let cached = MessagePart::text("A stable reusable prefix")
+    .with_provider_annotation(&OpenAiContentOptions::prompt_cache_breakpoint())?;
 let request = LanguageRequest::new(vec![Message::new(
     MessageRole::User,
-    [history, write],
+    [cached],
 )]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Historical markers must precede write candidates. The implicit cache mode permits three current
-write candidates because OpenAI reserves one implicit slot; explicit mode permits four. Siumai does
-not trim historical markers to a client-side 50- or 80-marker window. The old
-`OpenAiPromptCacheBreakpoint` coordinate type and `with_prompt_cache_breakpoint` helpers were
-removed because message/content indices become invalid when middleware edits a request.
+Siumai enforces only structural rules it can prove locally: annotation ownership, duplicate
+annotations on one node, wire shape, protected fields, and aggregate request bounds. Cache matching,
+reads, writes, provider-side lookback windows, and implicit provider breakpoints remain provider
+behavior. The old `OpenAiPromptCacheBreakpoint` coordinate type, historical/write-candidate roles,
+and request-index helpers were removed because they predicted mutable provider state and became
+invalid when middleware edited a request. See
+[`ADR-0016`](../adr/0016-openai-prompt-cache-selection-remains-provider-owned.md).
 
-`prompt_cache_options.ttl` and `prompt_cache_retention` remain separate typed controls. TTL expresses
-a minimum cache lifetime, while retention expresses a maximum retention policy. OpenAI deprecates
-the retention field in favor of TTL, but documents the controls as independent, so Siumai preserves
-both when the selected model supports them. GPT-5.6 accepts `ttl: 30m` and `24h` retention, including
-their simultaneous use, while GPT-5.5 rejects TTL and content breakpoints and accepts only `24h`
-retention. Unknown model IDs preserve explicit caller intent without guessing capabilities from the
-model name.
+`prompt_cache_options.ttl` and `prompt_cache_retention` remain distinct provider wire fields.
+Current OpenAI guidance uses `ttl: "30m"` for GPT-5.6 and later and deprecates
+`prompt_cache_retention` in favor of TTL. The deprecated field remains available for wire fidelity
+to earlier documented models, but it is not presented as simultaneously applicable to GPT-5.6.
+Siumai preserves explicit typed intent without turning dated model guidance into an execution
+allowlist.
 
 ## Explicit MiniMax language modes
 
@@ -760,10 +776,17 @@ Batch and Skills response discriminants now use bounded open wrappers such as
 `AnthropicSkillSource`. Replace `Option<String>::as_deref()` calls with the wrapper's `as_str()`
 accessor. Unknown future values remain available; they are not converted into a closed allowlist.
 
+Prompt caching and server-side fallbacks remain available in Message Batches. Current Anthropic
+guidance excludes speed/Fast mode, so batch construction rejects both top-level speed and a fallback
+that requests speed. The results stream does not issue a hidden retrieve request to infer the
+expected result count. Callers that require result-count reconciliation should retrieve the batch
+explicitly and compare its request counts with the streamed records.
+
 Skills now expose list, retrieve, delete, version-list, version-create, version-retrieve, and
 version-delete operations. `versions` remains the first-page convenience. Use `versions_page` with
 `AnthropicSkillVersionListQuery` to follow `next_page`. Multipart file uploads require one common
 top-level directory and a root `SKILL.md`; ZIP input remains opaque and server-validated.
+Siumai does not inspect ZIP archive contents locally.
 
 ## Migration checklist
 

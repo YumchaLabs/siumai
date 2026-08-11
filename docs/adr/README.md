@@ -25,6 +25,9 @@ superseded by a later accepted decision or current architecture contract.
 - `0015-validation-ownership-and-forward-compatibility.md` — Stable semantic and wire invariants
   remain strict in their owning layers, while model lifecycle, product eligibility, and host option
   origins no longer control provider execution.
+- `0016-openai-prompt-cache-selection-remains-provider-owned.md` — OpenAI content annotations express
+  one explicit wire-level cache breakpoint; cache read/write selection and mutable history windows
+  remain provider-owned.
 
 ## Conventions
 

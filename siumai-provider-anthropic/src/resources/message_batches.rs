@@ -1956,6 +1956,7 @@ mod tests {
             .expect("fallback item")
             .with_options(
                 AnthropicMessagesOptions::new()
+                    .with_automatic_cache(AnthropicCacheTtl::OneHour)
                     .with_fallbacks(ServerFallbacks::Default)
                     .with_top_k(7),
             ),
@@ -2015,6 +2016,10 @@ mod tests {
         let body: Value = serde_json::from_slice(&requests[0].body).expect("batch request body");
         assert_eq!(body["requests"].as_array().map(Vec::len), Some(3));
         assert_eq!(body["requests"][0]["custom_id"], "request_fallback");
+        assert_eq!(
+            body["requests"][0]["params"]["cache_control"],
+            json!({"type": "ephemeral", "ttl": "1h"})
+        );
         assert_eq!(body["requests"][0]["params"]["fallbacks"], "default");
         assert_eq!(body["requests"][0]["params"]["top_k"], 7);
         assert_eq!(
