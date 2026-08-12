@@ -782,11 +782,14 @@ that requests speed. The results stream does not issue a hidden retrieve request
 expected result count. Callers that require result-count reconciliation should retrieve the batch
 explicitly and compare its request counts with the streamed records.
 
-Skills now expose list, retrieve, delete, version-list, version-create, version-retrieve, and
-version-delete operations. `versions` remains the first-page convenience. Use `versions_page` with
+The Anthropic Skills support claim is `claimed slice complete` for bounded create uploads and the
+implemented metadata/version operations; it is not a `provider platform complete` claim. Skills
+expose list, retrieve, delete, version-list, version-create, version-retrieve, and version-delete
+operations. `versions` remains the first-page convenience. Use `versions_page` with
 `AnthropicSkillVersionListQuery` to follow `next_page`. Multipart file uploads require one common
-top-level directory and a root `SKILL.md`; ZIP input remains opaque and server-validated.
-Siumai does not inspect ZIP archive contents locally.
+top-level directory and a root `SKILL.md`; ZIP input remains opaque and server-validated. Siumai
+does not inspect ZIP archive contents locally. Skill version-content download is `intentionally
+deferred`.
 
 ## Migration checklist
 

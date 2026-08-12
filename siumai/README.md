@@ -35,7 +35,7 @@ The packaged facade includes two compile-checked flagship examples:
 - `examples/openai_flagship.rs` combines an exact-target Responses option, the portable language
   family, and the provider-owned Conversations lifecycle;
 - `examples/anthropic_flagship.rs` combines Messages options, scope-bound Files-in-Messages,
-  assistant-history replay, and the provider-owned Skills lifecycle.
+  assistant-history replay, and a provider-owned Skills metadata list.
 
 Both examples are offline by default and perform network calls only after their provider credential
 environment variable is set.

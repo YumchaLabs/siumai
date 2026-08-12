@@ -77,7 +77,7 @@ every account can use every model or endpoint.
 | `openai` | Native Chat Completions and Responses; portable text embedding, image generation, buffered speech, and final-result transcription; provider-owned Responses, Conversations, Files, Vector Stores, and Skills slices | Image edits/streaming, realtime transcription, vector search/batches, zip skill upload, or a universal resource client |
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `openai-responses-websocket` | Experimental provider-owned persistent Responses WebSocket sessions over the official OpenAI endpoint | A provider-neutral session family, concurrent turns on one connection, or an official claim for caller-controlled endpoints |
-| `anthropic` | Native Messages plus Anthropic-owned Files, Message Batches, token counting, and Skills | OpenAI-shaped language modes, hidden batch polling or result-count reconciliation, client-side ZIP inspection, or a universal native-resource client |
+| `anthropic` | Native Messages plus Anthropic-owned Files, Message Batches, token counting, and Skills metadata/version CRUD with bounded multipart uploads | OpenAI-shaped language modes, hidden batch polling or result-count reconciliation, client-side ZIP inspection, Skill version-content download, or a universal native-resource client |
 | `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions, Responses, and Anthropic-compatible Messages modes, native embeddings, and experimental Wan video jobs | Complete Anthropic parity, a separate DashScope provider identity, or business-region routing |
@@ -192,6 +192,10 @@ portable model families.
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-design` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-design-design | 2026-08-09 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-management` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-management-get | 2026-08-09 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Resource / `voice-delete` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/voice-management-delete | 2026-08-09 |
+
+The Anthropic `skills` manifest identifier denotes the `claimed slice complete` metadata/version
+CRUD and bounded-upload surface documented above. Skill version-content download is `intentionally
+deferred`; the identifier is not a `provider platform complete` claim.
 
 ## Fidelity
 

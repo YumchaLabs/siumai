@@ -45,7 +45,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `openai` | Responses and Chat language, embeddings, image generation, buffered speech, final-result transcription, and typed Conversations/Files/Vector Stores/Skills resources |
 | `openai-realtime` | Experimental provider-owned OpenAI Realtime bootstrap and session transport |
 | `openai-responses-websocket` | Experimental persistent OpenAI Responses WebSocket sessions; also enables `openai` |
-| `anthropic` | Messages plus Files, Message Batches, token counting, and Skills lifecycle APIs |
+| `anthropic` | Messages plus Files, Message Batches, token counting, and Skills metadata/version CRUD with bounded uploads |
 | `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, Anthropic-compatible Messages, embeddings, and experimental Wan video |
@@ -76,7 +76,7 @@ The facade ships two compile-checked, offline-by-default examples:
   Responses option, the portable language family, and a provider-owned Conversations read;
 - [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
   options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
-  Skills list.
+  Skills metadata list.
 
 Compile them independently with only their documented provider feature:
 

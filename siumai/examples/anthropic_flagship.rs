@@ -66,7 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .skills()
         .list(AnthropicSkillListQuery::default())
         .await?;
-    println!("listed {} provider-owned Skills", skills.data.len());
+    println!(
+        "listed {} provider-owned Skill metadata records",
+        skills.data.len()
+    );
 
     Ok(())
 }
