@@ -269,7 +269,10 @@ the final snapshot, and charges budgets exactly once.
 `ResponseDiagnostics::with_headers` were removed. Header names cannot prove that provider-controlled
 values are safe for default logs or serialization. Use the typed status, request ID, retry delay,
 provider code/type/parameter, and truncation fields instead; raw headers remain available only from
-the explicitly sensitive response accessor.
+the explicitly sensitive response accessor. `ResponseDiagnostics` now redacts request IDs from its
+default `Debug` and serde serialization, which is deliberately not a lossless persistence format.
+Read `request_id()` before serializing when the application needs that identifier, or retain the
+explicitly sensitive response material inside its own trust boundary.
 
 Chat Completions retains a trailing usage-only chunk before publishing its terminal response.
 Responses streams compare an executable item shared by stable and terminal views using canonical
@@ -776,6 +779,10 @@ Batch and Skills response discriminants now use bounded open wrappers such as
 `AnthropicSkillSource`. Replace `Option<String>::as_deref()` calls with the wrapper's `as_str()`
 accessor. Unknown future values remain available; they are not converted into a closed allowlist.
 
+`AnthropicBatchDeleteResult` now follows the provider response shape directly: `object_type` is a
+required bounded value and `deleted` is replaced by `is_deleted()`. Old persisted delete payloads
+without a `type` field are no longer accepted by serde.
+
 Prompt caching and server-side fallbacks remain available in Message Batches. Current Anthropic
 guidance excludes speed/Fast mode, so batch construction rejects both top-level speed and a fallback
 that requests speed. The results stream does not issue a hidden retrieve request to infer the
@@ -789,7 +796,10 @@ operations. `versions` remains the first-page convenience. Use `versions_page` w
 `AnthropicSkillVersionListQuery` to follow `next_page`. Multipart file uploads require one common
 top-level directory and a root `SKILL.md`; ZIP input remains opaque and server-validated. Siumai
 does not inspect ZIP archive contents locally. Skill version-content download is `intentionally
-deferred`.
+deferred`. `AnthropicSkillList::has_more` and `AnthropicSkillVersionList::has_more` are now
+methods: replace field reads with `has_more()`, whose value is derived from `next_page.is_some()`.
+The former `AnthropicSkills::upload` and `upload_with_options` aliases were removed; use `create`
+and `create_with_options` respectively.
 
 ## Migration checklist
 

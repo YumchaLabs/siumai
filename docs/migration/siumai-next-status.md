@@ -4,7 +4,7 @@ This page is the internal delivery summary for the breaking `0.11.0-beta.9` deve
 is intentionally shorter than the implementation plan and does not replace the architecture or
 provider-support documents.
 
-Status date: 2026-08-11
+Status date: 2026-08-12
 
 The completion label `claimed slice complete` means the declared beta-release slice is implemented
 and covered by its recorded deterministic gates. It is not a `provider platform complete` claim.
@@ -42,11 +42,16 @@ This checkpoint includes the provider extraction and Gemini work (`12027215`, `b
 Status: claimed slice complete.
 
 The current line includes the planned typed OpenAI lifecycle/media slices, Anthropic Files, Message
-Batches, token counting, hosted-tool replay, and Skills lifecycle, Gemini language and product
-resources, Alibaba/DeepSeek Anthropic-compatible Messages, MiniMax portable media adapters, Kimi and
-ARK native breadth, xAI Files/image/video/speech/transcription, Groq audio and Remote MCP, and
-Deepgram/ElevenLabs portable audio families. The relevant delivery commits include `5832445a`,
-`86a73026`, `53982be0`, `d71acbce`, `af6f0558`, `3f6ecc85`, `0fa5c402`, and `4c4d32ba`.
+Batches, token counting, hosted-tool replay, and bounded Skills metadata/version operations, Gemini
+language and product resources, Alibaba/DeepSeek Anthropic-compatible Messages, MiniMax portable
+media adapters, Kimi and ARK native breadth, xAI Files/image/video/speech/transcription, Groq audio
+and Remote MCP, and Deepgram/ElevenLabs portable audio families. The relevant delivery commits
+include `5832445a`, `86a73026`, `53982be0`, `d71acbce`, `af6f0558`, `3f6ecc85`, `0fa5c402`, and
+`4c4d32ba`.
+
+For Anthropic Skills, `claimed slice complete` covers bounded create uploads and the implemented
+metadata/version operations only. Skill version-content download is `intentionally deferred`; this
+checkpoint does not make a `provider platform complete` claim.
 
 The earlier revival workspace gate established a broad provider baseline. It remains historical
 evidence for that checkpoint, not proof that every future provider field, event shape, or product
@@ -71,8 +76,9 @@ native-only warm-up, and conservative close behavior. Only the provider-owned of
 publishes the dated native support claim.
 
 The implementation units are `fe1295c9`, `d2409ee3`, `eb8c27d1`, `73439125`, `e2dce58d`,
-`997ff09e`, `26a641d1`, `4387e9a9`, `566ecd27`, and `bba1abff`. The focused serial release evidence
-recorded on 2026-08-10 for this checkpoint is:
+`997ff09e`, `26a641d1`, `4387e9a9`, `566ecd27`, and `bba1abff`. Their earlier focused serial
+evidence remains useful for protocol-level provenance, while the final workspace-wide release
+evidence is recorded below.
 
 - 112 OpenAI protocol tests;
 - 105 OpenAI provider tests;
@@ -98,39 +104,53 @@ partial output; usage events declare snapshot or delta semantics and runtime set
 call once. Runtime snapshots use schema version 6.
 
 The implementation units are `817cdedf`, `119562a5`, `4ca3a764`, `434e11d0`, `29f2b1aa`,
-`a4fcec9f`, `3d95dbdd`, `748c21b9`, `0f004f39`, and `e4daa4d7`. The serial verification baseline
-recorded on 2026-08-10 includes:
+`a4fcec9f`, `3d95dbdd`, `748c21b9`, `0f004f39`, and `e4daa4d7`. Release hardening then added the
+diagnostic, OpenAI, Anthropic, package, version, CI, and support-claim fixes in `981d966f`,
+`92b00d9e`, `ffad41bc`, `81f3347b`, `71550fec`, `efc418cd`, and `8635bea0`.
 
-- 1,058 workspace tests with all features;
+### Final deterministic release evidence
+
+The serial release verification completed on 2026-08-12 against the current workspace:
+
+- 1,161 workspace tests with all features, plus the 361-test fast suite and 380-test fixed flagship
+  OpenAI/Anthropic suite;
 - workspace Clippy across all targets and features with warnings denied;
-- workspace formatting and diff checks;
-- 19 focused OpenAI-compatible tests and its all-target/all-feature Clippy lane after adding the
-  public validated custom-endpoint constructor.
+- OpenAI provider documentation, workspace documentation, and workspace doctests;
+- Rust 1.88 workspace/all-target/all-feature MSRV checking;
+- facade default-free checks for bare, OpenAI, Anthropic, all-provider, and combined Responses
+  WebSocket/Realtime ownership, plus each flagship example with its exact provider feature;
+- 27 repository-script tests and the architecture-boundary check;
+- Cargo metadata proving all 26 workspace packages report `0.11.0-beta.9`;
+- 511 Cargo-selected package paths through the bounded package-list checker, followed by a complete
+  `cargo package --workspace --locked --allow-dirty -j 1` dry run with no publication;
+- workspace formatting, unstaged diff, and staged diff whitespace checks.
 
 ### Opt-in live diagnostic
 
-The authorized `sub2api` diagnostic ran on 2026-08-10. Its status endpoint was partially green, not
-globally green: the selected `gpt-5.6-sol` lane was healthy while other listed models still had
-recent failures. No credential, response text, tool argument, raw provider payload, or response ID
-was recorded:
+The authorized `sub2api` diagnostic ran again on 2026-08-12 after all deterministic gates passed.
+At the status snapshot generated at 2026-08-12T10:35:38Z, the endpoint was not globally green:
+`gpt-5.6-sol` had a successful latest probe, while `gpt-5.6-luna` had a failed latest probe. The
+canary therefore fixed `gpt-5.6-sol` explicitly; status did not choose a fallback or relax a wire
+dialect. No credential, live endpoint value, response text, tool argument, raw provider payload, response ID,
+or provider close reason was recorded:
 
-- Branded OpenAI Responses direct and Chat direct completed with usage. Chat streaming retained the
-  late usage-only chunk. The repeated cache probes preserved cache-read/write telemetry, but the
-  first call already reported a cache read, so this run cannot attribute the observation to the
-  second call or to one cache key.
-- The relay rejected `previous_response_id` continuation as an OpenAI request error. That is a relay
-  product gap, not evidence for a model-policy gate or a portable contract change.
-- The relay abbreviates Responses terminal items. The branded `OpenAiProvider` correctly rejected
-  that stream under the strict OpenAI wire baseline. The generic OpenAI-compatible provider, with
-  an explicitly selected compatible dialect, completed both Responses and Chat streams and retained
-  usage.
+- Branded Chat direct and Chat streaming completed with usage; the stream produced one usage
+  snapshot and preserved usage on its terminal response.
+- Branded Responses direct completed with usage and exposed known cache-read and cache-write
+  dimensions. The relay still abbreviates Responses terminal items, so branded strict Responses
+  streaming correctly failed with `ErrorKind::Protocol`. The generic compatible Responses stream,
+  with an explicitly selected compatible dialect, completed with terminal usage. Its compatible
+  Chat stream also completed with terminal usage.
+- Two explicit repeated cache calls settled as retryable `ErrorKind::RateLimited` and
+  `ErrorKind::Unavailable`. This run therefore makes no cache-hit attribution and does not treat
+  relay capacity as a caching or parser defect.
 - A compatible Responses tool turn produced exactly one canonical caller-owned tool call. The
   projected assistant history plus `ToolResult` continued successfully, with zero history
   omissions. This validates the unified tool/history boundary without weakening native replay or
   executable parity checks.
-- The Responses WebSocket handshake began a turn and then settled as sanitized, retryable
-  `ErrorKind::Unavailable`. It did not expose the provider-controlled close reason and is not
-  evidence that multi-turn WebSocket continuation works on this relay.
+- The Responses WebSocket failed during setup as sanitized, retryable `ErrorKind::Unavailable`.
+  It did not expose a provider-controlled close reason and is not evidence that multi-turn
+  WebSocket continuation works on this relay.
 
 The live run exposed one ergonomic gap rather than a semantic defect: a generic compatible caller
 could not previously preserve an already validated RFC 6598 `EndpointConfig` through a public
@@ -138,5 +158,6 @@ constructor. `OpenAiCompatibleProfile::custom_endpoint` now accepts that transpo
 retaining generic claims, a custom replay audience, and a strict Responses default. Callers must
 explicitly select a compatible dialect only when their relay fixtures prove it.
 
-Live provider canaries remain opt-in diagnostics. They are not release gates and must not turn
-relay capacity, quota, or upstream availability into parser or API claims.
+The temporary canary lived outside the repository, used fixed time and event bounds, and was
+removed after the run. Live provider canaries remain opt-in diagnostics. They are not release gates
+and must not turn relay capacity, quota, or upstream availability into parser or API claims.
