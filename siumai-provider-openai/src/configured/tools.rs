@@ -455,7 +455,6 @@ impl OpenAiRawTool {
 
 /// Web-search hosted tool controls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiWebSearchTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_web_access: Option<bool>,
@@ -535,7 +534,6 @@ impl OpenAiWebSearchPreviewVersion {
 /// This is an options payload rather than a standalone wire object. Serialize and deserialize the
 /// enclosing [`OpenAiResponsesTool`] when the versioned `type` discriminator must be preserved.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiWebSearchPreviewTool {
     #[serde(skip)]
     version: OpenAiWebSearchPreviewVersion,
@@ -548,7 +546,6 @@ pub struct OpenAiWebSearchPreviewTool {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct OpenAiWebSearchPreviewToolWire {
     #[serde(default)]
     search_content_types: Vec<OpenAiWebSearchContentType>,
@@ -620,7 +617,6 @@ pub enum OpenAiWebSearchContentType {
 
 /// Image-result controls for web search.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiWebSearchImageSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
@@ -647,7 +643,6 @@ pub enum OpenAiWebSearchReturnTokenBudget {
 
 /// Domain filters for web search.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiWebSearchFilters {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_domains: Vec<String>,
@@ -664,7 +659,6 @@ impl OpenAiWebSearchFilters {
 
 /// Approximate user location used for geographically relevant web search.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiApproximateLocation {
     #[serde(default = "approximate_location_type")]
     r#type: String,
@@ -722,7 +716,6 @@ impl OpenAiApproximateLocation {
 /// Preview computer-use display and environment controls.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiComputerUsePreviewTool {
     pub display_height: u32,
     pub display_width: u32,
@@ -818,7 +811,6 @@ pub enum OpenAiFileSearchFilterList {
 
 /// File-search ranking options.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiFileSearchRankingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ranker: Option<String>,
@@ -830,7 +822,6 @@ pub struct OpenAiFileSearchRankingOptions {
 
 /// Hybrid ranking weights for file search.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiFileSearchHybridSearch {
     pub embedding_weight: f64,
     pub text_weight: f64,
@@ -838,7 +829,6 @@ pub struct OpenAiFileSearchHybridSearch {
 
 /// File-search hosted tool controls.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiFileSearchTool {
     pub vector_store_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -921,7 +911,6 @@ pub enum OpenAiCodeInterpreterContainer {
 
 /// Automatic code-interpreter container settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiCodeInterpreterAutoContainer {
     #[serde(rename = "type", default = "auto_container_type")]
     r#type: String,
@@ -1010,7 +999,6 @@ impl fmt::Debug for OpenAiDomainSecret {
 
 /// Code-interpreter hosted tool controls.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiCodeInterpreterTool {
     pub container: OpenAiCodeInterpreterContainer,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1056,7 +1044,6 @@ impl OpenAiCodeInterpreterTool {
 
 /// Image-generation hosted tool controls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiImageGenerationTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<OpenAiImageAction>,
@@ -1154,7 +1141,6 @@ pub enum OpenAiImageInputFidelity {
 
 /// Image input mask.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiImageInputMask {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
@@ -1319,7 +1305,6 @@ impl Serialize for OpenAiMcpTool {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct OpenAiMcpToolWire {
     server_label: String,
     allowed_tools: Option<OpenAiMcpAllowedTools>,
@@ -1570,8 +1555,7 @@ impl<'de> Deserialize<'de> for OpenAiMcpApproval {
             Value::String(value) if value == "always" => Ok(Self::Always),
             Value::String(value) if value == "never" => Ok(Self::Never),
             Value::Object(mut object)
-                if !object.is_empty()
-                    && object.keys().all(|key| key == "always" || key == "never") =>
+                if object.contains_key("always") || object.contains_key("never") =>
             {
                 let always = object
                     .remove("always")
@@ -1594,7 +1578,6 @@ impl<'de> Deserialize<'de> for OpenAiMcpApproval {
 
 /// Tool filter for an MCP approval policy branch.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiMcpApprovalFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_only: Option<bool>,
@@ -1672,7 +1655,6 @@ impl OpenAiToolNamespace {
 
 /// Tool-search controls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiToolSearchTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution: Option<OpenAiToolSearchExecution>,
@@ -1743,7 +1725,6 @@ impl OpenAiToolSearchTool {
 
 /// Custom caller-executed Responses tool.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiCustomTool {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1801,7 +1782,6 @@ pub enum OpenAiGrammarSyntax {
 
 /// Hosted shell tool controls.
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiShellTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<OpenAiShellEnvironment>,
@@ -1887,7 +1867,6 @@ pub enum OpenAiShellSkill {
 
 /// A host-local shell skill mounted from a caller-controlled path.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiLocalShellSkill {
     pub name: String,
     pub description: String,
@@ -1929,7 +1908,6 @@ impl fmt::Debug for OpenAiShellSkill {
 
 /// Inline shell skill source.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiInlineSkillSource {
     #[serde(rename = "type")]
     r#type: String,
@@ -1977,7 +1955,6 @@ impl OpenAiShellTool {
 
 /// Apply-patch hosted tool controls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct OpenAiApplyPatchTool {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_callers: Vec<OpenAiToolCaller>,
@@ -2020,106 +1997,21 @@ fn decode_known_or_raw<E: DeError>(
     value: Value,
     decode: impl Fn(Value) -> Result<OpenAiResponsesTool, E>,
 ) -> Result<OpenAiResponsesTool, E> {
-    match decode(value.clone()) {
-        Ok(tool) => Ok(tool),
-        Err(error) => {
-            let Some(stripped) = strip_known_tool_additive_fields(&value) else {
-                return Err(error);
-            };
-            if decode(stripped).is_err() {
-                return Err(error);
-            }
-            OpenAiResponsesTool::raw(value).map_err(E::custom)
-        }
+    let known = decode(value.clone())?;
+    known.validate().map_err(E::custom)?;
+    let known_wire = serde_json::to_value(&known).map_err(E::custom)?;
+    if known_wire == value {
+        Ok(known)
+    } else {
+        OpenAiResponsesTool::raw(value).map_err(E::custom)
     }
 }
 
-fn strip_known_tool_additive_fields(value: &Value) -> Option<Value> {
-    let object = value.as_object()?;
-    let kind = object.get("type").and_then(Value::as_str)?;
-    let allowed: &[&str] = match kind {
-        "web_search" => &[
-            "type",
-            "external_web_access",
-            "filters",
-            "search_context_size",
-            "return_token_budget",
-            "search_content_types",
-            "image_settings",
-            "user_location",
-        ],
-        "web_search_preview" | "web_search_preview_2025_03_11" => &[
-            "type",
-            "search_content_types",
-            "search_context_size",
-            "user_location",
-        ],
-        "file_search" => &[
-            "type",
-            "vector_store_ids",
-            "max_num_results",
-            "ranking_options",
-            "filters",
-        ],
-        "code_interpreter" => &["type", "container", "allowed_callers"],
-        "computer" => &["type"],
-        "computer_use_preview" => &["type", "display_height", "display_width", "environment"],
-        "mcp" => &[
-            "type",
-            "server_label",
-            "allowed_tools",
-            "allowed_callers",
-            "authorization",
-            "connector_id",
-            "headers",
-            "require_approval",
-            "server_description",
-            "server_url",
-            "tunnel_id",
-            "defer_loading",
-        ],
-        "image_generation" => &[
-            "type",
-            "action",
-            "background",
-            "input_fidelity",
-            "input_image_mask",
-            "model",
-            "moderation",
-            "output_compression",
-            "output_format",
-            "partial_images",
-            "quality",
-            "size",
-        ],
-        "local_shell" => &["type"],
-        "shell" => &["type", "environment", "allowed_callers"],
-        "apply_patch" => &["type", "allowed_callers"],
-        "tool_search" => &["type", "execution", "description", "parameters"],
-        "programmatic_tool_calling" => &["type"],
-        "custom" => &[
-            "type",
-            "name",
-            "description",
-            "format",
-            "allowed_callers",
-            "defer_loading",
-        ],
-        _ => return None,
-    };
-    let mut stripped = object.clone();
-    let original_len = stripped.len();
-    stripped.retain(|key, _| allowed.contains(&key.as_str()));
-    (stripped.len() != original_len).then_some(Value::Object(stripped))
-}
-
 fn decode_unit<E: DeError>(value: &Value) -> Result<(), E> {
-    if value.as_object().is_some_and(|object| object.len() == 1) {
+    if value.as_object().is_some() {
         Ok(())
     } else {
-        Err(E::custom(
-            "unit OpenAI tool must contain only its type field",
-        ))
+        Err(E::custom("unit OpenAI tool must be a JSON object"))
     }
 }
 
@@ -2515,14 +2407,88 @@ mod tests {
     }
 
     #[test]
-    fn known_tool_with_missing_required_fields_stays_invalid() {
-        let error = serde_json::from_value::<OpenAiResponsesTool>(json!({
+    fn known_tool_with_nested_additive_field_deserializes_as_bounded_raw() {
+        let value = json!({
             "type": "file_search",
-            "future_option": true,
-        }))
-        .unwrap_err();
+            "vector_store_ids": ["vs_123"],
+            "ranking_options": {
+                "ranker": "auto",
+                "score_threshold": 0.5,
+                "future": {"mode": "next"},
+            },
+        });
 
-        assert!(error.to_string().contains("vector_store_ids"));
+        let tool = serde_json::from_value::<OpenAiResponsesTool>(value.clone()).unwrap();
+
+        assert!(matches!(tool, OpenAiResponsesTool::Raw(_)));
+        assert_eq!(serde_json::to_value(tool).unwrap(), value);
+    }
+
+    #[test]
+    fn known_tool_additive_fields_do_not_bypass_typed_validation() {
+        let invalid_cases = [
+            (
+                json!({
+                    "type": "file_search",
+                    "vector_store_ids": ["vs_123"],
+                    "max_num_results": 51,
+                    "future_option": true,
+                }),
+                "between 1 and 50",
+            ),
+            (
+                json!({
+                    "type": "file_search",
+                    "vector_store_ids": ["vs_123"],
+                    "ranking_options": {
+                        "score_threshold": 2.0,
+                        "future_option": true,
+                    },
+                }),
+                "between 0 and 1",
+            ),
+            (
+                json!({
+                    "type": "mcp",
+                    "server_label": "",
+                    "server_url": "https://mcp.example.test",
+                    "future_option": true,
+                }),
+                "tools.server_label",
+            ),
+        ];
+
+        for (value, expected) in invalid_cases {
+            let error = serde_json::from_value::<OpenAiResponsesTool>(value).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn known_tool_structure_errors_stay_invalid_with_additive_fields() {
+        for value in [
+            json!({
+                "type": "file_search",
+                "future_option": true,
+            }),
+            json!({
+                "type": "file_search",
+                "vector_store_ids": ["vs_123"],
+                "ranking_options": [],
+                "future_option": true,
+            }),
+            json!({
+                "type": "file_search",
+                "vector_store_ids": ["vs_123"],
+                "filters": {
+                    "type": "future_comparison",
+                    "future_option": true,
+                },
+                "future_option": true,
+            }),
+        ] {
+            assert!(serde_json::from_value::<OpenAiResponsesTool>(value).is_err());
+        }
     }
 
     #[test]

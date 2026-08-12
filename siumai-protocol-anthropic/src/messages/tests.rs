@@ -309,7 +309,9 @@ fn rejects_protected_options() {
         ("api_key", "secret"),
         ("apiKey", "secret"),
         ("base-url", "https://invalid.example"),
+        ("retry", "unsafe"),
         ("Retry-Policy", "unsafe"),
+        ("timeout", "unsafe"),
         ("connectTimeout", "unsafe"),
         ("method", "DELETE"),
         ("target", "https://invalid.example"),
@@ -330,12 +332,12 @@ fn rejects_protected_options() {
         ));
     }
 
-    let mut nested = BTreeMap::new();
-    nested.insert(
+    let mut nested_sensitive = BTreeMap::new();
+    nested_sensitive.insert(
         "future_feature".to_string(),
-        json!({"connectTimeout": "canary-secret"}),
+        json!({"authorization": "canary-secret"}),
     );
-    let options = MessagesRequestOptions::default().with_extra(nested);
+    let options = MessagesRequestOptions::default().with_extra(nested_sensitive);
     assert!(matches!(
         encode_request(
             &model(),
@@ -344,6 +346,31 @@ fn rejects_protected_options() {
         ),
         Err(MessagesCodecError::ProtectedOptionField { .. })
     ));
+}
+
+#[test]
+fn allows_provider_owned_nested_retry_and_timeout_fields() {
+    let mut nested_provider_controls = BTreeMap::new();
+    nested_provider_controls.insert(
+        "future_feature".to_string(),
+        json!({
+            "retry": {"mode": "provider"},
+            "timeout": 30,
+            "connectTimeout": "provider-defined",
+        }),
+    );
+    let encoded = encode_request(
+        &model(),
+        &request(vec![Message::text(MessageRole::User, "Hello")]),
+        &MessagesRequestOptions::default().with_extra(nested_provider_controls),
+    )
+    .unwrap();
+    assert_eq!(encoded["future_feature"]["retry"]["mode"], "provider");
+    assert_eq!(encoded["future_feature"]["timeout"], 30);
+    assert_eq!(
+        encoded["future_feature"]["connectTimeout"],
+        "provider-defined"
+    );
 }
 
 #[test]

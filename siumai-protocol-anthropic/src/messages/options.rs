@@ -2691,12 +2691,6 @@ fn is_sensitive_nested_field(name: &str) -> bool {
             | "proxy"
             | "tls"
             | "audience"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
     )
 }
 

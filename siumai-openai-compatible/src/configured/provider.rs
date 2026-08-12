@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn custom_endpoint_preserves_explicit_shared_address_policy() {
         let endpoint =
-            EndpointConfig::shared_address_space_explicit("http://100.117.187.85:8080/v1").unwrap();
+            EndpointConfig::shared_address_space_explicit("http://100.64.0.42:8080").unwrap();
         let profile = OpenAiCompatibleProfile::custom_endpoint(
             ProviderId::new("caller-relay").unwrap(),
             endpoint,
