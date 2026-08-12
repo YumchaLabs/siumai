@@ -113,10 +113,10 @@ pub mod responses {
         OpenAiWebSearchReturnTokenBudget, OpenAiWebSearchTool,
     };
     pub use siumai_provider_openai::{
-        OpenAiBackgroundResponse, OpenAiDeletedResponse, OpenAiFunctionToolOptions,
-        OpenAiReasoning, OpenAiReasoningContext, OpenAiReasoningEffort, OpenAiReasoningMode,
-        OpenAiReasoningSummary, OpenAiResponseInclude, OpenAiResponsesCompactRequest,
-        OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
+        OpenAiBackgroundResponse, OpenAiContextManagement, OpenAiDeletedResponse,
+        OpenAiFunctionToolOptions, OpenAiReasoning, OpenAiReasoningContext, OpenAiReasoningEffort,
+        OpenAiReasoningMode, OpenAiReasoningSummary, OpenAiResponseInclude,
+        OpenAiResponsesCompactRequest, OpenAiResponsesCompaction, OpenAiResponsesInputItemsOptions,
         OpenAiResponsesInputItemsOrder, OpenAiResponsesInputItemsPage,
         OpenAiResponsesInputTokenCount, OpenAiResponsesInputTokenCountRequest,
         OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,

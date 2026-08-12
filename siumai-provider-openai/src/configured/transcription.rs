@@ -180,17 +180,6 @@ impl OpenAiTranscriptionModel {
         request: &TranscriptionRequest,
         options: &OpenAiTranscriptionOptions,
     ) -> Result<RequestPlan, Error> {
-        if self.model_id().as_str() == "gpt-realtime-whisper"
-            || self
-                .model_id()
-                .as_str()
-                .starts_with("gpt-realtime-whisper-")
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "OpenAI realtime transcription models are not callable through the final-result REST adapter",
-            ));
-        }
         validate_portable_fields(request)?;
         validate_known_model_request(self.descriptor.scope(), self.model_id(), request, options)?;
         let content_type = HeaderValue::from_str(request.media_type()).map_err(|source| {
@@ -504,6 +493,7 @@ fn response_request_id(headers: &siumai_transport::ResponseHeaders) -> Option<St
 mod tests {
     use super::*;
     use crate::configured::profile::OpenAiProfile;
+    use crate::configured::{OpenAiCredential, OpenAiProvider};
 
     #[test]
     fn options_require_verbose_json_for_timestamps() {
@@ -587,5 +577,33 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn future_realtime_named_models_reach_the_final_result_request_plan() {
+        let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(
+                siumai_transport::EndpointConfig::local_explicit("http://127.0.0.1:43191/v1")
+                    .unwrap(),
+            )
+            .with_replay_domain(siumai_core::ReplayDomain::custom(
+                siumai_core::ReplayDomainId::new("custom-transcription-fixture").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let model = provider
+            .transcription("gpt-realtime-whisper-future")
+            .unwrap();
+        let request = TranscriptionRequest::new(vec![1_u8], "audio/wav").unwrap();
+
+        let plan = model
+            .plan(&request, &OpenAiTranscriptionOptions::default())
+            .unwrap();
+        let RequestBody::Multipart(body) = plan.body() else {
+            panic!("expected multipart transcription request");
+        };
+
+        assert_eq!(plan.target().as_str(), TARGET);
+        assert_eq!(body.parts().len(), 3);
     }
 }

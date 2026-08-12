@@ -397,6 +397,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
         OpenAiBinaryContent, OpenAiFileUploadPurpose,
     };
     use siumai::providers::openai::resources::vector_stores::OpenAiVectorStoreCreateRequest;
+    use siumai::providers::openai::responses::{OpenAiContextManagement, OpenAiResponsesOptions};
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai_transport::EndpointConfig;
 
@@ -429,6 +430,10 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     let _ = OpenAiSpeechOptions::default();
     let _ = OpenAiTranscriptionOptions::default();
     let _ = OpenAiContentOptions::prompt_cache_breakpoint();
+    let _ = OpenAiResponsesOptions {
+        context_management: vec![OpenAiContextManagement::compaction(None)],
+        ..OpenAiResponsesOptions::default()
+    };
     let _ = OpenAiConversationCreateRequest::new();
     let _ = OpenAiVectorStoreCreateRequest::new();
     let _: Option<OpenAiSkillUpload> = None;

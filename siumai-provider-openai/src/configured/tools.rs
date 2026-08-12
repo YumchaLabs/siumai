@@ -310,36 +310,56 @@ impl<'de> Deserialize<'de> for OpenAiResponsesTool {
             .and_then(Value::as_str)
             .ok_or_else(|| D::Error::custom("OpenAI Responses tool requires a string type"))?;
         let decoded = match kind {
-            "web_search" => Self::WebSearch(decode_tagged(value)?),
-            "web_search_preview" => Self::WebSearchPreview(
-                decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
-                    .into_tool(OpenAiWebSearchPreviewVersion::Unversioned),
-            ),
-            "web_search_preview_2025_03_11" => Self::WebSearchPreview(
-                decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
-                    .into_tool(OpenAiWebSearchPreviewVersion::V20250311),
-            ),
-            "file_search" => Self::FileSearch(decode_tagged(value)?),
-            "code_interpreter" => Self::CodeInterpreter(decode_tagged(value)?),
-            "computer" => {
-                decode_unit::<D::Error>(&value)?;
-                Self::Computer
+            "web_search" => {
+                decode_known_or_raw(value, |value| Ok(Self::WebSearch(decode_tagged(value)?)))?
             }
-            "computer_use_preview" => Self::ComputerUsePreview(decode_tagged(value)?),
-            "mcp" => Self::Mcp(decode_tagged(value)?),
-            "image_generation" => Self::ImageGeneration(decode_tagged(value)?),
-            "local_shell" => {
-                decode_unit::<D::Error>(&value)?;
-                Self::LocalShell
+            "web_search_preview" => decode_known_or_raw(value, |value| {
+                Ok(Self::WebSearchPreview(
+                    decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
+                        .into_tool(OpenAiWebSearchPreviewVersion::Unversioned),
+                ))
+            })?,
+            "web_search_preview_2025_03_11" => decode_known_or_raw(value, |value| {
+                Ok(Self::WebSearchPreview(
+                    decode_tagged::<OpenAiWebSearchPreviewToolWire, D::Error>(value)?
+                        .into_tool(OpenAiWebSearchPreviewVersion::V20250311),
+                ))
+            })?,
+            "file_search" => {
+                decode_known_or_raw(value, |value| Ok(Self::FileSearch(decode_tagged(value)?)))?
             }
-            "shell" => Self::Shell(decode_tagged(value)?),
-            "apply_patch" => Self::ApplyPatch(decode_tagged(value)?),
-            "tool_search" => Self::ToolSearch(decode_tagged(value)?),
-            "programmatic_tool_calling" => {
+            "code_interpreter" => decode_known_or_raw(value, |value| {
+                Ok(Self::CodeInterpreter(decode_tagged(value)?))
+            })?,
+            "computer" => decode_known_or_raw(value, |value| {
                 decode_unit::<D::Error>(&value)?;
-                Self::ProgrammaticToolCalling
+                Ok(Self::Computer)
+            })?,
+            "computer_use_preview" => decode_known_or_raw(value, |value| {
+                Ok(Self::ComputerUsePreview(decode_tagged(value)?))
+            })?,
+            "mcp" => decode_known_or_raw(value, |value| Ok(Self::Mcp(decode_tagged(value)?)))?,
+            "image_generation" => decode_known_or_raw(value, |value| {
+                Ok(Self::ImageGeneration(decode_tagged(value)?))
+            })?,
+            "local_shell" => decode_known_or_raw(value, |value| {
+                decode_unit::<D::Error>(&value)?;
+                Ok(Self::LocalShell)
+            })?,
+            "shell" => decode_known_or_raw(value, |value| Ok(Self::Shell(decode_tagged(value)?)))?,
+            "apply_patch" => {
+                decode_known_or_raw(value, |value| Ok(Self::ApplyPatch(decode_tagged(value)?)))?
             }
-            "custom" => Self::Custom(decode_tagged(value)?),
+            "tool_search" => {
+                decode_known_or_raw(value, |value| Ok(Self::ToolSearch(decode_tagged(value)?)))?
+            }
+            "programmatic_tool_calling" => decode_known_or_raw(value, |value| {
+                decode_unit::<D::Error>(&value)?;
+                Ok(Self::ProgrammaticToolCalling)
+            })?,
+            "custom" => {
+                decode_known_or_raw(value, |value| Ok(Self::Custom(decode_tagged(value)?)))?
+            }
             _ => Self::Raw(OpenAiRawTool::from_value(value).map_err(D::Error::custom)?),
         };
         decoded.validate().map_err(D::Error::custom)?;
@@ -1996,6 +2016,103 @@ fn decode_tagged<T: for<'de> Deserialize<'de>, D: DeError>(mut value: Value) -> 
     serde_json::from_value(value).map_err(D::custom)
 }
 
+fn decode_known_or_raw<E: DeError>(
+    value: Value,
+    decode: impl Fn(Value) -> Result<OpenAiResponsesTool, E>,
+) -> Result<OpenAiResponsesTool, E> {
+    match decode(value.clone()) {
+        Ok(tool) => Ok(tool),
+        Err(error) => {
+            let Some(stripped) = strip_known_tool_additive_fields(&value) else {
+                return Err(error);
+            };
+            if decode(stripped).is_err() {
+                return Err(error);
+            }
+            OpenAiResponsesTool::raw(value).map_err(E::custom)
+        }
+    }
+}
+
+fn strip_known_tool_additive_fields(value: &Value) -> Option<Value> {
+    let object = value.as_object()?;
+    let kind = object.get("type").and_then(Value::as_str)?;
+    let allowed: &[&str] = match kind {
+        "web_search" => &[
+            "type",
+            "external_web_access",
+            "filters",
+            "search_context_size",
+            "return_token_budget",
+            "search_content_types",
+            "image_settings",
+            "user_location",
+        ],
+        "web_search_preview" | "web_search_preview_2025_03_11" => &[
+            "type",
+            "search_content_types",
+            "search_context_size",
+            "user_location",
+        ],
+        "file_search" => &[
+            "type",
+            "vector_store_ids",
+            "max_num_results",
+            "ranking_options",
+            "filters",
+        ],
+        "code_interpreter" => &["type", "container", "allowed_callers"],
+        "computer" => &["type"],
+        "computer_use_preview" => &["type", "display_height", "display_width", "environment"],
+        "mcp" => &[
+            "type",
+            "server_label",
+            "allowed_tools",
+            "allowed_callers",
+            "authorization",
+            "connector_id",
+            "headers",
+            "require_approval",
+            "server_description",
+            "server_url",
+            "tunnel_id",
+            "defer_loading",
+        ],
+        "image_generation" => &[
+            "type",
+            "action",
+            "background",
+            "input_fidelity",
+            "input_image_mask",
+            "model",
+            "moderation",
+            "output_compression",
+            "output_format",
+            "partial_images",
+            "quality",
+            "size",
+        ],
+        "local_shell" => &["type"],
+        "shell" => &["type", "environment", "allowed_callers"],
+        "apply_patch" => &["type", "allowed_callers"],
+        "tool_search" => &["type", "execution", "description", "parameters"],
+        "programmatic_tool_calling" => &["type"],
+        "custom" => &[
+            "type",
+            "name",
+            "description",
+            "format",
+            "allowed_callers",
+            "defer_loading",
+        ],
+        _ => return None,
+    };
+    let mut stripped = object.clone();
+    let original_len = stripped.len();
+    stripped.retain(|key, _| allowed.contains(&key.as_str()));
+    (stripped.len() != original_len).then_some(Value::Object(stripped))
+}
+
 fn decode_unit<E: DeError>(value: &Value) -> Result<(), E> {
     if value.as_object().is_some_and(|object| object.len() == 1) {
         Ok(())
@@ -2385,6 +2502,30 @@ mod tests {
     }
 
     #[test]
+    fn known_tool_with_additive_field_deserializes_as_bounded_raw() {
+        let value = json!({
+            "type": "web_search",
+            "future_option": {"mode": "next"},
+        });
+
+        let tool = serde_json::from_value::<OpenAiResponsesTool>(value.clone()).unwrap();
+
+        assert!(matches!(tool, OpenAiResponsesTool::Raw(_)));
+        assert_eq!(serde_json::to_value(tool).unwrap(), value);
+    }
+
+    #[test]
+    fn known_tool_with_missing_required_fields_stays_invalid() {
+        let error = serde_json::from_value::<OpenAiResponsesTool>(json!({
+            "type": "file_search",
+            "future_option": true,
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("vector_store_ids"));
+    }
+
+    #[test]
     fn secret_tool_debug_is_redacted() {
         let mut mcp = OpenAiMcpTool::server(
             "server-label-secret",
@@ -2546,13 +2687,15 @@ mod tests {
     }
 
     #[test]
-    fn unit_tools_reject_silent_extra_fields() {
-        let error = serde_json::from_value::<OpenAiResponsesTool>(json!({
+    fn unit_tools_with_additive_fields_use_bounded_raw_fidelity() {
+        let value = json!({
             "type": "computer",
             "future": true,
-        }))
-        .unwrap_err();
-        assert!(error.to_string().contains("only its type"));
+        });
+        let tool = serde_json::from_value::<OpenAiResponsesTool>(value.clone()).unwrap();
+
+        assert!(matches!(tool, OpenAiResponsesTool::Raw(_)));
+        assert_eq!(serde_json::to_value(tool).unwrap(), value);
     }
 
     #[test]

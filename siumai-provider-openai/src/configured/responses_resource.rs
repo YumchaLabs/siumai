@@ -923,17 +923,25 @@ mod tests {
         assert!(compact.get("model").is_none());
         assert_eq!(compact["service_tier"], "scale");
 
-        let independent_cache_controls = OpenAiResponsesCompactRequest::new()
+        let current_cache_control = OpenAiResponsesCompactRequest::new()
             .with_previous_response_id("resp_debug")
-            .with_prompt_cache_options(OpenAiPromptCacheOptions::explicit_30_minutes())
-            .with_prompt_cache_retention(OpenAiPromptCacheRetention::TwentyFourHours);
-        independent_cache_controls.validate().unwrap();
-        let independent_cache_controls = serde_json::to_value(independent_cache_controls).unwrap();
-        assert_eq!(
-            independent_cache_controls["prompt_cache_options"]["ttl"],
-            "30m"
+            .with_prompt_cache_options(OpenAiPromptCacheOptions::explicit_30_minutes());
+        current_cache_control.validate().unwrap();
+        let current_cache_control = serde_json::to_value(current_cache_control).unwrap();
+        assert_eq!(current_cache_control["prompt_cache_options"]["ttl"], "30m");
+        assert!(
+            current_cache_control
+                .get("prompt_cache_retention")
+                .is_none()
         );
-        assert_eq!(independent_cache_controls["prompt_cache_retention"], "24h");
+
+        let legacy_cache_control = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_prompt_cache_retention(OpenAiPromptCacheRetention::TwentyFourHours);
+        legacy_cache_control.validate().unwrap();
+        let legacy_cache_control = serde_json::to_value(legacy_cache_control).unwrap();
+        assert_eq!(legacy_cache_control["prompt_cache_retention"], "24h");
+        assert!(legacy_cache_control.get("prompt_cache_options").is_none());
     }
 
     #[tokio::test]

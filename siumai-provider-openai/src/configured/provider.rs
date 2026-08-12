@@ -1499,36 +1499,40 @@ fn rejected_wire(path: impl Into<String>, reason: impl Into<String>) -> Provider
 }
 
 fn is_protected_field(mode: OptionMode, field: &str) -> bool {
+    let field = field
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
     let common = [
         "model",
         "stream",
-        "stream_options",
+        "streamoptions",
         "temperature",
-        "top_p",
-        "max_output_tokens",
+        "topp",
+        "maxoutputtokens",
         "stop",
         "seed",
         "tools",
-        "tool_choice",
-        "prompt_cache_options",
-        "prompt_cache_retention",
-        "prompt_cache_breakpoints",
+        "toolchoice",
+        "promptcacheoptions",
+        "promptcacheretention",
+        "promptcachebreakpoints",
         "method",
         "target",
         "endpoint",
-        "base_url",
+        "baseurl",
         "authorization",
-        "api_key",
+        "apikey",
         "headers",
         "retry",
-        "retry_policy",
+        "retrypolicy",
         "timeout",
-        "connect_timeout",
-        "read_timeout",
-        "call_timeout",
+        "connecttimeout",
+        "readtimeout",
+        "calltimeout",
     ]
-    .iter()
-    .any(|protected| field.eq_ignore_ascii_case(protected));
+    .contains(&field.as_str());
     common
         || match mode {
             OptionMode::Responses => [
@@ -1536,21 +1540,19 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                 "text",
                 "background",
                 "tools",
-                "function_tool_options",
+                "functiontooloptions",
                 "type",
                 "generate",
             ]
-            .iter()
-            .any(|protected| field.eq_ignore_ascii_case(protected)),
+            .contains(&field.as_str()),
             OptionMode::ChatCompletions => [
                 "messages",
-                "response_format",
-                "stream_options",
-                "max_tokens",
-                "max_completion_tokens",
+                "responseformat",
+                "streamoptions",
+                "maxtokens",
+                "maxcompletiontokens",
             ]
-            .iter()
-            .any(|protected| field.eq_ignore_ascii_case(protected)),
+            .contains(&field.as_str()),
         }
 }
 
@@ -1582,12 +1584,14 @@ fn deserialize_responses_options(
     };
     options.tools = tools
         .into_iter()
-        .map(
-            |value| match serde_json::from_value::<OpenAiResponsesTool>(value.clone()) {
-                Ok(tool) => Ok(tool),
-                Err(_) => OpenAiResponsesTool::raw(value),
-            },
-        )
+        .map(|value| {
+            serde_json::from_value::<OpenAiResponsesTool>(value).map_err(|error| {
+                ProviderOptionError::Rejected {
+                    path: "tools".to_string(),
+                    reason: error.to_string(),
+                }
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(options)
 }
@@ -1660,6 +1664,7 @@ pub enum OpenAiConfigError {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use siumai_core::{ApiStability, Model, ModelLifecycle};
 
     use super::*;
@@ -2000,5 +2005,25 @@ mod tests {
             provider.translation(crate::configured::OPENAI_REALTIME_TRANSLATION_MODEL),
             Err(OpenAiRealtimeConfigError::ExplicitEndpointRequiredForCustomProvider)
         ));
+    }
+
+    #[test]
+    fn malformed_known_hosted_tools_do_not_fall_back_to_raw() {
+        let merger = OpenAiOptionMerger::responses(OpenAiResponsesOptions::default()).unwrap();
+        let mut typed = Map::new();
+        typed.insert(
+            "tools".to_string(),
+            json!([{
+                "type": "file_search",
+                "future_option": true
+            }]),
+        );
+
+        let error = match merger.finish_merge(typed, None) {
+            Ok(_) => panic!("malformed known hosted tool unexpectedly passed validation"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, ProviderOptionError::Rejected { path, .. } if path == "tools"));
     }
 }

@@ -181,9 +181,9 @@ pub enum OpenAiPromptCacheTtl {
 
 /// Maximum prompt-cache retention policy.
 ///
-/// This legacy field is deprecated by OpenAI in favor of
-/// [`OpenAiPromptCacheOptions::ttl`], but the two controls have independent
-/// semantics and may be sent together when the selected model supports them.
+/// This legacy field remains available for wire fidelity to earlier documented
+/// model generations. [`OpenAiPromptCacheOptions::ttl`] is the current control;
+/// serializing both fields does not claim that one model accepts them together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenAiPromptCacheRetention {
@@ -859,15 +859,23 @@ mod tests {
 
     #[test]
     fn cache_lifetime_metadata_and_safety_values_fail_closed() {
-        let independent_cache_controls = OpenAiResponsesOptions {
+        let current_cache_control = OpenAiResponsesOptions {
             prompt_cache_options: Some(OpenAiPromptCacheOptions::explicit_30_minutes()),
+            ..OpenAiResponsesOptions::default()
+        };
+        assert!(current_cache_control.validate_values().is_ok());
+        let value = serde_json::to_value(current_cache_control).unwrap();
+        assert_eq!(value["prompt_cache_options"]["ttl"], "30m");
+        assert!(value.get("prompt_cache_retention").is_none());
+
+        let legacy_cache_control = OpenAiResponsesOptions {
             prompt_cache_retention: Some(OpenAiPromptCacheRetention::TwentyFourHours),
             ..OpenAiResponsesOptions::default()
         };
-        assert!(independent_cache_controls.validate_values().is_ok());
-        let value = serde_json::to_value(independent_cache_controls).unwrap();
-        assert_eq!(value["prompt_cache_options"]["ttl"], "30m");
+        assert!(legacy_cache_control.validate_values().is_ok());
+        let value = serde_json::to_value(legacy_cache_control).unwrap();
         assert_eq!(value["prompt_cache_retention"], "24h");
+        assert!(value.get("prompt_cache_options").is_none());
 
         let excessive_metadata = OpenAiChatCompletionsOptions {
             metadata: Some(
