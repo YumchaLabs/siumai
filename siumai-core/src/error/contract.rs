@@ -155,21 +155,60 @@ pub struct ErrorContext {
     pub model: Option<ModelId>,
 }
 
-/// Response details that are safe to display and serialize by default.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Response details with bounded typed accessors.
+///
+/// Provider request identifiers remain available through [`Self::request_id`]
+/// but are redacted from default `Debug` and serialization surfaces. The
+/// serialized diagnostic projection is intentionally not a lossless replay
+/// representation: deserialization accepts trusted internal snapshots, while
+/// serialization emits only whether a request identifier was present.
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct ResponseDiagnostics {
     status: Option<u16>,
     provider_code: Option<PublicDiagnosticText>,
     provider_type: Option<PublicDiagnosticText>,
     provider_param: Option<PublicDiagnosticText>,
     request_id: Option<PublicDiagnosticText>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "duration_millis"
-    )]
+    #[serde(default, deserialize_with = "duration_millis::deserialize")]
     retry_after: Option<Duration>,
     body_truncated: bool,
+}
+
+impl fmt::Debug for ResponseDiagnostics {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponseDiagnostics")
+            .field("status", &self.status)
+            .field("provider_code", &self.provider_code)
+            .field("provider_type", &self.provider_type)
+            .field("provider_param", &self.provider_param)
+            .field("request_id_present", &self.request_id.is_some())
+            .field("retry_after", &self.retry_after)
+            .field("body_truncated", &self.body_truncated)
+            .finish()
+    }
+}
+
+impl Serialize for ResponseDiagnostics {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("ResponseDiagnostics", 7)?;
+        state.serialize_field("status", &self.status)?;
+        state.serialize_field("provider_code", &self.provider_code)?;
+        state.serialize_field("provider_type", &self.provider_type)?;
+        state.serialize_field("provider_param", &self.provider_param)?;
+        state.serialize_field("request_id_present", &self.request_id.is_some())?;
+        state.serialize_field(
+            "retry_after",
+            &self
+                .retry_after
+                .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64),
+        )?;
+        state.serialize_field("body_truncated", &self.body_truncated)?;
+        state.end()
+    }
 }
 
 impl ResponseDiagnostics {
@@ -254,16 +293,7 @@ impl ResponseDiagnostics {
 mod duration_millis {
     use std::time::Duration;
 
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(value: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        value
-            .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
-            .serialize(serializer)
-    }
+    use serde::{Deserialize, Deserializer};
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
     where
@@ -602,12 +632,20 @@ mod tests {
             .with_provider_code(PublicDiagnosticText::new("invalid_parameter").unwrap())
             .with_provider_type(PublicDiagnosticText::new("invalid_request_error").unwrap())
             .with_provider_param(PublicDiagnosticText::new("thinking.keep").unwrap())
+            .with_request_id(PublicDiagnosticText::new("request-private-canary").unwrap())
             .with_retry_after(Duration::from_secs(3));
 
         assert_eq!(diagnostics.provider_code(), Some("invalid_parameter"));
         assert_eq!(diagnostics.provider_type(), Some("invalid_request_error"));
         assert_eq!(diagnostics.provider_param(), Some("thinking.keep"));
+        assert_eq!(diagnostics.request_id(), Some("request-private-canary"));
         assert_eq!(diagnostics.retry_after(), Some(Duration::from_secs(3)));
+        let debug = format!("{diagnostics:?}");
+        let serialized = serde_json::to_string(&diagnostics).unwrap();
+        assert!(!debug.contains("request-private-canary"));
+        assert!(!serialized.contains("request-private-canary"));
+        assert!(debug.contains("request_id_present: true"));
+        assert!(serialized.contains("\"request_id_present\":true"));
         assert_eq!(
             diagnostics
                 .clone()
