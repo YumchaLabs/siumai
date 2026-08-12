@@ -88,8 +88,14 @@ def validate(
     packages = workspace_packages(metadata)
     workspace_names = set(packages)
     expected_msrv = policy.get("msrv")
+    expected_version = policy.get("workspace_version")
 
     for name, package in sorted(packages.items()):
+        if package.get("version") != expected_version:
+            errors.append(
+                f"{name}: version={package.get('version')!r}; "
+                f"expected {expected_version!r}"
+            )
         if package.get("rust_version") != expected_msrv:
             errors.append(
                 f"{name}: rust_version={package.get('rust_version')!r}; "

@@ -16,10 +16,12 @@ cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
 cargo check -p siumai --no-default-features --lib -j 1
 cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
+cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
+cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
-cargo package --workspace --list --locked
+cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py
 ```
 
 Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
@@ -28,19 +30,22 @@ tests are not a release prerequisite unless a maintainer explicitly authorizes t
 
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
 They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
-and combined Responses WebSocket/Realtime feature ownership paths. This remains a small fixed gate
-rather than a provider-by-feature matrix. The documentation lane builds the OpenAI provider with
-all optional modules enabled before the workspace docs pass.
+and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
+flagship examples are each compiled with only their exact provider feature. This remains a small
+fixed gate rather than a provider-by-feature matrix. The documentation lane builds the OpenAI
+provider with all optional modules enabled before the workspace docs pass.
 
 The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
 `claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
 claim. Product surfaces outside the documented package slice remain `intentionally deferred`.
 
-Before publishing, inspect the Cargo-native workspace file list with
-`cargo package --workspace --list --locked`. Confirm that it contains no credentials, local
-configuration, absolute local paths, `target/`, `repo-ref/`, temporary canary artifacts, or private
-payloads. For a dirty local release candidate, add `--allow-dirty`; this changes only Cargo's local
-cleanliness check and never authorizes publishing.
+Before publishing, validate the Cargo-native workspace file list with
+`cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py`. The
+bounded checker rejects credentials, private local configuration, absolute or parent paths,
+`target/`, `repo-ref/`, VCS/editor state, and temporary or live-canary artifacts. It does not read
+package contents, decide membership, or infer publication order; Cargo and release-plz remain the
+authorities. For a dirty local release candidate, add `--allow-dirty` to the Cargo side of the
+pipeline; this changes only Cargo's local cleanliness check and never authorizes publishing.
 
 Run `cargo package --workspace --locked --allow-dirty -j 1` as the local package dry run where
 crates.io dependency resolution permits it. New unpublished workspace dependencies can make this

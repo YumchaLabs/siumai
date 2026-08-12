@@ -12,11 +12,17 @@ BOUNDARIES = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOUNDARIES)
 
 
-def package(name: str, dependencies: list[str], rust_version: str = "1.88") -> dict:
+def package(
+    name: str,
+    dependencies: list[str],
+    rust_version: str = "1.88",
+    version: str = "0.11.0-beta.9",
+) -> dict:
     return {
         "id": f"path+file:///repo/{name}#{name}",
         "name": name,
         "rust_version": rust_version,
+        "version": version,
         "dependencies": [{"name": dependency} for dependency in dependencies],
     }
 
@@ -30,6 +36,7 @@ def metadata(packages: list[dict]) -> dict:
 
 POLICY = {
     "msrv": "1.88",
+    "workspace_version": "0.11.0-beta.9",
     "package_rules": {
         "siumai-core": {
             "current_allowed_workspace_dependencies": [],
@@ -143,6 +150,25 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
         self.assertEqual(len(errors), 1)
         self.assertIn("rust_version='1.89'", errors[0])
+
+    def test_workspace_version_is_required_for_every_package(self) -> None:
+        graph = metadata(
+            [
+                package("siumai-core", []),
+                package(
+                    "siumai-registry",
+                    ["siumai-core"],
+                    version="0.11.0-beta.10",
+                ),
+                package("siumai-runtime", ["siumai-core"]),
+            ]
+        )
+
+        errors = BOUNDARIES.validate(graph, POLICY, target=True)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("siumai-registry: version='0.11.0-beta.10'", errors[0])
+        self.assertIn("expected '0.11.0-beta.9'", errors[0])
 
 
 if __name__ == "__main__":

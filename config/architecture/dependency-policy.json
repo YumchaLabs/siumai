@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "msrv": "1.88",
+  "workspace_version": "0.11.0-beta.9",
   "package_rules": {
     "siumai-core": {
       "current_allowed_workspace_dependencies": [],

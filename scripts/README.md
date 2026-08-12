@@ -56,12 +56,17 @@ repository script:
 cargo check -p siumai --no-default-features --lib -j 1
 cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
+cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
+cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
-cargo package --workspace --list --locked
+cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py
 ```
 
-The CI workflow runs these fixed checks directly. Do not add source parsing or a second feature,
-package, or publish-order analyzer to `scripts/`; Cargo and release-plz remain authoritative.
+The package checker consumes Cargo's file list from standard input with fixed path-length and entry
+count bounds. It rejects local, credential, editor, temporary, and live-canary paths without
+reading file contents or reproducing Cargo membership and publish semantics. The CI workflow runs
+these fixed checks directly. Do not add source parsing or a second feature, package, or
+publish-order analyzer to `scripts/`; Cargo and release-plz remain authoritative.
 
 ## Architecture checks
 

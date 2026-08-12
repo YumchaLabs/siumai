@@ -45,7 +45,9 @@ jobs:
           python3 -B scripts/check_workspace_boundaries.py --target
 
       - name: Inspect package file lists
-        run: cargo package --workspace --list --locked
+        run: |
+          set -o pipefail
+          cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py
 
       - name: Run focused PR tests
         if: ${{ github.event_name == 'pull_request' }}
@@ -70,6 +72,8 @@ jobs:
           cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
           cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
+          cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
+          cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
 
       - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}
