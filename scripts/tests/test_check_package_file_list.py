@@ -131,6 +131,68 @@ class PackageFileListTests(unittest.TestCase):
             with self.assertRaisesRegex(CHECKER.PackageFileListError, "exceeds 2 entries"):
                 CHECKER.validate_package_file_list(io.BytesIO(b"one\ntwo\nthree\n"))
 
+    def test_cargo_package_command_keeps_allow_dirty_explicit(self) -> None:
+        self.assertEqual(
+            CHECKER.cargo_package_list_command(allow_dirty=False),
+            ["cargo", "package", "--workspace", "--list", "--locked"],
+        )
+        self.assertEqual(
+            CHECKER.cargo_package_list_command(allow_dirty=True),
+            [
+                "cargo",
+                "package",
+                "--workspace",
+                "--list",
+                "--locked",
+                "--allow-dirty",
+            ],
+        )
+
+    def test_cargo_output_is_validated_only_after_success(self) -> None:
+        process = type(
+            "CargoProcess",
+            (),
+            {"stdout": io.BytesIO(b"Cargo.toml\nsrc/lib.rs\n"), "wait": lambda self: 0},
+        )()
+        with patch.object(CHECKER.subprocess, "Popen", return_value=process) as popen:
+            entry_count = CHECKER.check_cargo_package_file_list(allow_dirty=True)
+
+        self.assertEqual(entry_count, 2)
+        popen.assert_called_once_with(
+            ["cargo", "package", "--workspace", "--list", "--locked", "--allow-dirty"],
+            cwd=CHECKER.REPO_ROOT,
+            stdout=CHECKER.subprocess.PIPE,
+        )
+
+    def test_partial_cargo_output_with_failure_never_reaches_validator(self) -> None:
+        process = type(
+            "CargoProcess",
+            (),
+            {
+                "stdout": io.BytesIO(b"Cargo.toml\nprivate/.env\n"),
+                "wait": lambda self: 101,
+            },
+        )()
+        with patch.object(CHECKER.subprocess, "Popen", return_value=process), patch.object(
+            CHECKER, "validate_package_file_list"
+        ) as validate:
+            with self.assertRaisesRegex(CHECKER.CargoPackageListError, "exit status 101"):
+                CHECKER.check_cargo_package_file_list(allow_dirty=False)
+
+        validate.assert_not_called()
+
+    def test_cargo_output_limit_fails_after_a_successful_command(self) -> None:
+        process = type(
+            "CargoProcess",
+            (),
+            {"stdout": io.BytesIO(b"Cargo.toml\n"), "wait": lambda self: 0},
+        )()
+        with patch.object(CHECKER, "MAX_CARGO_STDOUT_BYTES", 4), patch.object(
+            CHECKER.subprocess, "Popen", return_value=process
+        ):
+            with self.assertRaisesRegex(CHECKER.CargoPackageListError, "output exceeds 4 bytes"):
+                CHECKER.capture_cargo_package_list(allow_dirty=False)
+
 
 if __name__ == "__main__":
     unittest.main()

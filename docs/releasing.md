@@ -21,7 +21,7 @@ cargo check -p siumai --no-default-features --features anthropic --example anthr
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
-cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py
+python3 -B scripts/check_package_file_list.py
 ```
 
 Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
@@ -40,12 +40,13 @@ The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Pass
 claim. Product surfaces outside the documented package slice remain `intentionally deferred`.
 
 Before publishing, validate the Cargo-native workspace file list with
-`cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py`. The
-bounded checker rejects credentials, private local configuration, absolute or parent paths,
-`target/`, `repo-ref/`, VCS/editor state, and temporary or live-canary artifacts. It does not read
-package contents, decide membership, or infer publication order; Cargo and release-plz remain the
-authorities. For a dirty local release candidate, add `--allow-dirty` to the Cargo side of the
-pipeline; this changes only Cargo's local cleanliness check and never authorizes publishing.
+`python3 -B scripts/check_package_file_list.py`. The checker invokes Cargo itself, verifies its
+exit status before inspecting a bounded file list, and rejects credentials, private local
+configuration, absolute or parent paths, `target/`, `repo-ref/`, VCS/editor state, and temporary
+or live-canary artifacts. It does not read package contents, decide membership, or infer
+publication order; Cargo and release-plz remain the authorities. For a dirty local release
+candidate, add `--allow-dirty` to the checker command; this changes only Cargo's local cleanliness
+check and never authorizes publishing.
 
 Run `cargo package --workspace --locked --allow-dirty -j 1` as the local package dry run where
 crates.io dependency resolution permits it. New unpublished workspace dependencies can make this

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the bounded path list emitted by ``cargo package --list``.
+"""Inspect Cargo's bounded package file list without shell pipelines.
 
 Cargo remains authoritative for package membership and publish semantics. This
 script only rejects paths that must not enter a release artifact.
@@ -7,14 +7,21 @@ script only rejects paths that must not enter a release artifact.
 
 from __future__ import annotations
 
+import argparse
+import io
 import re
+import subprocess
 import sys
 import unicodedata
+from pathlib import Path
 from typing import BinaryIO
 
 
 MAX_ENTRIES = 100_000
 MAX_PATH_BYTES = 4_096
+MAX_CARGO_STDOUT_BYTES = 64 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 FORBIDDEN_COMPONENTS = frozenset(
     {
@@ -78,6 +85,10 @@ CANARY_ARTIFACT_RE = re.compile(
 
 class PackageFileListError(ValueError):
     """Raised when a package file-list entry violates the release boundary."""
+
+
+class CargoPackageListError(RuntimeError):
+    """Raised when Cargo cannot produce a trustworthy package file list."""
 
 
 def _fail(line_number: int, reason: str) -> None:
@@ -178,10 +189,81 @@ def validate_package_file_list(stream: BinaryIO) -> int:
     return entry_count
 
 
+def cargo_package_list_command(*, allow_dirty: bool) -> list[str]:
+    """Return the Cargo-native package-list command for this workspace."""
+
+    command = ["cargo", "package", "--workspace", "--list", "--locked"]
+    if allow_dirty:
+        command.append("--allow-dirty")
+    return command
+
+
+def capture_cargo_package_list(*, allow_dirty: bool) -> bytes:
+    """Run Cargo and return its bounded package-list output after success.
+
+    The output is deliberately not validated until Cargo exits successfully:
+    a partial list from a failed package command cannot prove a release-safe
+    package set.
+    """
+
+    process = subprocess.Popen(
+        cargo_package_list_command(allow_dirty=allow_dirty),
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+    )
+    if process.stdout is None:
+        raise CargoPackageListError("cargo package --list did not expose standard output")
+
+    output = bytearray()
+    output_exceeded_limit = False
+    try:
+        while chunk := process.stdout.read(READ_CHUNK_BYTES):
+            remaining = MAX_CARGO_STDOUT_BYTES - len(output)
+            if remaining <= 0:
+                output_exceeded_limit = True
+                continue
+            if len(chunk) > remaining:
+                output.extend(chunk[:remaining])
+                output_exceeded_limit = True
+            else:
+                output.extend(chunk)
+    finally:
+        process.stdout.close()
+
+    return_code = process.wait()
+    if return_code != 0:
+        raise CargoPackageListError(
+            f"cargo package --list failed with exit status {return_code}"
+        )
+    if output_exceeded_limit:
+        raise CargoPackageListError(
+            f"cargo package --list output exceeds {MAX_CARGO_STDOUT_BYTES} bytes"
+        )
+    return bytes(output)
+
+
+def check_cargo_package_file_list(*, allow_dirty: bool) -> int:
+    """Validate Cargo's complete successful package-list output."""
+
+    output = capture_cargo_package_list(allow_dirty=allow_dirty)
+    return validate_package_file_list(io.BytesIO(output))
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="pass Cargo's local dirty-worktree allowance without publishing",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
     try:
-        entry_count = validate_package_file_list(sys.stdin.buffer)
-    except PackageFileListError as error:
+        args = parse_args()
+        entry_count = check_cargo_package_file_list(allow_dirty=args.allow_dirty)
+    except (CargoPackageListError, PackageFileListError) as error:
         print(f"package file-list check failed: {error}", file=sys.stderr)
         return 1
 

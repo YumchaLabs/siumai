@@ -45,9 +45,7 @@ jobs:
           python3 -B scripts/check_workspace_boundaries.py --target
 
       - name: Inspect package file lists
-        run: |
-          set -o pipefail
-          cargo package --workspace --list --locked | python3 -B scripts/check_package_file_list.py
+        run: python3 -B scripts/check_package_file_list.py
 
       - name: Run focused PR tests
         if: ${{ github.event_name == 'pull_request' }}
