@@ -289,11 +289,16 @@ impl fmt::Debug for AnthropicBatchList {
 
 #[derive(Clone, PartialEq, Deserialize)]
 pub struct AnthropicBatchDeleteResult {
+    #[serde(deserialize_with = "deserialize_batch_resource_id")]
     pub id: String,
-    #[serde(default)]
-    pub deleted: bool,
-    #[serde(rename = "type", default)]
-    pub object_type: Option<String>,
+    #[serde(rename = "type", deserialize_with = "deserialize_batch_delete_type")]
+    pub object_type: String,
+}
+
+impl AnthropicBatchDeleteResult {
+    pub fn is_deleted(&self) -> bool {
+        self.object_type == "message_batch_deleted"
+    }
 }
 
 impl fmt::Debug for AnthropicBatchDeleteResult {
@@ -301,8 +306,8 @@ impl fmt::Debug for AnthropicBatchDeleteResult {
         formatter
             .debug_struct("AnthropicBatchDeleteResult")
             .field("id_bytes", &self.id.len())
-            .field("deleted", &self.deleted)
-            .field("object_type_present", &self.object_type.is_some())
+            .field("deleted", &self.is_deleted())
+            .field("object_type_bytes", &self.object_type.len())
             .finish()
     }
 }
@@ -653,9 +658,10 @@ impl AnthropicBatchResultsDecoder {
         }
         self.terminated = true;
         if self.line.is_empty() {
+            self.line = Vec::new();
             return Vec::new();
         }
-        self.line.clear();
+        self.line = Vec::new();
         vec![Err(AnthropicBatchResultsDecodeError::TruncatedFinalLine {
             line: self.next_line,
         })]
@@ -767,7 +773,7 @@ impl AnthropicBatchResultsDecoder {
     }
 
     fn abort(&mut self) {
-        self.line.clear();
+        self.line = Vec::new();
         self.terminated = true;
     }
 }
@@ -1690,6 +1696,32 @@ where
     Ok(value)
 }
 
+fn deserialize_batch_resource_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    validate_batch_resource_id(&value).map_err(|_| {
+        <D::Error as serde::de::Error>::custom(
+            "invalid bounded Anthropic batch resource identifier",
+        )
+    })?;
+    Ok(value)
+}
+
+fn deserialize_batch_delete_type<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    validate_open_batch_value(&value, "delete response type").map_err(|_| {
+        <D::Error as serde::de::Error>::custom(
+            "invalid bounded Anthropic batch delete response type",
+        )
+    })?;
+    Ok(value)
+}
+
 fn validate_custom_id(id: &str) -> Result<(), Error> {
     if id.is_empty() || id.len() > MAX_BATCH_CUSTOM_ID_BYTES || id.chars().any(char::is_control) {
         return Err(Error::new(
@@ -2291,12 +2323,41 @@ mod tests {
 
         let deleted = AnthropicBatchDeleteResult {
             id: "delete-private-canary".to_owned(),
-            deleted: true,
-            object_type: Some("delete-type-private-canary".to_owned()),
+            object_type: "delete-type-private-canary".to_owned(),
         };
         let deleted_debug = format!("{deleted:?}");
         assert!(!deleted_debug.contains("delete-private-canary"));
         assert!(!deleted_debug.contains("delete-type-private-canary"));
+    }
+
+    #[test]
+    fn delete_response_matches_the_open_provider_wire_shape() {
+        let deleted: AnthropicBatchDeleteResult = serde_json::from_value(json!({
+            "id": "msgbatch_123",
+            "type": "message_batch_deleted",
+        }))
+        .expect("delete response");
+
+        assert!(deleted.is_deleted());
+        assert!(
+            serde_json::from_value::<AnthropicBatchDeleteResult>(json!({
+                "id": "msgbatch_123",
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_decoder_states_release_the_large_line_buffer() {
+        let mut decoder = AnthropicBatchResultsDecoder::with_limits(decoder_limits());
+        decoder.line = Vec::with_capacity(1024 * 1024);
+        decoder.finish();
+        assert_eq!(decoder.line.capacity(), 0);
+
+        let mut decoder = AnthropicBatchResultsDecoder::with_limits(decoder_limits());
+        decoder.line = Vec::with_capacity(1024 * 1024);
+        decoder.abort();
+        assert_eq!(decoder.line.capacity(), 0);
     }
 
     #[test]

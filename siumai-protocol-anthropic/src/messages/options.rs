@@ -2674,26 +2674,38 @@ fn validate_extra_value(
 
 fn is_sensitive_nested_field(name: &str) -> bool {
     matches!(
-        normalize_field(name).as_str(),
-        "api_key"
-            | "x_api_key"
+        compact_field(name).as_str(),
+        "apikey"
+            | "xapikey"
             | "authorization"
             | "auth"
             | "token"
             | "bearer"
+            | "credential"
+            | "credentials"
             | "endpoint"
-            | "base_url"
+            | "baseurl"
             | "host"
             | "headers"
             | "header"
             | "proxy"
             | "tls"
             | "audience"
+            | "retry"
+            | "retrypolicy"
+            | "timeout"
+            | "connecttimeout"
+            | "readtimeout"
+            | "calltimeout"
     )
 }
 
-pub(crate) fn normalize_field(name: &str) -> String {
-    name.trim().to_ascii_lowercase().replace('-', "_")
+pub(crate) fn compact_field(name: &str) -> String {
+    name.trim()
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn safe_path(path: &str) -> String {

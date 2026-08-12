@@ -421,9 +421,13 @@ pub struct AnthropicSkillList {
     #[serde(default)]
     pub data: Vec<AnthropicSkill>,
     #[serde(default)]
-    pub has_more: bool,
-    #[serde(default)]
     pub next_page: Option<String>,
+}
+
+impl AnthropicSkillList {
+    pub fn has_more(&self) -> bool {
+        self.next_page.is_some()
+    }
 }
 
 impl fmt::Debug for AnthropicSkillList {
@@ -431,7 +435,7 @@ impl fmt::Debug for AnthropicSkillList {
         formatter
             .debug_struct("AnthropicSkillList")
             .field("skill_count", &self.data.len())
-            .field("has_more", &self.has_more)
+            .field("has_more", &self.has_more())
             .field("next_page_present", &self.next_page.is_some())
             .finish()
     }
@@ -520,9 +524,13 @@ pub struct AnthropicSkillVersionList {
     #[serde(default)]
     pub data: Vec<AnthropicSkillVersion>,
     #[serde(default)]
-    pub has_more: bool,
-    #[serde(default)]
     pub next_page: Option<String>,
+}
+
+impl AnthropicSkillVersionList {
+    pub fn has_more(&self) -> bool {
+        self.next_page.is_some()
+    }
 }
 
 impl fmt::Debug for AnthropicSkillVersionList {
@@ -530,7 +538,7 @@ impl fmt::Debug for AnthropicSkillVersionList {
         formatter
             .debug_struct("AnthropicSkillVersionList")
             .field("version_count", &self.data.len())
-            .field("has_more", &self.has_more)
+            .field("has_more", &self.has_more())
             .field("next_page_present", &self.next_page.is_some())
             .finish()
     }
@@ -635,22 +643,6 @@ impl AnthropicSkills {
             options,
         )
         .await
-    }
-
-    /// Backwards-compatible alias for [`Self::create`].
-    pub async fn upload(
-        &self,
-        upload: AnthropicSkillUpload,
-    ) -> Result<AnthropicSkillUploadResult, Error> {
-        self.create(upload).await
-    }
-
-    pub async fn upload_with_options(
-        &self,
-        upload: AnthropicSkillUpload,
-        options: CallOptions,
-    ) -> Result<AnthropicSkillUploadResult, Error> {
-        self.create_with_options(upload, options).await
     }
 
     pub async fn list(&self, query: AnthropicSkillListQuery) -> Result<AnthropicSkillList, Error> {
@@ -1385,7 +1377,6 @@ mod tests {
                 "updated_at": sentinel,
                 "private": sentinel
             }],
-            "has_more": true,
             "next_page": sentinel
         }))
         .expect("skill list");
@@ -1474,7 +1465,6 @@ mod tests {
             .and(header("anthropic-beta", SKILLS_BETA))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "data": [{"id": "skill-list", "type": "skill"}],
-                "has_more": true,
                 "next_page": "page-two"
             })))
             .expect(1)
@@ -1514,7 +1504,6 @@ mod tests {
                     "skill_id": "skill-versions",
                     "type": "skill_version"
                 }],
-                "has_more": true,
                 "next_page": "version-page-two"
             })))
             .expect(1)
@@ -1566,6 +1555,7 @@ mod tests {
             .await
             .expect("list Skills");
         assert_eq!(list.next_page.as_deref(), Some("page-two"));
+        assert!(list.has_more());
         skills
             .retrieve("skill/retrieve")
             .await
@@ -1582,6 +1572,7 @@ mod tests {
             .await
             .expect("list Skill versions");
         assert_eq!(versions.next_page.as_deref(), Some("version-page-two"));
+        assert!(versions.has_more());
         skills
             .create_version(
                 "skill/create",

@@ -600,6 +600,14 @@ fn is_engine_protected(name: &str) -> bool {
             | "proxy"
             | "tls"
             | "audience"
+            | "method"
+            | "target"
+            | "retry"
+            | "retrypolicy"
+            | "timeout"
+            | "connecttimeout"
+            | "readtimeout"
+            | "calltimeout"
     )
 }
 
@@ -624,6 +632,14 @@ fn is_security_sensitive(name: &str) -> bool {
             | "proxy"
             | "tls"
             | "audience"
+            | "method"
+            | "target"
+            | "retry"
+            | "retrypolicy"
+            | "timeout"
+            | "connecttimeout"
+            | "readtimeout"
+            | "calltimeout"
     ) || name.ends_with("apikey")
         || name.ends_with("token")
         || name.ends_with("credential")

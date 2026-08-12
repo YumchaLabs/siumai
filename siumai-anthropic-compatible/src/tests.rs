@@ -738,7 +738,19 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
     .build()
     .unwrap();
     let model = provider.language("model").unwrap();
-    for field in ["anthropicVersion", "requestEndpoint", "credentialToken"] {
+    for field in [
+        "anthropicVersion",
+        "requestEndpoint",
+        "credentialToken",
+        "apiKey",
+        "base-url",
+        "method",
+        "target",
+        "Retry-Policy",
+        "connectTimeout",
+        "read_timeout",
+        "call-timeout",
+    ] {
         let mut value = serde_json::Map::new();
         value.insert(field.to_string(), json!("canary-secret"));
         let options = CallOptions::default()

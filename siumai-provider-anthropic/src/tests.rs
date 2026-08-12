@@ -694,7 +694,17 @@ fn typed_messages_options_are_inspectable_and_protect_engine_fields() {
     let erased = options.provider_options().expect("typed options");
     assert_eq!(erased.namespace().as_str(), "anthropic");
 
-    for protected in ["api_key", "anthropic_version", "base_url", "headers"] {
+    for protected in [
+        "api_key",
+        "apiKey",
+        "anthropic_version",
+        "base-url",
+        "headers",
+        "method",
+        "target",
+        "Retry-Policy",
+        "connectTimeout",
+    ] {
         assert!(
             AnthropicMessagesOptions::new()
                 .try_with_extra(protected, json!("secret"))
@@ -1058,7 +1068,7 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
     assert_eq!(
         provider
             .skills()
-            .upload(skill)
+            .create(skill)
             .await
             .expect("skill")
             .skill
@@ -1205,15 +1215,25 @@ async fn protected_raw_options_fail_before_network() {
     let server = MockServer::start().await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
     let model = provider.language("future-model").expect("model");
-    let call_options = CallOptions::default()
-        .with_raw_provider_options_for(&model, json!({"credential_token": "canary-secret"}))
-        .expect("checked raw layer");
-    let error = model
-        .generate(request("hello", 64), call_options)
-        .await
-        .expect_err("engine-owned protected field");
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
-    assert!(!format!("{error:?}").contains("canary-secret"));
+    for field in [
+        "credential_token",
+        "apiKey",
+        "base-url",
+        "method",
+        "target",
+        "Retry-Policy",
+        "connectTimeout",
+    ] {
+        let call_options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({field: "canary-secret"}))
+            .expect("checked raw layer");
+        let error = model
+            .generate(request("hello", 64), call_options)
+            .await
+            .expect_err("engine-owned protected field");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert!(!format!("{error:?}").contains("canary-secret"));
+    }
 
     let invalid = AnthropicMessagesOptions::new().with_enabled_thinking(512);
     assert!(invalid.provider_options().is_err());

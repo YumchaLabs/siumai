@@ -585,6 +585,14 @@ fn is_security_sensitive(name: &str) -> bool {
             | "proxy"
             | "tls"
             | "audience"
+            | "method"
+            | "target"
+            | "retry"
+            | "retrypolicy"
+            | "timeout"
+            | "connecttimeout"
+            | "readtimeout"
+            | "calltimeout"
     ) || compact.ends_with("apikey")
         || compact.ends_with("token")
         || compact.ends_with("credential")

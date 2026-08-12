@@ -19,7 +19,7 @@ use super::native_content::{
 use super::options::{
     AnthropicTool, McpServer, McpToolConfig, MessagesContainer, MessagesRequestOptions,
     MessagesTokenCountOptions, ServerFallback, ServerFallbacks, ThinkingConfig, TokenTaskBudget,
-    UserLocation, normalize_field, validate_tool_node_options,
+    UserLocation, compact_field, validate_tool_node_options,
 };
 use super::rules::{CacheControlWireStyle, MessagesEncodingRules, MidConversationSystemEncoding};
 use super::{MessagesCodecError, OPAQUE_CONTENT_BLOCK_KIND};
@@ -39,52 +39,62 @@ pub const fn anthropic_tool_anchor_schema() -> Value {
 /// transport ownership.
 pub fn is_protected_option_field(name: &str) -> bool {
     matches!(
-        normalize_field(name).as_str(),
+        compact_field(name).as_str(),
         "model"
             | "messages"
             | "system"
-            | "max_tokens"
+            | "maxtokens"
             | "stream"
             | "tools"
-            | "tool_choice"
+            | "toolchoice"
             | "temperature"
-            | "top_p"
-            | "top_k"
-            | "stop_sequences"
-            | "stop_sequence"
+            | "topp"
+            | "topk"
+            | "stopsequences"
+            | "stopsequence"
             | "metadata"
             | "thinking"
-            | "output_config"
-            | "output_format"
-            | "task_budget"
+            | "outputconfig"
+            | "outputformat"
+            | "taskbudget"
             | "fallbacks"
-            | "fallback_credit_token"
+            | "fallbackcredittoken"
             | "speed"
-            | "service_tier"
+            | "servicetier"
             | "container"
-            | "context_management"
-            | "mcp_servers"
-            | "mcp_toolset"
-            | "inference_geo"
-            | "cache_control"
+            | "contextmanagement"
+            | "mcpservers"
+            | "mcptoolset"
+            | "inferencegeo"
+            | "cachecontrol"
             | "diagnostics"
-            | "api_key"
-            | "x_api_key"
+            | "method"
+            | "target"
+            | "apikey"
+            | "xapikey"
             | "authorization"
             | "auth"
             | "token"
             | "bearer"
+            | "credential"
+            | "credentials"
             | "endpoint"
-            | "base_url"
+            | "baseurl"
             | "url"
             | "host"
             | "headers"
             | "header"
-            | "anthropic_version"
-            | "anthropic_beta"
+            | "anthropicversion"
+            | "anthropicbeta"
             | "proxy"
             | "tls"
             | "audience"
+            | "retry"
+            | "retrypolicy"
+            | "timeout"
+            | "connecttimeout"
+            | "readtimeout"
+            | "calltimeout"
     )
 }
 

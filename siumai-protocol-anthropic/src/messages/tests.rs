@@ -307,6 +307,12 @@ fn rejects_cache_breakpoint_limit_and_invalid_ttl_order() {
 fn rejects_protected_options() {
     for (field, value) in [
         ("api_key", "secret"),
+        ("apiKey", "secret"),
+        ("base-url", "https://invalid.example"),
+        ("Retry-Policy", "unsafe"),
+        ("connectTimeout", "unsafe"),
+        ("method", "DELETE"),
+        ("target", "https://invalid.example"),
         ("service_tier", "auto"),
         ("cache_control", "ephemeral"),
         ("mcp_servers", "untyped"),
@@ -323,6 +329,21 @@ fn rejects_protected_options() {
             Err(MessagesCodecError::ProtectedOptionField { .. })
         ));
     }
+
+    let mut nested = BTreeMap::new();
+    nested.insert(
+        "future_feature".to_string(),
+        json!({"connectTimeout": "canary-secret"}),
+    );
+    let options = MessagesRequestOptions::default().with_extra(nested);
+    assert!(matches!(
+        encode_request(
+            &model(),
+            &request(vec![Message::text(MessageRole::User, "Hello")]),
+            &options,
+        ),
+        Err(MessagesCodecError::ProtectedOptionField { .. })
+    ));
 }
 
 #[test]
