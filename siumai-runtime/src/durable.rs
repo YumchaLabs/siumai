@@ -900,7 +900,18 @@ fn pending_approval_fingerprint_parts(
     digest.update(fingerprints.tool_catalog.as_str().as_bytes());
     digest.update([0]);
     digest.update(fingerprints.approval_policy.as_str().as_bytes());
-    SnapshotFingerprint::new(format!("sha256:{:x}", digest.finalize())).map_err(Into::into)
+    SnapshotFingerprint::new(sha256_fingerprint(&digest.finalize())).map_err(Into::into)
+}
+
+fn sha256_fingerprint(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity("sha256:".len() + bytes.len() * 2);
+    output.push_str("sha256:");
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn options_for_snapshot(

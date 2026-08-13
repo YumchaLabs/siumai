@@ -7,8 +7,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use rmcp::ClientHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ClientInfo, JsonObject, Meta, NumberOrString,
-    PaginatedRequestParams, ProgressNotificationParam, ProgressToken, Tool,
+    CallToolRequestParams, CallToolResult, ClientInfo, JsonObject, NumberOrString,
+    PaginatedRequestParams, ProgressNotificationParam, ProgressToken, RequestMetaObject, Tool,
 };
 use rmcp::service::{Peer, RoleClient, RunningService, ServiceExt};
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
@@ -192,7 +192,7 @@ impl McpBackend for RmcpBackend {
         }
         let token = ProgressToken(NumberOrString::String(call_id.to_string().into()));
         let mut params = CallToolRequestParams::new(name.to_string()).with_arguments(arguments);
-        params.meta = Some(Meta::with_progress_token(token));
+        params.meta = Some(RequestMetaObject::with_progress_token(token));
         self.peer
             .call_tool(params)
             .await
@@ -556,7 +556,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;
 
-    use rmcp::model::{Content, ToolAnnotations};
+    use rmcp::model::{ContentBlock, ToolAnnotations};
     use serde_json::json;
     use siumai_runtime::tool::{ApprovalPolicy, EffectCertainty, ToolEffect};
 
@@ -671,7 +671,7 @@ mod tests {
     #[tokio::test]
     async fn error_result_retains_rich_protocol_details_as_failure() {
         let backend = Arc::new(MockBackend::new([page(vec![tool("lookup")], None)]));
-        backend.push_result(CallToolResult::error(vec![Content::text("not found")]));
+        backend.push_result(CallToolResult::error(vec![ContentBlock::text("not found")]));
         let client = client(McpClientConfig::default(), backend);
         let catalog = client.discover_tools().await.unwrap();
 
