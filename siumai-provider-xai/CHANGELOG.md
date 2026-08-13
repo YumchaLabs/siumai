@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-xai-v0.11.0-beta.9...siumai-provider-xai-v0.11.0-beta.10) - 2026-08-13
+
+### Added
+
+- *(siumai)* expose OpenAI Responses WebSocket surface
+- *(provider)* [**breaking**] deepen xAI and Groq media surfaces
+- *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
+- *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
+- *(provider)* [**breaking**] deepen Kimi and ARK surfaces
+- *(provider)* [**breaking**] expand flagship and Chinese surfaces
+- *(openai)* [**breaking**] add portable families and native resources
+- *(gemini)* [**breaking**] add provider-owned product surfaces
+- *(gemini)* [**breaking**] add faithful Interactions language
+- *(core)* [**breaking**] enforce typed stream settlement
+- *(core)* [**breaking**] enforce canonical language replay semantics
+- *(minimax)* [**breaking**] canonicalize provider identity and protocols
+- *(openai)* add provider-faithful Responses and Realtime runtime
+
+### Fixed
+
+- *(openai)* canonicalize partial responses terminals
+
+### Other
+
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- close validation ownership migration
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- *(core)* [**breaking**] remove runtime model policy
+- *(core)* [**breaking**] bind provider options to configured instances
+- *(openai)* make Responses settlement dialect-owned
+- *(openai)* move prompt cache intent to content annotations
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- *(openai)* [**breaking**] rename Responses protocol module
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- establish Siumai Next architecture baseline
+
 ### Breaking
 
 - Replaced `XaiClient`, `XaiBuilder`, `XaiConfig`, and capability discovery with the synchronous,

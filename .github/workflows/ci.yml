@@ -42,7 +42,7 @@ jobs:
       - name: Check repository contracts
         run: |
           python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
-          python3 -B scripts/check_workspace_boundaries.py --target
+          python3 -B scripts/check_workspace_boundaries.py
 
       - name: Inspect package file lists
         run: python3 -B scripts/check_package_file_list.py
@@ -85,16 +85,30 @@ jobs:
         run: cargo fmt --all -- --check
 
   msrv:
-    name: MSRV 1.95
+    name: MSRV
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust 1.95
+      - name: Read workspace MSRV
+        id: workspace-msrv
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          manifest = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))
+          version = manifest["workspace"]["package"]["rust-version"]
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+          PY
+
+      - name: Install workspace MSRV
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.95.0
+          toolchain: ${{ steps.workspace-msrv.outputs.version }}
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2

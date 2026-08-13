@@ -176,4 +176,3 @@ forward-compatible with provider changes.
 - `repo-ref/ai/packages/ai/src/registry/provider-registry.ts`
 - `repo-ref/ai/packages/provider/src/provider/v4/provider-v4.ts`
 - `docs/architecture/overview.md`
-- `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

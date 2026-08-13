@@ -9,7 +9,7 @@ the application uses:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.9", default-features = false, features = ["openai"] }
+siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai"] }
 ```
 
 Portable requests use the same core types regardless of provider:

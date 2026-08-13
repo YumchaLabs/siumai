@@ -64,11 +64,10 @@ def retry_delay_seconds(output: str, now: datetime, minimum: int) -> int:
     return max(minimum, delay)
 
 
-def run_release(github_token: str, *, dry_run: bool = False) -> tuple[int, str]:
+def run_release(*, dry_run: bool = False) -> tuple[int, str]:
     command = ["release-plz", "release"]
     if dry_run:
         command.append("--dry-run")
-    command.extend(["--git-token", github_token])
     process = subprocess.Popen(
         command,
         cwd=REPO_ROOT,
@@ -100,11 +99,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        print("Missing required env var: GITHUB_TOKEN", file=sys.stderr)
-        return 2
-
     try:
         max_attempts = positive_env_int("RELEASE_PLZ_MAX_ATTEMPTS", 10)
         minimum_sleep = positive_env_int("RELEASE_PLZ_MIN_SLEEP_SECONDS", 60)
@@ -115,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     operation = "release-plz release --dry-run" if args.dry_run else "release-plz release"
     for attempt in range(1, max_attempts + 1):
         print(f"::group::{operation} attempt {attempt}/{max_attempts}")
-        status, output = run_release(github_token, dry_run=args.dry_run)
+        status, output = run_release(dry_run=args.dry_run)
         print("::endgroup::")
 
         if status == 0:

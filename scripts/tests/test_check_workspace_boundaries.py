@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import unittest
 from pathlib import Path
@@ -12,17 +14,10 @@ BOUNDARIES = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BOUNDARIES)
 
 
-def package(
-    name: str,
-    dependencies: list[str],
-    rust_version: str = "1.95",
-    version: str = "0.11.0-beta.9",
-) -> dict:
+def package(name: str, dependencies: list[str]) -> dict:
     return {
         "id": f"path+file:///repo/{name}#{name}",
         "name": name,
-        "rust_version": rust_version,
-        "version": version,
         "dependencies": [{"name": dependency} for dependency in dependencies],
     }
 
@@ -34,96 +29,89 @@ def metadata(packages: list[dict]) -> dict:
     }
 
 
-POLICY = {
-    "msrv": "1.95",
-    "workspace_version": "0.11.0-beta.9",
-    "package_rules": {
-        "siumai-core": {
-            "current_allowed_workspace_dependencies": [],
-            "target_allowed_workspace_dependencies": [],
-        },
-        "siumai-registry": {
-            "current_allowed_workspace_dependencies": ["siumai-core"],
-            "target_allowed_workspace_dependencies": ["siumai-core"],
-        },
-        "siumai-runtime": {
-            "current_allowed_workspace_dependencies": ["siumai-core"],
-            "target_allowed_workspace_dependencies": ["siumai-core"],
-        },
-    },
-    "provider_dependency_transitions": [],
-}
-
-
 class WorkspaceBoundaryTests(unittest.TestCase):
-    def test_target_graph_accepts_core_only_registry_and_runtime(self) -> None:
+    def test_legacy_arguments_are_rejected(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                BOUNDARIES.parse_args(["--target"])
+
+        self.assertEqual(error.exception.code, 2)
+
+    def test_current_architecture_is_accepted(self) -> None:
         graph = metadata(
             [
                 package("siumai-core", []),
+                package("siumai-transport", ["siumai-core"]),
                 package("siumai-registry", ["siumai-core"]),
                 package("siumai-runtime", ["siumai-core"]),
-                package("siumai-provider-openai", ["siumai-core"]),
-            ]
-        )
-
-        self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=True), [])
-
-    def test_target_graph_rejects_runtime_registry_dependency(self) -> None:
-        graph = metadata(
-            [
-                package("siumai-core", []),
-                package("siumai-registry", ["siumai-core"]),
-                package("siumai-runtime", ["siumai-core", "siumai-registry"]),
-            ]
-        )
-
-        errors = BOUNDARIES.validate(graph, POLICY, target=True)
-
-        self.assertEqual(len(errors), 1)
-        self.assertIn("siumai-registry", errors[0])
-
-    def test_target_graph_rejects_registry_provider_dependency(self) -> None:
-        graph = metadata(
-            [
-                package("siumai-core", []),
+                package("siumai-protocol-openai", ["siumai-core"]),
                 package(
-                    "siumai-registry",
-                    ["siumai-core", "siumai-provider-openai"],
+                    "siumai-openai-compatible",
+                    ["siumai-core", "siumai-protocol-openai", "siumai-transport"],
                 ),
-                package("siumai-runtime", ["siumai-core"]),
-                package("siumai-provider-openai", ["siumai-core"]),
+                package(
+                    "siumai-provider-openai",
+                    ["siumai-core", "siumai-protocol-openai", "siumai-transport"],
+                ),
+                package("siumai-server", ["siumai-core", "siumai-runtime"]),
+                package("siumai-mcp", ["siumai-core", "siumai-runtime"]),
+                package(
+                    "siumai",
+                    [
+                        "siumai-core",
+                        "siumai-provider-openai",
+                        "siumai-registry",
+                        "siumai-runtime",
+                    ],
+                ),
             ]
         )
 
-        errors = BOUNDARIES.validate(graph, POLICY, target=True)
+        self.assertEqual(BOUNDARIES.validate(graph), [])
 
-        self.assertEqual(len(errors), 1)
-        self.assertIn("siumai-provider-openai", errors[0])
+    def test_versions_and_msrv_are_not_architecture_inputs(self) -> None:
+        core = package("siumai-core", [])
+        core.update({"version": "0.11.0-beta.10", "rust_version": "1.95"})
+        runtime = package("siumai-runtime", ["siumai-core"])
+        runtime.update({"version": "99.0.0", "rust_version": "1.0"})
 
-    def test_migration_policy_rejects_unnamed_registry_dependency(self) -> None:
+        self.assertEqual(BOUNDARIES.validate(metadata([core, runtime])), [])
+
+    def test_core_cannot_depend_on_another_workspace_package(self) -> None:
         graph = metadata(
             [
-                package("siumai-core", []),
-                package("siumai-registry", ["siumai-core"]),
-                package("siumai-provider-openai", ["siumai-core"]),
-                package("siumai-runtime", ["siumai-core"]),
+                package("siumai-core", ["siumai-transport"]),
+                package("siumai-transport", ["siumai-core"]),
             ]
         )
 
-        self.assertEqual(BOUNDARIES.validate(graph, POLICY, target=False), [])
+        errors = BOUNDARIES.validate(graph)
 
-        graph["packages"][1]["dependencies"].append({"name": "siumai-provider-openai"})
-
-        errors = BOUNDARIES.validate(graph, POLICY, target=False)
         self.assertEqual(len(errors), 1)
-        self.assertIn("siumai-provider-openai", errors[0])
+        self.assertIn("siumai-core", errors[0])
+        self.assertIn("siumai-transport", errors[0])
 
-    def test_provider_to_provider_dependency_is_rejected(self) -> None:
+    def test_foundation_packages_reject_host_or_provider_dependencies(self) -> None:
+        for name in ("siumai-transport", "siumai-registry", "siumai-runtime"):
+            with self.subTest(package=name):
+                graph = metadata(
+                    [
+                        package("siumai-core", []),
+                        package(name, ["siumai-core", "siumai-provider-openai"]),
+                        package("siumai-provider-openai", ["siumai-core"]),
+                    ]
+                )
+
+                errors = BOUNDARIES.validate(graph)
+
+                self.assertEqual(len(errors), 1)
+                self.assertIn(name, errors[0])
+                self.assertIn("siumai-provider-openai", errors[0])
+
+    def test_branded_provider_cannot_depend_on_another_branded_provider(self) -> None:
         graph = metadata(
             [
                 package("siumai-core", []),
-                package("siumai-registry", ["siumai-core"]),
-                package("siumai-runtime", ["siumai-core"]),
                 package("siumai-provider-openai", ["siumai-core"]),
                 package(
                     "siumai-provider-anthropic",
@@ -132,43 +120,66 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             ]
         )
 
-        errors = BOUNDARIES.validate(graph, POLICY, target=False)
+        errors = BOUNDARIES.validate(graph)
 
         self.assertEqual(len(errors), 1)
         self.assertIn("provider-to-provider", errors[0])
+        self.assertIn("siumai-provider-openai", errors[0])
 
-    def test_declared_msrv_is_required_for_every_package(self) -> None:
-        graph = metadata(
-            [
-                package("siumai-core", [], rust_version="1.89"),
-                package("siumai-registry", ["siumai-core"]),
-                package("siumai-runtime", ["siumai-core"]),
-            ]
-        )
-
-        errors = BOUNDARIES.validate(graph, POLICY, target=True)
-
-        self.assertEqual(len(errors), 1)
-        self.assertIn("rust_version='1.89'", errors[0])
-
-    def test_workspace_version_is_required_for_every_package(self) -> None:
+    def test_branded_provider_cannot_depend_on_host_layers(self) -> None:
         graph = metadata(
             [
                 package("siumai-core", []),
-                package(
-                    "siumai-registry",
-                    ["siumai-core"],
-                    version="0.11.0-beta.10",
-                ),
+                package("siumai-registry", ["siumai-core"]),
                 package("siumai-runtime", ["siumai-core"]),
+                package(
+                    "siumai-provider-openai",
+                    ["siumai-core", "siumai-registry", "siumai-runtime"],
+                ),
             ]
         )
 
-        errors = BOUNDARIES.validate(graph, POLICY, target=True)
+        errors = BOUNDARIES.validate(graph)
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("siumai-registry: version='0.11.0-beta.10'", errors[0])
-        self.assertIn("expected '0.11.0-beta.9'", errors[0])
+        self.assertIn("host-layer", errors[0])
+        self.assertIn("siumai-registry", errors[0])
+        self.assertIn("siumai-runtime", errors[0])
+
+    def test_wire_and_compatibility_layers_cannot_depend_on_host_layers(self) -> None:
+        for name, dependency in (
+            ("siumai-protocol-openai", "siumai-runtime"),
+            ("siumai-openai-compatible", "siumai-registry"),
+        ):
+            with self.subTest(package=name, dependency=dependency):
+                graph = metadata(
+                    [
+                        package("siumai-core", []),
+                        package(dependency, ["siumai-core"]),
+                        package(name, ["siumai-core", dependency]),
+                    ]
+                )
+
+                errors = BOUNDARIES.validate(graph)
+
+                self.assertEqual(len(errors), 1)
+                self.assertIn("wire or compatibility", errors[0])
+                self.assertIn(dependency, errors[0])
+
+    def test_workspace_packages_cannot_depend_on_the_facade(self) -> None:
+        graph = metadata(
+            [
+                package("siumai-core", []),
+                package("siumai", ["siumai-core"]),
+                package("siumai-protocol-openai", ["siumai-core", "siumai"]),
+            ]
+        )
+
+        errors = BOUNDARIES.validate(graph)
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("facade back-edge", errors[0])
+        self.assertIn("siumai-protocol-openai", errors[0])
 
 
 if __name__ == "__main__":

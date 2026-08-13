@@ -167,4 +167,3 @@ inert, and the neutral request does not learn provider-specific fields.
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-function-tool.ts`
 - `docs/architecture/public-api.md`
 - `docs/adr/0014-canonical-language-history-and-replay.md`
-- `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

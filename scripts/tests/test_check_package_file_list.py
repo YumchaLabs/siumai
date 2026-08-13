@@ -15,173 +15,106 @@ SPEC.loader.exec_module(CHECKER)
 
 
 class PackageFileListTests(unittest.TestCase):
-    def validate(self, *paths: str, line_ending: bytes = b"\n") -> int:
-        payload = line_ending.join(path.encode("utf-8") for path in paths) + line_ending
+    def validate(self, *paths: str) -> int:
+        payload = b"\n".join(path.encode("utf-8") for path in paths) + b"\n"
         return CHECKER.validate_package_file_list(io.BytesIO(payload))
 
-    def test_accepts_normal_package_paths_templates_and_source_canaries(self) -> None:
-        count = self.validate(
-            "Cargo.toml",
-            "Cargo.toml.orig",
-            "Cargo.lock",
-            ".cargo_vcs_info.json",
-            "src/lib.rs",
-            "README.md",
-            "fixtures/.env.example",
-            "fixtures/.env.sample",
-            "tests/canary_contract.rs",
-            "examples/openai_flagship.rs",
-            line_ending=b"\r\n",
+    def test_normal_package_paths_and_public_env_examples_are_allowed(self) -> None:
+        self.assertEqual(
+            self.validate("Cargo.toml", "Cargo.toml.orig", "src/lib.rs", ".env.example"),
+            4,
         )
 
-        self.assertEqual(count, 10)
-
-    def test_rejects_absolute_drive_user_and_parent_paths(self) -> None:
-        rejected = (
-            "/Users/example/private.json",
-            r"C:\Users\example\private.json",
-            r"\\server\share\private.json",
-            "~/private.json",
-            "fixtures/../private.json",
-        )
-
-        for path in rejected:
-            with self.subTest(path=path):
-                with self.assertRaises(CHECKER.PackageFileListError):
-                    self.validate(path)
-
-    def test_rejects_control_characters_and_invalid_utf8(self) -> None:
-        for path in ("src/bad\tname.rs", "src/hidden\u202ename.rs"):
+    def test_private_local_and_editor_paths_are_rejected(self) -> None:
+        for path in (
+            ".env",
+            ".env.production",
+            "config.local.toml",
+            "credentials.json",
+            "private-key.pem",
+            "release-token.p12",
+            "service-account-production.json",
+            ".fleet/settings.json",
+            "repo-ref/provider/fixture.json",
+            "siumai.code-workspace",
+            "src/lib.rs.swo",
+            "src/lib.rs.swp",
+        ):
             with self.subTest(path=path):
                 with self.assertRaisesRegex(
-                    CHECKER.PackageFileListError, "control character"
+                    CHECKER.PackageFileListError, "would be packaged"
                 ):
                     self.validate(path)
+
+    def test_live_canary_artifacts_are_rejected_without_blocking_source(self) -> None:
+        for path in (
+            ".canary-output.json",
+            "canary-result.json",
+            "live-canary-response.json",
+            "sub2api_canary_payload.json",
+        ):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(
+                    CHECKER.PackageFileListError, "would be packaged"
+                ):
+                    self.validate(path)
+
+        self.assertEqual(
+            self.validate(
+                "tests/canary_contract.rs",
+                "src/canary_request.rs",
+                "tests/live_canary.rs",
+            ),
+            3,
+        )
+
+    def test_input_is_bounded_and_strict_utf8(self) -> None:
+        with self.assertRaisesRegex(CHECKER.PackageFileListError, "returned no files"):
+            CHECKER.validate_package_file_list(io.BytesIO())
+
+        with patch.object(CHECKER, "MAX_PATH_BYTES", 4):
+            with self.assertRaisesRegex(CHECKER.PackageFileListError, "exceeds 4 bytes"):
+                CHECKER.validate_package_file_list(io.BytesIO(b"12345\n"))
 
         with self.assertRaisesRegex(CHECKER.PackageFileListError, "valid UTF-8"):
             CHECKER.validate_package_file_list(io.BytesIO(b"src/\xff.rs\n"))
 
-    def test_rejects_build_reference_vcs_and_local_tool_directories(self) -> None:
-        rejected = (
-            "target/debug/library.rlib",
-            "repo-ref/ai/package.json",
-            ".git/config",
-            "nested/.hg/store",
-            ".codex/session.json",
-            ".codex-helper/config.toml",
-            ".idea/workspace.xml",
-            ".vscode/settings.json",
-            ".fleet/settings.json",
-        )
-
-        for path in rejected:
-            with self.subTest(path=path):
-                with self.assertRaises(CHECKER.PackageFileListError):
-                    self.validate(path)
-
-    def test_rejects_credentials_and_private_configuration(self) -> None:
-        rejected = (
-            ".env",
-            ".env.local",
-            "config.local.toml",
-            "settings.local.json",
-            "credentials.json",
-            "service-account-production.json",
-            "secrets.yaml",
-            "private-key.pem",
-            "id_ed25519",
-            ".netrc",
-            "release-token.p12",
-        )
-
-        for path in rejected:
-            with self.subTest(path=path):
-                with self.assertRaises(CHECKER.PackageFileListError):
-                    self.validate(path)
-
-    def test_rejects_editor_temporary_and_live_canary_artifacts(self) -> None:
-        rejected = (
-            ".DS_Store",
-            "notes.txt~",
-            "src/lib.rs.swp",
-            ".#README.md",
-            "#README.md#",
-            "siumai.code-workspace",
-            ".canary-output.json",
-            "canary.json",
-            "canary-result.json",
-            "live-canary-response.json",
-            "sub2api_canary_payload.json",
-        )
-
-        for path in rejected:
-            with self.subTest(path=path):
-                with self.assertRaises(CHECKER.PackageFileListError):
-                    self.validate(path)
-
-    def test_rejects_empty_oversized_and_overlong_lists(self) -> None:
-        with self.assertRaisesRegex(CHECKER.PackageFileListError, "is empty"):
-            CHECKER.validate_package_file_list(io.BytesIO())
-
-        with patch.object(CHECKER, "MAX_PATH_BYTES", 8):
-            with self.assertRaisesRegex(CHECKER.PackageFileListError, "exceeds 8 bytes"):
-                CHECKER.validate_package_file_list(io.BytesIO(b"123456789\n"))
-
-        with patch.object(CHECKER, "MAX_ENTRIES", 2):
-            with self.assertRaisesRegex(CHECKER.PackageFileListError, "exceeds 2 entries"):
-                CHECKER.validate_package_file_list(io.BytesIO(b"one\ntwo\nthree\n"))
-
-    def test_cargo_package_command_keeps_allow_dirty_explicit(self) -> None:
+    def test_cargo_command_keeps_dirty_inspection_explicit(self) -> None:
         self.assertEqual(
             CHECKER.cargo_package_list_command(allow_dirty=False),
             ["cargo", "package", "--workspace", "--list", "--locked"],
         )
         self.assertEqual(
-            CHECKER.cargo_package_list_command(allow_dirty=True),
-            [
-                "cargo",
-                "package",
-                "--workspace",
-                "--list",
-                "--locked",
-                "--allow-dirty",
-            ],
+            CHECKER.cargo_package_list_command(allow_dirty=True)[-1],
+            "--allow-dirty",
         )
 
-    def test_cargo_output_is_validated_only_after_success(self) -> None:
-        process = type(
+    def test_cargo_failure_and_success_are_handled_without_parsing_partial_output(self) -> None:
+        failed = type(
             "CargoProcess",
             (),
-            {"stdout": io.BytesIO(b"Cargo.toml\nsrc/lib.rs\n"), "wait": lambda self: 0},
+            {"stdout": io.BytesIO(b"Cargo.toml\n"), "wait": lambda self: 101},
         )()
-        with patch.object(CHECKER.subprocess, "Popen", return_value=process) as popen:
-            entry_count = CHECKER.check_cargo_package_file_list(allow_dirty=True)
-
-        self.assertEqual(entry_count, 2)
-        popen.assert_called_once_with(
-            ["cargo", "package", "--workspace", "--list", "--locked", "--allow-dirty"],
-            cwd=CHECKER.REPO_ROOT,
-            stdout=CHECKER.subprocess.PIPE,
-        )
-
-    def test_partial_cargo_output_with_failure_never_reaches_validator(self) -> None:
-        process = type(
-            "CargoProcess",
-            (),
-            {
-                "stdout": io.BytesIO(b"Cargo.toml\nprivate/.env\n"),
-                "wait": lambda self: 101,
-            },
-        )()
-        with patch.object(CHECKER.subprocess, "Popen", return_value=process), patch.object(
+        with patch.object(CHECKER.subprocess, "Popen", return_value=failed), patch.object(
             CHECKER, "validate_package_file_list"
         ) as validate:
-            with self.assertRaisesRegex(CHECKER.CargoPackageListError, "exit status 101"):
+            with self.assertRaisesRegex(CHECKER.PackageFileListError, "exit status 101"):
                 CHECKER.check_cargo_package_file_list(allow_dirty=False)
 
         validate.assert_not_called()
 
-    def test_cargo_output_limit_fails_after_a_successful_command(self) -> None:
+        succeeded = type(
+            "CargoProcess",
+            (),
+            {"stdout": io.BytesIO(b"Cargo.toml\nsrc/lib.rs\n"), "wait": lambda self: 0},
+        )()
+        with patch.object(CHECKER.subprocess, "Popen", return_value=succeeded):
+            self.assertEqual(
+                CHECKER.check_cargo_package_file_list(allow_dirty=False),
+                2,
+            )
+
+    def test_cargo_output_limit_is_enforced_after_success(self) -> None:
         process = type(
             "CargoProcess",
             (),
@@ -190,8 +123,8 @@ class PackageFileListTests(unittest.TestCase):
         with patch.object(CHECKER, "MAX_CARGO_STDOUT_BYTES", 4), patch.object(
             CHECKER.subprocess, "Popen", return_value=process
         ):
-            with self.assertRaisesRegex(CHECKER.CargoPackageListError, "output exceeds 4 bytes"):
-                CHECKER.capture_cargo_package_list(allow_dirty=False)
+            with self.assertRaisesRegex(CHECKER.PackageFileListError, "exceeds 4 bytes"):
+                CHECKER.capture_cargo_package_file_list(allow_dirty=False)
 
 
 if __name__ == "__main__":

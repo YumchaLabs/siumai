@@ -30,7 +30,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.0-beta.9"
+version = "0.11.0-beta.10"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Mingzhen Zhuang <superfrankie621@gmail.com>"]
@@ -83,17 +83,17 @@ infer = "0.22"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly
-siumai-core = { version = "0.11.0-beta.9", path = "siumai-core", default-features = false }
-siumai-anthropic-compatible = { version = "0.11.0-beta.9", path = "siumai-anthropic-compatible", default-features = false }
-siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "siumai-protocol-anthropic", default-features = false }
-siumai-protocol-gemini = { version = "0.11.0-beta.9", path = "siumai-protocol-gemini", default-features = false }
-siumai-protocol-openai = { version = "0.11.0-beta.9", path = "siumai-protocol-openai", default-features = false }
-siumai-transport = { version = "0.11.0-beta.9", path = "siumai-transport", default-features = false }
-siumai-runtime = { version = "0.11.0-beta.9", path = "siumai-runtime", default-features = false }
-siumai-registry = { version = "0.11.0-beta.9", path = "siumai-registry", default-features = false }
-siumai-provider-alibaba = { version = "0.11.0-beta.9", path = "siumai-provider-alibaba", default-features = false }
-siumai-provider-moonshotai = { version = "0.11.0-beta.9", path = "siumai-provider-moonshotai", default-features = false }
-siumai-provider-volcengine = { version = "0.11.0-beta.9", path = "siumai-provider-volcengine", default-features = false }
+siumai-core = { version = "0.11.0-beta.10", path = "siumai-core", default-features = false }
+siumai-anthropic-compatible = { version = "0.11.0-beta.10", path = "siumai-anthropic-compatible", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.10", path = "siumai-protocol-anthropic", default-features = false }
+siumai-protocol-gemini = { version = "0.11.0-beta.10", path = "siumai-protocol-gemini", default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.10", path = "siumai-protocol-openai", default-features = false }
+siumai-transport = { version = "0.11.0-beta.10", path = "siumai-transport", default-features = false }
+siumai-runtime = { version = "0.11.0-beta.10", path = "siumai-runtime", default-features = false }
+siumai-registry = { version = "0.11.0-beta.10", path = "siumai-registry", default-features = false }
+siumai-provider-alibaba = { version = "0.11.0-beta.10", path = "siumai-provider-alibaba", default-features = false }
+siumai-provider-moonshotai = { version = "0.11.0-beta.10", path = "siumai-provider-moonshotai", default-features = false }
+siumai-provider-volcengine = { version = "0.11.0-beta.10", path = "siumai-provider-volcengine", default-features = false }
 
 # Security
 secrecy = { version = "0.10", features = ["serde"] }

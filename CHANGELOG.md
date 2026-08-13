@@ -4,6 +4,60 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.9...v0.11.0-beta.10) - 2026-08-13
+
+### Added
+
+- *(anthropic)* [**breaking**] complete batches and skills lifecycle
+- *(anthropic)* [**breaking**] add scoped files and hosted replay
+- *(openai)* [**breaking**] deepen native Responses ergonomics
+- *(siumai)* expose OpenAI Responses WebSocket surface
+- *(provider)* [**breaking**] deepen xAI and Groq media surfaces
+- *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
+- *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
+- *(provider)* [**breaking**] deepen Kimi and ARK surfaces
+- *(provider)* [**breaking**] expand flagship and Chinese surfaces
+- *(openai)* [**breaking**] add portable families and native resources
+- *(gemini)* [**breaking**] add provider-owned product surfaces
+- *(gemini)* [**breaking**] add faithful Interactions language
+- *(anthropic)* [**breaking**] align current Messages contracts
+- *(openai)* [**breaking**] expose native Responses streams
+- *(openai)* [**breaking**] add typed Responses tools
+- *(core)* [**breaking**] enforce typed stream settlement
+- *(core)* [**breaking**] enforce canonical language replay semantics
+- *(moonshotai)* [**breaking**] adopt current Kimi model policy
+- *(minimax)* [**breaking**] canonicalize provider identity and protocols
+- *(deepseek)* [**breaking**] adopt verified V4 model routes
+- *(runtime)* [**breaking**] add core-only single-call execution layer
+- *(registry)* [**breaking**] rebuild routing and provider facade
+- *(openai)* add provider-faithful Responses and Realtime runtime
+- [**breaking**] establish provider-faithful family surface
+
+### Fixed
+
+- *(openai)* preserve future provider intent
+- *(facade)* make packaged rustdoc self-contained
+- *(facade)* export responses wire dialect
+- *(openai)* [**breaking**] complete Responses tool contracts
+- *(openai)* [**breaking**] align cache and token-count contracts
+- *(kimi)* [**breaking**] enforce model constraints and preserve error diagnostics
+
+### Other
+
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- *(openai)* [**breaking**] remove invented request validation
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- *(core)* [**breaking**] remove runtime model policy
+- *(openai)* make Responses settlement dialect-owned
+- *(openai)* move prompt cache intent to content annotations
+- *(openai)* extract shared execution errors
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- *(core)* [**breaking**] remove premature job abstractions
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- establish Siumai Next architecture baseline
+
 ### Added
 
 - Added six Rust-first provider-neutral model-family contracts, configured provider APIs, typed provider options and annotations, an immutable caller-configured Registry, and a provider-neutral runtime for tool loops, structured output, approvals, budgets, and durable runs.

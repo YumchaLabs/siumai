@@ -17,8 +17,10 @@ before changing a public type or package dependency. The main ownership rules ar
 - `siumai-runtime` owns provider-neutral multi-step execution;
 - `siumai` owns curated re-exports and feature aggregation.
 
-Use `config/architecture/dependency-policy.json` before adding a workspace dependency. Provider
-crates must not depend on other branded provider crates, Registry, or the facade.
+Inspect the affected manifests and run `scripts/check_workspace_boundaries.py` before adding a
+workspace dependency. Provider crates must not depend on other branded provider crates, Registry,
+runtime, or the facade. Cargo remains authoritative for workspace membership, versions, MSRV, and
+dependency resolution.
 
 ## Provider change checklist
 
@@ -58,7 +60,7 @@ For repository-level checks:
 
 ```text
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
-python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/check_workspace_boundaries.py
 python3 -B scripts/test-workspace.py full --runner nextest
 ```
 

@@ -26,7 +26,7 @@ Enable only the provider and integration features that the application uses:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.9", default-features = false, features = ["minimax"] }
+siumai = { version = "0.11.0-beta.10", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 

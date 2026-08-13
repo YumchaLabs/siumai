@@ -120,10 +120,6 @@ def workspace_test_command(runner: str) -> list[str]:
     ]
 
 
-def common_checks() -> list[list[str]]:
-    return [[sys.executable, "-B", "scripts/check_workspace_boundaries.py", "--target"]]
-
-
 def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
     if args.suite == "fast":
         return [package_test_command(runner, FAST_PACKAGES)]
@@ -137,21 +133,7 @@ def commands_for(args: argparse.Namespace, runner: str) -> list[list[str]]:
             )
         ]
 
-    return [
-        [
-            sys.executable,
-            "-B",
-            "-m",
-            "unittest",
-            "discover",
-            "-s",
-            "scripts/tests",
-            "-p",
-            "test_*.py",
-        ],
-        *common_checks(),
-        workspace_test_command(runner),
-    ]
+    return [workspace_test_command(runner)]
 
 
 def run_commands(commands: list[list[str]], dry_run: bool) -> int:

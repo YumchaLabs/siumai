@@ -22,7 +22,7 @@ class ReleasePlzRetryTests(unittest.TestCase):
         process.wait.return_value = 0
 
         with patch.object(RETRY.subprocess, "Popen", return_value=process) as popen:
-            status, output = RETRY.run_release("test-token", dry_run=True)
+            status, output = RETRY.run_release(dry_run=True)
 
         self.assertEqual(status, 0)
         self.assertEqual(output, "dry run complete\n")
@@ -32,8 +32,6 @@ class ReleasePlzRetryTests(unittest.TestCase):
                 "release-plz",
                 "release",
                 "--dry-run",
-                "--git-token",
-                "test-token",
             ],
         )
 
