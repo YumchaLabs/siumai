@@ -22,7 +22,7 @@ class ReleasePlzRetryTests(unittest.TestCase):
         process.wait.return_value = 0
 
         with patch.object(RETRY.subprocess, "Popen", return_value=process) as popen:
-            status, output = RETRY.run_release(dry_run=True)
+            status, output = RETRY.run_release("github-token", dry_run=True)
 
         self.assertEqual(status, 0)
         self.assertEqual(output, "dry run complete\n")
@@ -34,6 +34,17 @@ class ReleasePlzRetryTests(unittest.TestCase):
                 "--dry-run",
             ],
         )
+        self.assertEqual(popen.call_args.kwargs["env"]["GIT_TOKEN"], "github-token")
+
+    def test_main_rejects_missing_github_token_before_spawning(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(RETRY.subprocess, "Popen") as popen,
+        ):
+            status = RETRY.main([])
+
+        self.assertEqual(status, 2)
+        popen.assert_not_called()
 
     def test_detects_supported_crates_io_rate_limit_messages(self) -> None:
         self.assertTrue(RETRY.is_crates_io_rate_limit("status 429 Too Many Requests"))
