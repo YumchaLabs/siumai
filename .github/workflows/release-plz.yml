@@ -106,7 +106,7 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: |
-            release-plz@0.3.150
+            release-plz@0.3.157
             cargo-semver-checks@0.45
 
       - name: Run release-plz (release)
