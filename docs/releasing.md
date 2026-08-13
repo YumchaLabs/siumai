@@ -9,7 +9,7 @@ Run the maintained release gates serially from a clean release candidate:
 ```text
 cargo fmt --all -- --check
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
-python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/check_workspace_boundaries.py
 python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
@@ -24,9 +24,11 @@ cargo test --doc --workspace --all-features -j 1
 python3 -B scripts/check_package_file_list.py
 ```
 
-Also run the CI MSRV lane with Rust 1.95 and inspect `cargo metadata --locked --no-deps` after any
-dependency or feature change. These checks are deterministic and offline; credentialed provider
-tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
+Also run the CI MSRV lane using the `rust-version` declared by the workspace and inspect
+`cargo metadata --locked --no-deps` after any dependency or feature change. Cargo and release-plz
+are the authorities for package versions; repository scripts must not maintain a second release
+version. These checks are deterministic and offline; credentialed provider tests are not a release
+prerequisite unless a maintainer explicitly authorizes the external calls.
 
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
 They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
@@ -41,10 +43,9 @@ claim. Product surfaces outside the documented package slice remain `intentional
 
 Before publishing, validate the Cargo-native workspace file list with
 `python3 -B scripts/check_package_file_list.py`. The checker invokes Cargo itself, verifies its
-exit status before inspecting a bounded file list, and rejects credentials, private local
-configuration, absolute or parent paths, `target/`, `repo-ref/`, VCS/editor state, and temporary
-or live-canary artifacts. It does not read package contents, decide membership, or infer
-publication order; Cargo and release-plz remain the authorities. For a dirty local release
+exit status, and rejects a small set of credential, private local configuration, repository-local,
+editor-state, and live-canary artifact paths. It does not read package contents, decide membership,
+or infer publication order; Cargo and release-plz remain the authorities. For a dirty local release
 candidate, add `--allow-dirty` to the checker command; this changes only Cargo's local cleanliness
 check and never authorizes publishing.
 

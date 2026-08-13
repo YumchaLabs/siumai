@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Siumai package boundaries from Cargo's structured metadata."""
+"""Reject workspace dependency directions that violate Siumai's architecture."""
 
 from __future__ import annotations
 
@@ -12,15 +12,21 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_POLICY = REPO_ROOT / "config" / "architecture" / "dependency-policy.json"
+
+FOUNDATION_DEPENDENCIES = {
+    "siumai-core": frozenset(),
+    "siumai-transport": frozenset({"siumai-core"}),
+    "siumai-registry": frozenset({"siumai-core"}),
+    "siumai-runtime": frozenset({"siumai-core"}),
+}
+HOST_LAYER_PACKAGES = frozenset(
+    {"siumai-registry", "siumai-runtime", "siumai-mcp", "siumai-server"}
+)
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as handle:
-        value = json.load(handle)
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a JSON object")
-    return value
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    return parser.parse_args(argv)
 
 
 def cargo_metadata() -> dict[str, Any]:
@@ -69,101 +75,91 @@ def workspace_dependencies(
     }
 
 
-def transition_allows(
-    source: str, dependency: str, transitions: list[dict[str, Any]]
-) -> bool:
-    for transition in transitions:
-        if transition.get("dependency") != dependency:
-            continue
-        sources = transition.get("sources", [])
-        if "*" in sources or source in sources:
-            return True
-    return False
+def is_branded_provider(name: str) -> bool:
+    return name.startswith("siumai-provider-")
 
 
-def validate(
-    metadata: dict[str, Any], policy: dict[str, Any], *, target: bool
-) -> list[str]:
+def is_provider_neutral(name: str) -> bool:
+    return (
+        name in FOUNDATION_DEPENDENCIES
+        or name in HOST_LAYER_PACKAGES
+        or name.startswith("siumai-protocol-")
+        or name.endswith("-compatible")
+    )
+
+
+def is_wire_or_compatibility_layer(name: str) -> bool:
+    return name.startswith("siumai-protocol-") or name.endswith("-compatible")
+
+
+def validate(metadata: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     packages = workspace_packages(metadata)
     workspace_names = set(packages)
-    expected_msrv = policy.get("msrv")
-    expected_version = policy.get("workspace_version")
+    dependencies = {
+        name: workspace_dependencies(package, workspace_names)
+        for name, package in packages.items()
+    }
 
-    for name, package in sorted(packages.items()):
-        if package.get("version") != expected_version:
-            errors.append(
-                f"{name}: version={package.get('version')!r}; "
-                f"expected {expected_version!r}"
-            )
-        if package.get("rust_version") != expected_msrv:
-            errors.append(
-                f"{name}: rust_version={package.get('rust_version')!r}; "
-                f"expected {expected_msrv!r}"
-            )
-
-    rule_key = (
-        "target_allowed_workspace_dependencies"
-        if target
-        else "current_allowed_workspace_dependencies"
-    )
-    for name, rule in policy.get("package_rules", {}).items():
-        package = packages.get(name)
-        if package is None:
-            errors.append(f"policy references missing workspace package {name!r}")
+    for name, allowed in FOUNDATION_DEPENDENCIES.items():
+        actual = dependencies.get(name)
+        if actual is None:
             continue
-        actual = workspace_dependencies(package, workspace_names)
-        allowed = set(rule.get(rule_key, []))
         unexpected = sorted(actual - allowed)
         if unexpected:
             errors.append(
-                f"{name}: unexpected workspace dependencies for "
-                f"{'target' if target else 'current'} policy: "
+                f"{name}: foundation package cannot depend on: "
                 + ", ".join(unexpected)
             )
 
-    provider_transitions = policy.get("provider_dependency_transitions", [])
-    for name, package in sorted(packages.items()):
-        if not name.startswith("siumai-provider-"):
+    for name, actual in sorted(dependencies.items()):
+        if name in FOUNDATION_DEPENDENCIES:
             continue
-        provider_dependencies = sorted(
-            dependency
-            for dependency in workspace_dependencies(package, workspace_names)
-            if dependency.startswith("siumai-provider-")
-            and (
-                target
-                or not transition_allows(name, dependency, provider_transitions)
-            )
+
+        branded_dependencies = sorted(
+            dependency for dependency in actual if is_branded_provider(dependency)
         )
-        if provider_dependencies:
+
+        if name != "siumai" and "siumai" in actual:
+            errors.append(f"{name}: facade back-edge to siumai is forbidden")
+
+        if is_provider_neutral(name) and branded_dependencies:
+            errors.append(
+                f"{name}: provider-neutral package cannot depend on branded providers: "
+                + ", ".join(branded_dependencies)
+            )
+
+        if is_wire_or_compatibility_layer(name):
+            host_dependencies = sorted(actual & HOST_LAYER_PACKAGES)
+            if host_dependencies:
+                errors.append(
+                    f"{name}: wire or compatibility package cannot depend on "
+                    "host-layer packages: " + ", ".join(host_dependencies)
+                )
+
+        if not is_branded_provider(name):
+            continue
+
+        if branded_dependencies:
             errors.append(
                 f"{name}: provider-to-provider dependencies are forbidden: "
-                + ", ".join(provider_dependencies)
+                + ", ".join(branded_dependencies)
+            )
+
+        host_dependencies = sorted(actual & HOST_LAYER_PACKAGES)
+        if host_dependencies:
+            errors.append(
+                f"{name}: branded provider cannot depend on host-layer packages: "
+                + ", ".join(host_dependencies)
             )
 
     return errors
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--policy",
-        type=Path,
-        default=DEFAULT_POLICY,
-        help="dependency policy JSON",
-    )
-    parser.add_argument(
-        "--target",
-        action="store_true",
-        help="enforce the final package graph instead of the migration ratchet",
-    )
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    parse_args(argv)
     try:
-        errors = validate(cargo_metadata(), load_json(args.policy), target=args.target)
+        errors = validate(cargo_metadata())
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"[workspace-boundaries] ERROR: {error}", file=sys.stderr)
         return 2
@@ -173,8 +169,7 @@ def main() -> int:
             print(f"[workspace-boundaries] ERROR: {error}", file=sys.stderr)
         return 1
 
-    mode = "target" if args.target else "migration"
-    print(f"[workspace-boundaries] OK ({mode} policy)")
+    print("[workspace-boundaries] OK")
     return 0
 
 

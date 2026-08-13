@@ -103,7 +103,6 @@ async boundaries, and extension mechanisms must be idiomatic for Rust.
 
 ### Repository support
 
-- `config/architecture/` contains machine-checkable dependency and architecture policy.
 - `scripts/` contains maintained repository automation and validation entry points.
 - `.github/` contains CI, issue, pull-request, and release automation.
 - `docs/` contains architecture, decisions, provider evidence, migration guidance, and task plans.
@@ -121,9 +120,11 @@ Keep responsibilities flowing from reusable foundations toward concrete assembly
    providers.
 5. The facade and integration crates assemble or project lower layers without reimplementing them.
 
-Before adding a workspace dependency, inspect both manifests and
-`config/architecture/dependency-policy.json`. Avoid dependency cycles, neutral-to-provider edges,
-facade back-edges, provider-to-Registry coupling, and feature flags that activate unrelated crates.
+Before adding a workspace dependency, inspect the affected manifests and Cargo metadata, then run
+`scripts/check_workspace_boundaries.py`. Avoid dependency cycles, neutral-to-provider edges, facade
+back-edges, provider-to-Registry coupling, and feature flags that activate unrelated crates. Cargo
+is the authority for workspace membership, package versions, MSRV, and dependency resolution; do
+not mirror those values in a separate policy file.
 
 Use the following placement test when ownership is unclear:
 

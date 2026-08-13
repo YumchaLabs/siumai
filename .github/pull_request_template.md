@@ -27,7 +27,8 @@ Before marking this PR as ready for review, please ensure you have:
 
 - [ ] 🎨 Run `cargo fmt` and code is properly formatted
 - [ ] ✅ Run `cargo clippy` and fixed all issues
-- [ ] 🧪 Run `python3 scripts/test-workspace.py full` and all tests pass
+- [ ] 🧪 Run the repository script tests and `scripts/check_workspace_boundaries.py`
+- [ ] 🦀 Run `python3 scripts/test-workspace.py full` for the Rust workspace suite
 - [ ] 📝 Added tests for new features (if applicable)
 - [ ] 📚 Updated documentation (if applicable)
-- [ ] 🔍 Tested with real API keys (if applicable)
+- [ ] 🔐 Kept default tests offline and secret-free; any live test was explicitly authorized

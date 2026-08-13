@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -87,13 +86,12 @@ class WorkspaceTestRunnerTests(unittest.TestCase):
             ],
         )
 
-    def test_full_suite_runs_python_checks_before_serial_workspace_tests(self) -> None:
+    def test_full_suite_runs_only_serial_workspace_tests(self) -> None:
         args = SimpleNamespace(suite="full")
 
         commands = WORKSPACE.commands_for(args, "nextest")
 
-        self.assertEqual(commands[0][0], sys.executable)
-        self.assertIn("unittest", commands[0])
+        self.assertEqual(len(commands), 1)
         self.assertEqual(commands[-1][commands[-1].index("-j") + 1], "1")
         self.assertEqual(
             commands[-1][commands[-1].index("--profile") + 1],
