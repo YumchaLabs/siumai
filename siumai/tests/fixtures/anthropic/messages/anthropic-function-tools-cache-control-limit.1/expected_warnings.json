@@ -1,7 +1,0 @@
-[
-  {
-    "type": "unsupported",
-    "details": "Maximum 4 cache breakpoints exceeded (found 5). This breakpoint will be ignored.",
-    "feature": "cacheControl breakpoint limit"
-  }
-]

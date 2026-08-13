@@ -1,31 +1,26 @@
-//! siumai-provider-deepseek
+//! DeepSeek provider integration for Siumai.
 //!
-//! DeepSeek provider implementation built on the OpenAI-like protocol standard.
+//! The crate owns DeepSeek identity, credentials, endpoint selection, typed options, model
+//! advisories, DeepSeek-specific OpenAI dialect policy, and the official Anthropic-compatible
+//! Messages surface. Network execution is delegated to the shared configured protocol runtimes.
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
+mod annotations;
+mod language;
+pub mod models;
+pub mod options;
+mod provider;
 
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, params,
-    retry, retry_api, streaming, traits, types, utils,
+pub use annotations::DeepSeekAssistantPrefix;
+pub use language::DeepSeekProfileError;
+pub use options::{
+    DeepSeekChatOptions, DeepSeekReasoningEffort, DeepSeekResponsesOptions, DeepSeekResponsesTool,
+    DeepSeekThinkingConfig, DeepSeekThinkingType,
 };
+pub use provider::{
+    DeepSeekConfigError, DeepSeekCredential, DeepSeekLanguageApi, DeepSeekLanguageModel,
+    DeepSeekProvider, DeepSeekProviderBuilder,
+};
+pub use siumai_openai_compatible::{CredentialSourceError, DynamicCredentialSource};
 
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
-}
-
-pub mod providers;
-pub mod standards;
-
-pub use siumai_core::types::{ChatResponse, CommonParams};
-
-/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["deepseek"]`).
-pub mod provider_metadata;
-/// Provider-owned typed option structs (DeepSeek-specific).
-pub mod provider_options;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

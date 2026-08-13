@@ -2,6 +2,7 @@
 name = "siumai-provider-anthropic"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 description = "Anthropic provider implementation for siumai"
 license.workspace = true
@@ -17,41 +18,25 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-utils = { workspace = true, default-features = false }
+siumai-anthropic-compatible = { version = "0.11.0-beta.9", path = "../siumai-anthropic-compatible", default-features = false }
 siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-transport = { workspace = true, default-features = false }
 
-# Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+http.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-futures.workspace = true
-futures-util.workspace = true
-async-stream.workspace = true
-eventsource-stream.workspace = true
-tokio-util.workspace = true
-chrono.workspace = true
 thiserror.workspace = true
-uuid.workspace = true
-tracing.workspace = true
-rand.workspace = true
-urlencoding.workspace = true
-infer.workspace = true
-secrecy.workspace = true
-backoff.workspace = true
-lru.workspace = true
-base64.workspace = true
-once_cell.workspace = true
+unicode-normalization = "0.1"
+url.workspace = true
 
 [features]
 default = []
 
-structured-messages = ["siumai-core/structured-messages", "siumai-protocol-anthropic/structured-messages"]
-
-anthropic-standard = [
-    "siumai-core/anthropic",
-    "siumai-protocol-anthropic/anthropic-standard",
-]
-
-anthropic = ["anthropic-standard"]
+[dev-dependencies]
+tokio.workspace = true
+wiremock.workspace = true

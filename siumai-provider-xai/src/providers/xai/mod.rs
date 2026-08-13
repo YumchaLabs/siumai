@@ -1,61 +1,38 @@
-//! `xAI` Provider Module
-//!
-//! Thin wrapper around the OpenAI-compatible vendor implementation with provider-owned entry types.
-//!
-//! # Architecture
-//! - `builder.rs` - Builder that delegates to `openai().compatible("xai")`
-//! - `config.rs`  - Provider-owned config-first surface
-//! - `client.rs`  - Provider-owned client wrapper
-//! - `files.rs`   - Provider-owned files helper for upload/manage routes
-//! - `models.rs`  - Built-in model catalog (fallback)
-//!
-//! # Example Usage
-//! ```rust,no_run
-//! use siumai::models;
-//! use siumai::prelude::*;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = Provider::xai()
-//!         .api_key("your-api-key")
-//!         .model(models::xai::GROK_3_LATEST)
-//!         .build()
-//!         .await?;
-//!
-//!     let messages = vec![user!("Hello, world!")];
-//!     let response = client.chat(messages).await?;
-//!
-//!     Ok(())
-//! }
-//! ```
+//! Rust-first xAI language-provider surface.
 
-mod audio;
-pub mod builder;
-mod client;
-pub mod config;
-/// xAI extension APIs (non-unified surface)
-pub mod ext;
 mod files;
-mod http;
-mod image;
+mod language;
+mod media;
 pub mod models;
-pub mod settings;
+mod provider;
 mod video;
 
-pub use builder::XaiBuilder;
-pub use client::XaiClient;
-pub use config::XaiConfig;
-pub use settings::XaiProviderSettings;
+pub use files::{
+    FILES_SOURCE, FILES_VERIFIED_ON, XaiDeletedFile, XaiFile, XaiFileContent, XaiFileId,
+    XaiFileList, XaiFileListOptions, XaiFileOrder, XaiFileUpload, XaiFiles,
+};
+pub use media::{
+    IMAGE_API_MODE_ID, IMAGE_PROTOCOL_ID, IMAGE_SOURCE, MEDIA_VERIFIED_ON, SPEECH_API_MODE_ID,
+    SPEECH_PROTOCOL_ID, SPEECH_SOURCE, TRANSCRIPTION_API_MODE_ID, TRANSCRIPTION_PROTOCOL_ID,
+    TRANSCRIPTION_SOURCE, XaiImageModel, XaiSpeechModel, XaiTranscriptionModel,
+};
+pub use provider::{
+    XaiConfigError, XaiCredential, XaiLanguageApi, XaiLanguageModel, XaiProvider,
+    XaiProviderBuilder,
+};
+pub use video::{
+    VIDEO_SOURCE, VIDEO_VERIFIED_ON, XaiVideoArtifact, XaiVideoAspectRatio, XaiVideoCreateRequest,
+    XaiVideoImage, XaiVideoJob, XaiVideoJobId, XaiVideoJobState, XaiVideoJobs, XaiVideoResolution,
+};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// AI SDK-aligned xAI error envelope.
+/// xAI error envelope returned by OpenAI-compatible HTTP endpoints.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct XaiErrorData {
     pub error: XaiErrorPayload,
 }
 
-/// AI SDK-aligned xAI error payload.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct XaiErrorPayload {
     pub message: String,
@@ -66,20 +43,3 @@ pub struct XaiErrorPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<serde_json::Value>,
 }
-
-/// AI SDK-style video model id alias.
-///
-/// Rust keeps model ids as plain strings on the stable provider surface.
-pub type XaiVideoModelId = String;
-
-// Provider-owned typed options live at the crate root; re-export them under the provider path.
-#[allow(deprecated)]
-pub use crate::provider_options::{
-    NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource, XSearchSource,
-    XaiChatOptions, XaiChatReasoningEffort, XaiFilesOptions, XaiImageModelOptions, XaiImageOptions,
-    XaiImageProviderOptions, XaiImageQuality, XaiImageResolution, XaiLanguageModelChatOptions,
-    XaiLanguageModelResponsesOptions, XaiOptions, XaiProviderOptions, XaiReasoningSummary,
-    XaiResponseInclude, XaiResponsesOptions, XaiResponsesProviderOptions,
-    XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiVideoMode,
-    XaiVideoModelOptions, XaiVideoOptions, XaiVideoProviderOptions, XaiVideoResolution,
-};

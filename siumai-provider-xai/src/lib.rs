@@ -1,32 +1,24 @@
-//! siumai-provider-xai
+//! Rust-first xAI provider for Siumai.
 //!
-//! xAI provider implementation built on the OpenAI-like protocol standard.
+//! The configured provider is long-lived and model-independent. Language handles default to the
+//! xAI Responses API, while Chat Completions remains explicit.
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
-
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, params,
-    retry, retry_api, streaming, traits, types, utils,
-};
-
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
-}
-
+pub mod provider_options;
 pub mod providers;
-pub mod standards;
 pub mod tools;
 
-pub use siumai_core::types::{ChatResponse, CommonParams};
-
-/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["xai"]`).
-pub mod provider_metadata;
-/// Provider-owned typed option structs (xAI-specific).
-pub mod provider_options;
+pub use provider_options::{
+    NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource, XSearchSource,
+    XaiChatOptions, XaiChatReasoningEffort, XaiReasoningSummary, XaiResponseInclude,
+    XaiResponsesOptions, XaiResponsesReasoningEffort, XaiSearchParameters,
+};
+pub use providers::xai::{
+    XaiConfigError, XaiCredential, XaiDeletedFile, XaiErrorData, XaiErrorPayload, XaiFile,
+    XaiFileContent, XaiFileId, XaiFileList, XaiFileListOptions, XaiFileOrder, XaiFileUpload,
+    XaiFiles, XaiImageModel, XaiLanguageApi, XaiLanguageModel, XaiProvider, XaiProviderBuilder,
+    XaiSpeechModel, XaiTranscriptionModel, XaiVideoArtifact, XaiVideoAspectRatio,
+    XaiVideoCreateRequest, XaiVideoImage, XaiVideoJob, XaiVideoJobId, XaiVideoJobState,
+    XaiVideoJobs, XaiVideoResolution,
+};
+pub use siumai_openai_compatible::{CredentialSourceError, DynamicCredentialSource};

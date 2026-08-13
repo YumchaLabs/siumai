@@ -1,0 +1,1231 @@
+//! Provider-native OpenAI Responses resource lifecycle operations.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
+
+use http::Method;
+use http::header::{ACCEPT, HeaderValue};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use siumai_core::{CallOptions, Error, ErrorContext, ErrorKind, ModelId};
+use siumai_protocol_openai::responses::{ResponseWire, decode_response_resource};
+use siumai_transport::{
+    ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportResponse,
+};
+
+use super::http_error;
+use super::mode::OpenAiApiMode;
+use super::options::{
+    OpenAiPromptCacheOptions, OpenAiPromptCacheRetention, OpenAiReasoning, OpenAiResponseInclude,
+    OpenAiResponsesOptions, OpenAiServiceTier, OpenAiTruncation,
+};
+use super::provider::OpenAiRuntime;
+use super::resources::common::{
+    invalid_input, target, target_with_segments, target_with_segments_and_query,
+    validate_resource_id_with_message,
+};
+use super::tools::OpenAiResponsesTool;
+
+/// A newly created background response.
+#[derive(Clone, PartialEq)]
+pub struct OpenAiBackgroundResponse {
+    resource: ResponseWire,
+}
+
+impl fmt::Debug for OpenAiBackgroundResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiBackgroundResponse")
+            .field("status", &self.resource.status)
+            .field("output_items", &self.resource.output.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl OpenAiBackgroundResponse {
+    pub(crate) fn new(resource: ResponseWire) -> Self {
+        Self { resource }
+    }
+
+    pub fn resource(&self) -> &ResponseWire {
+        &self.resource
+    }
+
+    pub fn into_resource(self) -> ResponseWire {
+        self.resource
+    }
+}
+
+/// Provider-native operations for stored and background Responses resources.
+#[derive(Clone)]
+pub struct OpenAiResponsesResource {
+    runtime: Arc<OpenAiRuntime>,
+}
+
+impl OpenAiResponsesResource {
+    pub(crate) fn new(runtime: Arc<OpenAiRuntime>) -> Self {
+        Self { runtime }
+    }
+
+    /// Retrieve a stored response without requiring it to be terminal.
+    pub async fn retrieve(
+        &self,
+        response_id: &str,
+        options: OpenAiResponsesRetrieveOptions,
+        call_options: CallOptions,
+    ) -> Result<ResponseWire, Error> {
+        validate_resource_id("response_id", response_id)?;
+        let pairs = options
+            .include
+            .into_iter()
+            .map(|include| ("include", include.as_str().to_string()))
+            .collect::<Vec<_>>();
+        let target = target_with_segments_and_query("responses", [response_id], pairs)?;
+        let response = self
+            .execute(
+                request_plan(Method::GET, target, ReplaySafety::SemanticallyIdempotent)?,
+                call_options,
+            )
+            .await?;
+        decode_response_resource(response.body()).map_err(|error| self.contextualize(error))
+    }
+
+    /// Delete a stored response. The operation is not replayed after dispatch.
+    pub async fn delete(
+        &self,
+        response_id: &str,
+        call_options: CallOptions,
+    ) -> Result<OpenAiDeletedResponse, Error> {
+        validate_resource_id("response_id", response_id)?;
+        let target = target_with_segments("responses", [response_id])?;
+        let response = self
+            .execute(
+                request_plan(Method::DELETE, target, ReplaySafety::Never)?,
+                call_options,
+            )
+            .await?;
+        self.decode_json(
+            response.body(),
+            "OpenAI returned a malformed deleted response",
+        )
+    }
+
+    /// Cancel a queued or in-progress background response.
+    pub async fn cancel(
+        &self,
+        response_id: &str,
+        call_options: CallOptions,
+    ) -> Result<ResponseWire, Error> {
+        validate_resource_id("response_id", response_id)?;
+        let target = target_with_segments("responses", [response_id, "cancel"])?;
+        let response = self
+            .execute(
+                json_request_plan(
+                    Method::POST,
+                    target,
+                    &Value::Object(Default::default()),
+                    ReplaySafety::Never,
+                )?,
+                call_options,
+            )
+            .await?;
+        decode_response_resource(response.body()).map_err(|error| self.contextualize(error))
+    }
+
+    /// List the lossless input items associated with a response.
+    pub async fn list_input_items(
+        &self,
+        response_id: &str,
+        options: OpenAiResponsesInputItemsOptions,
+        call_options: CallOptions,
+    ) -> Result<OpenAiResponsesInputItemsPage, Error> {
+        validate_resource_id("response_id", response_id)?;
+        options.validate()?;
+        let mut pairs = Vec::new();
+        if let Some(limit) = options.limit {
+            pairs.push(("limit", limit.to_string()));
+        }
+        if let Some(order) = options.order {
+            pairs.push(("order", order.as_str().to_string()));
+        }
+        if let Some(after) = options.after {
+            pairs.push(("after", after));
+        }
+        pairs.extend(
+            options
+                .include
+                .into_iter()
+                .map(|include| ("include", include.as_str().to_string())),
+        );
+        let target =
+            target_with_segments_and_query("responses", [response_id, "input_items"], pairs)?;
+        let response = self
+            .execute(
+                request_plan(Method::GET, target, ReplaySafety::SemanticallyIdempotent)?,
+                call_options,
+            )
+            .await?;
+        self.decode_json(
+            response.body(),
+            "OpenAI returned malformed Responses input items",
+        )
+    }
+
+    /// Compact a Responses conversation into provider-native continuation items.
+    pub async fn compact(
+        &self,
+        request: OpenAiResponsesCompactRequest,
+        call_options: CallOptions,
+    ) -> Result<OpenAiResponsesCompaction, Error> {
+        request.validate()?;
+        let target = target("responses/compact")?;
+        let response = self
+            .execute(
+                json_request_plan(Method::POST, target, &request, ReplaySafety::Never)?,
+                call_options,
+            )
+            .await?;
+        self.decode_json(
+            response.body(),
+            "OpenAI returned a malformed Responses compaction",
+        )
+    }
+
+    /// Count the exact input tokens for a provider-native Responses request shape.
+    pub async fn count_input_tokens(
+        &self,
+        request: OpenAiResponsesInputTokenCountRequest,
+        call_options: CallOptions,
+    ) -> Result<OpenAiResponsesInputTokenCount, Error> {
+        request.validate()?;
+        let response = self
+            .execute(
+                json_request_plan(
+                    Method::POST,
+                    target("responses/input_tokens")?,
+                    &request,
+                    ReplaySafety::SemanticallyIdempotent,
+                )?,
+                call_options,
+            )
+            .await?;
+        let decoded: OpenAiResponsesInputTokenCount = self.decode_json(
+            response.body(),
+            "OpenAI returned a malformed Responses input-token count",
+        )?;
+        if decoded.object != "response.input_tokens" {
+            return Err(self.contextualize(Error::new(
+                ErrorKind::Protocol,
+                "OpenAI returned an unexpected Responses input-token object",
+            )));
+        }
+        Ok(decoded)
+    }
+
+    async fn execute(
+        &self,
+        plan: RequestPlan,
+        call_options: CallOptions,
+    ) -> Result<TransportResponse, Error> {
+        let response = self
+            .runtime
+            .transport
+            .execute(plan, call_options)
+            .await
+            .map_err(|error| self.contextualize(error))?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(self.contextualize(http_error::response_error(
+                "OpenAI rejected the Responses resource request",
+                response,
+            )))
+        }
+    }
+
+    fn decode_json<T: DeserializeOwned>(
+        &self,
+        body: &[u8],
+        message: &'static str,
+    ) -> Result<T, Error> {
+        serde_json::from_slice(body).map_err(|source| {
+            self.contextualize(Error::new(ErrorKind::Protocol, message).with_source(source))
+        })
+    }
+
+    fn contextualize(&self, error: Error) -> Error {
+        error.with_context(ErrorContext {
+            operation: None,
+            provider: Some(
+                self.runtime
+                    .scope(OpenAiApiMode::Responses)
+                    .provider_id()
+                    .clone(),
+            ),
+            route: None,
+            model: None,
+        })
+    }
+}
+
+impl fmt::Debug for OpenAiResponsesResource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesResource")
+            .field("scope", self.runtime.scope(OpenAiApiMode::Responses))
+            .field("transport", &"shared")
+            .finish()
+    }
+}
+
+/// Typed query options for retrieving a stored response.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OpenAiResponsesRetrieveOptions {
+    pub include: Vec<OpenAiResponseInclude>,
+}
+
+impl OpenAiResponsesRetrieveOptions {
+    pub fn with_include(mut self, include: OpenAiResponseInclude) -> Self {
+        if !self.include.contains(&include) {
+            self.include.push(include);
+        }
+        self
+    }
+}
+
+/// Input-item ordering for the Responses resource API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenAiResponsesInputItemsOrder {
+    Asc,
+    Desc,
+}
+
+impl OpenAiResponsesInputItemsOrder {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Asc => "asc",
+            Self::Desc => "desc",
+        }
+    }
+}
+
+/// Typed query options for listing response input items.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OpenAiResponsesInputItemsOptions {
+    pub limit: Option<u32>,
+    pub order: Option<OpenAiResponsesInputItemsOrder>,
+    pub after: Option<String>,
+    pub include: Vec<OpenAiResponseInclude>,
+}
+
+impl OpenAiResponsesInputItemsOptions {
+    pub fn with_limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_order(mut self, order: OpenAiResponsesInputItemsOrder) -> Self {
+        self.order = Some(order);
+        self
+    }
+
+    pub fn with_after(mut self, after: impl Into<String>) -> Self {
+        self.after = Some(after.into());
+        self
+    }
+
+    pub fn with_include(mut self, include: OpenAiResponseInclude) -> Self {
+        if !self.include.contains(&include) {
+            self.include.push(include);
+        }
+        self
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if self.limit.is_some_and(|limit| !(1..=100).contains(&limit)) {
+            return Err(invalid_input("Responses input item limit must be 1..=100"));
+        }
+        if let Some(after) = &self.after {
+            validate_resource_id("after", after)?;
+        }
+        Ok(())
+    }
+}
+
+/// One lossless page returned by `responses/{id}/input_items`.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiResponsesInputItemsPage {
+    pub object: String,
+    #[serde(default)]
+    pub data: Vec<Value>,
+    #[serde(default)]
+    pub has_more: bool,
+    #[serde(default)]
+    pub first_id: Option<String>,
+    #[serde(default)]
+    pub last_id: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiResponsesInputItemsPage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputItemsPage")
+            .field("items", &self.data.len())
+            .field("has_more", &self.has_more)
+            .field("has_first_id", &self.first_id.is_some())
+            .field("has_last_id", &self.last_id.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Request body for provider-native Responses compaction.
+#[derive(Clone, Default, PartialEq, Serialize)]
+pub struct OpenAiResponsesCompactRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_options: Option<OpenAiPromptCacheOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<OpenAiPromptCacheRetention>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<OpenAiServiceTier>,
+}
+
+impl OpenAiResponsesCompactRequest {
+    pub const fn new() -> Self {
+        Self {
+            model: None,
+            input: None,
+            previous_response_id: None,
+            instructions: None,
+            prompt_cache_key: None,
+            prompt_cache_options: None,
+            prompt_cache_retention: None,
+            service_tier: None,
+        }
+    }
+
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn with_input(mut self, input: Value) -> Self {
+        self.input = Some(input);
+        self
+    }
+
+    pub fn with_previous_response_id(mut self, response_id: impl Into<String>) -> Self {
+        self.previous_response_id = Some(response_id.into());
+        self
+    }
+
+    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_prompt_cache_key(mut self, key: impl Into<String>) -> Self {
+        self.prompt_cache_key = Some(key.into());
+        self
+    }
+
+    pub fn with_prompt_cache_options(mut self, options: OpenAiPromptCacheOptions) -> Self {
+        self.prompt_cache_options = Some(options);
+        self
+    }
+
+    pub fn with_prompt_cache_retention(mut self, retention: OpenAiPromptCacheRetention) -> Self {
+        self.prompt_cache_retention = Some(retention);
+        self
+    }
+
+    pub fn with_service_tier(mut self, service_tier: OpenAiServiceTier) -> Self {
+        self.service_tier = Some(service_tier);
+        self
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if let Some(response_id) = &self.previous_response_id {
+            validate_resource_id("previous_response_id", response_id)?;
+        }
+        if self.input.is_none() && self.previous_response_id.is_none() {
+            return Err(invalid_input(
+                "Responses compaction requires input or previous_response_id",
+            ));
+        }
+        OpenAiResponsesOptions {
+            prompt_cache_key: self.prompt_cache_key.clone(),
+            prompt_cache_options: self.prompt_cache_options.clone(),
+            prompt_cache_retention: self.prompt_cache_retention,
+            service_tier: self.service_tier,
+            ..OpenAiResponsesOptions::default()
+        }
+        .validate_values()
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "Responses compaction options are invalid",
+            )
+            .with_source(source)
+        })?;
+        Ok(())
+    }
+}
+
+impl fmt::Debug for OpenAiResponsesCompactRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesCompactRequest")
+            .field("has_model", &self.model.is_some())
+            .field("has_input", &self.input.is_some())
+            .field(
+                "has_previous_response_id",
+                &self.previous_response_id.is_some(),
+            )
+            .field("has_instructions", &self.instructions.is_some())
+            .field("has_prompt_cache_key", &self.prompt_cache_key.is_some())
+            .field(
+                "has_prompt_cache_options",
+                &self.prompt_cache_options.is_some(),
+            )
+            .field(
+                "has_prompt_cache_retention",
+                &self.prompt_cache_retention.is_some(),
+            )
+            .field("has_service_tier", &self.service_tier.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Lossless provider-native compaction resource.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiResponsesCompaction {
+    pub id: String,
+    pub object: String,
+    #[serde(default)]
+    pub output: Vec<Value>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    #[serde(default)]
+    pub usage: Option<Value>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiResponsesCompaction {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesCompaction")
+            .field("output_items", &self.output.len())
+            .field("has_created_at", &self.created_at.is_some())
+            .field("has_usage", &self.usage.is_some())
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Provider-native request accepted by `POST /responses/input_tokens`.
+#[derive(Clone, Default, PartialEq, Serialize)]
+pub struct OpenAiResponsesInputTokenCountRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<OpenAiReasoning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<OpenAiResponsesTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<OpenAiTruncation>,
+}
+
+impl fmt::Debug for OpenAiResponsesInputTokenCountRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputTokenCountRequest")
+            .field("has_conversation", &self.conversation.is_some())
+            .field("has_input", &self.input.is_some())
+            .field("has_instructions", &self.instructions.is_some())
+            .field("has_model", &self.model.is_some())
+            .field(
+                "has_parallel_tool_calls",
+                &self.parallel_tool_calls.is_some(),
+            )
+            .field("has_personality", &self.personality.is_some())
+            .field(
+                "has_previous_response_id",
+                &self.previous_response_id.is_some(),
+            )
+            .field("has_reasoning", &self.reasoning.is_some())
+            .field("has_text", &self.text.is_some())
+            .field("has_tool_choice", &self.tool_choice.is_some())
+            .field("tools", &self.tools.len())
+            .field("has_truncation", &self.truncation.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl OpenAiResponsesInputTokenCountRequest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_conversation(mut self, conversation: impl Into<String>) -> Self {
+        self.conversation = Some(conversation.into());
+        self
+    }
+
+    pub fn with_input(mut self, input: Value) -> Self {
+        self.input = Some(input);
+        self
+    }
+
+    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    pub fn with_parallel_tool_calls(mut self, parallel_tool_calls: bool) -> Self {
+        self.parallel_tool_calls = Some(parallel_tool_calls);
+        self
+    }
+
+    pub fn with_personality(mut self, personality: impl Into<String>) -> Self {
+        self.personality = Some(personality.into());
+        self
+    }
+
+    pub fn with_previous_response_id(mut self, previous_response_id: impl Into<String>) -> Self {
+        self.previous_response_id = Some(previous_response_id.into());
+        self
+    }
+
+    pub fn with_reasoning(mut self, reasoning: OpenAiReasoning) -> Self {
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    pub fn with_text(mut self, text: Value) -> Self {
+        self.text = Some(text);
+        self
+    }
+
+    pub fn with_tool_choice(mut self, tool_choice: Value) -> Self {
+        self.tool_choice = Some(tool_choice);
+        self
+    }
+
+    pub fn with_tool(mut self, tool: OpenAiResponsesTool) -> Self {
+        self.tools.push(tool);
+        self
+    }
+
+    pub fn with_truncation(mut self, truncation: OpenAiTruncation) -> Self {
+        self.truncation = Some(truncation);
+        self
+    }
+
+    fn validate(&self) -> Result<(), Error> {
+        if self.conversation.is_some() && self.previous_response_id.is_some() {
+            return Err(invalid_input(
+                "Responses input-token count conversation and previous_response_id are mutually exclusive",
+            ));
+        }
+        if let Some(conversation) = &self.conversation {
+            validate_resource_id("conversation", conversation)?;
+        }
+        if let Some(previous_response_id) = &self.previous_response_id {
+            validate_resource_id("previous_response_id", previous_response_id)?;
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| !matches!(input, Value::String(_) | Value::Array(_)))
+        {
+            return Err(invalid_input(
+                "Responses input-token count input must be a string or item array",
+            ));
+        }
+        if self.personality.as_deref().is_some_and(|personality| {
+            personality.chars().count() > 64 || personality.chars().any(char::is_control)
+        }) {
+            return Err(invalid_input(
+                "Responses input-token count personality exceeds the local structural bound",
+            ));
+        }
+        if self.text.as_ref().is_some_and(|text| !text.is_object()) {
+            return Err(invalid_input(
+                "Responses input-token count text configuration must be a JSON object",
+            ));
+        }
+        if self
+            .tool_choice
+            .as_ref()
+            .is_some_and(|choice| !matches!(choice, Value::String(_) | Value::Object(_)))
+        {
+            return Err(invalid_input(
+                "Responses input-token count tool choice must be a string or JSON object",
+            ));
+        }
+        for tool in &self.tools {
+            tool.validate().map_err(|source| {
+                invalid_input("Responses input-token count contains an invalid tool")
+                    .with_source(source)
+            })?;
+        }
+        Ok(())
+    }
+}
+
+/// Exact input-token count returned by OpenAI Responses.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiResponsesInputTokenCount {
+    pub object: String,
+    pub input_tokens: u64,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiResponsesInputTokenCount {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiResponsesInputTokenCount")
+            .field("input_tokens", &self.input_tokens)
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Typed deletion acknowledgement for a stored response.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenAiDeletedResponse {
+    pub id: String,
+    pub object: String,
+    pub deleted: bool,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for OpenAiDeletedResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiDeletedResponse")
+            .field("deleted", &self.deleted)
+            .field("extra_fields", &self.extra.len())
+            .finish_non_exhaustive()
+    }
+}
+
+fn request_plan(
+    method: Method,
+    target: RequestTarget,
+    replay_safety: ReplaySafety,
+) -> Result<RequestPlan, Error> {
+    let headers = RequestHeaders::new()
+        .try_insert(ACCEPT, HeaderValue::from_static("application/json"))
+        .map_err(|source| {
+            http_error::request_build_error(
+                "OpenAI Responses resource request violates the transport contract",
+                source,
+            )
+        })?;
+    RequestPlan::new(method, target)
+        .with_headers(headers)
+        .with_replay_safety(replay_safety)
+        .map_err(|source| {
+            http_error::request_build_error(
+                "OpenAI Responses resource request violates the transport contract",
+                source,
+            )
+        })
+}
+
+fn json_request_plan<T: Serialize>(
+    method: Method,
+    target: RequestTarget,
+    body: &T,
+    replay_safety: ReplaySafety,
+) -> Result<RequestPlan, Error> {
+    let plan = request_plan(method, target, replay_safety)?;
+    Ok(plan.with_body(RequestBody::json(body).map_err(|source| {
+        http_error::request_build_error(
+            "OpenAI Responses resource request violates the transport contract",
+            source,
+        )
+    })?))
+}
+
+fn validate_resource_id(field: &'static str, value: &str) -> Result<(), Error> {
+    validate_resource_id_with_message(
+        value,
+        match field {
+            "after" => "Responses input item cursor is invalid",
+            "previous_response_id" => "Responses previous response ID is invalid",
+            _ => "OpenAI response ID is invalid",
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use http::StatusCode;
+    use serde_json::json;
+    use siumai_core::{ReplayDomain, ReplayDomainId};
+    use siumai_transport::EndpointConfig;
+    use wiremock::matchers::{body_json, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::*;
+    use crate::configured::{
+        OpenAiCredential, OpenAiProvider, OpenAiReasoningEffort, OpenAiTruncation,
+    };
+
+    async fn resource(server: &MockServer) -> OpenAiResponsesResource {
+        OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("responses-resource-test").unwrap(),
+            ))
+            .build()
+            .unwrap()
+            .responses_resource()
+    }
+
+    #[tokio::test]
+    async fn retrieve_preserves_background_lifecycle_and_repeated_include_query() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/responses/resp_123"))
+            .and(query_param("include", "reasoning.encrypted_content"))
+            .and(query_param("include", "file_search_call.results"))
+            .respond_with(
+                ResponseTemplate::new(StatusCode::OK.as_u16()).set_body_json(json!({
+                    "id": "resp_123",
+                    "created_at": 1,
+                    "model": "gpt-5.6-sol",
+                    "status": "in_progress",
+                    "output": [],
+                    "future_field": {"kept": true}
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = resource(&server)
+            .await
+            .retrieve(
+                "resp_123",
+                OpenAiResponsesRetrieveOptions::default()
+                    .with_include(OpenAiResponseInclude::ReasoningEncryptedContent)
+                    .with_include(OpenAiResponseInclude::FileSearchResults),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status.as_str(), "in_progress");
+        assert_eq!(response.extra["future_field"], json!({"kept": true}));
+    }
+
+    #[test]
+    fn resource_debug_and_input_item_limits_fail_closed() {
+        let sentinel = "responses-resource-debug-sentinel";
+        let resource: ResponseWire = serde_json::from_value(json!({
+            "id": "resp_debug",
+            "model": "gpt-5.6-sol",
+            "status": "completed",
+            "output": [{
+                "id": "future_debug",
+                "type": "future_provider_tool_call",
+                "private_payload": sentinel
+            }]
+        }))
+        .unwrap();
+        let background = OpenAiBackgroundResponse::new(resource);
+        assert!(!format!("{background:?}").contains(sentinel));
+
+        let page: OpenAiResponsesInputItemsPage = serde_json::from_value(json!({
+            "object": "list",
+            "data": [{"type": "message", "private_payload": sentinel}],
+            "has_more": false,
+            "private_page": sentinel
+        }))
+        .unwrap();
+        assert!(!format!("{page:?}").contains(sentinel));
+
+        let compaction: OpenAiResponsesCompaction = serde_json::from_value(json!({
+            "id": "cmp_debug",
+            "object": "response.compaction",
+            "output": [{"type": "reasoning", "encrypted_content": sentinel}],
+            "private_compaction": sentinel
+        }))
+        .unwrap();
+        assert!(!format!("{compaction:?}").contains(sentinel));
+
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(0)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(101)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputItemsOptions::default()
+                .with_limit(100)
+                .validate()
+                .is_ok()
+        );
+
+        let compact = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_service_tier(OpenAiServiceTier::Scale);
+        compact.validate().unwrap();
+        let compact = serde_json::to_value(compact).unwrap();
+        assert!(compact.get("model").is_none());
+        assert_eq!(compact["service_tier"], "scale");
+
+        let current_cache_control = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_prompt_cache_options(OpenAiPromptCacheOptions::explicit_30_minutes());
+        current_cache_control.validate().unwrap();
+        let current_cache_control = serde_json::to_value(current_cache_control).unwrap();
+        assert_eq!(current_cache_control["prompt_cache_options"]["ttl"], "30m");
+        assert!(
+            current_cache_control
+                .get("prompt_cache_retention")
+                .is_none()
+        );
+
+        let legacy_cache_control = OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("resp_debug")
+            .with_prompt_cache_retention(OpenAiPromptCacheRetention::TwentyFourHours);
+        legacy_cache_control.validate().unwrap();
+        let legacy_cache_control = serde_json::to_value(legacy_cache_control).unwrap();
+        assert_eq!(legacy_cache_control["prompt_cache_retention"], "24h");
+        assert!(legacy_cache_control.get("prompt_cache_options").is_none());
+    }
+
+    #[tokio::test]
+    async fn cancel_and_compact_use_native_resource_shapes_without_replay() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/resp_123/cancel"))
+            .and(body_json(json!({})))
+            .respond_with(
+                ResponseTemplate::new(StatusCode::OK.as_u16()).set_body_json(json!({
+                    "id": "resp_123",
+                    "model": "gpt-5.6-sol",
+                    "status": "cancelled",
+                    "output": []
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/compact"))
+            .and(body_json(json!({
+                "model": "gpt-5.6-sol",
+                "previous_response_id": "resp_123"
+            })))
+            .respond_with(
+                ResponseTemplate::new(StatusCode::OK.as_u16()).set_body_json(json!({
+                    "id": "cmp_123",
+                    "object": "response.compaction",
+                    "output": [{"type": "reasoning", "encrypted_content": "opaque"}],
+                    "created_at": 1,
+                    "usage": {"input_tokens": 4}
+                })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let resource = resource(&server).await;
+        let cancelled = resource
+            .cancel("resp_123", CallOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(cancelled.status.as_str(), "cancelled");
+
+        let compacted = resource
+            .compact(
+                OpenAiResponsesCompactRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
+                    .with_previous_response_id("resp_123"),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(compacted.id, "cmp_123");
+        assert_eq!(compacted.output[0]["encrypted_content"], "opaque");
+    }
+
+    #[tokio::test]
+    async fn input_token_count_uses_the_native_endpoint_and_preserves_future_fields() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .and(body_json(json!({
+                "model": "gpt-5.6-sol",
+                "input": "hello",
+                "instructions": "Be concise",
+                "parallel_tool_calls": true,
+                "personality": "pragmatic",
+                "reasoning": {"effort": "low"},
+                "tool_choice": "auto",
+                "tools": [{"type": "web_search"}],
+                "truncation": "disabled"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "response.input_tokens",
+                "input_tokens": 17,
+                "future_detail": {"cached": 3}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let counted = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
+                    .with_input(json!("hello"))
+                    .with_instructions("Be concise")
+                    .with_parallel_tool_calls(true)
+                    .with_personality("pragmatic")
+                    .with_reasoning(
+                        OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::Low),
+                    )
+                    .with_tool_choice(json!("auto"))
+                    .with_truncation(OpenAiTruncation::Disabled)
+                    .with_tool(OpenAiResponsesTool::web_search()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(counted.input_tokens, 17);
+        assert_eq!(counted.extra["future_detail"], json!({"cached": 3}));
+    }
+
+    #[tokio::test]
+    async fn input_token_count_sanitizes_provider_error_bodies() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+                "error": {
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                    "message": "input-token-secret"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let error = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("gpt-5.6-sol").unwrap())
+                    .with_input(json!("hello")),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::RateLimited);
+        assert!(!format!("{error:?}").contains("input-token-secret"));
+        assert!(!error.to_string().contains("input-token-secret"));
+    }
+
+    #[tokio::test]
+    async fn input_token_count_preserves_optional_future_request_shapes() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses/input_tokens"))
+            .and(body_json(json!({
+                "model": "future-reasoning-model",
+                "instructions": "",
+                "personality": "  future profile  "
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "response.input_tokens",
+                "input_tokens": 3
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let counted = resource(&server)
+            .await
+            .count_input_tokens(
+                OpenAiResponsesInputTokenCountRequest::new()
+                    .with_model(ModelId::new("future-reasoning-model").unwrap())
+                    .with_instructions("")
+                    .with_personality("  future profile  "),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(counted.input_tokens, 3);
+    }
+
+    #[tokio::test]
+    async fn retrieve_passes_through_repeated_include_values() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/v1/responses/resp%2Fpart%5Cname%3Fview%23fragment%252F%25252F%E8%B5%84%E6%BA%90",
+            ))
+            .and(query_param("include", "reasoning.encrypted_content"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "resp_opaque",
+                "model": "future-model",
+                "status": "completed",
+                "output": []
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = resource(&server)
+            .await
+            .retrieve(
+                "resp/part\\name?view#fragment%2F%252F资源",
+                OpenAiResponsesRetrieveOptions {
+                    include: vec![
+                        OpenAiResponseInclude::ReasoningEncryptedContent,
+                        OpenAiResponseInclude::ReasoningEncryptedContent,
+                    ],
+                },
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.id, "resp_opaque");
+
+        let requests = server.received_requests().await.unwrap();
+        let include_values = requests[0]
+            .url
+            .query_pairs()
+            .filter_map(|(name, value)| (name == "include").then_some(value.into_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            include_values,
+            vec![
+                "reasoning.encrypted_content".to_owned(),
+                "reasoning.encrypted_content".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn input_token_count_keeps_structural_bounds_without_composition_policy() {
+        OpenAiResponsesInputTokenCountRequest::new()
+            .with_conversation("conversation/opaque")
+            .with_instructions("")
+            .with_personality("  future profile  ")
+            .validate()
+            .unwrap();
+
+        let error = OpenAiResponsesInputTokenCountRequest::new()
+            .with_conversation("conversation/opaque")
+            .with_previous_response_id("response?opaque#value")
+            .validate()
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+
+        OpenAiResponsesCompactRequest::new()
+            .with_previous_response_id("response/opaque")
+            .with_instructions("")
+            .validate()
+            .unwrap();
+
+        assert!(
+            OpenAiResponsesInputTokenCountRequest::new()
+                .with_personality("x".repeat(65))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            OpenAiResponsesInputTokenCountRequest::new()
+                .with_personality("control\nvalue")
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn resource_ids_are_opaque_bounded_values() {
+        for valid in [
+            "resp_123",
+            "resp/123",
+            "resp\\123",
+            ".",
+            "..",
+            "resp?admin=true#fragment",
+            "resp%2F123",
+            "resp%252F123",
+            "响应-资源",
+        ] {
+            assert!(
+                validate_resource_id("response_id", valid).is_ok(),
+                "resource ID should remain opaque: {valid:?}"
+            );
+        }
+        for invalid in ["", "control\nvalue"] {
+            assert!(validate_resource_id("response_id", invalid).is_err());
+        }
+        assert!(
+            validate_resource_id(
+                "response_id",
+                &"x".repeat(crate::configured::resources::common::MAX_RESOURCE_ID_BYTES + 1),
+            )
+            .is_err()
+        );
+    }
+}

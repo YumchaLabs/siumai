@@ -1,5 +1,0 @@
-{
-  "model": "o1",
-  "messages": [{ "role": "user", "content": "Hello" }]
-}
-

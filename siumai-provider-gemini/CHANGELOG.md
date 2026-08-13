@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the image-shaped `GoogleImage*` public API with product-level `Gemini*` types without
+  compatibility aliases.
+- Moved stable-v1 Interactions image wire mapping into `siumai-protocol-gemini` and made endpoint
+  provenance independent from caller-supplied transport policy labels.
+- Made `GeminiProvider` the product-level owner for Interactions language, portable text embedding,
+  buffered speech, Files, and typed Veo jobs, while keeping unsupported product areas explicitly
+  provider-owned or deferred.
+
+### Added
+
+- Added stable-v1 Interactions language and typed portable family registrations for the implemented
+  embedding, image, and speech slices.
+- Added bounded provider-owned Files and Veo submit/status clients with open model identifiers and
+  no SDK-maintained region or availability catalog.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-gemini-v0.11.0-beta.8...siumai-provider-gemini-v0.11.0-beta.9) - 2026-05-27
 
 ### Fixed

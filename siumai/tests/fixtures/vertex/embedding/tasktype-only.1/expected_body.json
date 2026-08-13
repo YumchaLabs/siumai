@@ -1,7 +1,0 @@
-{
-  "instances": [
-    { "content": "test text one", "task_type": "SEMANTIC_SIMILARITY" },
-    { "content": "test text two", "task_type": "SEMANTIC_SIMILARITY" }
-  ],
-  "parameters": {}
-}

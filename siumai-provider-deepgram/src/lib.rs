@@ -1,17 +1,23 @@
-//! siumai-provider-deepgram
-//!
-//! Deepgram provider implementation for speech synthesis and transcription.
+//! Configured Deepgram provider for final-result transcription.
 #![deny(unsafe_code)]
 
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
-
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, compat as core_compat, core, defaults, error, execution, retry, retry_api, speech,
-    traits, transcription, types,
-};
+mod credential;
+mod model;
+pub mod models;
+mod options;
+mod profile;
+mod provider;
+mod speech;
 
 pub mod providers;
 
-pub use providers::deepgram::*;
+pub use credential::{DeepgramCredential, DeepgramCredentialError};
+pub use model::DeepgramTranscriptionModel;
+pub use options::{
+    DeepgramDiarizeModel, DeepgramRedaction, DeepgramSummarizeOption, DeepgramTranscriptionOptions,
+};
+pub use profile::{DeepgramProfile, DeepgramProfileError};
+pub use provider::{DeepgramConfigError, DeepgramProvider, DeepgramProviderBuilder};
+pub use speech::DeepgramSpeechModel;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

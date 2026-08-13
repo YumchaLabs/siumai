@@ -1,5 +1,0 @@
-{
-  "model": "grok-beta",
-  "messages": [{ "role": "system", "content": "Hello" }]
-}
-

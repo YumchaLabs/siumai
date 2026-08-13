@@ -43,7 +43,7 @@ cargo fmt
 cargo clippy
 
 # Run tests to ensure nothing is broken
-./scripts/test-full.sh
+python3 scripts/test-workspace.py full
 ```
 
 All clippy warnings must be resolved and all tests must pass before your PR can be merged.
@@ -55,7 +55,7 @@ All clippy warnings must be resolved and all tests must pass before your PR can 
 When you're iterating on a refactor, prefer the faster safety net:
 
 ```bash
-./scripts/test-fast.sh
+python3 scripts/test-workspace.py fast
 ```
 
 ## Commit Messages

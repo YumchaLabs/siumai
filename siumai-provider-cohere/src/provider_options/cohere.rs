@@ -1,75 +1,9 @@
-//! Typed provider options for Cohere chat, embedding, and reranking.
+//! Typed provider options for Cohere embedding and reranking.
 
 use serde::{Deserialize, Serialize};
+use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 
-/// Thinking mode used by Cohere chat models.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CohereThinkingType {
-    Enabled,
-    Disabled,
-}
-
-/// Typed chat reasoning configuration stored under `provider_options_map["cohere"]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CohereThinkingConfig {
-    /// Thinking mode (`enabled` / `disabled`).
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "type",
-        alias = "thinking_type"
-    )]
-    pub thinking_type: Option<CohereThinkingType>,
-    /// Maximum token budget available to the thinking phase.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "tokenBudget",
-        alias = "token_budget"
-    )]
-    pub token_budget: Option<u32>,
-}
-
-impl CohereThinkingConfig {
-    /// Create an empty thinking config.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the thinking mode.
-    pub const fn with_type(mut self, thinking_type: CohereThinkingType) -> Self {
-        self.thinking_type = Some(thinking_type);
-        self
-    }
-
-    /// Set the thinking token budget.
-    pub const fn with_token_budget(mut self, token_budget: u32) -> Self {
-        self.token_budget = Some(token_budget);
-        self
-    }
-}
-
-/// Typed chat options stored under `provider_options_map["cohere"]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CohereChatOptions {
-    /// Optional thinking/reasoning configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<CohereThinkingConfig>,
-}
-
-impl CohereChatOptions {
-    /// Create empty Cohere chat options.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the thinking configuration.
-    pub fn with_thinking(mut self, thinking: CohereThinkingConfig) -> Self {
-        self.thinking = Some(thinking);
-        self
-    }
-}
+const VALID_OUTPUT_DIMENSIONS: &[u32] = &[256, 512, 1024, 1536];
 
 /// Input type used by Cohere embeddings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +38,7 @@ pub struct CohereEmbeddingOptions {
     /// Truncation strategy for oversized inputs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncate: Option<CohereEmbeddingTruncate>,
-    /// Optional output dimension for newer embedding models.
+    /// Optional output dimension for Embed v4 models.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -136,6 +70,24 @@ impl CohereEmbeddingOptions {
     pub const fn with_output_dimension(mut self, output_dimension: u32) -> Self {
         self.output_dimension = Some(output_dimension);
         self
+    }
+}
+
+impl TypedProviderOptions for CohereEmbeddingOptions {
+    const NAMESPACE: &'static str = "cohere";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Embedding;
+    const API_MODE: Option<&'static str> = Some("v2");
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if let Some(output_dimension) = self.output_dimension
+            && !VALID_OUTPUT_DIMENSIONS.contains(&output_dimension)
+        {
+            return Err(ProviderOptionError::Rejected {
+                path: "outputDimension".to_string(),
+                reason: "must be one of 256, 512, 1024, or 1536".to_string(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -174,54 +126,32 @@ impl CohereRerankOptions {
     }
 }
 
-/// AI SDK-aligned alias for Cohere language-model options.
-pub type CohereLanguageModelOptions = CohereChatOptions;
+impl TypedProviderOptions for CohereRerankOptions {
+    const NAMESPACE: &'static str = "cohere";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Rerank;
+    const API_MODE: Option<&'static str> = Some("v2");
 
-/// Deprecated AI SDK compatibility alias.
-#[deprecated(
-    since = "0.11.0-beta.6",
-    note = "Use `CohereLanguageModelOptions` instead."
-)]
-pub type CohereChatModelOptions = CohereChatOptions;
-
-/// AI SDK-aligned alias for Cohere embedding-model options.
-pub type CohereEmbeddingModelOptions = CohereEmbeddingOptions;
-
-/// AI SDK-aligned alias for Cohere reranking-model options.
-pub type CohereRerankingModelOptions = CohereRerankOptions;
-
-/// Deprecated AI SDK compatibility alias.
-#[deprecated(
-    since = "0.11.0-beta.6",
-    note = "Use `CohereRerankingModelOptions` instead."
-)]
-pub type CohereRerankingOptions = CohereRerankOptions;
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        if self.max_tokens_per_doc == Some(0) {
+            return Err(ProviderOptionError::Rejected {
+                path: "maxTokensPerDoc".to_string(),
+                reason: "must be greater than zero".to_string(),
+            });
+        }
+        if self.priority.is_some_and(|priority| priority > 999) {
+            return Err(ProviderOptionError::Rejected {
+                path: "priority".to_string(),
+                reason: "must be between 0 and 999".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn chat_options_serde_matches_expected_shape() {
-        let value = serde_json::to_value(
-            CohereChatOptions::new().with_thinking(
-                CohereThinkingConfig::new()
-                    .with_type(CohereThinkingType::Enabled)
-                    .with_token_budget(2048),
-            ),
-        )
-        .expect("serialize options");
-
-        assert_eq!(
-            value,
-            serde_json::json!({
-                "thinking": {
-                    "type": "enabled",
-                    "tokenBudget": 2048
-                }
-            })
-        );
-    }
+    use siumai_core::ProviderOptions;
 
     #[test]
     fn embedding_options_serde_matches_expected_shape() {
@@ -262,18 +192,15 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
-    fn ai_sdk_style_aliases_resolve_to_same_types() {
-        let language: CohereLanguageModelOptions = CohereChatOptions::new()
-            .with_thinking(CohereThinkingConfig::new().with_type(CohereThinkingType::Enabled));
-        let chat: CohereChatModelOptions = language.clone();
-        let embedding: CohereEmbeddingModelOptions =
-            CohereEmbeddingOptions::new().with_output_dimension(1024);
-        let rerank: CohereRerankingModelOptions = CohereRerankOptions::new().with_priority(1);
-        let reranking: CohereRerankingOptions = rerank.clone();
-
-        assert_eq!(language.thinking, chat.thinking);
-        assert_eq!(embedding.output_dimension, Some(1024));
-        assert_eq!(rerank.priority, reranking.priority);
+    fn canonical_provider_options_reject_invalid_numeric_values() {
+        assert!(
+            ProviderOptions::typed(&CohereEmbeddingOptions::new().with_output_dimension(2048))
+                .is_err()
+        );
+        assert!(
+            ProviderOptions::typed(&CohereRerankOptions::new().with_max_tokens_per_doc(0)).is_err()
+        );
+        assert!(ProviderOptions::typed(&CohereRerankOptions::new().with_priority(999)).is_ok());
+        assert!(ProviderOptions::typed(&CohereRerankOptions::new().with_priority(1000)).is_err());
     }
 }

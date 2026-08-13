@@ -1,7 +1,0 @@
-[
-  {
-    "type": "compatibility",
-    "feature": "systemMessageMode=remove",
-    "details": "system messages are removed for this model"
-  }
-]

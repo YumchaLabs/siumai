@@ -5,3 +5,5 @@ output.mp3
 .env
 repo-ref/
 _third_party/
+__pycache__/
+*.py[cod]

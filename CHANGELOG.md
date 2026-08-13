@@ -4,6 +4,72 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+### Added
+
+- Added six Rust-first provider-neutral model-family contracts, configured provider APIs, typed provider options and annotations, an immutable caller-configured Registry, and a provider-neutral runtime for tool loops, structured output, approvals, budgets, and durable runs.
+- Added current, narrowly scoped provider surfaces for OpenAI Chat/Responses/Realtime plus
+  embedding, image, speech, transcription, and lifecycle resources; Anthropic Messages and native
+  resources; Gemini Interactions language/image plus portable embedding/speech and provider-owned
+  Files/Veo slices; Alibaba and DeepSeek Chat/Responses/Messages; Moonshot AI and Volcengine ARK;
+  MiniMax language/media; xAI language/media/resources; Groq language/audio/MCP; Cohere embedding/
+  rerank; and Deepgram and ElevenLabs audio families.
+- Added explicit `google-vertex-anthropic` facade and Registry integration without an SDK-owned region or model-availability catalog.
+- Added dated native support profiles for Cohere v2 embedding/rerank and Deepgram prerecorded transcription, including current Embed v4, Rerank v4/v3, and Nova-3/Nova-2 model hints.
+- Added provider-owned support manifests for composite portable and native surfaces, including an exact Groq transcription claim and a dated facade support matrix.
+- Added `siumai-protocol-gemini` as the wire owner for stable-v1 Gemini Interactions.
+- Added OpenAI portable embedding, image-generation, buffered-speech, and final-result
+  transcription families, plus typed provider-owned Conversations, Files, Vector Stores, and
+  Skills lifecycle clients.
+- Added provider-owned Anthropic-compatible Messages modes for Alibaba and DeepSeek, plus an
+  explicit DeepSeek beta Chat lane for strict tools and assistant-prefix completion.
+
+### Changed
+
+- Rebuilt the unified API as an ergonomic family-level portability layer that preserves provider-direct APIs instead of routing all capabilities through a universal client.
+- Moved network execution, retry safety, endpoint validation, sanitized diagnostics, and stream lifecycle into shared transport/protocol owners; compatible providers now reuse bounded Chat/Responses engines with provider-owned dialect policy.
+- Made provider construction synchronous and network-free, kept model identifiers open, and separated provider execution from host-owned account, region, availability, pricing, compliance, health, and fallback policy.
+- Reduced the base `Provider` trait to canonical identity. `ProviderScope` now describes one execution surface, while each non-empty `ProviderRegistration` family binding owns only its exact scope and factory; alternate modes for one family remain explicit registrations.
+- Removed model catalogs and lifecycle policy from Registry execution. Unknown, private, rolling, deprecated, and retired model IDs remain constructible; hosts own allowlists and commercial policy, while providers reject only stable technical request constraints they can prove locally.
+- Replaced public route/model/step/call provider-option origins with bounded ordered patches targeted to an opaque configured-provider instance, exact family, API mode, and optional Registry route. Typed explicit intent reaches the wire or fails with a typed structural error; raw body options are provider-owned, exact-target escape hatches and cannot alter authentication, endpoints, signing, or transport.
+- Added family projection for combined registrations, opaque configured-instance isolation for sensitive provider options, and typed facade registration errors for native-resource-only configurations.
+- Reworked Alibaba construction around caller-supplied workspace/family endpoints and named legacy Singapore opt-ins instead of SDK-maintained regions or a separate DashScope provider identity.
+- Added Alibaba's provider-owned Anthropic-compatible Messages mode with explicit endpoint/replay
+  ownership, typed thinking and cache annotations, while preserving Responses as the default
+  Registry language route and using `max_completion_tokens` for Chat output limits.
+- Reduced CI and local automation to focused Python orchestration, repository schema checks, one fast package lane, and one serial workspace/all-features release lane.
+- Replaced the image-shaped `GoogleImage*` public surface with product-level `Gemini*` types, moved
+  Interactions image encoding and decoding into the protocol crate, and made caller-controlled
+  endpoints require a custom replay audience.
+- Made `OpenAiProvider::registration()` bind its five portable families while keeping explicit
+  Responses and Chat Completions registrations language-only. OpenAI speech now requires an
+  explicit voice, and unsupported embedding-dimension overrides fail before transport.
+- Made direct and streaming language paths share canonical tool-input, typed failure, terminal
+  settlement, replay-identity, and usage semantics. `LanguageResponse` now has one completed-or-
+  incomplete termination axis; direct failures use `LanguageCallError`, established failed or
+  cancelled streams retain only bounded non-executable partial output, and usage updates declare
+  snapshot or delta semantics. Provider-owned replay payloads remain opaque native data instead of
+  becoming executable portable tool calls.
+- Advanced durable runtime snapshots to schema version 6 for the new language termination, partial
+  failure, and exactly-once usage-settlement contracts.
+
+### Removed
+
+- Removed the deprecated Google Imagen `models/*:predict` surface instead of shipping an endpoint scheduled to stop functioning on August 17, 2026.
+- Removed the legacy universal client, capability/downcast traits, compatibility builders, completion aliases, duplicate request/response systems, source-shape tests, and the obsolete `siumai-spec`, `siumai-provider-utils`, and `siumai-extras` packages.
+- Removed runtime `ModelPolicy`/support-state evaluation, `ProviderRegistration::evaluate`,
+  `Registry::evaluate`, the public provider-option origin/layer/merger stack, and the former
+  `LanguageResponseStatus`/`FinishReason` terminal axes. Lifecycle warning kinds for unknown,
+  deprecated, retired, and rolling-alias models are also removed; inspect provider support evidence
+  in host policy instead.
+- Removed Azure OpenAI, Amazon Bedrock, AI Gateway, Ollama, Together AI, broad Gemini/Vertex clients, and unverified named compatibility presets from the workspace, facade, and release feature graph.
+- Removed provider surfaces that still lack a bounded contract, including Cohere chat, OpenAI
+  moderation and broad legacy compatibility resources, unverified compatibility presets, and
+  experimental realtime/batch/media operations that are not yet represented by typed provider APIs.
+
+### Migration
+
+- This is an intentionally breaking API reset. Migrate to configured providers, family model traits, typed provider options/annotations, and explicit Registry registrations by following [`docs/migration/siumai-next.md`](docs/migration/siumai-next.md).
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.8...v0.11.0-beta.9) - 2026-05-27
 
 ### Added
@@ -175,7 +241,7 @@ types, or snapshots serialized responses.
 - If you need raw provider envelopes for audit/debugging, opt into the new request/response body
   retention controls instead of parsing formatted debug strings.
 
-Full guide: `docs/migration/migration-0.11.0-beta.7.md`
+The historical migration guide is available through Git history.
 
 ### Added
 
@@ -282,7 +348,7 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 
 ### Migration guide
 
-- Full guide: `docs/migration/migration-0.11.0-beta.6.md`
+- The historical migration guide is available through Git history.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
@@ -330,10 +396,8 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 - M1 鈥渃ore trio鈥?smoke scripts (fixture audit + transcoding + tool-loop gateway):
   - Windows: `./scripts/test-m1.bat`
   - Unix: `./scripts/test-m1.sh`
-- Split-phase architecture docs:
-  - `docs/architecture/architecture-refactor-plan.md`
-  - `docs/architecture/capability-surface.md`
-  - `docs/architecture/provider-extensions.md`
+- Historical split-phase architecture documents were consolidated into the current guides under
+  `docs/architecture/`.
 - Vertex (Gemini) example:
   - `siumai/examples/04-provider-specific/google/vertex_chat.rs` (`--features "google gcp"`)
 - Vercel-aligned provider-hosted tools (provider-executed tools)
@@ -354,11 +418,9 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
     - Gemini GenerateContent SSE stream serialization
   - Cross-provider stream part bridge for gateway output:
     - `siumai_core::streaming::OpenAiResponsesStreamPartsBridge` (maps `gemini:*` / `anthropic:*` custom parts into `openai:*` parts)
-  - Alignment notes: `docs/alignment/streaming-bridge-alignment.md`
   - Fixture drift audit script (against `repo-ref/ai`): `./scripts/audit_vercel_fixtures.py`
-- Provider correctness and parity audit docs (official APIs + Vercel reference):
-  - Global checklist: `docs/alignment/provider-implementation-alignment.md`
-  - Official API audits: `docs/alignment/official/*-official-api-alignment.md` (OpenAI, Anthropic, Gemini, Google Vertex, Anthropic on Vertex, Azure OpenAI, Groq, xAI, Amazon Bedrock, Cohere, TogetherAI, Ollama)
+- Historical provider parity reports and workstream journals were removed from the active
+  documentation tree; released behavior remains documented by this changelog and Git history.
 
 ### Changed
 
@@ -426,12 +488,12 @@ Full guide: `docs/migration/migration-0.11.0-beta.7.md`
 
 ### Migration guide (beta.5)
 
-- Full guide: `docs/migration/migration-0.11.0-beta.5.md`
+- The historical migration guide is available through Git history.
 - If you used unified web search, switch to provider-hosted tools:
   - OpenAI: `siumai::hosted_tools::openai::web_search()` + Responses API (`OpenAiOptions::with_responses_api`)
   - Anthropic: `siumai::hosted_tools::anthropic::web_search_20250305()`
   - Gemini: `siumai::hosted_tools::google::google_search()` / `file_search()` / `url_context()` / `enterprise_web_search()`
-  - See `docs/architecture/provider-extensions.md` for the supported matrix and examples.
+  - Current provider extension policy is documented under `docs/architecture/`.
 - If you want the smallest stable API surface, prefer `use siumai::prelude::unified::*;` and only opt into extensions when needed.
 - If you previously relied on provider-specific capability traits, prefer `siumai::provider_ext::<provider>` or downcast via `Siumai::downcast_client::<T>()` for typed provider APIs while still constructing via the unified builder.
 

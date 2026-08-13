@@ -1,44 +1,40 @@
 //! siumai-provider-openai
 //!
-//! OpenAI provider implementation.
+//! Rust-first configured OpenAI provider with complementary portable and
+//! provider-owned surfaces.
 //!
-//! This crate owns:
-//! - the OpenAI provider implementation (client + builder + extensions)
-//! - the OpenAI-compatible vendor provider implementation (configuration presets + adapter wiring)
+//! [`OpenAiProvider`] is configured once and creates lightweight model handles:
 //!
-//! The reusable OpenAI-like protocol mapping lives in `siumai-protocol-openai` and is re-exported
-//! under `crate::standards` for compatibility.
+//! - [`OpenAiProvider::language_model`] and [`OpenAiProvider::responses`] use
+//!   Responses for the portable language contract;
+//! - [`OpenAiProvider::chat_completions`] keeps the explicit Chat Completions
+//!   protocol path;
+//! - embedding, image, buffered speech, and final-result transcription use the
+//!   corresponding portable model-family traits.
+//!
+//! Product-specific lifecycles remain owned by this crate. Use
+//! [`OpenAiProvider::responses_resource`], [`OpenAiProvider::conversations`],
+//! [`OpenAiProvider::files`], and [`OpenAiProvider::vector_stores`] directly.
+//! Skills remain an experimental provider resource exposed through
+//! [`experimental::skills::OpenAiSkillsProviderExt`]. Hosted/server tools are
+//! provider-executed wire data and never become caller-owned portable tool
+//! calls.
+//!
+//! The optional `openai-realtime` and `openai-responses-websocket` features are
+//! independent provider-native session surfaces. Realtime is not a Responses
+//! transport alias, and Responses WebSocket is not a provider-neutral session
+//! family.
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
+/// Rust-first configured OpenAI runtime and explicit API-mode models.
+pub mod configured;
 
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, retry,
-    retry_api, streaming, traits, types, utils,
-};
+pub use configured::*;
 
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
+/// Typed prompt-cache controls shared by Chat Completions and Responses.
+pub mod prompt_cache {
+    pub use crate::configured::{
+        OpenAiContentOptions, OpenAiPromptCacheMode, OpenAiPromptCacheOptions,
+        OpenAiPromptCacheRetention, OpenAiPromptCacheTtl,
+    };
 }
-
-/// Provider-owned legacy parameter types.
-pub mod params;
-
-pub mod hosted_tools;
-pub mod providers;
-pub mod standards;
-pub mod tool_catalog {
-    pub use siumai_protocol_openai::tool_catalog::*;
-}
-
-/// Provider-owned typed option structs (OpenAI-specific).
-pub mod provider_options;
-
-/// Provider-owned typed metadata structs (OpenAI-specific).
-pub mod provider_metadata;

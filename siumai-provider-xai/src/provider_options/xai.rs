@@ -1,10 +1,15 @@
 //! xAI (Grok) provider options.
 //!
-//! These typed option structs are owned by the xAI provider crate and are serialized into
-//! `providerOptions["xai"]` (Vercel-aligned open options map).
+//! These typed option structs are owned by the xAI provider crate and are serialized into the
+//! `xai` provider-options namespace. The provider codec normalizes their ergonomic Rust-facing
+//! names to the current xAI wire contract.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeMap};
-use std::collections::HashMap;
+use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
+use siumai_protocol_openai::chat_completions::API_MODE_ID as CHAT_API_MODE_ID;
+use siumai_protocol_openai::responses::API_MODE_ID as RESPONSES_API_MODE_ID;
+
+use crate::tools::XaiResponsesTool;
 
 macro_rules! xai_string_enum {
     ($name:ident { $($variant:ident => $wire:literal),+ $(,)? }) => {
@@ -70,11 +75,14 @@ macro_rules! xai_string_enum {
 }
 
 xai_string_enum!(XaiChatReasoningEffort {
+    None => "none",
     Low => "low",
+    Medium => "medium",
     High => "high",
 });
 
 xai_string_enum!(XaiResponsesReasoningEffort {
+    None => "none",
     Low => "low",
     Medium => "medium",
     High => "high",
@@ -91,228 +99,9 @@ xai_string_enum!(XaiResponseInclude {
     ReasoningEncryptedContent => "reasoning.encrypted_content",
 });
 
-xai_string_enum!(XaiImageResolution {
-    OneK => "1k",
-    TwoK => "2k",
-});
-
-xai_string_enum!(XaiImageQuality {
-    Low => "low",
-    Medium => "medium",
-    High => "high",
-});
-
-xai_string_enum!(XaiVideoResolution {
-    R480p => "480p",
-    R720p => "720p",
-});
-
-xai_string_enum!(XaiVideoMode {
-    EditVideo => "edit-video",
-    ExtendVideo => "extend-video",
-    ReferenceToVideo => "reference-to-video",
-});
-
-/// xAI image-generation specific options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct XaiImageOptions {
-    /// Output aspect ratio (for example `1:1`, `16:9`, `9:16`).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "aspectRatio")]
-    pub aspect_ratio: Option<String>,
-    /// Output image format (for example `png`, `jpeg`, `webp`).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "outputFormat")]
-    pub output_format: Option<String>,
-    /// Whether to block until the image is fully generated.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "syncMode")]
-    pub sync_mode: Option<bool>,
-    /// Output resolution hint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolution: Option<XaiImageResolution>,
-    /// Output quality hint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<XaiImageQuality>,
-    /// End-user identifier for provider-side attribution.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    /// Forward-compatible provider-owned escape hatch for newly introduced options.
-    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
-    pub extra_fields: HashMap<String, serde_json::Value>,
-}
-
-impl XaiImageOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
-        self.aspect_ratio = Some(aspect_ratio.into());
-        self
-    }
-
-    pub fn with_output_format(mut self, output_format: impl Into<String>) -> Self {
-        self.output_format = Some(output_format.into());
-        self
-    }
-
-    pub fn with_sync_mode(mut self, sync_mode: bool) -> Self {
-        self.sync_mode = Some(sync_mode);
-        self
-    }
-
-    pub fn with_resolution(mut self, resolution: impl Into<XaiImageResolution>) -> Self {
-        self.resolution = Some(resolution.into());
-        self
-    }
-
-    pub fn with_quality(mut self, quality: impl Into<XaiImageQuality>) -> Self {
-        self.quality = Some(quality.into());
-        self
-    }
-
-    pub fn with_user(mut self, user: impl Into<String>) -> Self {
-        self.user = Some(user.into());
-        self
-    }
-
-    pub fn with_extra_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.extra_fields.insert(key.into(), value);
-        self
-    }
-}
-
-/// xAI video-generation specific options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct XaiVideoOptions {
-    /// Polling interval in milliseconds.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "pollIntervalMs",
-        alias = "poll_interval_ms"
-    )]
-    pub poll_interval_ms: Option<u64>,
-    /// Polling timeout in milliseconds.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "pollTimeoutMs",
-        alias = "poll_timeout_ms"
-    )]
-    pub poll_timeout_ms: Option<u64>,
-    /// Output resolution hint (`480p` or `720p`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolution: Option<XaiVideoResolution>,
-    /// Explicit xAI video operation mode.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode: Option<XaiVideoMode>,
-    /// Source video URL for video editing.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "videoUrl",
-        alias = "video_url"
-    )]
-    pub video_url: Option<String>,
-    /// Reference image URLs for reference-to-video generation.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "referenceImageUrls",
-        alias = "reference_image_urls"
-    )]
-    pub reference_image_urls: Option<Vec<String>>,
-    /// Forward-compatible provider-owned escape hatch for newly introduced options.
-    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
-    pub extra_fields: HashMap<String, serde_json::Value>,
-}
-
-impl XaiVideoOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_poll_interval_ms(mut self, poll_interval_ms: u64) -> Self {
-        self.poll_interval_ms = Some(poll_interval_ms);
-        self
-    }
-
-    pub fn with_poll_timeout_ms(mut self, poll_timeout_ms: u64) -> Self {
-        self.poll_timeout_ms = Some(poll_timeout_ms);
-        self
-    }
-
-    pub fn with_resolution(mut self, resolution: impl Into<XaiVideoResolution>) -> Self {
-        self.resolution = Some(resolution.into());
-        self
-    }
-
-    pub fn with_mode(mut self, mode: impl Into<XaiVideoMode>) -> Self {
-        self.mode = Some(mode.into());
-        self
-    }
-
-    pub fn with_video_url(mut self, video_url: impl Into<String>) -> Self {
-        self.video_url = Some(video_url.into());
-        self
-    }
-
-    pub fn with_reference_image_urls<I, S>(mut self, reference_image_urls: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.reference_image_urls =
-            Some(reference_image_urls.into_iter().map(Into::into).collect());
-        self
-    }
-
-    pub fn with_extra_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.extra_fields.insert(key.into(), value);
-        self
-    }
-}
-
-/// xAI file-upload specific options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct XaiFilesOptions {
-    /// Team identifier forwarded as `team_id` on the xAI multipart upload endpoint.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "teamId",
-        alias = "team_id"
-    )]
-    pub team_id: Option<String>,
-    /// Optional provider-native file path hint.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        rename = "filePath",
-        alias = "file_path"
-    )]
-    pub file_path: Option<String>,
-    /// Forward-compatible provider-owned escape hatch for newly introduced fields.
-    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
-    pub extra_fields: HashMap<String, serde_json::Value>,
-}
-
-impl XaiFilesOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_team_id(mut self, team_id: impl Into<String>) -> Self {
-        self.team_id = Some(team_id.into());
-        self
-    }
-
-    pub fn with_file_path(mut self, file_path: impl Into<String>) -> Self {
-        self.file_path = Some(file_path.into());
-        self
-    }
-
-    pub fn with_extra_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        self.extra_fields.insert(key.into(), value);
-        self
-    }
-}
-
 /// xAI chat-completions specific options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct XaiChatOptions {
     /// Reasoning effort for Grok chat models.
     #[serde(
@@ -331,16 +120,46 @@ pub struct XaiChatOptions {
         skip_serializing_if = "Option::is_none"
     )]
     pub top_logprobs: Option<u32>,
-    /// Whether to enable parallel function calling during tool use.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parallel_function_calling: Option<bool>,
-    /// Web search parameters.
+    /// Whether to allow parallel tool calls.
+    #[serde(
+        rename = "parallelToolCalls",
+        alias = "parallel_tool_calls",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallel_tool_calls: Option<bool>,
+    /// Legacy Chat Completions live-search parameters.
+    ///
+    /// New integrations should use provider-hosted `web_search` or `x_search` tools through the
+    /// Responses API. This field remains only for explicit compatibility with deployments that
+    /// still accept the retired Chat search contract.
     #[serde(
         rename = "searchParameters",
         alias = "search_parameters",
         skip_serializing_if = "Option::is_none"
     )]
     pub search_parameters: Option<XaiSearchParameters>,
+    /// Stable application-supplied key used to improve prompt-cache affinity.
+    #[serde(
+        rename = "promptCacheKey",
+        alias = "prompt_cache_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_key: Option<String>,
+}
+
+impl TypedProviderOptions for XaiChatOptions {
+    const NAMESPACE: &'static str = "xai";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(CHAT_API_MODE_ID);
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        validate_logprobs(self.logprobs, self.top_logprobs)?;
+        if let Some(search) = &self.search_parameters {
+            search.validate("search_parameters")?;
+        }
+        validate_non_empty_id("prompt_cache_key", self.prompt_cache_key.as_deref())?;
+        Ok(())
+    }
 }
 
 impl XaiChatOptions {
@@ -349,13 +168,17 @@ impl XaiChatOptions {
         Self::default()
     }
 
-    /// Enable web search with configuration.
+    /// Configure the legacy Chat Completions live-search contract.
+    ///
+    /// Prefer [`XaiResponsesOptions::with_native_tool`] for new integrations.
     pub fn with_search(mut self, params: XaiSearchParameters) -> Self {
         self.search_parameters = Some(params);
         self
     }
 
-    /// Enable web search with default settings.
+    /// Enable legacy Chat Completions live search with provider defaults.
+    ///
+    /// Prefer [`XaiResponsesOptions::with_native_tool`] for new integrations.
     pub fn with_default_search(mut self) -> Self {
         self.search_parameters = Some(XaiSearchParameters::default());
         self
@@ -380,15 +203,22 @@ impl XaiChatOptions {
         self
     }
 
-    /// Enable or disable parallel function calling.
-    pub fn with_parallel_function_calling(mut self, enabled: bool) -> Self {
-        self.parallel_function_calling = Some(enabled);
+    /// Enable or disable parallel tool calls.
+    pub fn with_parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.parallel_tool_calls = Some(enabled);
+        self
+    }
+
+    /// Attach a stable xAI prompt-cache key to this Chat Completions call.
+    pub fn with_prompt_cache_key(mut self, prompt_cache_key: impl Into<String>) -> Self {
+        self.prompt_cache_key = Some(prompt_cache_key.into());
         self
     }
 }
 
 /// xAI Responses-specific provider options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct XaiResponsesOptions {
     /// Reasoning effort for Grok Responses models.
     #[serde(
@@ -414,9 +244,14 @@ pub struct XaiResponsesOptions {
         skip_serializing_if = "Option::is_none"
     )]
     pub top_logprobs: Option<u32>,
+    /// Whether to allow parallel tool calls.
+    #[serde(
+        rename = "parallelToolCalls",
+        alias = "parallel_tool_calls",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallel_tool_calls: Option<bool>,
     /// Whether to store the response for later retrieval.
-    ///
-    /// Vercel parity: `true` is omitted from the payload, `false` is sent explicitly.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     /// Previous response id for continuing a response chain.
@@ -426,9 +261,19 @@ pub struct XaiResponsesOptions {
         skip_serializing_if = "Option::is_none"
     )]
     pub previous_response_id: Option<String>,
+    /// Stable application-supplied cache key for Responses prompt-cache affinity.
+    #[serde(
+        rename = "promptCacheKey",
+        alias = "prompt_cache_key",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_key: Option<String>,
     /// Additional response payload sections to include.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<XaiResponseInclude>>,
+    /// Provider-hosted tools executed by xAI rather than the local runtime.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_tools: Vec<XaiResponsesTool>,
 }
 
 impl XaiResponsesOptions {
@@ -462,17 +307,27 @@ impl XaiResponsesOptions {
         self
     }
 
+    /// Enable or disable parallel tool calls.
+    pub fn with_parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.parallel_tool_calls = Some(enabled);
+        self
+    }
+
     /// Control response storage.
-    ///
-    /// `true` clears the explicit override and falls back to the provider default.
     pub fn with_store(mut self, store: bool) -> Self {
-        self.store = if store { None } else { Some(false) };
+        self.store = Some(store);
         self
     }
 
     /// Continue from a previous response id.
     pub fn with_previous_response(mut self, response_id: impl Into<String>) -> Self {
         self.previous_response_id = Some(response_id.into());
+        self
+    }
+
+    /// Attach a stable xAI prompt-cache key to this Responses call.
+    pub fn with_prompt_cache_key(mut self, prompt_cache_key: impl Into<String>) -> Self {
+        self.prompt_cache_key = Some(prompt_cache_key.into());
         self
     }
 
@@ -485,76 +340,51 @@ impl XaiResponsesOptions {
         self.include = Some(include.into_iter().map(Into::into).collect());
         self
     }
-}
 
-/// Backward-compatible alias for the native xAI chat options surface.
-pub type XaiOptions = XaiChatOptions;
-
-/// AI SDK-style alias for xAI chat language-model options.
-pub type XaiLanguageModelChatOptions = XaiChatOptions;
-
-/// Deprecated AI SDK compatibility alias for xAI chat options.
-#[deprecated(note = "Use `XaiLanguageModelChatOptions` instead.")]
-pub type XaiProviderOptions = XaiLanguageModelChatOptions;
-
-/// AI SDK-style alias for xAI Responses options.
-pub type XaiLanguageModelResponsesOptions = XaiResponsesOptions;
-
-/// Deprecated AI SDK compatibility alias for xAI Responses options.
-#[deprecated(note = "Use `XaiLanguageModelResponsesOptions` instead.")]
-pub type XaiResponsesProviderOptions = XaiLanguageModelResponsesOptions;
-
-/// AI SDK-style alias for xAI image-model options.
-pub type XaiImageModelOptions = XaiImageOptions;
-
-/// Deprecated AI SDK compatibility alias for xAI image options.
-#[deprecated(note = "Use `XaiImageModelOptions` instead.")]
-pub type XaiImageProviderOptions = XaiImageModelOptions;
-
-/// AI SDK-style alias for xAI video-model options.
-pub type XaiVideoModelOptions = XaiVideoOptions;
-
-/// Deprecated AI SDK compatibility alias for xAI video options.
-#[deprecated(note = "Use `XaiVideoModelOptions` instead.")]
-pub type XaiVideoProviderOptions = XaiVideoModelOptions;
-
-/// xAI text-to-speech specific options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct XaiTtsOptions {
-    /// Output sample rate in Hz.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sample_rate: Option<u64>,
-    /// Output bit rate in bps.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bit_rate: Option<u64>,
-}
-
-impl XaiTtsOptions {
-    /// Create new xAI TTS options.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_sample_rate(mut self, sample_rate: u64) -> Self {
-        self.sample_rate = Some(sample_rate);
+    pub fn with_native_tool(mut self, tool: XaiResponsesTool) -> Self {
+        self.native_tools.push(tool);
         self
     }
 
-    pub fn with_bit_rate(mut self, bit_rate: u64) -> Self {
-        self.bit_rate = Some(bit_rate);
+    pub fn with_native_tools<I>(mut self, tools: I) -> Self
+    where
+        I: IntoIterator<Item = XaiResponsesTool>,
+    {
+        self.native_tools.extend(tools);
         self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.sample_rate.is_none() && self.bit_rate.is_none()
     }
 }
 
-/// xAI web search parameters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl TypedProviderOptions for XaiResponsesOptions {
+    const NAMESPACE: &'static str = "xai";
+    const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+    const API_MODE: Option<&'static str> = Some(RESPONSES_API_MODE_ID);
+
+    fn validate(&self) -> Result<(), ProviderOptionError> {
+        validate_logprobs(self.logprobs, self.top_logprobs)?;
+        validate_non_empty_id("previous_response_id", self.previous_response_id.as_deref())?;
+        validate_non_empty_id("prompt_cache_key", self.prompt_cache_key.as_deref())?;
+        for (index, tool) in self.native_tools.iter().enumerate() {
+            tool.validate(index)
+                .map_err(|reason| ProviderOptionError::Rejected {
+                    path: format!("native_tools[{index}]"),
+                    reason,
+                })?;
+        }
+        Ok(())
+    }
+}
+
+/// Legacy xAI Chat Completions live-search parameters.
+///
+/// The current provider path for search is the Responses hosted-tool API. This type is retained as
+/// a typed compatibility boundary for endpoints that still implement `search_parameters`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct XaiSearchParameters {
     /// Search mode.
-    pub mode: SearchMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<SearchMode>,
     /// Whether to return citations.
     #[serde(
         rename = "returnCitations",
@@ -588,21 +418,36 @@ pub struct XaiSearchParameters {
     pub sources: Option<Vec<SearchSource>>,
 }
 
-impl Default for XaiSearchParameters {
-    fn default() -> Self {
-        Self {
-            mode: SearchMode::Auto,
-            return_citations: Some(true),
-            max_search_results: Some(20),
-            from_date: None,
-            to_date: None,
-            sources: None,
+impl XaiSearchParameters {
+    pub fn with_mode(mut self, mode: SearchMode) -> Self {
+        self.mode = Some(mode);
+        self
+    }
+
+    fn validate(&self, path: &str) -> Result<(), ProviderOptionError> {
+        if self.max_search_results == Some(0) {
+            return Err(ProviderOptionError::Rejected {
+                path: format!("{path}.max_search_results"),
+                reason: "maximum search results must be greater than zero".to_string(),
+            });
         }
+        let from = parse_optional_date(self.from_date.as_deref(), path, "from_date")?;
+        let to = parse_optional_date(self.to_date.as_deref(), path, "to_date")?;
+        if from.zip(to).is_some_and(|(from, to)| from > to) {
+            return Err(ProviderOptionError::Rejected {
+                path: path.to_string(),
+                reason: "from_date must not be later than to_date".to_string(),
+            });
+        }
+        for (index, source) in self.sources.iter().flatten().enumerate() {
+            source.validate(path, index)?;
+        }
+        Ok(())
     }
 }
 
 /// Search mode.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
     /// Automatically decide whether to search.
@@ -645,6 +490,47 @@ impl SearchSource {
     /// Wrap an RSS source into the discriminated search-source union.
     pub fn rss(source: RssSearchSource) -> Self {
         Self::Rss(source)
+    }
+
+    fn validate(&self, path: &str, index: usize) -> Result<(), ProviderOptionError> {
+        let source_path = format!("{path}.sources[{index}]");
+        match self {
+            Self::Web(source)
+                if source
+                    .allowed_websites
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty())
+                    && source
+                        .excluded_websites
+                        .as_ref()
+                        .is_some_and(|v| !v.is_empty()) =>
+            {
+                Err(ProviderOptionError::Rejected {
+                    path: source_path,
+                    reason: "web source cannot combine allowed and excluded websites".to_string(),
+                })
+            }
+            Self::X(source)
+                if source
+                    .included_x_handles
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty())
+                    && source
+                        .excluded_x_handles
+                        .as_ref()
+                        .is_some_and(|v| !v.is_empty()) =>
+            {
+                Err(ProviderOptionError::Rejected {
+                    path: source_path,
+                    reason: "X source cannot combine included and excluded handles".to_string(),
+                })
+            }
+            Self::Rss(source) if source.links.is_empty() => Err(ProviderOptionError::Rejected {
+                path: source_path,
+                reason: "RSS source must include at least one link".to_string(),
+            }),
+            Self::Web(_) | Self::News(_) | Self::X(_) | Self::Rss(_) => Ok(()),
+        }
     }
 }
 
@@ -751,16 +637,6 @@ pub struct XSearchSource {
 impl XSearchSource {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Deprecated AI SDK alias helper. Normalized to `includedXHandles`.
-    pub fn with_legacy_x_handles<I, S>(mut self, handles: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.included_x_handles = Some(handles.into_iter().map(Into::into).collect());
-        self
     }
 }
 
@@ -917,8 +793,6 @@ impl<'de> Deserialize<'de> for SearchSource {
                 excluded_x_handles: Option<Vec<String>>,
                 #[serde(default, rename = "includedXHandles", alias = "included_x_handles")]
                 included_x_handles: Option<Vec<String>>,
-                #[serde(default, rename = "xHandles", alias = "x_handles")]
-                x_handles: Option<Vec<String>>,
                 #[serde(default, rename = "postFavoriteCount", alias = "post_favorite_count")]
                 post_favorite_count: Option<u64>,
                 #[serde(default, rename = "postViewCount", alias = "post_view_count")]
@@ -953,12 +827,11 @@ impl<'de> Deserialize<'de> for SearchSource {
             SearchSourceInput::X {
                 excluded_x_handles,
                 included_x_handles,
-                x_handles,
                 post_favorite_count,
                 post_view_count,
             } => SearchSource::X(XSearchSource {
                 excluded_x_handles,
-                included_x_handles: included_x_handles.or(x_handles),
+                included_x_handles,
                 post_favorite_count,
                 post_view_count,
             }),
@@ -967,163 +840,65 @@ impl<'de> Deserialize<'de> for SearchSource {
     }
 }
 
+fn validate_logprobs(
+    logprobs: Option<bool>,
+    top_logprobs: Option<u32>,
+) -> Result<(), ProviderOptionError> {
+    if top_logprobs.is_some_and(|count| count > 8) {
+        return Err(ProviderOptionError::Rejected {
+            path: "top_logprobs".to_string(),
+            reason: "top_logprobs must be between zero and eight".to_string(),
+        });
+    }
+    if top_logprobs.is_some() && logprobs == Some(false) {
+        return Err(ProviderOptionError::Rejected {
+            path: "logprobs".to_string(),
+            reason: "logprobs cannot be false when top_logprobs is present".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_non_empty_id(path: &str, value: Option<&str>) -> Result<(), ProviderOptionError> {
+    if value.is_some_and(|value| value.trim().is_empty() || value.len() > 1024) {
+        return Err(ProviderOptionError::Rejected {
+            path: path.to_string(),
+            reason: "value must be non-empty and at most 1024 bytes".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn parse_optional_date(
+    value: Option<&str>,
+    path: &str,
+    field: &str,
+) -> Result<Option<chrono::NaiveDate>, ProviderOptionError> {
+    value
+        .map(|value| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+                ProviderOptionError::Rejected {
+                    path: format!("{path}.{field}"),
+                    reason: "date must use YYYY-MM-DD format".to_string(),
+                }
+            })
+        })
+        .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn xai_tts_options_serialize_only_present_fields() {
-        let value = serde_json::to_value(
-            XaiTtsOptions::new()
-                .with_sample_rate(44_100)
-                .with_bit_rate(192_000),
-        )
-        .expect("serialize xai tts options");
-
-        assert_eq!(
-            value,
-            serde_json::json!({
-                "sample_rate": 44_100,
-                "bit_rate": 192_000
-            })
-        );
-    }
-
-    #[test]
-    fn xai_image_options_serialize_ai_sdk_fields_and_passthrough() {
-        let value = serde_json::to_value(
-            XaiImageOptions::new()
-                .with_aspect_ratio("16:9")
-                .with_output_format("png")
-                .with_sync_mode(true)
-                .with_resolution("2k")
-                .with_quality("high")
-                .with_user("user-123")
-                .with_extra_field("custom", serde_json::json!(true)),
-        )
-        .expect("serialize xai image options");
-
-        assert_eq!(value["aspect_ratio"], serde_json::json!("16:9"));
-        assert_eq!(value["output_format"], serde_json::json!("png"));
-        assert_eq!(value["sync_mode"], serde_json::json!(true));
-        assert_eq!(value["resolution"], serde_json::json!("2k"));
-        assert_eq!(value["quality"], serde_json::json!("high"));
-        assert_eq!(value["user"], serde_json::json!("user-123"));
-        assert_eq!(value["custom"], serde_json::json!(true));
-    }
-
-    #[test]
-    fn xai_video_options_deserialize_camel_case_aliases_and_passthrough() {
-        let options: XaiVideoOptions = serde_json::from_value(serde_json::json!({
-            "pollIntervalMs": 1000,
-            "pollTimeoutMs": 60000,
-            "resolution": "720p",
-            "mode": "extend-video",
-            "videoUrl": "https://example.com/video.mp4",
-            "referenceImageUrls": [
-                "https://example.com/ref-1.png",
-                "https://example.com/ref-2.png"
-            ],
-            "style": "cinematic"
-        }))
-        .expect("deserialize xai video options");
-
-        assert_eq!(options.poll_interval_ms, Some(1000));
-        assert_eq!(options.poll_timeout_ms, Some(60000));
-        assert_eq!(options.resolution, Some(XaiVideoResolution::R720p));
-        assert_eq!(options.mode, Some(XaiVideoMode::ExtendVideo));
-        assert_eq!(
-            options.video_url.as_deref(),
-            Some("https://example.com/video.mp4")
-        );
-        assert_eq!(
-            options.reference_image_urls,
-            Some(vec![
-                "https://example.com/ref-1.png".to_string(),
-                "https://example.com/ref-2.png".to_string(),
-            ])
-        );
-        assert_eq!(
-            options.extra_fields.get("style"),
-            Some(&serde_json::json!("cinematic"))
-        );
-    }
-
-    #[test]
-    fn xai_video_options_serialize_ai_sdk_fields_and_passthrough() {
-        let value = serde_json::to_value(
-            XaiVideoOptions::new()
-                .with_poll_interval_ms(1000)
-                .with_poll_timeout_ms(60000)
-                .with_resolution("720p")
-                .with_mode("reference-to-video")
-                .with_video_url("https://example.com/video.mp4")
-                .with_reference_image_urls([
-                    "https://example.com/ref-1.png",
-                    "https://example.com/ref-2.png",
-                ])
-                .with_extra_field("style", serde_json::json!("cinematic")),
-        )
-        .expect("serialize xai video options");
-
-        assert_eq!(value["pollIntervalMs"], serde_json::json!(1000));
-        assert_eq!(value["pollTimeoutMs"], serde_json::json!(60000));
-        assert_eq!(value["resolution"], serde_json::json!("720p"));
-        assert_eq!(value["mode"], serde_json::json!("reference-to-video"));
-        assert_eq!(
-            value["videoUrl"],
-            serde_json::json!("https://example.com/video.mp4")
-        );
-        assert_eq!(
-            value["referenceImageUrls"],
-            serde_json::json!([
-                "https://example.com/ref-1.png",
-                "https://example.com/ref-2.png"
-            ])
-        );
-        assert_eq!(value["style"], serde_json::json!("cinematic"));
-    }
-
-    #[test]
-    fn xai_files_options_serialize_aliases_and_passthrough() {
-        let value = serde_json::to_value(
-            XaiFilesOptions::new()
-                .with_team_id("team-123")
-                .with_file_path("/uploads/demo.txt")
-                .with_extra_field("retention_days", serde_json::json!(7)),
-        )
-        .expect("serialize xai files options");
-
-        assert_eq!(value["teamId"], serde_json::json!("team-123"));
-        assert_eq!(value["filePath"], serde_json::json!("/uploads/demo.txt"));
-        assert_eq!(value["retention_days"], serde_json::json!(7));
-    }
-
-    #[test]
-    fn xai_files_options_deserialize_camel_case_aliases() {
-        let options: XaiFilesOptions = serde_json::from_value(serde_json::json!({
-            "teamId": "team-123",
-            "filePath": "/uploads/demo.txt",
-            "custom": true
-        }))
-        .expect("deserialize xai files options");
-
-        assert_eq!(options.team_id.as_deref(), Some("team-123"));
-        assert_eq!(options.file_path.as_deref(), Some("/uploads/demo.txt"));
-        assert_eq!(
-            options.extra_fields.get("custom"),
-            Some(&serde_json::json!(true))
-        );
-    }
-
-    #[test]
     fn xai_chat_options_typed_builders_serialize_chat_fields() {
         let value = serde_json::to_value(
-            XaiOptions::new()
+            XaiChatOptions::new()
                 .with_reasoning_effort("high")
                 .with_top_logprobs(3)
+                .with_prompt_cache_key("cache-123")
                 .with_search(XaiSearchParameters {
-                    mode: SearchMode::On,
+                    mode: Some(SearchMode::On),
                     return_citations: Some(true),
                     max_search_results: Some(5),
                     from_date: Some("2026-03-01".to_string()),
@@ -1131,18 +906,19 @@ mod tests {
                     sources: Some(vec![SearchSource::Web(WebSearchSource {
                         country: Some("US".to_string()),
                         allowed_websites: Some(vec!["example.com".to_string()]),
-                        excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                        excluded_websites: None,
                         safe_search: Some(true),
                     })]),
                 })
-                .with_parallel_function_calling(false),
+                .with_parallel_tool_calls(false),
         )
         .expect("serialize xai options");
 
         assert_eq!(value["reasoningEffort"], serde_json::json!("high"));
         assert_eq!(value["logprobs"], serde_json::json!(true));
         assert_eq!(value["topLogprobs"], serde_json::json!(3));
-        assert_eq!(value["parallel_function_calling"], serde_json::json!(false));
+        assert_eq!(value["parallelToolCalls"], serde_json::json!(false));
+        assert_eq!(value["promptCacheKey"], serde_json::json!("cache-123"));
         assert_eq!(value["searchParameters"]["mode"], serde_json::json!("on"));
         assert_eq!(
             value["searchParameters"]["returnCitations"],
@@ -1164,9 +940,10 @@ mod tests {
             value["searchParameters"]["sources"][0]["allowedWebsites"],
             serde_json::json!(["example.com"])
         );
-        assert_eq!(
-            value["searchParameters"]["sources"][0]["excludedWebsites"],
-            serde_json::json!(["blocked.example.com"])
+        assert!(
+            value["searchParameters"]["sources"][0]
+                .get("excludedWebsites")
+                .is_none()
         );
         assert_eq!(
             value["searchParameters"]["sources"][0]["safeSearch"],
@@ -1188,8 +965,10 @@ mod tests {
                 .with_reasoning_effort("medium")
                 .with_reasoning_summary("detailed")
                 .with_top_logprobs(3)
+                .with_parallel_tool_calls(false)
                 .with_store(false)
                 .with_previous_response("resp_prev_123")
+                .with_prompt_cache_key("cache-123")
                 .with_include(["file_search_call.results"]),
         )
         .expect("serialize xai responses options");
@@ -1198,11 +977,13 @@ mod tests {
         assert_eq!(value["reasoningSummary"], serde_json::json!("detailed"));
         assert_eq!(value["logprobs"], serde_json::json!(true));
         assert_eq!(value["topLogprobs"], serde_json::json!(3));
+        assert_eq!(value["parallelToolCalls"], serde_json::json!(false));
         assert_eq!(value["store"], serde_json::json!(false));
         assert_eq!(
             value["previousResponseId"],
             serde_json::json!("resp_prev_123")
         );
+        assert_eq!(value["promptCacheKey"], serde_json::json!("cache-123"));
         assert_eq!(
             value["include"],
             serde_json::json!(["file_search_call.results"])
@@ -1214,7 +995,7 @@ mod tests {
     }
 
     #[test]
-    fn xai_responses_options_with_store_true_omits_explicit_store() {
+    fn xai_responses_options_preserve_explicit_store_true() {
         let value = serde_json::to_value(
             XaiResponsesOptions::new()
                 .with_store(false)
@@ -1222,7 +1003,7 @@ mod tests {
         )
         .expect("serialize xai responses options");
 
-        assert!(value.get("store").is_none());
+        assert_eq!(value["store"], serde_json::json!(true));
     }
 
     #[test]
@@ -1256,7 +1037,6 @@ mod tests {
             "sources": [{
                 "type": "web",
                 "allowedWebsites": ["example.com"],
-                "excludedWebsites": ["blocked.example.com"],
                 "safeSearch": true
             }]
         });
@@ -1264,7 +1044,7 @@ mod tests {
         let params: XaiSearchParameters =
             serde_json::from_value(value).expect("deserialize xai search parameters");
 
-        assert!(matches!(params.mode, SearchMode::On));
+        assert!(matches!(params.mode, Some(SearchMode::On)));
         assert_eq!(params.return_citations, Some(true));
         assert_eq!(params.max_search_results, Some(7));
         assert_eq!(params.from_date.as_deref(), Some("2026-03-01"));
@@ -1274,18 +1054,19 @@ mod tests {
             Some(vec![SearchSource::Web(WebSearchSource {
                 country: None,
                 allowed_websites: Some(vec!["example.com".to_string()]),
-                excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                excluded_websites: None,
                 safe_search: Some(true),
             })])
         );
     }
 
     #[test]
-    fn xai_chat_options_deserialize_legacy_snake_case_aliases() {
+    fn xai_chat_options_deserialize_wire_aliases() {
         let value = serde_json::json!({
             "reasoning_effort": "high",
             "top_logprobs": 3,
-            "parallel_function_calling": false,
+            "parallel_tool_calls": false,
+            "prompt_cache_key": "cache-123",
             "search_parameters": {
                 "mode": "on",
                 "return_citations": true,
@@ -1296,13 +1077,17 @@ mod tests {
         });
 
         let options: XaiChatOptions =
-            serde_json::from_value(value).expect("deserialize legacy xai chat options");
+            serde_json::from_value(value).expect("deserialize xai chat options");
 
         assert_eq!(options.reasoning_effort, Some(XaiChatReasoningEffort::High));
         assert_eq!(options.top_logprobs, Some(3));
-        assert_eq!(options.parallel_function_calling, Some(false));
+        assert_eq!(options.parallel_tool_calls, Some(false));
+        assert_eq!(options.prompt_cache_key.as_deref(), Some("cache-123"));
         assert!(matches!(
-            options.search_parameters.as_ref().map(|value| &value.mode),
+            options
+                .search_parameters
+                .as_ref()
+                .and_then(|value| value.mode),
             Some(SearchMode::On)
         ));
         assert_eq!(
@@ -1322,7 +1107,7 @@ mod tests {
     }
 
     #[test]
-    fn xai_responses_options_deserialize_legacy_snake_case_aliases() {
+    fn xai_responses_options_deserialize_wire_aliases() {
         let value = serde_json::json!({
             "reasoning_effort": "medium",
             "reasoning_summary": "detailed",
@@ -1334,7 +1119,7 @@ mod tests {
         });
 
         let options: XaiResponsesOptions =
-            serde_json::from_value(value).expect("deserialize legacy xai responses options");
+            serde_json::from_value(value).expect("deserialize xai responses options");
 
         assert_eq!(
             options.reasoning_effort,
@@ -1358,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn xai_search_parameters_deserialize_legacy_snake_case_aliases() {
+    fn xai_search_parameters_deserialize_wire_aliases() {
         let value = serde_json::json!({
             "mode": "on",
             "return_citations": true,
@@ -1368,15 +1153,14 @@ mod tests {
             "sources": [{
                 "type": "web",
                 "allowed_websites": ["example.com"],
-                "excluded_websites": ["blocked.example.com"],
                 "safe_search": true
             }]
         });
 
         let params: XaiSearchParameters =
-            serde_json::from_value(value).expect("deserialize legacy xai search parameters");
+            serde_json::from_value(value).expect("deserialize xai search parameters");
 
-        assert!(matches!(params.mode, SearchMode::On));
+        assert!(matches!(params.mode, Some(SearchMode::On)));
         assert_eq!(params.return_citations, Some(true));
         assert_eq!(params.max_search_results, Some(7));
         assert_eq!(params.from_date.as_deref(), Some("2026-03-01"));
@@ -1386,16 +1170,16 @@ mod tests {
             Some(vec![SearchSource::Web(WebSearchSource {
                 country: None,
                 allowed_websites: Some(vec!["example.com".to_string()]),
-                excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                excluded_websites: None,
                 safe_search: Some(true),
             })])
         );
     }
 
     #[test]
-    fn xai_search_parameters_serialize_ai_sdk_field_names() {
+    fn xai_search_parameters_serialize_provider_option_field_names() {
         let value = serde_json::to_value(XaiSearchParameters {
-            mode: SearchMode::On,
+            mode: Some(SearchMode::On),
             return_citations: Some(true),
             max_search_results: Some(3),
             from_date: Some("2026-03-01".to_string()),
@@ -1431,7 +1215,6 @@ mod tests {
             serde_json::json!(10)
         );
         assert_eq!(value["sources"][0]["postViewCount"], serde_json::json!(99));
-        assert!(value["sources"][0].get("xHandles").is_none());
         assert!(value["sources"][0].get("included_x_handles").is_none());
         assert!(value["sources"][0].get("excluded_x_handles").is_none());
         assert_eq!(value["sources"][1]["type"], serde_json::json!("rss"));
@@ -1446,26 +1229,10 @@ mod tests {
     }
 
     #[test]
-    fn xai_search_source_legacy_x_handles_alias_maps_to_included_x_handles() {
-        let source: SearchSource = XSearchSource::new()
-            .with_legacy_x_handles(["openai", "deepmind"])
-            .into();
-        let value = serde_json::to_value(source).expect("serialize xai search source");
-
-        assert_eq!(value["type"], serde_json::json!("x"));
-        assert_eq!(
-            value["includedXHandles"],
-            serde_json::json!(["openai", "deepmind"])
-        );
-        assert!(value.get("xHandles").is_none());
-        assert!(value.get("included_x_handles").is_none());
-    }
-
-    #[test]
-    fn xai_search_source_deserializes_deprecated_and_legacy_aliases() {
+    fn xai_search_source_deserializes_wire_aliases() {
         let value = serde_json::json!({
             "type": "x",
-            "x_handles": ["openai", "deepmind"],
+            "included_x_handles": ["openai", "deepmind"],
             "excluded_x_handles": ["grok"],
             "post_favorite_count": 10,
             "post_view_count": 99
@@ -1486,11 +1253,11 @@ mod tests {
     }
 
     #[test]
-    fn xai_default_search_parameters_match_ai_sdk_defaults() {
+    fn xai_default_search_parameters_defer_to_provider_defaults() {
         let defaults = XaiSearchParameters::default();
 
-        assert!(matches!(defaults.mode, SearchMode::Auto));
-        assert_eq!(defaults.return_citations, Some(true));
-        assert_eq!(defaults.max_search_results, Some(20));
+        assert_eq!(defaults.mode, None);
+        assert_eq!(defaults.return_citations, None);
+        assert_eq!(defaults.max_search_results, None);
     }
 }

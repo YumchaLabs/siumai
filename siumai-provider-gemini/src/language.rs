@@ -1,0 +1,657 @@
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use futures::StreamExt;
+use http::Method;
+use http::header::{ACCEPT, HeaderName, HeaderValue};
+use serde_json::Value;
+use siumai_core::stream::established_stream;
+use siumai_core::{
+    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model,
+    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ProviderOptionError,
+    ProviderOptionSelection, ProviderOptions, StreamTerminal, TypedProviderOptions,
+};
+use siumai_protocol_gemini::interactions::{
+    DecodedInteraction, InteractionLanguageConfig, InteractionStorage, InteractionThinkingLevel,
+    InteractionThinkingSummaries, InteractionsStreamDecoder, STABLE_V1_LANGUAGE_TARGET,
+    decode_language_response, encode_language_request,
+};
+use siumai_transport::framing::SseDecoder;
+use siumai_transport::{
+    ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportByteStream,
+};
+
+use crate::http::{
+    response_diagnostics, response_error, response_request_id, sse_error, stream_response_error,
+};
+use crate::options::{
+    GeminiInteractionStorage, GeminiInteractionsOptions, GeminiThinkingLevel,
+    GeminiThinkingSummaries,
+};
+use crate::provider::ProviderRuntime;
+
+/// Lightweight stable-v1 Gemini Interactions language handle.
+#[derive(Clone)]
+pub struct GeminiLanguageModel {
+    runtime: Arc<ProviderRuntime>,
+    descriptor: ModelDescriptor,
+}
+
+impl GeminiLanguageModel {
+    pub(crate) fn new(runtime: Arc<ProviderRuntime>, model: ModelId) -> Self {
+        let descriptor = ModelDescriptor::from_scope(
+            runtime.interactions_scope.clone(),
+            model,
+            ModelFamily::Language,
+            runtime.instance_id.clone(),
+        );
+        Self {
+            runtime,
+            descriptor,
+        }
+    }
+
+    fn options(&self, call: &CallOptions) -> Result<GeminiInteractionsOptions, Error> {
+        let selection = call.provider_options_for(self).map_err(option_error)?;
+        merge_options(&self.runtime.interactions_defaults, &selection).map_err(option_error)
+    }
+
+    fn plan(
+        &self,
+        request: &LanguageRequest,
+        options: &GeminiInteractionsOptions,
+        stream: bool,
+    ) -> Result<RequestPlan, Error> {
+        let config = protocol_config(options);
+        let body = encode_language_request(
+            request,
+            self.model_id(),
+            self.descriptor.scope(),
+            &config,
+            stream,
+        )?;
+        let accept = if stream {
+            HeaderValue::from_static("text/event-stream")
+        } else {
+            HeaderValue::from_static("application/json")
+        };
+        let headers = RequestHeaders::new()
+            .try_insert(ACCEPT, accept)
+            .map_err(request_build_error)?;
+        RequestPlan::new(
+            Method::POST,
+            RequestTarget::new(STABLE_V1_LANGUAGE_TARGET).map_err(request_build_error)?,
+        )
+        .with_headers(headers)
+        .with_body(RequestBody::json(&body).map_err(request_build_error)?)
+        .with_replay_safety(ReplaySafety::Never)
+        .map_err(request_build_error)
+    }
+
+    fn contextualize(&self, operation: ModelOperation, error: Error) -> Error {
+        error.with_context(ErrorContext {
+            operation: Some(operation),
+            provider: Some(self.provider_id().clone()),
+            route: None,
+            model: Some(self.model_id().clone()),
+        })
+    }
+
+    /// Execute one direct Interactions call while retaining the complete native resource.
+    pub async fn generate_native(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<DecodedInteraction, Error> {
+        let operation = ModelOperation::Generate;
+        let provider_options = self
+            .options(&options)
+            .map_err(|error| self.contextualize(operation, error))?;
+        let plan = self
+            .plan(&request, &provider_options, false)
+            .map_err(|error| self.contextualize(operation, error))?;
+        let response = self
+            .runtime
+            .transport
+            .execute(plan, options)
+            .await
+            .map_err(|error| self.contextualize(operation, error))?;
+        if !response.status().is_success() {
+            return Err(self.contextualize(
+                operation,
+                response_error(
+                    response,
+                    "Gemini rejected the Interactions language request",
+                ),
+            ));
+        }
+        let (_, headers, body) = response.into_parts();
+        decode_language_response(&body, self.descriptor.scope(), self.model_id())
+            .map(|decoded| {
+                decoded.map_canonical(|canonical| with_response_context(canonical, &headers))
+            })
+            .map_err(|error| self.contextualize(operation, error))
+    }
+}
+
+impl std::fmt::Debug for GeminiLanguageModel {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("GeminiLanguageModel")
+            .field("descriptor", &self.descriptor)
+            .finish()
+    }
+}
+
+impl Model for GeminiLanguageModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for GeminiLanguageModel {
+    async fn generate(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        let operation = ModelOperation::Generate;
+        self.generate_native(request, options)
+            .await?
+            .into_result()
+            .map_err(|error| self.contextualize_call_error(operation, error))
+    }
+
+    async fn stream(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        let operation = ModelOperation::Stream;
+        let provider_options = self
+            .options(&options)
+            .map_err(|error| self.contextualize(operation, error))?;
+        let plan = self
+            .plan(&request, &provider_options, true)
+            .map_err(|error| self.contextualize(operation, error))?;
+        let cancellation = options.cancellation().clone();
+        let response = self
+            .runtime
+            .transport
+            .execute_stream(plan, options)
+            .await
+            .map_err(|error| self.contextualize(operation, error))?;
+        if !response.status().is_success() {
+            return Err(self.contextualize(
+                operation,
+                stream_response_error(response, "Gemini rejected the Interactions language stream")
+                    .await,
+            ));
+        }
+        let status = response.status();
+        let headers = response.headers().clone();
+        let diagnostics = response_diagnostics(status, &headers);
+        let body = response.into_body();
+        let mut decoder = InteractionsStreamDecoder::new(
+            self.descriptor.scope().clone(),
+            self.model_id().clone(),
+        );
+        decoder.set_response_diagnostics(diagnostics);
+        let context = ErrorContext {
+            operation: Some(operation),
+            provider: Some(self.provider_id().clone()),
+            route: None,
+            model: Some(self.model_id().clone()),
+        };
+        Ok(decode_sse_stream(
+            cancellation,
+            body,
+            self.runtime.limits.clone(),
+            decoder,
+            headers,
+            context,
+        ))
+    }
+}
+
+impl GeminiLanguageModel {
+    fn contextualize_call_error(
+        &self,
+        operation: ModelOperation,
+        error: LanguageCallError,
+    ) -> LanguageCallError {
+        let (error, partial) = error.into_parts();
+        LanguageCallError::new(self.contextualize(operation, error), partial)
+    }
+}
+
+pub(crate) fn decode_sse_stream<D>(
+    cancellation: siumai_core::Cancellation,
+    body: TransportByteStream,
+    limits: siumai_transport::TransportLimits,
+    mut protocol: D,
+    headers: siumai_transport::ResponseHeaders,
+    context: ErrorContext,
+) -> LanguageStream
+where
+    D: LanguageStreamDecoder<ProtocolFrame = str> + Send + 'static,
+{
+    established_stream(cancellation, move |_| {
+        async_stream::try_stream! {
+            let mut body = body;
+            let mut framing = SseDecoder::new(&limits);
+            while let Some(chunk) = body.next().await {
+                let chunk = chunk.map_err(|error| error.with_context(context.clone()))?;
+                let frames = framing
+                    .push(&chunk)
+                    .map_err(|source| sse_error(source).with_context(context.clone()))?;
+                let mut pending_events = Vec::new();
+                let mut terminal_in_batch = false;
+                for frame in frames {
+                    if terminal_in_batch {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Gemini stream emitted an SSE frame after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    let events = protocol
+                        .decode(frame.data())
+                        .map_err(|error| error.with_context(context.clone()))?;
+                    let terminal_position = events
+                        .iter()
+                        .position(|event| event.terminal().is_some());
+                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
+                        Err(Error::new(
+                            ErrorKind::Protocol,
+                            "Gemini stream decoder emitted events after terminal settlement",
+                        )
+                        .with_context(context.clone()))?;
+                    }
+                    terminal_in_batch |= terminal_position.is_some();
+                    for mut event in events {
+                        contextualize_terminal_error(&mut event, &context);
+                        attach_response_context(&mut event, &headers);
+                        pending_events.push(event);
+                    }
+                }
+                for event in pending_events {
+                    yield event;
+                }
+                if terminal_in_batch {
+                    return;
+                }
+            }
+            framing
+                .finish()
+                .map_err(|source| sse_error(source).with_context(context.clone()))?;
+            let events = protocol
+                .finish()
+                .map_err(|error| error.with_context(context.clone()))?;
+            for mut event in events {
+                contextualize_terminal_error(&mut event, &context);
+                attach_response_context(&mut event, &headers);
+                let terminal = event.terminal().is_some();
+                yield event;
+                if terminal {
+                    return;
+                }
+            }
+        }
+    })
+}
+
+pub(crate) fn with_response_context(
+    response: LanguageResponse,
+    headers: &siumai_transport::ResponseHeaders,
+) -> LanguageResponse {
+    let mut provider = response.provider_metadata().clone();
+    if let Some(request_id) = response_request_id(headers) {
+        provider.insert("google.request_id".to_string(), Value::String(request_id));
+    }
+    if let Some(service_tier) = response_header(headers, "x-gemini-service-tier") {
+        provider.insert(
+            "google.service_tier".to_string(),
+            Value::String(service_tier),
+        );
+    }
+    response.with_provider_metadata(provider)
+}
+
+fn attach_response_context(
+    event: &mut LanguageStreamEvent,
+    headers: &siumai_transport::ResponseHeaders,
+) {
+    let response = match event {
+        LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }) => response,
+        _ => return,
+    };
+    **response = with_response_context(response.as_ref().clone(), headers);
+}
+
+fn contextualize_terminal_error(event: &mut LanguageStreamEvent, context: &ErrorContext) {
+    let LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }) = event else {
+        return;
+    };
+    let original = std::mem::replace(
+        error,
+        Error::new(
+            ErrorKind::Internal,
+            "stream error context replacement failed",
+        ),
+    );
+    *error = original.with_context(context.clone());
+}
+
+fn response_header(
+    headers: &siumai_transport::ResponseHeaders,
+    name: &'static str,
+) -> Option<String> {
+    headers
+        .get(&HeaderName::from_static(name))
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty() && value.len() <= 4 * 1024)
+        .map(ToOwned::to_owned)
+}
+
+fn protocol_config(options: &GeminiInteractionsOptions) -> InteractionLanguageConfig {
+    let mut config =
+        InteractionLanguageConfig::new().with_storage(match options.storage.unwrap_or_default() {
+            GeminiInteractionStorage::Disabled => InteractionStorage::Disabled,
+            GeminiInteractionStorage::Enabled => InteractionStorage::Enabled,
+        });
+    if let Some(level) = options.thinking_level {
+        config = config.with_thinking_level(match level {
+            GeminiThinkingLevel::Minimal => InteractionThinkingLevel::Minimal,
+            GeminiThinkingLevel::Low => InteractionThinkingLevel::Low,
+            GeminiThinkingLevel::Medium => InteractionThinkingLevel::Medium,
+            GeminiThinkingLevel::High => InteractionThinkingLevel::High,
+        });
+    }
+    if let Some(summaries) = options.thinking_summaries {
+        config = config.with_thinking_summaries(match summaries {
+            GeminiThinkingSummaries::Auto => InteractionThinkingSummaries::Auto,
+            GeminiThinkingSummaries::None => InteractionThinkingSummaries::None,
+        });
+    }
+    config
+}
+
+fn merge_options(
+    defaults: &GeminiInteractionsOptions,
+    selection: &ProviderOptionSelection<'_>,
+) -> Result<GeminiInteractionsOptions, ProviderOptionError> {
+    let mut merged = defaults.clone();
+    for options in selection.typed() {
+        let value = decode_options(options)?;
+        value.validate()?;
+        if value.storage.is_some() {
+            merged.storage = value.storage;
+        }
+        if value.thinking_level.is_some() {
+            merged.thinking_level = value.thinking_level;
+        }
+        if value.thinking_summaries.is_some() {
+            merged.thinking_summaries = value.thinking_summaries;
+        }
+    }
+    if selection.raw_override().is_some() {
+        return Err(ProviderOptionError::Rejected {
+            path: "$".to_string(),
+            reason: "Gemini Interactions language generation only accepts typed provider options"
+                .to_string(),
+        });
+    }
+    merged.validate()?;
+    Ok(merged)
+}
+
+fn decode_options(
+    options: &ProviderOptions,
+) -> Result<GeminiInteractionsOptions, ProviderOptionError> {
+    serde_json::from_value(Value::Object(options.value().clone())).map_err(|_| {
+        ProviderOptionError::Rejected {
+            path: "google".to_string(),
+            reason: "options do not match the Gemini Interactions language schema".to_string(),
+        }
+    })
+}
+
+fn option_error(source: ProviderOptionError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "provider options are invalid for Gemini Interactions language generation",
+    )
+    .with_source(source)
+}
+
+fn request_build_error(source: siumai_transport::RequestBuildError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "Gemini Interactions language request violates the transport contract",
+    )
+    .with_source(source)
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::StreamExt;
+    use siumai_core::{
+        CallOptions, ContentPart, LanguageModel, Message, ProviderOptions, ReplayDomain,
+        ReplayDomainId, ToolSpec,
+    };
+    use siumai_transport::EndpointConfig;
+
+    use super::*;
+    use crate::{GeminiCredential, GeminiProvider};
+
+    fn provider(base_url: String) -> GeminiProvider {
+        GeminiProvider::builder(GeminiCredential::api_key("test-key"))
+            .with_endpoint(EndpointConfig::local_explicit(base_url).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("gemini-language-test").unwrap(),
+            ))
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn direct_and_stream_paths_share_the_interactions_contract() {
+        let mut server = mockito::Server::new_async().await;
+        let direct = server
+            .mock("POST", "/v1/interactions")
+            .match_header("x-goog-api-key", "test-key")
+            .match_header("accept", "application/json")
+            .match_body(mockito::Matcher::Regex("\\\"store\\\":false".to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "interaction-direct",
+                    "status": "completed",
+                    "model": "gemini-3.6-flash",
+                    "steps": [{
+                        "type": "model_output",
+                        "content": [{"type": "text", "text": "hello"}]
+                    }],
+                    "usage": {"total_input_tokens": 2, "total_output_tokens": 1}
+                })
+                .to_string(),
+            )
+            .expect(2)
+            .create_async()
+            .await;
+        let stream = server
+            .mock("POST", "/v1/interactions")
+            .match_header("accept", "text/event-stream")
+            .match_body(mockito::Matcher::Regex("\\\"stream\\\":true".to_string()))
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(
+                [
+                    serde_json::json!({
+                        "event_type": "interaction.created",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "in_progress",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.start",
+                        "index": 0,
+                        "step": {"type": "model_output"}
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.delta",
+                        "index": 0,
+                        "delta": {"type": "text", "text": "hello"}
+                    }),
+                    serde_json::json!({"event_type": "step.stop", "index": 0}),
+                    serde_json::json!({
+                        "event_type": "interaction.completed",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "completed",
+                            "model": "gemini-3.6-flash",
+                            "usage": {"total_input_tokens": 2, "total_output_tokens": 1}
+                        }
+                    }),
+                ]
+                .into_iter()
+                .map(|value| format!("data: {value}\n\n"))
+                .collect::<String>(),
+            )
+            .create_async()
+            .await;
+        let provider = provider(server.url());
+        let model = provider.language("gemini-3.6-flash").unwrap();
+        let options =
+            GeminiInteractionsOptions::new().with_thinking_summaries(GeminiThinkingSummaries::Auto);
+        let call = CallOptions::default()
+            .with_provider_options_for(&model, &options)
+            .unwrap();
+        let request = LanguageRequest::new(vec![Message::user("hello")]);
+
+        let native = model
+            .generate_native(request.clone(), call.clone())
+            .await
+            .unwrap();
+        assert_eq!(native.native()["id"], "interaction-direct");
+        let response = model.generate(request.clone(), call.clone()).await.unwrap();
+        assert!(matches!(
+            &response.content()[0],
+            ContentPart::Text { text } if text == "hello"
+        ));
+
+        let events = model
+            .stream(request, call)
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        let terminals = events
+            .iter()
+            .filter_map(LanguageStreamEvent::terminal)
+            .collect::<Vec<_>>();
+        assert_eq!(terminals.len(), 1);
+        let StreamTerminal::Completed { response } = terminals[0] else {
+            panic!("expected a completed Gemini stream");
+        };
+        assert!(matches!(
+            &response.content()[0],
+            ContentPart::Text { text } if text == "hello"
+        ));
+        direct.assert_async().await;
+        stream.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn stream_rejects_frames_after_terminal_in_one_sse_batch() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/v1/interactions")
+            .match_header("accept", "text/event-stream")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream")
+            .with_body(
+                [
+                    serde_json::json!({
+                        "event_type": "interaction.created",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "in_progress",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.start",
+                        "index": 0,
+                        "step": {"type": "model_output"}
+                    }),
+                    serde_json::json!({
+                        "event_type": "step.delta",
+                        "index": 0,
+                        "delta": {"type": "text", "text": "hello"}
+                    }),
+                    serde_json::json!({"event_type": "step.stop", "index": 0}),
+                    serde_json::json!({
+                        "event_type": "interaction.completed",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "completed",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                    serde_json::json!({
+                        "event_type": "interaction.completed",
+                        "interaction": {
+                            "id": "interaction-stream",
+                            "status": "completed",
+                            "model": "gemini-3.6-flash"
+                        }
+                    }),
+                ]
+                .into_iter()
+                .map(|value| format!("data: {value}\n\n"))
+                .collect::<String>(),
+            )
+            .create_async()
+            .await;
+
+        let model = provider(server.url()).language("gemini-3.6-flash").unwrap();
+        let events = model
+            .stream(
+                LanguageRequest::new(vec![Message::user("hello")]),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        let terminals = events
+            .iter()
+            .filter_map(LanguageStreamEvent::terminal)
+            .collect::<Vec<_>>();
+        assert_eq!(terminals.len(), 1);
+        match terminals[0] {
+            StreamTerminal::Failed { error, .. } => assert_eq!(error.kind(), ErrorKind::Protocol),
+            other => panic!("expected a failed terminal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn typed_options_and_tool_schema_stay_provider_owned() {
+        let options = ProviderOptions::typed(
+            &GeminiInteractionsOptions::new()
+                .with_storage(GeminiInteractionStorage::Enabled)
+                .with_thinking_level(GeminiThinkingLevel::High),
+        )
+        .unwrap();
+        assert_eq!(options.namespace().as_str(), "google");
+        assert!(ToolSpec::new("lookup", None, serde_json::json!({"type": "object"})).is_ok());
+    }
+}

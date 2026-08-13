@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reworked language history, tool input, provider-owned replay items, typed stream failures, and
+  terminal settlement as checked semantic contracts. Caller-executed tool calls now expose one
+  bounded parsed JSON representation; provider-owned replay data stays opaque and sanitized.
+- Removed premature generic video-job and streaming-transcription abstractions. Native lifecycle
+  APIs remain owned by the providers that can prove their semantics.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.8...siumai-core-v0.11.0-beta.9) - 2026-05-27
 
 ### Added

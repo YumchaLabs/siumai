@@ -2,14 +2,15 @@
 name = "siumai-registry"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
-description = "Registry and factories for siumai"
+description = "Immutable model routing for siumai"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/siumai-registry"
 readme = "../README.md"
-keywords = ["llm", "ai"]
+keywords = ["llm", "ai", "routing"]
 categories = ["api-bindings"]
 
 [lib]
@@ -17,222 +18,15 @@ doctest = false
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["openai"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-siumai-core = { workspace = true, default-features = false }
-siumai-provider-utils = { workspace = true, default-features = false }
-siumai-provider-openai = { version = "0.11.0-beta.9", path = "../siumai-provider-openai", default-features = false, optional = true }
-siumai-provider-openai-compatible = { version = "0.11.0-beta.9", path = "../siumai-provider-openai-compatible", default-features = false, optional = true }
-siumai-protocol-openai = { version = "0.11.0-beta.9", path = "../siumai-protocol-openai", default-features = false, optional = true }
-siumai-provider-azure = { version = "0.11.0-beta.9", path = "../siumai-provider-azure", default-features = false, optional = true }
-siumai-provider-anthropic = { version = "0.11.0-beta.9", path = "../siumai-provider-anthropic", default-features = false, optional = true }
-siumai-provider-gemini = { version = "0.11.0-beta.9", path = "../siumai-provider-gemini", default-features = false, optional = true }
-siumai-provider-google-vertex = { version = "0.11.0-beta.9", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
-siumai-provider-ollama = { version = "0.11.0-beta.9", path = "../siumai-provider-ollama", default-features = false, optional = true }
-siumai-provider-groq = { version = "0.11.0-beta.9", path = "../siumai-provider-groq", default-features = false, optional = true }
-siumai-provider-xai = { version = "0.11.0-beta.9", path = "../siumai-provider-xai", default-features = false, optional = true }
-siumai-provider-deepseek = { version = "0.11.0-beta.9", path = "../siumai-provider-deepseek", default-features = false, optional = true }
-siumai-provider-minimaxi = { version = "0.11.0-beta.9", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
-siumai-provider-cohere = { version = "0.11.0-beta.9", path = "../siumai-provider-cohere", default-features = false, optional = true }
-siumai-provider-togetherai = { version = "0.11.0-beta.9", path = "../siumai-provider-togetherai", default-features = false, optional = true }
-siumai-provider-amazon-bedrock = { version = "0.11.0-beta.9", path = "../siumai-provider-amazon-bedrock", default-features = false, optional = true }
-siumai-provider-gateway = { version = "0.11.0-beta.9", path = "../siumai-provider-gateway", default-features = false, optional = true }
-siumai-provider-deepgram = { version = "0.11.0-beta.9", path = "../siumai-provider-deepgram", default-features = false, optional = true }
-siumai-provider-elevenlabs = { version = "0.11.0-beta.9", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
-
 async-trait.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-futures.workspace = true
-chrono.workspace = true
+siumai-core = { workspace = true, default-features = false }
 thiserror.workspace = true
-uuid.workspace = true
-tracing.workspace = true
-once_cell.workspace = true
-lru.workspace = true
-base64.workspace = true
 
 [features]
 default = []
 
-## Built-in providers + adapters
-##
-## When disabled, `siumai-registry` provides only the registry *abstractions*
-## (`ProviderFactory`, `BuildContext`, `create_provider_registry`, handles, etc.).
-## This allows external crates to implement and register providers without pulling
-## in the built-in provider implementations.
-builtins = []
-
-structured-messages = [
-    "siumai-provider-utils/structured-messages",
-    "siumai-core/structured-messages",
-    "siumai-protocol-openai?/structured-messages",
-    "siumai-provider-openai?/structured-messages",
-    "siumai-provider-openai-compatible?/structured-messages",
-    "siumai-provider-azure?/structured-messages",
-    "siumai-provider-anthropic?/structured-messages",
-    "siumai-provider-gemini?/structured-messages",
-    "siumai-provider-google-vertex?/structured-messages",
-    "siumai-provider-ollama?/structured-messages",
-    "siumai-provider-groq?/structured-messages",
-    "siumai-provider-xai?/structured-messages",
-    "siumai-provider-minimaxi?/structured-messages",
-    "siumai-provider-deepseek?/structured-messages",
-    "siumai-provider-cohere?/structured-messages",
-    "siumai-provider-togetherai?/structured-messages",
-    "siumai-provider-amazon-bedrock?/structured-messages",
-    "siumai-provider-gateway?/structured-messages",
-    "siumai-provider-deepgram?/structured-messages",
-    "siumai-provider-elevenlabs?/structured-messages",
-    "builtins",
-]
-
-openai = [
-    "builtins",
-    "siumai-core/openai",
-    "dep:siumai-provider-openai",
-    "siumai-provider-openai/openai",
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-
-# OpenAI WebSocket transport for streaming `/responses`.
-openai-websocket = ["openai", "siumai-provider-openai/openai-websocket"]
-azure = [
-    "builtins",
-    "siumai-core/openai",
-    "dep:siumai-provider-azure",
-    "siumai-provider-azure/azure",
-]
-anthropic = ["builtins", "siumai-core/anthropic", "dep:siumai-provider-anthropic", "siumai-provider-anthropic/anthropic"]
-google = ["builtins", "siumai-core/google", "dep:siumai-provider-gemini", "siumai-provider-gemini/google"]
-google-vertex = [
-    "builtins",
-    "siumai-core/google",
-    "siumai-core/openai",
-    "dep:siumai-provider-google-vertex",
-    "siumai-provider-google-vertex/google-vertex",
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-ollama = ["builtins", "siumai-core/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]
-xai = [
-    "builtins",
-    "siumai-core/xai",
-    "dep:siumai-provider-xai",
-    "siumai-provider-xai/xai",
-    # xAI is an OpenAI-compatible provider; the factory depends on the shared vendor adapter.
-    "siumai-core/openai",
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-groq = [
-    "builtins",
-    "siumai-core/groq",
-    "dep:siumai-provider-groq",
-    "siumai-provider-groq/groq",
-    # Groq is an OpenAI-compatible provider; the factory depends on the shared vendor adapter.
-    "siumai-core/openai",
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-deepseek = [
-    "builtins",
-    "siumai-core/openai",
-    "dep:siumai-provider-deepseek",
-    "siumai-provider-deepseek/deepseek",
-    # DeepSeek reuses the OpenAI-compatible runtime, but exposes a dedicated registry factory.
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-deepinfra = [
-    "builtins",
-    "siumai-core/openai",
-    # DeepInfra reuses the OpenAI-compatible runtime for text/completion/embedding,
-    # but exposes a dedicated registry factory for provider-owned image routes.
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-minimaxi = ["builtins", "siumai-core/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
-cohere = ["builtins", "siumai-core/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
-togetherai = [
-    "builtins",
-    "siumai-core/togetherai",
-    "siumai-core/openai",
-    "dep:siumai-provider-togetherai",
-    "siumai-provider-togetherai/togetherai",
-    "dep:siumai-provider-openai-compatible",
-    "siumai-provider-openai-compatible/openai-standard",
-    "dep:siumai-protocol-openai",
-    "siumai-protocol-openai/openai-standard",
-]
-bedrock = [
-    "builtins",
-    "siumai-core/bedrock",
-    "dep:siumai-provider-amazon-bedrock",
-    "siumai-provider-amazon-bedrock/bedrock",
-]
-gateway = [
-    "builtins",
-    "dep:siumai-provider-gateway",
-    "siumai-provider-gateway/gateway",
-]
-deepgram = [
-    "builtins",
-    "siumai-core/deepgram",
-    "dep:siumai-provider-deepgram",
-    "siumai-provider-deepgram/deepgram",
-]
-elevenlabs = [
-    "builtins",
-    "siumai-core/elevenlabs",
-    "dep:siumai-provider-elevenlabs",
-    "siumai-provider-elevenlabs/elevenlabs",
-]
-
-gcp = ["builtins", "siumai-core/gcp", "google", "google-vertex", "siumai-provider-google-vertex/gcp"]
-json-repair = ["builtins", "siumai-core/json-repair", "google", "siumai-provider-gemini/json-repair"]
-
-gzip = ["builtins", "siumai-core/gzip"]
-brotli = ["builtins", "siumai-core/brotli"]
-
-all-providers = [
-    "openai",
-    "azure",
-    "anthropic",
-    "google",
-    "google-vertex",
-    "ollama",
-    "xai",
-    "groq",
-    "deepseek",
-    "deepinfra",
-    "minimaxi",
-    "cohere",
-    "togetherai",
-    "bedrock",
-    "gateway",
-    "deepgram",
-    "elevenlabs",
-]
-
 [dev-dependencies]
-tokio-test.workspace = true
-tempfile.workspace = true
-wiremock.workspace = true
+tokio.workspace = true

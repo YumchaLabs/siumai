@@ -1,9 +1,8 @@
-//! Error handling (re-export).
-//!
-//! The canonical error types live in `siumai-spec` and are re-exported here.
+//! Canonical, sanitized error contracts.
 
-pub mod helpers;
-pub mod policy;
-pub use helpers::*;
-pub use policy::*;
-pub use siumai_spec::error::*;
+mod contract;
+pub use contract::{
+    DiagnosticTextError, Error, ErrorContext, ErrorDetail, ErrorKind, MAX_RETRY_AFTER_HINT,
+    PublicDiagnosticText, ResourceKind, ResponseDiagnostics, SensitiveErrorSource,
+    SensitiveResponse,
+};

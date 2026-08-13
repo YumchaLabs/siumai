@@ -1,3 +1,0 @@
-event: response.error
-data: {"type":"response.error","error":{"message":"Rate limit exceeded","type":"rate_limit_error","code":"rate_limit"}}
-

@@ -1,61 +1,26 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## Unreleased
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Breaking
 
-## [Unreleased]
-
-## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-xai-v0.11.0-beta.8...siumai-provider-xai-v0.11.0-beta.9) - 2026-05-27
-
-### Other
-
-- refresh provider model catalogs
-- harden clean architecture boundaries
-- Merge branch 'main' of https://github.com/YumchaLabs/siumai
-- deepen provider and bridge module boundaries
-
-## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-xai-v0.11.0-beta.7...siumai-provider-xai-v0.11.0-beta.8) - 2026-05-18
-
-### Other
-
-- *(release)* prepare v0.11.0-beta.8
-- converge provider boundary architecture
-- harden crate boundaries
-- *(examples)* move extras example index
-- *(examples)* tighten example guidance
-- clean stale refactor docs
-﻿
-### Added
-
-- Added AI SDK-style `XaiProviderSettings` and `VERSION` exports for the audited package-level
-  `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
-
-### Changed
-
-- Aligned xAI Responses response and SSE semantics with the audited AI SDK boundary:
-  reasoning metadata now stays under `providerMetadata.xai`, parsed responses no longer emit
-  top-level provider metadata for plain text paths, and `file_search` tool response/stream outputs
-  now normalize to the stable snake_case tool name plus camelCase result fields.
-- xAI's compat-backed chat config now enables structured outputs by default, preserving stable
-  JSON Schema response formats on the wire instead of falling back to `json_object`.
-- xAI native image generation/edit now consume the canonical shared top-level `aspectRatio` field
-  before provider-owned options/legacy extras, and unsupported image warnings now more closely
-  match the audited AI SDK shape for shared `size` / `seed`.
-- The provider-owned typed option surface now also exposes AI SDK-style alias names:
-  `XaiLanguageModelChatOptions`, `XaiLanguageModelResponsesOptions`,
-  `XaiImageModelOptions`, and `XaiVideoModelOptions`, plus the audited deprecated provider alias
-  names kept by upstream for migration parity.
-
-## [0.11.0-beta.5] - 2026-01-15
+- Replaced `XaiClient`, `XaiBuilder`, `XaiConfig`, and capability discovery with the synchronous,
+  model-independent `XaiProvider` and `XaiProviderBuilder` runtime.
+- Made the Responses API the default language path. Chat Completions remains available through
+  `XaiProvider::chat_completions`.
+- Removed raw provider-option passthrough, compatibility-config conversions, legacy public type
+  aliases, and the crate-local `xai` relay feature.
+- Moved video generation behind the explicit `experimental` namespace and stopped exposing
+  ephemeral signed asset URLs.
 
 ### Added
 
-- xAI provider extracted into its own crate as part of the workspace split.
-
-### Changed
-
-- Fixture parity and Responses stream mapping aligned with Vercel AI SDK.
-
-
+- Added typed Chat Completions and Responses options, including xAI prompt-cache affinity,
+  Responses hosted search/tools, reasoning, logprobs, response chaining, and an explicitly legacy
+  Chat live-search compatibility boundary.
+- Added provider-owned files, image generation and editing, text-to-speech, and experimental video
+  resources backed by one shared authenticated transport.
+- Added synchronous model handles and concrete Responses, Chat Completions, image, and speech
+  Registry registrations, with Responses as the recommended language route.
+- Refreshed open model-ID hints for Grok 4.5, Grok 4.3, Grok 4.20, Grok Build, Grok Imagine image,
+  and Grok Imagine video families while keeping unknown future IDs callable.

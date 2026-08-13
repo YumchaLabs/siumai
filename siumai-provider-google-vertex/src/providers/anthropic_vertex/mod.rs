@@ -1,52 +1,45 @@
-pub mod builder;
-pub mod client;
-pub mod context;
-pub mod ext;
-pub mod models;
-mod settings;
-pub mod spec;
+//! Anthropic Messages-compatible models served through Google Vertex AI.
+//!
+//! This module owns Google identity, Vertex endpoint construction, Google bearer
+//! authentication, provider-specific options and annotations, verified model
+//! advisories, and the Vertex wire projection. Anthropic Messages encoding,
+//! decoding, streaming, and shared execution remain in the protocol and
+//! compatible-engine crates.
 
-/// Provider tool factories that return `Tool` directly (Vertex Anthropic supported subset).
-pub mod tools {
-    use crate::types::Tool;
+mod annotations;
+mod auth;
+mod endpoint;
+mod models;
+mod options;
+mod profile;
+mod projection;
+mod provider;
+mod request_policy;
 
-    pub use crate::hosted_tools::anthropic::{
-        tool_search_bm25_20251119, tool_search_regex_20251119,
-    };
-    pub use siumai_protocol_anthropic::tool_catalog::anthropic::{
-        bash_20241022, bash_20250124, computer_20241022, text_editor_20241022,
-        text_editor_20250124, text_editor_20250429, text_editor_20250728,
-    };
-
-    pub fn web_search_20250305() -> Tool {
-        crate::hosted_tools::anthropic::web_search_20250305().build()
-    }
-}
-
-/// Provider-executed tool builders and typed helper inputs.
-pub mod hosted_tools {
-    pub use crate::hosted_tools::anthropic::{
-        UserLocation, WebSearch20250305Config, tool_search_bm25_20251119,
-        tool_search_regex_20251119, web_search_20250305,
-    };
-}
-
-/// Compatibility alias for older imports.
-pub mod provider_tools {
-    pub use super::tools::*;
-}
-
-pub use crate::provider_options::anthropic_vertex::{
-    VertexAnthropicOptions, VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+pub use annotations::{
+    GoogleVertexAnthropicAnnotationResolver, GoogleVertexAnthropicCacheTtl,
+    GoogleVertexAnthropicContentCache, GoogleVertexAnthropicMessageCache,
+    GoogleVertexAnthropicTool, GoogleVertexAnthropicToolOptions,
+    GoogleVertexAnthropicToolSpecError,
 };
-pub use builder::VertexAnthropicBuilder;
-pub use client::{VertexAnthropicClient, VertexAnthropicConfig};
-pub use ext::VertexAnthropicChatRequestExt;
-pub use models::GoogleVertexAnthropicMessagesModelId;
-pub use settings::GoogleVertexAnthropicProviderSettings;
-pub use siumai_protocol_anthropic::provider_metadata::anthropic::{
-    AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock, AnthropicContentPartExt,
-    AnthropicMessageContainerMetadata, AnthropicMessageContainerSkill, AnthropicMessageMetadata,
-    AnthropicMetadata, AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
-    AnthropicToolCaller, AnthropicUsageIteration,
+pub use auth::{GoogleVertexCredential, GoogleVertexCredentialError, GoogleVertexTokenSource};
+pub use endpoint::GoogleVertexAnthropicEndpointError;
+pub use models::{
+    CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5_20251001, CLAUDE_OPUS_4_5_20251101, CLAUDE_OPUS_4_6,
+    CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_5_20250929, CLAUDE_SONNET_4_6,
+    CLAUDE_SONNET_5, current_models,
 };
+pub use options::GoogleVertexAnthropicMessagesOptions;
+pub use profile::GoogleVertexAnthropicProfileError;
+pub use provider::{
+    GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicConfigError,
+    GoogleVertexAnthropicLanguageModel, GoogleVertexAnthropicProvider,
+    GoogleVertexAnthropicProviderBuilder,
+};
+pub use siumai_protocol_anthropic::messages::{
+    ComputerToolOptions, MessagesMetadata, OutputEffort, TextEditorToolOptions, ThinkingConfig,
+    ThinkingDisplay, WebSearchToolOptions,
+};
+
+#[cfg(test)]
+mod tests;

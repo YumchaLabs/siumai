@@ -1,804 +1,571 @@
-use super::XaiClient;
-use super::http::{build_http_execution_config, headers_to_map};
-use crate::error::LlmError;
-use crate::provider_options::{XaiVideoMode, XaiVideoOptions, XaiVideoResolution};
-use crate::provider_utils::mime::guess_mime_from_bytes;
-use crate::types::video::{
-    VideoGenerationInput, VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
-    VideoTaskStatusResponse,
+//! Provider-owned typed xAI video-generation jobs.
+
+use std::fmt;
+
+use http::{Method, StatusCode};
+use serde::Deserialize;
+use serde_json::{Map, Value};
+use siumai_core::{
+    CallOptions, Error, ErrorKind, ModelId, PublicDiagnosticText, ResponseDiagnostics,
+    SensitiveResponse,
 };
-use crate::types::{BaseResponse, HttpResponseInfo, Warning};
-use siumai_core::video::VideoPollingOptions;
-use std::collections::HashMap;
-use std::time::Duration;
+use siumai_transport::{
+    ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestPlan, RequestTarget,
+    ResponseHeaders, TransportResponse,
+};
 
-fn parse_xai_video_options(
-    map: &crate::types::ProviderOptionsMap,
-) -> Result<Option<XaiVideoOptions>, LlmError> {
-    let Some(value) = map.get("xai") else {
-        return Ok(None);
-    };
+use super::files::XaiFileId;
 
-    serde_json::from_value(value.clone())
-        .map(Some)
-        .map_err(|err| {
-            LlmError::InvalidParameter(format!(
-                "Invalid xAI video options in providerOptions.xai: {err}"
-            ))
-        })
-}
+pub const VIDEO_SOURCE: &str = "https://docs.x.ai/developers/model-capabilities/video/generation";
+pub const VIDEO_VERIFIED_ON: &str = "2026-08-09";
 
-fn string_from_extra(
-    extra_params: Option<&HashMap<String, serde_json::Value>>,
-    primary: &str,
-    alias: &str,
-) -> Result<Option<String>, LlmError> {
-    let value = extra_params.and_then(|params| params.get(primary).or_else(|| params.get(alias)));
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    value.as_str().map(|v| Some(v.to_string())).ok_or_else(|| {
-        LlmError::InvalidParameter(format!(
-            "xAI video extra param '{primary}' must be a string when provided"
-        ))
-    })
-}
+const CREATE_TARGET: &str = "videos/generations";
+const MAX_PROMPT_BYTES: usize = 16 * 1024;
 
-fn u64_from_extra(
-    extra_params: Option<&HashMap<String, serde_json::Value>>,
-    primary: &str,
-    alias: &str,
-) -> Result<Option<u64>, LlmError> {
-    let value = extra_params.and_then(|params| params.get(primary).or_else(|| params.get(alias)));
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    value.as_u64().map(Some).ok_or_else(|| {
-        LlmError::InvalidParameter(format!(
-            "xAI video extra param '{primary}' must be an unsigned integer when provided"
-        ))
-    })
-}
-
-fn string_list_from_extra(
-    extra_params: Option<&HashMap<String, serde_json::Value>>,
-    primary: &str,
-    alias: &str,
-) -> Result<Option<Vec<String>>, LlmError> {
-    let value = extra_params.and_then(|params| params.get(primary).or_else(|| params.get(alias)));
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let Some(values) = value.as_array() else {
-        return Err(LlmError::InvalidParameter(format!(
-            "xAI video extra param '{primary}' must be an array of strings when provided"
-        )));
-    };
-
-    let mut parsed = Vec::with_capacity(values.len());
-    for entry in values {
-        let Some(entry) = entry.as_str() else {
-            return Err(LlmError::InvalidParameter(format!(
-                "xAI video extra param '{primary}' must contain only strings"
-            )));
-        };
-        parsed.push(entry.to_string());
-    }
-
-    Ok(Some(parsed))
-}
-
-fn input_to_url(input: &VideoGenerationInput, default_mime: &str) -> Result<String, LlmError> {
-    match input {
-        VideoGenerationInput::Url { url, .. } => Ok(url.clone()),
-        VideoGenerationInput::File {
-            data, media_type, ..
-        } => {
-            let mime = if let Some(media_type) = media_type {
-                media_type.clone()
-            } else {
-                let bytes = data.as_bytes().map_err(|err| {
-                    LlmError::InvalidParameter(format!(
-                        "Invalid base64 video input payload for xAI video request: {err}"
-                    ))
-                })?;
-                guess_mime_from_bytes(&bytes).unwrap_or_else(|| default_mime.to_string())
-            };
-            Ok(format!("data:{mime};base64,{}", data.as_base64()))
-        }
-    }
-}
-
-fn push_warning(warnings: &mut Vec<Warning>, feature: &str, details: &'static str) {
-    warnings.push(Warning::unsupported(feature, Some(details)));
-}
-
-fn resolve_xai_video_options(
-    request: &VideoGenerationRequest,
-) -> Result<XaiVideoOptions, LlmError> {
-    let mut options = parse_xai_video_options(&request.provider_options_map)?.unwrap_or_default();
-    let extra_params = request.extra_params.as_ref();
-
-    if options.poll_interval_ms.is_none() {
-        options.poll_interval_ms =
-            u64_from_extra(extra_params, "poll_interval_ms", "pollIntervalMs")?;
-    }
-    if options.poll_timeout_ms.is_none() {
-        options.poll_timeout_ms = u64_from_extra(extra_params, "poll_timeout_ms", "pollTimeoutMs")?;
-    }
-    if options.resolution.is_none()
-        && let Some(value) = string_from_extra(extra_params, "resolution", "resolution")?
-    {
-        options.resolution = Some(XaiVideoResolution::from(value));
-    }
-    if options.mode.is_none()
-        && let Some(value) = string_from_extra(extra_params, "mode", "mode")?
-    {
-        options.mode = Some(XaiVideoMode::from(value));
-    }
-    if options.video_url.is_none() {
-        options.video_url = string_from_extra(extra_params, "video_url", "videoUrl")?;
-    }
-    if options.reference_image_urls.is_none() {
-        options.reference_image_urls =
-            string_list_from_extra(extra_params, "reference_image_urls", "referenceImageUrls")?;
-    }
-
-    Ok(options)
-}
-
-pub(super) fn polling_options(
-    client: &XaiClient,
-    request: &VideoGenerationRequest,
-) -> Result<VideoPollingOptions, LlmError> {
-    let mut request = request.clone();
-    client.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
-    let options = resolve_xai_video_options(&request)?;
-
-    Ok(VideoPollingOptions {
-        poll_interval: options.poll_interval_ms.map(Duration::from_millis),
-        poll_timeout: options.poll_timeout_ms.map(Duration::from_millis),
-    })
-}
-
-fn map_resolution(value: &str) -> Option<&'static str> {
-    match value.trim() {
-        "480p" | "480P" | "854x480" | "640x480" => Some("480p"),
-        "720p" | "720P" | "1280x720" => Some("720p"),
-        _ => None,
-    }
-}
-
-fn status_from_wire(status: Option<&str>, has_video_url: bool) -> VideoTaskStatus {
-    match status.map(|value| value.to_ascii_lowercase()) {
-        Some(value) if value == "done" => VideoTaskStatus::Success,
-        Some(value) if value == "expired" || value == "failed" || value == "error" => {
-            VideoTaskStatus::Fail
-        }
-        Some(value) if value == "queueing" || value == "queued" => VideoTaskStatus::Queueing,
-        Some(value) if value == "preparing" => VideoTaskStatus::Preparing,
-        Some(value) if value == "processing" || value == "running" || value == "pending" => {
-            VideoTaskStatus::Processing
-        }
-        None if has_video_url => VideoTaskStatus::Success,
-        _ => VideoTaskStatus::Processing,
-    }
-}
-
+/// xAI video output resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum XaiVideoCreateRoute {
-    Generation,
-    Edit,
-    Extension,
+pub enum XaiVideoResolution {
+    P480,
+    P720,
+    P1080,
 }
 
-fn resolve_video_mode(
-    request: &VideoGenerationRequest,
-    options: &XaiVideoOptions,
-) -> Option<XaiVideoMode> {
-    options.mode.clone().or_else(|| {
-        if options.video_url.is_some() || request.video.is_some() {
-            Some(XaiVideoMode::EditVideo)
-        } else if options
-            .reference_image_urls
-            .as_ref()
-            .is_some_and(|urls| !urls.is_empty())
-        {
-            Some(XaiVideoMode::ReferenceToVideo)
-        } else {
-            None
+/// xAI video aspect ratio for text/image-to-video generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XaiVideoAspectRatio {
+    Landscape16By9,
+    Portrait9By16,
+    Square,
+    Standard4By3,
+    Portrait3By4,
+    Landscape3By2,
+    Portrait2By3,
+}
+
+/// Optional first-frame input for video generation.
+#[derive(Clone, PartialEq, Eq)]
+pub enum XaiVideoImage {
+    Url(String),
+    FileId(XaiFileId),
+}
+
+impl fmt::Debug for XaiVideoImage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Url(_) => formatter.debug_tuple("Url").field(&"<redacted>").finish(),
+            Self::FileId(id) => formatter.debug_tuple("FileId").field(id).finish(),
         }
-    })
+    }
 }
 
-fn build_create_body(
-    request: &VideoGenerationRequest,
-) -> Result<(serde_json::Value, XaiVideoCreateRoute, Vec<Warning>), LlmError> {
-    let xai_options = resolve_xai_video_options(request)?;
-    let mut warnings = Vec::new();
-    let mut body = serde_json::Map::new();
-    let prompt = request
-        .prompt
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            LlmError::InvalidParameter("xAI video requests require a non-empty prompt".to_string())
+/// Typed creation request for one xAI video job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XaiVideoCreateRequest {
+    model: ModelId,
+    prompt: String,
+    duration_seconds: Option<u8>,
+    aspect_ratio: Option<XaiVideoAspectRatio>,
+    resolution: Option<XaiVideoResolution>,
+    image: Option<XaiVideoImage>,
+}
+
+impl XaiVideoCreateRequest {
+    pub fn new(model: impl Into<String>, prompt: impl Into<String>) -> Result<Self, Error> {
+        let model = ModelId::new(model.into()).map_err(|source| {
+            Error::new(ErrorKind::InvalidInput, "xAI video model ID is invalid").with_source(source)
         })?;
-    body.insert("model".to_string(), serde_json::json!(request.model));
-    body.insert("prompt".to_string(), serde_json::json!(prompt));
-
-    let provider_video_url = xai_options.video_url.clone();
-    let effective_mode = resolve_video_mode(request, &xai_options);
-    let is_edit = matches!(effective_mode.as_ref(), Some(XaiVideoMode::EditVideo));
-    let is_extension = matches!(effective_mode.as_ref(), Some(XaiVideoMode::ExtendVideo));
-    let has_reference_images = matches!(
-        effective_mode.as_ref(),
-        Some(XaiVideoMode::ReferenceToVideo)
-    );
-
-    if request.count.unwrap_or(1) > 1 {
-        push_warning(
-            &mut warnings,
-            "n",
-            "xAI video models do not support generating multiple videos per call.",
-        );
-    }
-    if request.fps.is_some() {
-        push_warning(
-            &mut warnings,
-            "fps",
-            "xAI video models do not support custom FPS.",
-        );
-    }
-    if request.seed.is_some() {
-        push_warning(
-            &mut warnings,
-            "seed",
-            "xAI video models do not support deterministic seeds.",
-        );
-    }
-
-    if is_edit {
-        if request.duration.is_some() {
-            push_warning(
-                &mut warnings,
-                "duration",
-                "xAI video editing does not support custom duration.",
-            );
-        }
-        if request.aspect_ratio.is_some() {
-            push_warning(
-                &mut warnings,
-                "aspect_ratio",
-                "xAI video editing does not support custom aspect ratios.",
-            );
-        }
-        if request.resolution.is_some() || xai_options.resolution.is_some() {
-            push_warning(
-                &mut warnings,
-                "resolution",
-                "xAI video editing does not support custom resolutions.",
-            );
-        }
-    } else if is_extension {
-        if request.aspect_ratio.is_some() {
-            push_warning(
-                &mut warnings,
-                "aspect_ratio",
-                "xAI video extension does not support custom aspect ratios.",
-            );
-        }
-        if request.resolution.is_some() || xai_options.resolution.is_some() {
-            push_warning(
-                &mut warnings,
-                "resolution",
-                "xAI video extension does not support custom resolutions.",
-            );
-        }
-    }
-
-    let allow_duration = !is_edit;
-    let allow_aspect_ratio = !is_edit && !is_extension;
-    let allow_resolution = !is_edit && !is_extension;
-
-    if allow_duration && let Some(duration) = request.duration {
-        body.insert("duration".to_string(), serde_json::json!(duration));
-    }
-    if allow_aspect_ratio
-        && let Some(aspect_ratio) = request.aspect_ratio.as_ref().cloned().or_else(|| {
-            string_from_extra(request.extra_params.as_ref(), "aspect_ratio", "aspectRatio")
-                .ok()
-                .flatten()
+        let prompt = prompt.into();
+        validate_text(&prompt, MAX_PROMPT_BYTES, "xAI video prompt is invalid")?;
+        Ok(Self {
+            model,
+            prompt,
+            duration_seconds: None,
+            aspect_ratio: None,
+            resolution: None,
+            image: None,
         })
-    {
-        body.insert("aspect_ratio".to_string(), serde_json::json!(aspect_ratio));
     }
 
-    if allow_resolution {
-        if let Some(resolution) = xai_options.resolution {
-            body.insert(
-                "resolution".to_string(),
-                serde_json::json!(resolution.as_str()),
-            );
-        } else if let Some(resolution) = request.resolution.as_deref() {
-            if let Some(mapped) = map_resolution(resolution) {
-                body.insert("resolution".to_string(), serde_json::json!(mapped));
-            } else {
-                push_warning(
-                    &mut warnings,
-                    "resolution",
-                    "Unrecognized xAI video resolution. Use `480p`, `720p`, or providerOptions.xai.resolution.",
-                );
-            }
+    pub fn with_duration_seconds(mut self, seconds: u8) -> Result<Self, Error> {
+        if seconds == 0 || seconds > 15 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "xAI video duration must be between one and 15 seconds",
+            ));
         }
+        self.duration_seconds = Some(seconds);
+        Ok(self)
     }
 
-    if is_edit || is_extension {
-        if let Some(video_url) = provider_video_url {
-            if request.video.is_some() {
-                warnings.push(Warning::compatibility(
-                    "video",
-                    Some(
-                        "providerOptions.xai.videoUrl takes precedence over `request.video` on the xAI provider-owned path.",
-                    ),
-                ));
-            }
-            body.insert("video".to_string(), serde_json::json!({ "url": video_url }));
-        } else if let Some(video) = request.video.as_ref() {
-            body.insert(
-                "video".to_string(),
-                serde_json::json!({ "url": input_to_url(video, "video/mp4")? }),
-            );
+    pub const fn with_aspect_ratio(mut self, aspect_ratio: XaiVideoAspectRatio) -> Self {
+        self.aspect_ratio = Some(aspect_ratio);
+        self
+    }
+
+    pub const fn with_resolution(mut self, resolution: XaiVideoResolution) -> Self {
+        self.resolution = Some(resolution);
+        self
+    }
+
+    pub fn with_image_url(mut self, url: impl Into<String>) -> Result<Self, Error> {
+        let url = url.into();
+        validate_remote_url(&url)?;
+        self.image = Some(XaiVideoImage::Url(url));
+        Ok(self)
+    }
+
+    pub fn with_image_file(mut self, file_id: XaiFileId) -> Self {
+        self.image = Some(XaiVideoImage::FileId(file_id));
+        self
+    }
+}
+
+/// Validated video request identity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct XaiVideoJobId(String);
+
+impl XaiVideoJobId {
+    pub fn new(value: impl Into<String>) -> Result<Self, Error> {
+        let value = value.into();
+        if value.is_empty()
+            || value.len() > 256
+            || value.chars().any(|character| {
+                !character.is_ascii_alphanumeric() && !matches!(character, '-' | '_')
+            })
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "xAI video request ID is invalid",
+            ));
         }
+        Ok(Self(value))
     }
 
-    if let Some(image) = request.image.as_ref() {
-        body.insert(
-            "image".to_string(),
-            serde_json::json!({ "url": input_to_url(image, "image/png")? }),
-        );
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Created xAI video job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XaiVideoJob {
+    pub id: XaiVideoJobId,
+}
+
+/// Completed video artifact. The generated URL is redacted from `Debug`.
+#[derive(Clone, PartialEq)]
+pub struct XaiVideoArtifact {
+    pub url: String,
+    pub duration_seconds: Option<f64>,
+    pub respect_moderation: Option<bool>,
+}
+
+impl fmt::Debug for XaiVideoArtifact {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiVideoArtifact")
+            .field("url", &"<redacted>")
+            .field("duration_seconds", &self.duration_seconds)
+            .field("respect_moderation", &self.respect_moderation)
+            .finish()
+    }
+}
+
+/// Current provider-owned xAI video job state.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum XaiVideoJobState {
+    Pending {
+        progress: Option<f64>,
+    },
+    Completed {
+        video: XaiVideoArtifact,
+        progress: Option<f64>,
+        cost_in_usd_ticks: Option<u64>,
+    },
+    Failed {
+        code: Option<String>,
+    },
+    Expired,
+}
+
+/// Provider-owned xAI Videos job resource.
+#[derive(Clone)]
+pub struct XaiVideoJobs {
+    transport: ProviderTransport,
+}
+
+impl XaiVideoJobs {
+    pub(crate) fn new(transport: ProviderTransport) -> Self {
+        Self { transport }
     }
 
-    if has_reference_images
-        && let Some(reference_image_urls) = xai_options.reference_image_urls.as_ref()
-    {
+    pub async fn create(
+        &self,
+        request: XaiVideoCreateRequest,
+        call: CallOptions,
+    ) -> Result<XaiVideoJob, Error> {
+        let plan = create_plan(request)?;
+        let response = self.transport.execute(plan, call).await?;
+        if !response.status().is_success() {
+            return Err(response_error("xAI video creation failed", response));
+        }
+        let (_, _, body) = response.into_parts();
+        let wire: CreateResponseWire = serde_json::from_slice(&body).map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "xAI returned malformed video creation JSON",
+            )
+            .with_source(source)
+        })?;
+        Ok(XaiVideoJob {
+            id: XaiVideoJobId::new(wire.request_id)?,
+        })
+    }
+
+    pub async fn get(
+        &self,
+        id: &XaiVideoJobId,
+        call: CallOptions,
+    ) -> Result<XaiVideoJobState, Error> {
+        let plan = RequestPlan::new(
+            Method::GET,
+            RequestTarget::new(format!("videos/{}", id.as_str())).map_err(request_build_error)?,
+        )
+        .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+        .map_err(request_build_error)?;
+        let response = self.transport.execute(plan, call).await?;
+        if !response.status().is_success() {
+            return Err(response_error("xAI video status request failed", response));
+        }
+        decode_state(response)
+    }
+}
+
+impl fmt::Debug for XaiVideoJobs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiVideoJobs")
+            .field("transport", &"shared")
+            .finish()
+    }
+}
+
+fn create_plan(request: XaiVideoCreateRequest) -> Result<RequestPlan, Error> {
+    let mut body = Map::from_iter([
+        (
+            "model".to_string(),
+            Value::String(request.model.to_string()),
+        ),
+        ("prompt".to_string(), Value::String(request.prompt)),
+    ]);
+    if let Some(duration) = request.duration_seconds {
+        body.insert("duration".to_string(), Value::from(duration));
+    }
+    if let Some(aspect_ratio) = request.aspect_ratio {
         body.insert(
-            "reference_images".to_string(),
-            serde_json::Value::Array(
-                reference_image_urls
-                    .iter()
-                    .map(|url| serde_json::json!({ "url": url }))
-                    .collect(),
+            "aspect_ratio".to_string(),
+            Value::String(
+                match aspect_ratio {
+                    XaiVideoAspectRatio::Landscape16By9 => "16:9",
+                    XaiVideoAspectRatio::Portrait9By16 => "9:16",
+                    XaiVideoAspectRatio::Square => "1:1",
+                    XaiVideoAspectRatio::Standard4By3 => "4:3",
+                    XaiVideoAspectRatio::Portrait3By4 => "3:4",
+                    XaiVideoAspectRatio::Landscape3By2 => "3:2",
+                    XaiVideoAspectRatio::Portrait2By3 => "2:3",
+                }
+                .to_string(),
             ),
         );
     }
-
-    for (key, value) in xai_options.extra_fields {
-        body.entry(key).or_insert(value);
+    if let Some(resolution) = request.resolution {
+        body.insert(
+            "resolution".to_string(),
+            Value::String(
+                match resolution {
+                    XaiVideoResolution::P480 => "480p",
+                    XaiVideoResolution::P720 => "720p",
+                    XaiVideoResolution::P1080 => "1080p",
+                }
+                .to_string(),
+            ),
+        );
     }
-
-    if let Some(extra_params) = request.extra_params.as_ref() {
-        for (key, value) in extra_params {
-            if matches!(
-                key.as_str(),
-                "poll_interval_ms"
-                    | "pollIntervalMs"
-                    | "poll_timeout_ms"
-                    | "pollTimeoutMs"
-                    | "resolution"
-                    | "mode"
-                    | "video_url"
-                    | "videoUrl"
-                    | "reference_image_urls"
-                    | "referenceImageUrls"
-                    | "aspect_ratio"
-                    | "aspectRatio"
-            ) {
-                continue;
-            }
-            body.entry(key.clone()).or_insert_with(|| value.clone());
-        }
+    if let Some(image) = request.image {
+        body.insert(
+            "image".to_string(),
+            match image {
+                XaiVideoImage::Url(url) => serde_json::json!({"url":url}),
+                XaiVideoImage::FileId(id) => serde_json::json!({"file_id":id.as_str()}),
+            },
+        );
     }
-
-    let route = if is_extension {
-        XaiVideoCreateRoute::Extension
-    } else if is_edit {
-        XaiVideoCreateRoute::Edit
-    } else {
-        XaiVideoCreateRoute::Generation
-    };
-
-    Ok((serde_json::Value::Object(body), route, warnings))
+    RequestPlan::new(
+        Method::POST,
+        RequestTarget::new(CREATE_TARGET).map_err(request_build_error)?,
+    )
+    .with_body(RequestBody::json(&Value::Object(body)).map_err(request_build_error)?)
+    .with_replay_safety(ReplaySafety::Never)
+    .map_err(request_build_error)
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct XaiCreateVideoResponse {
-    #[serde(default)]
-    request_id: Option<String>,
-    #[serde(flatten)]
-    extra_fields: HashMap<String, serde_json::Value>,
+#[derive(Debug, Deserialize)]
+struct CreateResponseWire {
+    request_id: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct XaiVideoStatusResponse {
+#[derive(Debug, Deserialize)]
+struct StatusResponseWire {
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
-    video: Option<XaiVideoAsset>,
+    video: Option<VideoWire>,
     #[serde(default)]
-    model: Option<String>,
+    usage: Option<UsageWire>,
     #[serde(default)]
-    usage: Option<XaiVideoUsage>,
-    #[serde(flatten)]
-    extra_fields: HashMap<String, serde_json::Value>,
+    progress: Option<f64>,
+    #[serde(default)]
+    error: Option<ErrorWire>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct XaiVideoAsset {
+#[derive(Debug, Deserialize)]
+struct VideoWire {
+    url: String,
     #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    duration: Option<f32>,
+    duration: Option<f64>,
     #[serde(default)]
     respect_moderation: Option<bool>,
-    #[serde(flatten)]
-    extra_fields: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct XaiVideoUsage {
+#[derive(Debug, Deserialize)]
+struct UsageWire {
     #[serde(default)]
-    cost_in_usd_ticks: Option<serde_json::Value>,
-    #[serde(flatten)]
-    extra_fields: HashMap<String, serde_json::Value>,
+    cost_in_usd_ticks: Option<u64>,
 }
 
-fn build_create_metadata(
-    request_id: &str,
-    mut extra_fields: HashMap<String, serde_json::Value>,
-) -> HashMap<String, serde_json::Value> {
-    extra_fields.insert(
-        "xai".to_string(),
-        serde_json::json!({
-            "requestId": request_id
+#[derive(Debug, Deserialize)]
+struct ErrorWire {
+    #[serde(default)]
+    code: Option<String>,
+}
+
+fn decode_state(response: TransportResponse) -> Result<XaiVideoJobState, Error> {
+    let status_code = response.status();
+    let (_, _, body) = response.into_parts();
+    if status_code == StatusCode::ACCEPTED && body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(XaiVideoJobState::Pending { progress: None });
+    }
+    let wire: StatusResponseWire = serde_json::from_slice(&body).map_err(|source| {
+        Error::new(
+            ErrorKind::Protocol,
+            "xAI returned malformed video status JSON",
+        )
+        .with_source(source)
+    })?;
+    if wire
+        .progress
+        .is_some_and(|progress| !progress.is_finite() || progress < 0.0)
+    {
+        return Err(Error::protocol_violation(
+            "xAI video status contains invalid progress",
+        ));
+    }
+    match wire.status.as_deref() {
+        Some("pending") | None if wire.video.is_none() => Ok(XaiVideoJobState::Pending {
+            progress: wire.progress,
         }),
-    );
-    extra_fields
+        Some("done") | None if wire.video.is_some() => {
+            let video = wire.video.expect("matched present video");
+            validate_remote_url(&video.url)?;
+            if video
+                .duration
+                .is_some_and(|duration| !duration.is_finite() || duration < 0.0)
+            {
+                return Err(Error::protocol_violation(
+                    "xAI video status contains invalid duration",
+                ));
+            }
+            Ok(XaiVideoJobState::Completed {
+                video: XaiVideoArtifact {
+                    url: video.url,
+                    duration_seconds: video.duration,
+                    respect_moderation: video.respect_moderation,
+                },
+                progress: wire.progress,
+                cost_in_usd_ticks: wire.usage.and_then(|usage| usage.cost_in_usd_ticks),
+            })
+        }
+        Some("failed") => Ok(XaiVideoJobState::Failed {
+            code: wire
+                .error
+                .and_then(|error| error.code)
+                .and_then(public_code),
+        }),
+        Some("expired") => Ok(XaiVideoJobState::Expired),
+        _ => Err(Error::protocol_violation(
+            "xAI video status contains an unknown terminal state",
+        )),
+    }
 }
 
-fn build_status_metadata(
-    task_id: &str,
-    parsed: &XaiVideoStatusResponse,
-) -> HashMap<String, serde_json::Value> {
-    let mut metadata = parsed.extra_fields.clone();
-    let mut xai_meta = serde_json::Map::new();
-    xai_meta.insert("requestId".to_string(), serde_json::json!(task_id));
-    if let Some(progress) = metadata.get("progress").cloned() {
-        xai_meta.insert("progress".to_string(), progress);
-    }
-    if let Some(model) = parsed.model.as_ref() {
-        metadata.insert("model".to_string(), serde_json::json!(model));
-    }
-    if let Some(usage) = parsed.usage.as_ref() {
-        let mut usage_meta = usage.extra_fields.clone();
-        if let Some(cost) = usage.cost_in_usd_ticks.clone() {
-            xai_meta.insert("costInUsdTicks".to_string(), cost.clone());
-            usage_meta.insert("cost_in_usd_ticks".to_string(), cost);
-        }
-        if !usage_meta.is_empty() {
-            metadata.insert(
-                "usage".to_string(),
-                serde_json::Value::Object(usage_meta.into_iter().collect()),
-            );
-        }
-    }
-
-    if let Some(video) = parsed.video.as_ref() {
-        if let Some(url) = video.url.as_ref() {
-            xai_meta.insert("videoUrl".to_string(), serde_json::json!(url));
-        }
-        if let Some(duration) = video.duration {
-            xai_meta.insert("duration".to_string(), serde_json::json!(duration));
-        }
-        if !video.extra_fields.is_empty() {
-            metadata.insert(
-                "video".to_string(),
-                serde_json::Value::Object(video.extra_fields.clone().into_iter().collect()),
-            );
-        }
-        if let Some(respect_moderation) = video.respect_moderation {
-            metadata.insert(
-                "respect_moderation".to_string(),
-                serde_json::json!(respect_moderation),
-            );
-        }
-    }
-
-    metadata.insert("xai".to_string(), serde_json::Value::Object(xai_meta));
-    metadata
+fn public_code(value: String) -> Option<String> {
+    PublicDiagnosticText::new(value.clone()).ok().map(|_| value)
 }
 
-pub(super) async fn create_video_task(
-    client: &XaiClient,
-    mut request: VideoGenerationRequest,
-) -> Result<VideoGenerationResponse, LlmError> {
-    client.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
-    let (body, route, warnings) = build_create_body(&request)?;
-    let config = build_http_execution_config(client);
-    let url = format!(
-        "{}/videos/{}",
-        client.base_url().trim_end_matches('/'),
-        match route {
-            XaiVideoCreateRoute::Generation => "generations",
-            XaiVideoCreateRoute::Edit => "edits",
-            XaiVideoCreateRoute::Extension => "extensions",
-        }
-    );
-    let result = crate::execution::executors::common::execute_json_request(
-        &config,
-        &url,
-        crate::execution::executors::common::HttpBody::Json(body),
-        request.http_config.as_ref(),
-        false,
+fn validate_text(value: &str, maximum: usize, message: &'static str) -> Result<(), Error> {
+    if value.trim().is_empty() || value.len() > maximum || value.chars().any(char::is_control) {
+        return Err(Error::new(ErrorKind::InvalidInput, message));
+    }
+    Ok(())
+}
+
+fn validate_remote_url(value: &str) -> Result<(), Error> {
+    if value.len() > 4_096 || value.chars().any(char::is_control) {
+        return Err(Error::new(
+            ErrorKind::Protocol,
+            "xAI video URL is invalid or too long",
+        ));
+    }
+    let url = url::Url::parse(value).map_err(|source| {
+        Error::new(ErrorKind::Protocol, "xAI video URL is invalid").with_source(source)
+    })?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(Error::protocol_violation(
+            "xAI video URL must be HTTPS without embedded credentials",
+        ));
+    }
+    Ok(())
+}
+
+fn response_error(message: &'static str, response: TransportResponse) -> Error {
+    let (status, headers, body) = response.into_parts();
+    let kind = match status {
+        StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
+        StatusCode::FORBIDDEN => ErrorKind::Authorization,
+        StatusCode::TOO_MANY_REQUESTS => ErrorKind::RateLimited,
+        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => ErrorKind::InvalidInput,
+        _ => ErrorKind::Provider,
+    };
+    let mut diagnostics = ResponseDiagnostics::default().with_status(status.as_u16());
+    if let Some(request_id) = response_request_id(&headers)
+        && let Ok(request_id) = PublicDiagnosticText::new(request_id)
+    {
+        diagnostics = diagnostics.with_request_id(request_id);
+    }
+    let raw_headers = headers
+        .expose()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect();
+    Error::new(kind, message)
+        .with_diagnostics(diagnostics)
+        .with_sensitive_response(SensitiveResponse::new(raw_headers, body.to_vec()))
+}
+
+fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
+    ["x-request-id", "request-id"].into_iter().find_map(|name| {
+        headers
+            .get(&http::header::HeaderName::from_static(name))
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| PublicDiagnosticText::new(value.to_owned()).ok())
+            .map(|value| value.as_str().to_owned())
+    })
+}
+
+fn request_build_error(source: RequestBuildError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "xAI video request violates the transport contract",
     )
-    .await?;
-
-    let parsed: XaiCreateVideoResponse = serde_json::from_value(result.json).map_err(|err| {
-        LlmError::ParseError(format!("Failed to parse xAI video create response: {err}"))
-    })?;
-    let task_id = parsed.request_id.ok_or_else(|| {
-        LlmError::ParseError("xAI video create response did not include `request_id`".to_string())
-    })?;
-    let metadata = build_create_metadata(&task_id, parsed.extra_fields);
-
-    Ok(VideoGenerationResponse {
-        task_id,
-        base_resp: Some(BaseResponse {
-            status_code: 0,
-            status_msg: "ok".to_string(),
-        }),
-        metadata,
-        warnings: (!warnings.is_empty()).then_some(warnings),
-        response: Some(HttpResponseInfo {
-            timestamp: chrono::Utc::now(),
-            model_id: Some(request.model),
-            headers: headers_to_map(&result.headers),
-            body: None,
-        }),
-    })
-}
-
-pub(super) async fn query_video_task(
-    client: &XaiClient,
-    task_id: &str,
-) -> Result<VideoTaskStatusResponse, LlmError> {
-    let config = build_http_execution_config(client);
-    let url = format!(
-        "{}/videos/{task_id}",
-        client.base_url().trim_end_matches('/')
-    );
-    let result =
-        crate::execution::executors::common::execute_get_request(&config, &url, None).await?;
-
-    let parsed: XaiVideoStatusResponse = serde_json::from_value(result.json).map_err(|err| {
-        LlmError::ParseError(format!("Failed to parse xAI video status response: {err}"))
-    })?;
-
-    let metadata = build_status_metadata(task_id, &parsed);
-    let video_url = parsed.video.as_ref().and_then(|video| video.url.clone());
-    let duration = parsed.video.as_ref().and_then(|video| video.duration);
-
-    Ok(VideoTaskStatusResponse {
-        task_id: task_id.to_string(),
-        status: status_from_wire(parsed.status.as_deref(), video_url.is_some()),
-        file_id: None,
-        video_url,
-        provider_reference: None,
-        duration,
-        video_width: None,
-        video_height: None,
-        base_resp: Some(BaseResponse {
-            status_code: 0,
-            status_msg: "ok".to_string(),
-        }),
-        metadata,
-        response: Some(HttpResponseInfo {
-            timestamp: chrono::Utc::now(),
-            model_id: parsed.model.clone(),
-            headers: headers_to_map(&result.headers),
-            body: None,
-        }),
-    })
-}
-
-pub(super) fn supported_models() -> Vec<String> {
-    vec![super::models::video::GROK_IMAGINE_VIDEO.to_string()]
-}
-
-pub(super) fn supported_resolutions(_model: &str) -> Vec<String> {
-    vec!["480p".to_string(), "720p".to_string()]
-}
-
-pub(super) fn supported_durations(_model: &str) -> Vec<u32> {
-    Vec::new()
+    .with_source(source)
 }
 
 #[cfg(test)]
 mod tests {
+    use mockito::Matcher;
+    use siumai_core::{ReplayDomain, ReplayDomainId};
+    use siumai_transport::EndpointConfig;
+
     use super::*;
-    use crate::provider_options::XaiVideoMode;
-    use crate::providers::xai::ext::video_options::XaiVideoRequestExt;
-    use crate::types::ProviderOptionsMap;
-
-    #[test]
-    fn build_create_body_routes_extend_video_requests_to_extensions_endpoint() {
-        let request = VideoGenerationRequest::new("grok-imagine-video", "extend the clip")
-            .with_duration(6)
-            .with_aspect_ratio("16:9")
-            .with_xai_video_options(
-                XaiVideoOptions::new()
-                    .with_mode(XaiVideoMode::ExtendVideo)
-                    .with_video_url("https://example.com/input.mp4")
-                    .with_resolution("720p"),
-            );
-
-        let (body, route, warnings) = build_create_body(&request).expect("build body");
-
-        assert_eq!(route, XaiVideoCreateRoute::Extension);
-        assert_eq!(body["duration"], serde_json::json!(6));
-        assert_eq!(
-            body["video"]["url"],
-            serde_json::json!("https://example.com/input.mp4")
-        );
-        assert!(body.get("aspect_ratio").is_none());
-        assert!(body.get("resolution").is_none());
-        assert_eq!(
-            warnings,
-            vec![
-                Warning::unsupported(
-                    "aspect_ratio",
-                    Some("xAI video extension does not support custom aspect ratios."),
-                ),
-                Warning::unsupported(
-                    "resolution",
-                    Some("xAI video extension does not support custom resolutions."),
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn build_create_body_routes_reference_to_video_requests_with_reference_images() {
-        let request = VideoGenerationRequest::new("grok-imagine-video", "animate this style")
-            .with_duration(4)
-            .with_aspect_ratio("16:9")
-            .with_xai_video_options(
-                XaiVideoOptions::new()
-                    .with_mode(XaiVideoMode::ReferenceToVideo)
-                    .with_resolution("720p")
-                    .with_reference_image_urls([
-                        "https://example.com/ref-1.png",
-                        "https://example.com/ref-2.png",
-                    ]),
-            );
-
-        let (body, route, warnings) = build_create_body(&request).expect("build body");
-
-        assert_eq!(route, XaiVideoCreateRoute::Generation);
-        assert_eq!(body["duration"], serde_json::json!(4));
-        assert_eq!(body["aspect_ratio"], serde_json::json!("16:9"));
-        assert_eq!(body["resolution"], serde_json::json!("720p"));
-        assert_eq!(
-            body["reference_images"],
-            serde_json::json!([
-                { "url": "https://example.com/ref-1.png" },
-                { "url": "https://example.com/ref-2.png" }
-            ])
-        );
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn build_create_body_rejects_promptless_requests() {
-        let request = VideoGenerationRequest::new_without_prompt("grok-imagine-video").with_image(
-            VideoGenerationInput::file_with_media_type(vec![1, 2, 3], "image/png"),
-        );
-
-        let err = build_create_body(&request).unwrap_err();
-        assert!(
-            matches!(err, LlmError::InvalidParameter(message) if message.contains("require a non-empty prompt"))
-        );
-    }
+    use crate::{XaiCredential, XaiProvider};
 
     #[tokio::test]
-    async fn polling_options_merges_client_defaults_and_provider_option_overrides() {
-        let mut defaults = ProviderOptionsMap::default();
-        defaults.insert(
-            "xai",
-            serde_json::json!({
-                "pollIntervalMs": 500,
-                "pollTimeoutMs": 30_000
-            }),
-        );
-        let client = super::super::XaiClient::from_config(
-            super::super::XaiConfig::new("test-key")
-                .with_model("grok-imagine-video")
-                .with_provider_options_map(defaults),
-        )
-        .await
-        .expect("xai client");
-        let request = VideoGenerationRequest::new("grok-imagine-video", "animate")
-            .with_xai_video_options(XaiVideoOptions::new().with_poll_interval_ms(250));
+    async fn create_and_retrieve_typed_video_job() {
+        let mut server = mockito::Server::new_async().await;
+        let create = server
+            .mock("POST", "/v1/videos/generations")
+            .match_body(Matcher::Json(serde_json::json!({
+                "model":"grok-imagine-video-1.5",
+                "prompt":"a crab walking through tokyo",
+                "duration":5,
+                "aspect_ratio":"4:3",
+                "resolution":"1080p"
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"request_id":"video_job_1"}).to_string())
+            .create_async()
+            .await;
+        let status = server
+            .mock("GET", "/v1/videos/video_job_1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "status":"done",
+                    "progress":1.0,
+                    "video":{
+                        "url":"https://vidgen.example.com/video.mp4",
+                        "duration":5.0,
+                        "respect_moderation":true
+                    },
+                    "usage":{"cost_in_usd_ticks":25}
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let provider = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.url())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-xai-video").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let request =
+            XaiVideoCreateRequest::new("grok-imagine-video-1.5", "a crab walking through tokyo")
+                .unwrap()
+                .with_duration_seconds(5)
+                .unwrap()
+                .with_aspect_ratio(XaiVideoAspectRatio::Standard4By3)
+                .with_resolution(XaiVideoResolution::P1080);
+        let job = provider
+            .video_jobs()
+            .create(request, CallOptions::default())
+            .await
+            .unwrap();
+        let state = provider
+            .video_jobs()
+            .get(&job.id, CallOptions::default())
+            .await
+            .unwrap();
 
-        let options = polling_options(&client, &request).expect("xai polling options");
-
-        assert_eq!(options.poll_interval, Some(Duration::from_millis(250)));
-        assert_eq!(options.poll_timeout, Some(Duration::from_millis(30_000)));
-    }
-
-    #[tokio::test]
-    async fn create_video_task_adds_ai_sdk_xai_request_metadata() {
-        let raw = serde_json::json!({
-            "request_id": "req_123",
-            "vendor": true
-        });
-        let parsed: XaiCreateVideoResponse =
-            serde_json::from_value(raw).expect("parse create video response");
-        let task_id = parsed.request_id.expect("request id");
-        let metadata = build_create_metadata(&task_id, parsed.extra_fields);
-
-        assert_eq!(
-            metadata.get("xai").and_then(|value| value.get("requestId")),
-            Some(&serde_json::json!("req_123"))
-        );
-        assert_eq!(metadata.get("vendor"), Some(&serde_json::json!(true)));
-    }
-
-    #[tokio::test]
-    async fn query_video_task_adds_ai_sdk_xai_provider_metadata() {
-        let parsed: XaiVideoStatusResponse = serde_json::from_value(serde_json::json!({
-            "status": "done",
-            "model": "grok-imagine-video",
-            "progress": 100,
-            "usage": {
-                "cost_in_usd_ticks": 113500,
-                "vendor_usage": true
-            },
-            "video": {
-                "url": "https://example.com/video.mp4",
-                "duration": 6.0,
-                "respect_moderation": true,
-                "vendor_video_id": "vid_123"
-            }
-        }))
-        .expect("parse status response");
-
-        let metadata = build_status_metadata("req_123", &parsed);
-
-        let xai = metadata
-            .get("xai")
-            .and_then(|value| value.as_object())
-            .expect("xai metadata");
-        assert_eq!(xai.get("requestId"), Some(&serde_json::json!("req_123")));
-        assert_eq!(
-            xai.get("videoUrl"),
-            Some(&serde_json::json!("https://example.com/video.mp4"))
-        );
-        assert_eq!(xai.get("duration"), Some(&serde_json::json!(6.0)));
-        assert_eq!(xai.get("progress"), Some(&serde_json::json!(100)));
-        assert_eq!(xai.get("costInUsdTicks"), Some(&serde_json::json!(113500)));
-        assert_eq!(
-            metadata.get("usage"),
-            Some(&serde_json::json!({
-                "cost_in_usd_ticks": 113500,
-                "vendor_usage": true
-            }))
-        );
-        assert_eq!(
-            metadata
-                .get("video")
-                .and_then(|value| value.get("vendor_video_id")),
-            Some(&serde_json::json!("vid_123"))
-        );
+        create.assert_async().await;
+        status.assert_async().await;
+        let XaiVideoJobState::Completed { video, .. } = state else {
+            panic!("expected completed video");
+        };
+        assert_eq!(video.duration_seconds, Some(5.0));
+        assert!(!format!("{video:?}").contains("vidgen.example.com"));
     }
 }

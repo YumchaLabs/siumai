@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -13,359 +13,94 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  RUSTFLAGS: "-C debuginfo=0"
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      matrix:
-        rust: [stable]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Guardrail (provider dependency graph)
-        run: ./scripts/check-provider-deps.sh
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run fast tests (PR safety net)
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          cargo test -p siumai-core --lib
-          cargo test -p siumai-registry --lib
-          cargo test -p siumai --no-default-features --features openai --lib
-
-      - name: Clippy (core crates)
-        if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai-core -p siumai-registry -- -D warnings
-
-      - name: Clippy (facade minimal features)
-        if: ${{ github.event_name == 'pull_request' }}
-        run: cargo clippy -p siumai --no-default-features --features openai --lib --bins --tests --benches -- -D warnings
-
-      - name: Check (extras minimal features)
-        if: ${{ github.event_name == 'pull_request' }}
-        run: cargo check -p siumai-extras --no-default-features --features openai
-
       - name: Install nextest
-        if: ${{ github.event_name != 'pull_request' }}
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
 
-      - name: Run tests (nextest)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: cargo nextest run --profile ci --all-features --workspace
+      - name: Check repository contracts
+        run: |
+          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
+          python3 -B scripts/check_workspace_boundaries.py --target
 
-      - name: Run clippy (core)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: cargo clippy -p siumai --all-features --lib --bins --tests --benches -- -D warnings
+      - name: Inspect package file lists
+        run: python3 -B scripts/check_package_file_list.py
 
-      - name: Run clippy (extras)
+      - name: Run focused PR tests
+        if: ${{ github.event_name == 'pull_request' }}
+        run: python3 -B scripts/test-workspace.py fast --runner nextest
+
+      - name: Run flagship PR tests
+        if: ${{ github.event_name == 'pull_request' }}
+        run: python3 -B scripts/test-workspace.py flagship --runner nextest
+
+      - name: Run focused PR clippy
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          cargo clippy -j 1 -p siumai-core -p siumai-transport -p siumai-runtime -p siumai-registry --all-targets -- -D warnings
+          cargo clippy -j 1 -p siumai --no-default-features --features runtime,registry,openai,anthropic,google,google-vertex-anthropic,minimax --all-targets -- -D warnings
+          cargo check -j 1 -p siumai-runtime --no-default-features --features json-schema
+
+      - name: Check facade feature ownership
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          cargo check -j 1 -p siumai --no-default-features --lib
+          cargo check -j 1 -p siumai --no-default-features --features openai --lib
+          cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
+          cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
+          cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
+          cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
+          cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
+
+      - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}
-        run: cargo clippy -p siumai-extras --all-features --lib --bins --tests --benches -- -D warnings
+        run: python3 -B scripts/test-workspace.py full --runner nextest
+
+      - name: Run release-level clippy
+        if: ${{ github.event_name != 'pull_request' }}
+        run: cargo clippy -j 1 --workspace --all-targets --all-features -- -D warnings
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  pr-provider-smoke:
-    name: PR Facade Feature Smoke
-    if: ${{ github.event_name == 'pull_request' }}
+  msrv:
+    name: MSRV 1.95
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - openai
-          - azure
-          - anthropic
-          - google
-          - google-vertex
-          - ollama
-          - xai
-          - groq
-          - minimaxi
-          - deepseek
-          - cohere
-          - togetherai
-          - bedrock
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Cargo check (siumai facade + tests)
-        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }} --lib --tests
-
-  pr-provider-contracts:
-    name: PR Provider Contract Matrix (${{ matrix.profile }})
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - openai-native
-          - openai-compat
-          - azure
-          - anthropic
-          - google
-          - google-vertex
-          - ollama
-          - xai
-          - groq
-          - minimaxi
-          - deepseek
-          - cohere
-          - togetherai
-          - bedrock
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install nextest
-        uses: taiki-e/install-action@v2
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
         with:
-          tool: nextest
-
-      - name: Run provider contract tests
-        run: bash ./scripts/test-provider-contracts.sh ${{ matrix.profile }}
-
-  pr-cross-feature-contracts:
-    name: PR Cross-Feature Contract Matrix (${{ matrix.profile }})
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - openai-websocket
-          - google-gcp
-          - openai-json-repair
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+          toolchain: 1.95.0
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install nextest
-        uses: taiki-e/install-action@v2
-        with:
-          tool: nextest
-
-      - name: Run cross-feature contract tests
-        run: bash ./scripts/test-cross-feature-contracts.sh ${{ matrix.profile }}
-
-  provider-package-build-matrix:
-    name: Provider Package Build Matrix (${{ matrix.name }})
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: openai
-            package: siumai-provider-openai
-            features: openai
-          - name: openai-compatible
-            package: siumai-provider-openai-compatible
-            features: openai-standard
-          - name: azure
-            package: siumai-provider-azure
-            features: azure
-          - name: anthropic
-            package: siumai-provider-anthropic
-            features: anthropic
-          - name: anthropic-compatible
-            package: siumai-provider-anthropic-compatible
-            features: anthropic
-          - name: gemini
-            package: siumai-provider-gemini
-            features: google
-          - name: google-vertex
-            package: siumai-provider-google-vertex
-            features: google-vertex
-          - name: ollama
-            package: siumai-provider-ollama
-            features: ollama
-          - name: xai
-            package: siumai-provider-xai
-            features: xai
-          - name: groq
-            package: siumai-provider-groq
-            features: groq
-          - name: minimaxi
-            package: siumai-provider-minimaxi
-            features: minimaxi
-          - name: deepseek
-            package: siumai-provider-deepseek
-            features: deepseek
-          - name: cohere
-            package: siumai-provider-cohere
-            features: cohere
-          - name: togetherai
-            package: siumai-provider-togetherai
-            features: togetherai
-          - name: bedrock
-            package: siumai-provider-amazon-bedrock
-            features: bedrock
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Cargo check (provider package)
-        run: cargo check -p ${{ matrix.package }} --all-targets --no-default-features --features ${{ matrix.features }}
-
-  pr-facade-guardrails:
-    name: PR Facade Guardrails (public surface + examples)
-    if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Compile facade examples (all providers)
-        run: cargo check -p siumai --examples --no-default-features --features all-providers
-
-      - name: Public surface import guard (all providers)
-        run: cargo test -p siumai --no-default-features --features all-providers --test public_surface_imports_test
-
-  feature-build-matrix:
-    name: Feature Build Matrix (core)
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - openai
-          - azure
-          - anthropic
-          - google
-          - google-vertex
-          - xai
-          - groq
-          - ollama
-          - minimaxi
-          - deepseek
-          - cohere
-          - togetherai
-          - bedrock
-          - openai,openai-websocket
-          - google,gcp
-          - openai,json-repair
-          - all-providers
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Cargo check (siumai)
-        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
-
-      - name: Clippy (siumai)
-        run: cargo clippy -p siumai --no-default-features --features ${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
-
-  extras-build-matrix:
-    name: Feature Build Matrix (extras)
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      RUSTFLAGS: "-C debuginfo=0"
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - openai,server
-          - openai,schema
-          - openai,telemetry
-          - openai,opentelemetry
-          - openai,mcp
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Cargo check (siumai-extras)
-        run: cargo check -p siumai-extras --no-default-features --features ${{ matrix.features }}
-
-      - name: Clippy (siumai-extras)
-        run: cargo clippy -p siumai-extras --no-default-features --features ${{ matrix.features }} --lib --bins --tests --benches -- -D warnings
+      - name: Check supported workspace surface
+        run: cargo check --locked -j 1 --workspace --all-targets --all-features
 
   docs:
     name: Documentation
@@ -377,13 +112,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Build docs
-        run: cargo doc --all-features --no-deps
-
-  # Removed openai-only build job; covered by feature-build-matrix
+        run: |
+          cargo doc -j 1 -p siumai-provider-openai --all-features --no-deps
+          cargo doc -j 1 --workspace --all-features --no-deps
+          cargo test -j 1 --doc --workspace --all-features

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Add a provider-owned Anthropic-compatible Messages mode with an independent official endpoint,
+  `x-api-key` authentication, replay-domain isolation, deterministic direct/stream contracts, and
+  fail-closed validation for unsupported Anthropic controls.
+- Replace the legacy universal-client wrapper with a provider-owned, model-independent
+  `DeepSeekProvider` backed by the configured OpenAI-compatible language runtime.
+- Expose Chat Completions and Responses as explicit API modes with provider-owned typed options,
+  open model identifiers, and dated official support evidence.
+- Preserve DeepSeek reasoning replay, JSON-object structured-output fallback, cache hit/miss
+  accounting, reasoning usage, and canonical stream termination semantics; stable Chat now rejects
+  the provider's beta-only strict-tools option before transport submission.
+- Add an explicit beta Chat runtime for strict function tools and assistant-prefix completion. The
+  beta endpoint, replay domain, recursive schema validation, and message annotation are separate
+  from the stable Chat registration.
+
+### Removed
+
+- Remove the legacy builder, configuration, middleware, capability/specification bags, compatibility
+  aliases, and duplicated standards modules.
+
 ## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepseek-v0.11.0-beta.8...siumai-provider-deepseek-v0.11.0-beta.9) - 2026-05-27
 
 ### Other

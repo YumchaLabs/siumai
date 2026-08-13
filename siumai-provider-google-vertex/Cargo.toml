@@ -2,8 +2,9 @@
 name = "siumai-provider-google-vertex"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
-description = "Google Vertex AI provider implementation for siumai"
+description = "Anthropic Messages provider on Google Vertex AI for siumai"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -17,55 +18,22 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-provider-utils = { workspace = true, default-features = false }
-siumai-protocol-gemini = { version = "0.11.0-beta.9", path = "../siumai-protocol-gemini", default-features = false, features = ["google"] }
-siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "../siumai-protocol-anthropic", default-features = false, optional = true }
+siumai-protocol-anthropic = { version = "0.11.0-beta.9", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-anthropic-compatible = { workspace = true }
+siumai-transport = { workspace = true, default-features = false }
 
-# Keep versions aligned with the workspace for consistent behavior.
 async-trait.workspace = true
+http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-reqwest.workspace = true
 tokio.workspace = true
-futures.workspace = true
 futures-util.workspace = true
-async-stream.workspace = true
-eventsource-stream.workspace = true
-tokio-util.workspace = true
 chrono.workspace = true
-jsonwebtoken = { workspace = true, optional = true }
 thiserror.workspace = true
-uuid.workspace = true
-tracing.workspace = true
-rand.workspace = true
-urlencoding.workspace = true
-infer.workspace = true
 secrecy.workspace = true
-backoff.workspace = true
-lru.workspace = true
-base64.workspace = true
 
 [features]
 default = []
 
-structured-messages = [
-    "siumai-provider-utils/structured-messages",
-    "siumai-core/structured-messages",
-    "siumai-protocol-gemini/structured-messages",
-    "siumai-protocol-anthropic?/structured-messages",
-]
-
-# Enables GCP authentication helpers (ADC / service account token providers).
-gcp = ["dep:jsonwebtoken"]
-
-# Enables Google-related shared types in `siumai-core`.
-google-vertex = [
-    "siumai-core/google",
-    "siumai-protocol-gemini/google",
-    "siumai-core/anthropic",
-    "dep:siumai-protocol-anthropic",
-    "siumai-protocol-anthropic/anthropic-standard",
-]
-
 [dev-dependencies]
-mockito.workspace = true
+wiremock.workspace = true

@@ -1,536 +1,538 @@
-use crate::core::{ProviderContext, ProviderSpec};
-use crate::error::LlmError;
-use crate::execution::executors::common::{
-    execute_delete_request, execute_get_binary, execute_get_request, execute_multipart_request,
+//! Provider-owned xAI Files lifecycle.
+
+use std::fmt;
+
+use bytes::Bytes;
+use http::header::{ACCEPT, HeaderValue};
+use http::{Method, StatusCode};
+use serde::{Deserialize, Deserializer, Serialize};
+use siumai_core::{
+    CallOptions, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics, SensitiveResponse,
 };
-use crate::execution::http::interceptor::HttpInterceptor;
-use crate::execution::http::transport::HttpTransport;
-use crate::execution::wiring::HttpExecutionWiring;
-use crate::provider_options::XaiFilesOptions;
-use crate::retry_api::RetryOptions;
-use crate::traits::{FileManagementCapability, ProviderCapabilities};
-use crate::types::{
-    FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
+use siumai_transport::{
+    MultipartBody, MultipartPart, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
+    RequestHeaders, RequestPlan, RequestTarget, ResponseHeaders, TransportResponse,
 };
-use async_trait::async_trait;
-use reqwest::header::HeaderMap;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
-const PROVIDER_ID: &str = "xai";
+pub const FILES_SOURCE: &str = "https://docs.x.ai/developers/files/managing-files";
+pub const FILES_VERIFIED_ON: &str = "2026-08-09";
 
-#[derive(Clone, Copy, Default)]
-struct XaiFilesSpec;
+const FILES_TARGET: &str = "files";
+const MAX_FILE_BYTES: usize = 48 * 1024 * 1024;
+const MIN_EXPIRY_SECONDS: u32 = 3_600;
+const MAX_EXPIRY_SECONDS: u32 = 2_592_000;
 
-impl ProviderSpec for XaiFilesSpec {
-    fn id(&self) -> &'static str {
-        PROVIDER_ID
+/// Validated xAI file identity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct XaiFileId(String);
+
+impl XaiFileId {
+    pub fn new(value: impl Into<String>) -> Result<Self, Error> {
+        let value = value.into();
+        if value.is_empty()
+            || value.len() > 256
+            || value.chars().any(|character| {
+                !character.is_ascii_alphanumeric() && !matches!(character, '-' | '_')
+            })
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "xAI file ID is invalid",
+            ));
+        }
+        Ok(Self(value))
     }
 
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new().with_file_management()
-    }
-
-    fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        siumai_protocol_openai::standards::openai::headers::build_openai_compatible_json_headers(
-            ctx,
-        )
-    }
-
-    fn classify_http_error(
-        &self,
-        status: u16,
-        body_text: &str,
-        _headers: &HeaderMap,
-    ) -> Option<LlmError> {
-        siumai_protocol_openai::standards::openai::errors::classify_openai_compatible_http_error(
-            PROVIDER_ID,
-            status,
-            body_text,
-        )
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
+impl<'de> Deserialize<'de> for XaiFileId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Typed xAI file upload with optional time-to-live.
 #[derive(Clone)]
-pub(crate) struct XaiFiles {
-    provider_context: ProviderContext,
-    http_client: reqwest::Client,
-    http_transport: Option<Arc<dyn HttpTransport>>,
-    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    retry_options: Option<RetryOptions>,
+pub struct XaiFileUpload {
+    data: Bytes,
+    media_type: String,
+    filename: String,
+    purpose: String,
+    expires_after_seconds: Option<u32>,
+}
+
+impl XaiFileUpload {
+    pub fn new(
+        data: impl Into<Bytes>,
+        media_type: impl Into<String>,
+        filename: impl Into<String>,
+    ) -> Result<Self, Error> {
+        let data = data.into();
+        if data.is_empty() || data.len() > MAX_FILE_BYTES {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "xAI file upload must contain at most 48 MiB",
+            ));
+        }
+        let media_type = media_type.into();
+        validate_text(&media_type, 256, "xAI file media type is invalid")?;
+        let filename = filename.into();
+        validate_text(&filename, 512, "xAI file name is invalid")?;
+        Ok(Self {
+            data,
+            media_type,
+            filename,
+            purpose: "assistants".to_string(),
+            expires_after_seconds: None,
+        })
+    }
+
+    pub fn with_purpose(mut self, purpose: impl Into<String>) -> Result<Self, Error> {
+        let purpose = purpose.into();
+        validate_text(&purpose, 128, "xAI file purpose is invalid")?;
+        self.purpose = purpose;
+        Ok(self)
+    }
+
+    pub fn with_expires_after_seconds(mut self, seconds: u32) -> Result<Self, Error> {
+        if !(MIN_EXPIRY_SECONDS..=MAX_EXPIRY_SECONDS).contains(&seconds) {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "xAI file expiry must be between one hour and 30 days",
+            ));
+        }
+        self.expires_after_seconds = Some(seconds);
+        Ok(self)
+    }
+}
+
+impl fmt::Debug for XaiFileUpload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiFileUpload")
+            .field("data_bytes", &self.data.len())
+            .field("media_type", &self.media_type)
+            .field("filename_bytes", &self.filename.len())
+            .field("purpose", &self.purpose)
+            .field("expires_after_seconds", &self.expires_after_seconds)
+            .finish()
+    }
+}
+
+/// One xAI file metadata object.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct XaiFile {
+    pub id: XaiFileId,
+    #[serde(default)]
+    pub object: Option<String>,
+    #[serde(default)]
+    pub bytes: Option<u64>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+    #[serde(default)]
+    pub filename: Option<String>,
+    #[serde(default)]
+    pub purpose: Option<String>,
+}
+
+/// Pagination direction for the Files API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XaiFileOrder {
+    Ascending,
+    Descending,
+}
+
+/// Typed file-list controls.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct XaiFileListOptions {
+    pub limit: Option<u32>,
+    pub order: Option<XaiFileOrder>,
+    pub pagination_token: Option<String>,
+    pub filter: Option<String>,
+}
+
+/// One paginated xAI file listing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct XaiFileList {
+    pub data: Vec<XaiFile>,
+    #[serde(default)]
+    pub pagination_token: Option<String>,
+}
+
+/// Result returned by file deletion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct XaiDeletedFile {
+    pub id: XaiFileId,
+    pub deleted: bool,
+    #[serde(default)]
+    pub object: Option<String>,
+}
+
+/// Downloaded xAI file content.
+#[derive(Clone, PartialEq, Eq)]
+pub struct XaiFileContent {
+    pub media_type: Option<String>,
+    pub data: Bytes,
+    pub request_id: Option<String>,
+}
+
+impl fmt::Debug for XaiFileContent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiFileContent")
+            .field("media_type", &self.media_type)
+            .field("data_bytes", &self.data.len())
+            .field("request_id", &self.request_id)
+            .finish()
+    }
+}
+
+/// Provider-owned xAI Files resource.
+#[derive(Clone)]
+pub struct XaiFiles {
+    transport: ProviderTransport,
 }
 
 impl XaiFiles {
-    pub(crate) fn new(
-        provider_context: ProviderContext,
-        http_client: reqwest::Client,
-        http_transport: Option<Arc<dyn HttpTransport>>,
-        http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
-        retry_options: Option<RetryOptions>,
-    ) -> Self {
-        Self {
-            provider_context,
-            http_client,
-            http_transport,
-            http_interceptors,
-            retry_options,
+    pub(crate) fn new(transport: ProviderTransport) -> Self {
+        Self { transport }
+    }
+
+    pub async fn upload(&self, upload: XaiFileUpload, call: CallOptions) -> Result<XaiFile, Error> {
+        let mut parts = vec![text_part("purpose", &upload.purpose)?];
+        if let Some(seconds) = upload.expires_after_seconds {
+            parts.push(text_part("expires_after", &seconds.to_string())?);
         }
-    }
-
-    fn build_http_config(&self) -> crate::execution::executors::common::HttpExecutionConfig {
-        let mut wiring = HttpExecutionWiring::new(
-            PROVIDER_ID,
-            self.http_client.clone(),
-            self.provider_context.clone(),
-        )
-        .with_interceptors(self.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone());
-
-        if let Some(transport) = self.http_transport.clone() {
-            wiring = wiring.with_transport(transport);
-        }
-
-        wiring.config(Arc::new(XaiFilesSpec))
-    }
-
-    fn base_url(&self) -> String {
-        self.provider_context
-            .base_url
-            .trim_end_matches('/')
-            .to_string()
-    }
-
-    fn parse_upload_options(
-        &self,
-        request: &FileUploadRequest,
-    ) -> Result<Option<XaiFilesOptions>, LlmError> {
-        let Some(value) = request.provider_options.get("xai").cloned() else {
-            return Ok(None);
-        };
-
-        serde_json::from_value(value).map(Some).map_err(|err| {
-            LlmError::InvalidParameter(format!(
-                "Invalid xAI file options in providerOptions.xai: {err}"
-            ))
-        })
-    }
-
-    fn build_upload_form(
-        request: &FileUploadRequest,
-        options: Option<&XaiFilesOptions>,
-    ) -> Result<reqwest::multipart::Form, LlmError> {
-        let mime_type = request.mime_type.clone().unwrap_or_else(|| {
-            crate::provider_utils::guess_mime(Some(&request.content), request.filename.as_deref())
-        });
-
-        let mut part = reqwest::multipart::Part::bytes(request.content.clone());
-        if let Some(filename) = request.filename.clone() {
-            part = part.file_name(filename);
-        }
-        let part = part.mime_str(&mime_type).map_err(|err| {
-            LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {err}"))
-        })?;
-
-        let mut form = reqwest::multipart::Form::new().part("file", part);
-
-        if let Some(team_id) = options.and_then(|options| options.team_id.as_deref()) {
-            form = form.text("team_id", team_id.to_string());
-        }
-
-        if let Some(file_path) = options.and_then(|options| options.file_path.as_deref()) {
-            form = form.text("file_path", file_path.to_string());
-        }
-
-        Ok(form)
-    }
-}
-
-#[async_trait]
-impl FileManagementCapability for XaiFiles {
-    async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
-        let config = self.build_http_config();
-        let url = crate::provider_utils::url::join_url(&self.base_url(), "files");
-        let options = self.parse_upload_options(&request)?;
-        let request_clone = request.clone();
-
-        let response = execute_multipart_request(
-            &config,
-            &url,
-            move || Self::build_upload_form(&request_clone, options.as_ref()),
-            request.http_config.as_ref(),
-        )
-        .await?;
-
-        map_xai_file_object(&response.json, Some(&request))
-    }
-
-    async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
-        let config = self.build_http_config();
-        let mut url = reqwest::Url::parse(&crate::provider_utils::url::join_url(
-            &self.base_url(),
-            "files",
-        ))
-        .map_err(|err| LlmError::InvalidInput(format!("Invalid xAI files URL: {err}")))?;
-
-        if let Some(query) = &query {
-            let mut pairs = url.query_pairs_mut();
-            if let Some(limit) = query.limit {
-                pairs.append_pair("limit", &limit.to_string());
-            }
-            if let Some(after) = query
-                .after
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                pairs.append_pair("next_token", after);
-            }
-            if let Some(order) = query.order.as_deref().and_then(normalize_list_order) {
-                pairs.append_pair("order", order);
-            }
-        }
-
-        let response = execute_get_request(
-            &config,
-            url.as_str(),
-            query.as_ref().and_then(|q| q.http_config.as_ref()),
-        )
-        .await?;
-        map_xai_file_list_response(&response.json)
-    }
-
-    async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
-        let config = self.build_http_config();
-        let url =
-            crate::provider_utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
-        let response = execute_get_request(&config, &url, None).await?;
-        map_xai_file_object(&response.json, None)
-    }
-
-    async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
-        let config = self.build_http_config();
-        let url =
-            crate::provider_utils::url::join_url(&self.base_url(), &format!("files/{file_id}"));
-        let response = execute_delete_request(&config, &url, None).await?;
-        Ok(map_xai_file_delete_response(&response.json, &file_id))
-    }
-
-    async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
-        let config = self.build_http_config();
-        let url = crate::provider_utils::url::join_url(
-            &self.base_url(),
-            &format!("files/{file_id}/content"),
-        );
-        let response = execute_get_binary(&config, &url, None).await?;
-        Ok(response.bytes)
-    }
-}
-
-fn normalize_list_order(order: &str) -> Option<&'static str> {
-    let normalized = order.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "" => None,
-        "asc" | "ascending" => Some("ASCENDING"),
-        "desc" | "descending" => Some("DESCENDING"),
-        _ => None,
-    }
-}
-
-fn get_string_field(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| match value.get(*key) {
-        Some(serde_json::Value::String(inner)) if !inner.trim().is_empty() => Some(inner.clone()),
-        Some(other) if other.is_number() || other.is_boolean() => Some(other.to_string()),
-        _ => None,
-    })
-}
-
-fn get_u64_field(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
-    keys.iter().find_map(|key| match value.get(*key) {
-        Some(serde_json::Value::Number(inner)) => inner.as_u64(),
-        Some(serde_json::Value::String(inner)) => inner.trim().parse::<u64>().ok(),
-        _ => None,
-    })
-}
-
-fn get_timestamp_field(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
-    keys.iter().find_map(|key| match value.get(*key) {
-        Some(serde_json::Value::Number(inner)) => inner.as_u64(),
-        Some(serde_json::Value::String(inner)) => inner.trim().parse::<u64>().ok().or_else(|| {
-            chrono::DateTime::parse_from_rfc3339(inner)
-                .ok()
-                .and_then(|timestamp| u64::try_from(timestamp.timestamp()).ok())
-        }),
-        _ => None,
-    })
-}
-
-fn get_bool_field(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
-    keys.iter().find_map(|key| match value.get(*key) {
-        Some(serde_json::Value::Bool(inner)) => Some(*inner),
-        Some(serde_json::Value::String(inner)) => {
-            match inner.trim().to_ascii_lowercase().as_str() {
-                "true" => Some(true),
-                "false" => Some(false),
-                _ => None,
-            }
-        }
-        _ => None,
-    })
-}
-
-fn map_xai_file_object(
-    value: &serde_json::Value,
-    request: Option<&FileUploadRequest>,
-) -> Result<FileObject, LlmError> {
-    let id = get_string_field(value, &["id", "file_id"]).ok_or_else(|| {
-        LlmError::ParseError("Failed to parse xAI file response: missing file id".to_string())
-    })?;
-
-    let filename = get_string_field(value, &["filename", "name"]);
-
-    let bytes = get_u64_field(value, &["bytes", "size_bytes"])
-        .or_else(|| request.map(|request| request.content.len() as u64))
-        .unwrap_or(0);
-
-    let created_at = get_timestamp_field(value, &["created_at"]).unwrap_or(0);
-
-    let purpose = get_string_field(value, &["purpose"])
-        .or_else(|| request.map(|request| request.purpose.clone()))
-        .unwrap_or_default();
-
-    let status = get_string_field(value, &["status", "processing_status"])
-        .unwrap_or_else(|| "uploaded".to_string());
-
-    let mime_type = get_string_field(value, &["mime_type", "content_type"]);
-
-    let known_fields = HashSet::from([
-        "id",
-        "file_id",
-        "object",
-        "bytes",
-        "size_bytes",
-        "created_at",
-        "filename",
-        "name",
-        "purpose",
-        "status",
-        "processing_status",
-        "mime_type",
-        "content_type",
-    ]);
-
-    let metadata = value
-        .as_object()
-        .map(|object| {
-            object
-                .iter()
-                .filter(|(key, _)| !known_fields.contains(key.as_str()))
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect::<HashMap<_, _>>()
-        })
-        .unwrap_or_default();
-
-    Ok(FileObject {
-        id,
-        filename,
-        bytes,
-        created_at,
-        purpose,
-        status,
-        mime_type,
-        metadata,
-    })
-}
-
-fn map_xai_file_list_response(value: &serde_json::Value) -> Result<FileListResponse, LlmError> {
-    let files_value = value
-        .get("data")
-        .or_else(|| value.get("files"))
-        .or_else(|| value.as_array().map(|_| value))
-        .ok_or_else(|| {
-            LlmError::ParseError(
-                "Failed to parse xAI file list response: missing files array".to_string(),
+        let content_type = HeaderValue::from_str(&upload.media_type).map_err(|source| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "xAI file media type cannot be encoded as multipart",
             )
+            .with_source(source)
         })?;
-
-    let files_array = files_value.as_array().ok_or_else(|| {
-        LlmError::ParseError(
-            "Failed to parse xAI file list response: files is not an array".to_string(),
+        // xAI requires expiry metadata before the file part.
+        parts.push(
+            MultipartPart::file("file", upload.filename, content_type, upload.data)
+                .map_err(request_build_error)?,
+        );
+        let plan = RequestPlan::new(
+            Method::POST,
+            RequestTarget::new(FILES_TARGET).map_err(request_build_error)?,
         )
-    })?;
-
-    let mut files = Vec::with_capacity(files_array.len());
-    for file in files_array {
-        files.push(map_xai_file_object(file, None)?);
+        .with_body(RequestBody::multipart(MultipartBody::new(parts)))
+        .with_replay_safety(ReplaySafety::Never)
+        .map_err(request_build_error)?;
+        decode_json(self.execute(plan, call, "xAI file upload failed").await?)
     }
 
-    let next_cursor = get_string_field(value, &["next_cursor", "next_token", "after"]);
-    let has_more = get_bool_field(value, &["has_more"]).unwrap_or_else(|| next_cursor.is_some());
+    pub async fn list(
+        &self,
+        options: XaiFileListOptions,
+        call: CallOptions,
+    ) -> Result<XaiFileList, Error> {
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
+        if let Some(limit) = options.limit {
+            if limit == 0 || limit > 1_000 {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "xAI file list limit must be between one and 1000",
+                ));
+            }
+            query.append_pair("limit", &limit.to_string());
+        }
+        if let Some(order) = options.order {
+            query.append_pair(
+                "order",
+                match order {
+                    XaiFileOrder::Ascending => "asc",
+                    XaiFileOrder::Descending => "desc",
+                },
+            );
+        }
+        if let Some(token) = options.pagination_token {
+            validate_text(&token, 512, "xAI pagination token is invalid")?;
+            query.append_pair("pagination_token", &token);
+        }
+        if let Some(filter) = options.filter {
+            validate_text(&filter, 4_096, "xAI file filter is invalid")?;
+            query.append_pair("filter", &filter);
+        }
+        let query = query.finish();
+        let target = if query.is_empty() {
+            FILES_TARGET.to_string()
+        } else {
+            format!("{FILES_TARGET}?{query}")
+        };
+        let plan = RequestPlan::new(
+            Method::GET,
+            RequestTarget::new(target).map_err(request_build_error)?,
+        )
+        .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+        .map_err(request_build_error)?;
+        decode_json(self.execute(plan, call, "xAI file list failed").await?)
+    }
 
-    Ok(FileListResponse {
-        files,
-        has_more,
-        next_cursor,
+    pub async fn retrieve(&self, id: &XaiFileId, call: CallOptions) -> Result<XaiFile, Error> {
+        self.get_json(id, Method::GET, call, "xAI file retrieval failed")
+            .await
+    }
+
+    pub async fn delete(&self, id: &XaiFileId, call: CallOptions) -> Result<XaiDeletedFile, Error> {
+        self.get_json(id, Method::DELETE, call, "xAI file deletion failed")
+            .await
+    }
+
+    pub async fn download(
+        &self,
+        id: &XaiFileId,
+        call: CallOptions,
+    ) -> Result<XaiFileContent, Error> {
+        let headers = RequestHeaders::new()
+            .try_insert(ACCEPT, HeaderValue::from_static("*/*"))
+            .map_err(request_build_error)?;
+        let plan = RequestPlan::new(
+            Method::GET,
+            RequestTarget::new(format!("files/{}/content", id.as_str()))
+                .map_err(request_build_error)?,
+        )
+        .with_headers(headers)
+        .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+        .map_err(request_build_error)?;
+        let response = self.execute(plan, call, "xAI file download failed").await?;
+        let (_, headers, data) = response.into_parts();
+        if data.is_empty() {
+            return Err(Error::protocol_violation(
+                "xAI file download returned an empty body",
+            ));
+        }
+        Ok(XaiFileContent {
+            media_type: response_media_type(&headers).map(str::to_string),
+            data,
+            request_id: response_request_id(&headers),
+        })
+    }
+
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        id: &XaiFileId,
+        method: Method,
+        call: CallOptions,
+        message: &'static str,
+    ) -> Result<T, Error> {
+        let plan = RequestPlan::new(
+            method.clone(),
+            RequestTarget::new(format!("files/{}", id.as_str())).map_err(request_build_error)?,
+        )
+        .with_replay_safety(if method == Method::GET {
+            ReplaySafety::SemanticallyIdempotent
+        } else {
+            ReplaySafety::Never
+        })
+        .map_err(request_build_error)?;
+        decode_json(self.execute(plan, call, message).await?)
+    }
+
+    async fn execute(
+        &self,
+        plan: RequestPlan,
+        call: CallOptions,
+        message: &'static str,
+    ) -> Result<TransportResponse, Error> {
+        let response = self.transport.execute(plan, call).await?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(response_error(message, response))
+        }
+    }
+}
+
+impl fmt::Debug for XaiFiles {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("XaiFiles")
+            .field("transport", &"shared")
+            .finish()
+    }
+}
+
+fn decode_json<T: serde::de::DeserializeOwned>(response: TransportResponse) -> Result<T, Error> {
+    let (_, _, body) = response.into_parts();
+    serde_json::from_slice(&body).map_err(|source| {
+        Error::new(ErrorKind::Protocol, "xAI Files returned malformed JSON").with_source(source)
     })
 }
 
-fn map_xai_file_delete_response(
-    value: &serde_json::Value,
-    requested_id: &str,
-) -> FileDeleteResponse {
-    let id =
-        get_string_field(value, &["id", "file_id"]).unwrap_or_else(|| requested_id.to_string());
-    let deleted = get_bool_field(value, &["deleted"]).unwrap_or(true);
+fn text_part(name: &str, value: &str) -> Result<MultipartPart, Error> {
+    MultipartPart::field(name, value.as_bytes().to_vec()).map_err(request_build_error)
+}
 
-    FileDeleteResponse { id, deleted }
+fn validate_text(value: &str, maximum: usize, message: &'static str) -> Result<(), Error> {
+    if value.trim().is_empty() || value.len() > maximum || value.chars().any(char::is_control) {
+        return Err(Error::new(ErrorKind::InvalidInput, message));
+    }
+    Ok(())
+}
+
+fn response_error(message: &'static str, response: TransportResponse) -> Error {
+    let (status, headers, body) = response.into_parts();
+    let kind = match status {
+        StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
+        StatusCode::FORBIDDEN => ErrorKind::Authorization,
+        StatusCode::NOT_FOUND => ErrorKind::Provider,
+        StatusCode::TOO_MANY_REQUESTS => ErrorKind::RateLimited,
+        StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY => ErrorKind::InvalidInput,
+        _ => ErrorKind::Provider,
+    };
+    let mut diagnostics = ResponseDiagnostics::default().with_status(status.as_u16());
+    if let Some(request_id) = response_request_id(&headers)
+        && let Ok(request_id) = PublicDiagnosticText::new(request_id)
+    {
+        diagnostics = diagnostics.with_request_id(request_id);
+    }
+    let raw_headers = headers
+        .expose()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect();
+    Error::new(kind, message)
+        .with_diagnostics(diagnostics)
+        .with_sensitive_response(SensitiveResponse::new(raw_headers, body.to_vec()))
+}
+
+fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
+    ["x-request-id", "request-id"].into_iter().find_map(|name| {
+        headers
+            .get(&http::header::HeaderName::from_static(name))
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| PublicDiagnosticText::new(value.to_owned()).ok())
+            .map(|value| value.as_str().to_owned())
+    })
+}
+
+fn response_media_type(headers: &ResponseHeaders) -> Option<&str> {
+    headers
+        .get(&http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn request_build_error(source: RequestBuildError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "xAI Files request violates the transport contract",
+    )
+    .with_source(source)
 }
 
 #[cfg(test)]
 mod tests {
+    use mockito::Matcher;
+    use siumai_core::{ReplayDomain, ReplayDomainId};
+    use siumai_transport::EndpointConfig;
+
     use super::*;
-    use crate::execution::http::transport::{
-        HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
-    };
-    use std::collections::VecDeque;
-    use std::sync::Mutex;
-
-    #[derive(Clone)]
-    struct CaptureTransport {
-        multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
-        responses: Arc<Mutex<VecDeque<HttpTransportResponse>>>,
-    }
-
-    impl CaptureTransport {
-        fn new(responses: Vec<HttpTransportResponse>) -> Self {
-            Self {
-                multipart_requests: Arc::new(Mutex::new(Vec::new())),
-                responses: Arc::new(Mutex::new(responses.into_iter().collect())),
-            }
-        }
-
-        fn take_multipart_requests(&self) -> Vec<HttpTransportMultipartRequest> {
-            std::mem::take(&mut *self.multipart_requests.lock().expect("multipart lock"))
-        }
-    }
-
-    #[async_trait]
-    impl HttpTransport for CaptureTransport {
-        async fn execute_json(
-            &self,
-            _request: HttpTransportRequest,
-        ) -> Result<HttpTransportResponse, LlmError> {
-            Err(LlmError::UnsupportedOperation(
-                "json transport should not be used in xai files tests".to_string(),
-            ))
-        }
-
-        async fn execute_multipart(
-            &self,
-            request: HttpTransportMultipartRequest,
-        ) -> Result<HttpTransportResponse, LlmError> {
-            self.multipart_requests
-                .lock()
-                .expect("multipart lock")
-                .push(request);
-            self.responses
-                .lock()
-                .expect("responses lock")
-                .pop_front()
-                .ok_or_else(|| LlmError::HttpError("missing multipart response".to_string()))
-        }
-    }
-
-    fn make_json_response(body: serde_json::Value) -> HttpTransportResponse {
-        HttpTransportResponse {
-            status: 200,
-            headers: HeaderMap::new(),
-            body: serde_json::to_vec(&body).expect("serialize response body"),
-        }
-    }
-
-    fn make_test_files(transport: Arc<dyn HttpTransport>) -> XaiFiles {
-        XaiFiles::new(
-            ProviderContext::new(
-                PROVIDER_ID,
-                "https://api.x.ai/v1",
-                Some("test-key".to_string()),
-                HashMap::new(),
-            ),
-            reqwest::Client::new(),
-            Some(transport),
-            Vec::new(),
-            None,
-        )
-    }
+    use crate::{XaiCredential, XaiProvider};
 
     #[tokio::test]
-    async fn upload_file_uses_multipart_and_forwards_team_id_and_file_path() {
-        let transport = CaptureTransport::new(vec![make_json_response(serde_json::json!({
-            "id": "file-123",
-            "bytes": 3,
-            "created_at": 1,
-            "filename": "hello.txt",
-            "status": "uploaded"
-        }))]);
+    async fn upload_orders_ttl_before_file_and_lifecycle_is_typed() {
+        let mut server = mockito::Server::new_async().await;
+        let upload = server
+            .mock("POST", "/v1/files")
+            .match_body(Matcher::Regex(
+                "name=\"purpose\"[\\s\\S]*assistants[\\s\\S]*name=\"expires_after\"[\\s\\S]*7200[\\s\\S]*name=\"file\"".to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"file_123",
+                    "object":"file",
+                    "bytes":4,
+                    "created_at":1,
+                    "expires_at":7201,
+                    "filename":"doc.txt",
+                    "purpose":"assistants"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let retrieve = server
+            .mock("GET", "/v1/files/file_123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"file_123",
+                    "bytes":4,
+                    "filename":"doc.txt"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let delete = server
+            .mock("DELETE", "/v1/files/file_123")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"id":"file_123","deleted":true}).to_string())
+            .create_async()
+            .await;
+        let provider = XaiProvider::builder(XaiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.url())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-xai-files").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let files = provider.files();
+        let file = files
+            .upload(
+                XaiFileUpload::new(Bytes::from_static(b"test"), "text/plain", "doc.txt")
+                    .unwrap()
+                    .with_expires_after_seconds(7_200)
+                    .unwrap(),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        let retrieved = files
+            .retrieve(&file.id, CallOptions::default())
+            .await
+            .unwrap();
+        let deleted = files
+            .delete(&file.id, CallOptions::default())
+            .await
+            .unwrap();
 
-        let files = make_test_files(Arc::new(transport.clone()));
-        let mut provider_options = crate::types::ProviderOptionsMap::default();
-        provider_options.insert(
-            "xai",
-            serde_json::json!({
-                "teamId": "team-123",
-                "filePath": "/uploads/hello.txt"
-            }),
-        );
-        let request = FileUploadRequest {
-            content: b"hey".to_vec(),
-            filename: Some("hello.txt".to_string()),
-            mime_type: Some("text/plain".to_string()),
-            purpose: "assistants".to_string(),
-            metadata: HashMap::new(),
-            provider_options,
-            http_config: None,
+        upload.assert_async().await;
+        retrieve.assert_async().await;
+        delete.assert_async().await;
+        assert_eq!(retrieved.filename.as_deref(), Some("doc.txt"));
+        assert!(deleted.deleted);
+        assert!(serde_json::from_str::<XaiFileId>(r#""../escape""#).is_err());
+        let content = XaiFileContent {
+            media_type: Some("text/plain".to_string()),
+            data: Bytes::from_static(b"private-file-canary"),
+            request_id: Some("request-1".to_string()),
         };
-
-        let result = files.upload_file(request).await.expect("upload result");
-        assert_eq!(result.id, "file-123");
-        assert_eq!(result.filename.as_deref(), Some("hello.txt"));
-        assert!(result.metadata.is_empty());
-
-        let requests = transport.take_multipart_requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].url, "https://api.x.ai/v1/files");
-        let body = String::from_utf8_lossy(&requests[0].body);
-        assert!(body.contains("name=\"team_id\""));
-        assert!(body.contains("team-123"));
-        assert!(body.contains("name=\"file_path\""));
-        assert!(body.contains("/uploads/hello.txt"));
-        assert!(body.contains("name=\"file\"; filename=\"hello.txt\""));
-    }
-
-    #[test]
-    fn file_object_parser_accepts_docs_shape() {
-        let file = map_xai_file_object(
-            &serde_json::json!({
-                "file_id": "file-123",
-                "name": "hello.txt",
-                "size_bytes": 12,
-                "created_at": "2026-04-15T12:00:00Z",
-                "processing_status": "completed",
-                "content_type": "text/plain",
-                "file_path": "/uploads/hello.txt"
-            }),
-            None,
-        )
-        .expect("parsed xai docs-shaped file");
-
-        assert_eq!(file.id, "file-123");
-        assert_eq!(file.filename.as_deref(), Some("hello.txt"));
-        assert_eq!(file.bytes, 12);
-        assert_eq!(file.status, "completed");
-        assert_eq!(file.mime_type.as_deref(), Some("text/plain"));
-        assert_eq!(
-            file.metadata.get("file_path"),
-            Some(&serde_json::json!("/uploads/hello.txt"))
-        );
+        assert!(!format!("{content:?}").contains("private-file-canary"));
     }
 }

@@ -1,19 +1,11 @@
-//! `Deepgram` provider module.
-//!
-//! This module owns the AI SDK-aligned Deepgram speech/transcription surface.
+//! Transitional namespace for Deepgram-owned public types.
 
-pub mod client;
-pub mod config;
-pub mod ext;
-pub mod models;
-pub mod options;
-
-pub use client::{DeepgramClient, DeepgramSpeechModel, DeepgramTranscriptionModel};
-pub use config::DeepgramConfig;
-pub use ext::{DeepgramSttRequestExt, DeepgramTtsRequestExt};
-pub use options::{
-    DeepgramSpeechModelOptions, DeepgramSpeechOptions, DeepgramSttOptions, DeepgramSummarizeOption,
-    DeepgramTranscriptionModelOptions,
+pub use crate::{
+    DeepgramConfigError, DeepgramCredential, DeepgramCredentialError, DeepgramProvider,
+    DeepgramProviderBuilder, DeepgramRedaction, DeepgramSummarizeOption,
+    DeepgramTranscriptionModel, DeepgramTranscriptionOptions, VERSION,
 };
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub mod models {
+    pub use crate::models::*;
+}

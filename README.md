@@ -1,727 +1,240 @@
-# Siumai — Unified LLM Interface for Rust
+# Siumai — Provider-faithful AI model interfaces for Rust
 
 [![Crates.io](https://img.shields.io/crates/v/siumai.svg)](https://crates.io/crates/siumai)
 [![Documentation](https://docs.rs/siumai/badge.svg)](https://docs.rs/siumai)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/YumchaLabs/siumai/blob/main/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/YumchaLabs/siumai)
 
-Siumai (烧卖) is a type-safe Rust library that provides a single, consistent API over multiple LLM providers. It focuses on clear abstractions, predictable behavior, and practical extensibility.
+Siumai (烧卖) is a type-safe Rust workspace for integrating AI model providers. It offers
+provider-faithful typed access to explicitly retained provider scopes and small provider-neutral
+model-family interfaces for portable application code. The unified family API and Registry are
+optional convenience layers, not replacements for provider-specific capabilities.
 
-This README keeps things straightforward: what you can do, how to customize, and short examples.
+## What Siumai provides
 
-## What It Provides
-
-- Unified clients for multiple providers (OpenAI, Anthropic, Google Gemini, Ollama, Groq, xAI, and OpenAI‑compatible vendors)
-- Capability traits for chat, streaming, tools, vision, audio, files, embeddings, and rerank
-- Streaming with start/delta/usage/end events and cancellation
-- Tool calling and a lightweight orchestrator for multi‑step workflows
-- Structured outputs:
-  - Provider‑native structured outputs (OpenAI/Anthropic/Gemini, etc.)
-  - Provider‑agnostic decoding helpers with JSON repair and validation (via `siumai-extras`)
-- HTTP interceptors, middleware, and a simple retry facade
-- Optional extras for telemetry, OpenTelemetry, schema validation, and server adapters
+- Provider-direct construction, typed options, annotations, metadata, and native resources
+- Provider-neutral family traits for language, embeddings, images, reranking, speech, and
+  transcription
+- Established language streams with explicit terminal outcomes and cancellation
+- An optional immutable Registry for routing caller-configured providers
+- An optional runtime for tool loops, structured output, approvals, budgets, and durable runs
+- Shared transport and protocol crates with bounded, sanitized error handling
 
 ## Install
 
+Enable only the provider and integration features that the application uses:
+
 ```toml
 [dependencies]
-siumai = "0.11.0-beta.8"
+siumai = { version = "0.11.0-beta.9", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-## Migration
+The facade's default features are `registry` and `runtime`; no provider is enabled by default. Add
+`registry` or `runtime` explicitly when using `default-features = false`.
 
-- Upgrading from `0.11.0-beta.6`?
-  - See `docs/migration/migration-0.11.0-beta.7.md`
-- Upgrading from `0.11.0-beta.5` (or earlier)?
-  - See `docs/migration/migration-0.11.0-beta.6.md`
-  - Note: legacy method-style entry points are treated as compatibility surface; the explicit module is `siumai::compat`.
+The current workspace is a breaking public API reset. Existing users should read
+[`docs/migration/siumai-next.md`](docs/migration/siumai-next.md) before updating.
 
-Feature flags (enable only what you need):
+## Provider features
 
-```toml
-# One provider
-siumai = { version = "0.11.0-beta.8", features = ["openai"] }
-# Multiple providers
-siumai = { version = "0.11.0-beta.8", features = ["openai", "anthropic", "google"] }
-# All
-siumai = { version = "0.11.0-beta.8", features = ["all-providers"] }
+Provider features describe the exact retained slice, not every product sold under a vendor name:
+
+| Feature | Current public scope |
+|---|---|
+| `openai` | Responses and Chat language, embeddings, image generation, buffered speech, final-result transcription, and typed Conversations/Files/Vector Stores/Skills resources |
+| `openai-realtime` | Experimental provider-owned OpenAI Realtime bootstrap and session transport |
+| `openai-responses-websocket` | Experimental persistent OpenAI Responses WebSocket sessions; also enables `openai` |
+| `anthropic` | Messages plus Files, Message Batches, token counting, and Skills metadata/version CRUD with bounded uploads |
+| `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
+| `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
+| `alibaba` | Chat, Responses, Anthropic-compatible Messages, embeddings, and experimental Wan video |
+| `moonshotai` | Moonshot AI's Kimi Chat Completions, Partial Mode, and typed Files lifecycle |
+| `volcengine` | Volcengine ARK Chat Completions/Responses, portable Image, Remote MCP, and typed Video tasks |
+| `openai-compatible` | Explicit generic or custom OpenAI-compatible endpoints |
+| `groq` | Chat, Responses, transcription, buffered Orpheus speech, Remote MCP, and URL-audio/translation resources |
+| `xai` | Responses-primary language, explicit Chat Completions, image, speech, transcription, Files, and video jobs |
+| `minimax` | Three language modes, portable image/speech, Responses input-token counting, and typed files/media/voice resources |
+| `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
+| `cohere` | Embeddings and reranking |
+| `deepgram` | Final-result transcription and buffered Aura speech synthesis |
+| `elevenlabs` | Buffered speech synthesis and final-result/batch transcription |
+
+See the [provider support policy](docs/providers/support-policy.md) for fidelity, stability, and
+host-control-plane boundaries. Model identifiers remain open; constants are dated hints rather
+than allowlists.
+
+Each row is a `claimed slice complete` inventory for this release, not a `provider platform
+complete` claim. Surfaces outside a row's exact scope are `intentionally deferred` and remain
+available for future provider-owned additions without widening the portable core.
+
+## Flagship OpenAI and Anthropic journeys
+
+The facade ships two compile-checked, offline-by-default examples:
+
+- [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines an exact-target typed
+  Responses option, the portable language family, and a provider-owned Conversations read;
+- [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
+  options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
+  Skills metadata list.
+
+Compile them independently with only their documented provider feature:
+
+```text
+cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
+cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
 ```
 
-Note: `siumai` enables `openai` by default. Disable defaults via `default-features = false`.
+OpenAI Responses WebSocket is intentionally provider-owned rather than a portable family. Enable
+`openai-responses-websocket`, acquire a Responses model, call `model.websocket()?`, and connect the
+returned configuration. One connection accepts one generated turn at a time, supports sequential
+continuation and native-only warm-up, and uses the same canonical Responses decoder as HTTP SSE.
+Custom HTTP providers must configure a WebSocket endpoint explicitly and do not inherit OpenAI's
+official session support claim.
 
-Optional package for advanced utilities:
+## Choose the narrowest public surface
 
-```toml
-[dependencies]
-siumai = "0.11.0-beta.8"
-siumai-extras = { version = "0.11.0-beta.8", features = ["schema", "telemetry", "opentelemetry", "server", "mcp"] }
-```
+- Start with a configured provider when protocol modes, provider options, or native resources
+  matter.
+- Pass its model handles through `siumai::families::*` when an operation is portable.
+- Add Registry only when the host needs deterministic local route lookup.
+- Add runtime only when the host needs provider-neutral multi-step orchestration.
 
-## Usage
+Provider-specific behavior stays available through typed call options, typed annotations attached
+to semantic nodes, or provider-native resources. Only semantics demonstrated to be portable belong
+in shared family requests. Call-level provider options are bounded ordered patches and normally bind
+to the exact configured model instance; host route/model/step/call precedence remains private to
+runtime instead of becoming part of every provider API.
 
-### Construction order
+## MiniMax provider-direct example
 
-For new code, prefer construction modes in this order:
-
-1. `registry-first` for application code and cross-provider routing
-2. `config-first` for provider-specific setup and tests
-3. migration compatibility snippets when replacing older builder-style code
-
-Rule of thumb:
-
-- reach for `registry::global().language_model("provider:model")?` in app code
-- reach for `*Client::from_config(*Config::new(...))` in provider-specific code
-- treat `Siumai::builder()` and provider builders as compatibility wrappers, not the architectural center
-
-### Public surface map
-
-Use public surfaces by intent, not by habit:
-
-- **App-level routing and default usage**: `registry::global()` + the six family APIs `text::{generate, stream}`, `embedding::embed`, `image::generate`, `rerank::rerank`, `speech::synthesize`, and `transcription::transcribe`
-- **Provider-specific construction**: `siumai::providers::<provider>::*Config` + `*Client::from_config(...)`
-- **Provider-specific typed escape hatches**: `siumai::provider_ext::<provider>::options::*`, request ext traits, and typed response metadata helpers
-- **Migration compatibility**: `siumai::compat::Siumai` and `Provider::*()` builders
-- **Last-resort vendor knobs**: raw `with_provider_option(...)` when a typed provider extension does not exist yet
-
-Policy for new features:
-
-- no new capability should be builder-only
-- typed provider knobs should live under `provider_ext::<provider>` before recommending raw provider-option maps
-- docs and examples should present `registry-first -> config-first` first; builder snippets belong in migration/compatibility sections
-- docs should treat the six family modules `text`, `embedding`, `image`, `rerank`, `speech`, and `transcription` as the primary public entry points
-
-### Registry (recommended)
-
-Use the registry to resolve models via `provider:model` and get a handle with a uniform API.
-
-```rust
-use siumai::prelude::unified::*;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let reg = registry::global();
-    let model = reg.language_model("openai:gpt-4o-mini")?;
-    let resp = text::generate(
-        &model,
-        ChatRequest::new(vec![user!("Hello")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
-Note: OpenAI routing via the registry uses the Responses API by default. If you specifically need
-
-Chat Completions (`POST /chat/completions`) for a specific request, override it via provider options:
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
-let req = ChatRequest::new(vec![user!("Hello")]).with_openai_options(
-    OpenAiOptions::new().with_responses_api(ResponsesApiConfig {
-        enabled: false,
-        ..Default::default()
-    }),
-);
-```
-
-Supported examples of `provider:model`:
-
-- `openai:gpt-4o`, `openai:gpt-4o-mini`
-- `anthropic:claude-3-5-sonnet-20240620`
-- `anthropic-vertex:claude-3-5-sonnet-20240620`
-- `gemini:gemini-2.0-flash-exp`
-- `groq:llama-3.1-70b-versatile`
-- `xai:grok-beta`
-- `ollama:llama3.2`
-- `minimaxi:minimax-text-01`
-
-OpenAI‑compatible vendors follow the same pattern (API keys read as `{PROVIDER_ID}_API_KEY` when possible). See docs for details.
-
-### OpenAI-compatible vendors (config-first)
-
-Typed vendor views such as `siumai::provider_ext::openrouter` and `siumai::provider_ext::perplexity`
-are helper layers over the same compat runtime; they do not imply that every preset should grow
-into a separate full provider package.
-
-For OpenAI-compatible providers like Moonshot/OpenRouter/DeepSeek, you can use the built-in vendor registry:
+MiniMax uses Anthropic-compatible Messages as its recommended language mode:
 
 ```rust,no_run
-use siumai::prelude::unified::*;
-use siumai::providers::openai_compatible::OpenAiCompatibleClient;
+use siumai::families::language;
+use siumai::providers::minimax::{
+    MinimaxCredential, MinimaxMessagesOptions, MinimaxProvider, MinimaxServiceTier,
+    MinimaxThinking, models,
+};
+use siumai::{CallOptions, ContentPart, LanguageRequest, Message, MessageRole};
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Reads `DEEPSEEK_API_KEY` by default.
-    let client = OpenAiCompatibleClient::from_builtin_env("deepseek", Some("deepseek-chat")).await?;
-    let resp = text::generate(
-        &client,
-        ChatRequest::new(vec![user!("hi")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
-Notes:
-
-- `OpenAiCompatibleClient::from_builtin_env` reads API keys from env using this precedence:
-  1. `ProviderConfig.api_key_env` (when present)
-  2. `ProviderConfig.api_key_env_aliases` (fallbacks)
-  3. `${PROVIDER_ID}_API_KEY` (uppercased, `-` replaced with `_`)
-- To discover built-in OpenAI-compatible provider ids, call
-
-  `siumai::providers::openai_compatible::list_provider_ids()`.
-
-### Provider clients (config-first)
-
-Provider-specific client:
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o")
-        .with_temperature(0.7);
-    let client = OpenAiClient::from_config(cfg)?;
-    let resp = text::generate(
-        &client,
-        ChatRequest::new(vec![user!("Hi")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
-MiniMaxi (config-first):
-
-```rust,no_run
-use siumai::models;
-use siumai::prelude::unified::*;
-use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?)
-        .with_model(models::minimaxi::MINIMAX_M2);
-    let client = MinimaxiClient::from_config(cfg)?;
-    let resp = text::generate(
-        &client,
-        ChatRequest::new(vec![user!("Hello MiniMaxi!")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
-OpenAI‑compatible (custom base URL):
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // For OpenAI-compatible local endpoints, you can use any non-empty API key.
-    let cfg = OpenAiConfig::new("dummy")
-        .with_base_url("http://localhost:8000/v1")
-        .with_model("meta-llama/Llama-3.1-8B-Instruct");
-    let vllm = OpenAiClient::from_config(cfg)?;
-    let resp = text::generate(
-        &vllm,
-        ChatRequest::new(vec![user!("Hello from vLLM")]),
-        text::GenerateOptions::default(),
-    )
-    .await?;
-    println!("{}", resp.content_text().unwrap_or_default());
-    Ok(())
-}
-```
-
-### Rerank (registry-first)
-
-```rust,no_run
-use siumai::prelude::unified::*;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let registry_id = "cohere:rerank-english-v3.0";
-    let model = registry::global().reranking_model(registry_id)?;
-    let response = rerank::rerank(
-        &model,
-        RerankRequest::new(
-            "rerank-english-v3.0".to_string(),
-            "Which document is about Rust SDK architecture?".to_string(),
-            vec![
-                "A Python crawler tutorial".to_string(),
-                "A Rust SDK architecture guide".to_string(),
-                "A dumpling recipe".to_string(),
-            ],
-        )
-        .with_top_n(2),
-        rerank::RerankOptions::default(),
-    )
-    .await?;
-    println!("{:?}", response.sorted_indices());
-    Ok(())
-}
-```
-
-Provider-specific rerank setup should still prefer config-first clients plus typed request extensions.
-Runnable references:
-
-- `siumai/examples/05-integrations/registry/rerank.rs`
-- `siumai/examples/04-provider-specific/cohere/rerank.rs`
-- `siumai/examples/04-provider-specific/togetherai/rerank.rs`
-- `siumai/examples/04-provider-specific/bedrock/rerank.rs`
-
-#### OpenAI endpoint routing (Responses vs Chat Completions)
-
-Siumai supports both OpenAI chat endpoints:
-
-- **Responses API**: `POST /responses` (default)
-- **Chat Completions**: `POST /chat/completions` (override via `providerOptions.openai.responsesApi.enabled = false`)
-
-If you need to override the default on a per-request basis, set `providerOptions.openai.responsesApi.enabled`
-
-explicitly on the `ChatRequest`.
-
-### Builder convenience (compat)
-
-Builder-style construction remains available as a **temporary** compatibility surface.
-
-It is useful for migration and side-by-side comparisons, but it is **not** the recommended default for new code.
-
-Recommended order:
-
-- first: registry-first for app-level code
-- second: config-first for provider-specific code
-- third: builder compatibility only when migrating older code
-
-If you still want the builder style, prefer importing it explicitly from `siumai::compat`:
-
-```rust,ignore
-use siumai::compat::Siumai;
-let client = Siumai::builder()
-    .openai()
-    .api_key(std::env::var("OPENAI_API_KEY")?)
-    .model("gpt-4o-mini")
-    .build()
-    .await?;
-```
-
-Compatibility note: planned removal target is **no earlier than `0.12.0`**.
-
-For details, see `docs/migration/migration-0.11.0-beta.6.md`.
-
-Builder policy note: builders are expected to converge on the same config-first construction path.
-
-If a feature matters for real usage, it should also be reachable from provider config/client APIs and,
-
-when appropriate, typed provider extensions under `provider_ext`.
-
-### Streaming
-
-```rust
-use futures::StreamExt;
-use siumai::prelude::unified::*;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let reg = registry::global();
-    let model = reg.language_model("openai:gpt-4o-mini")?;
-    let mut stream = text::stream(
-        &model,
-        ChatRequest::new(vec![user!("Stream a long answer")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    while let Some(ev) = stream.next().await {
-        let ev = ev?;
-        if let Some(delta) = ev.text_delta() { print!("{delta}"); }
-    }
-    Ok(())
-}
-```
-
-#### Streaming cancellation
-
-`chat_stream_with_cancel` returns a `ChatStreamHandle` with a first-class `CancelHandle`.
-
-Cancellation is wakeable: it can stop a pending `next().await` immediately (useful for both SSE and WebSocket streams).
-
-```rust,no_run
-use futures::StreamExt;
-use siumai::prelude::unified::*;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let reg = registry::global();
-    let model = reg.language_model("openai:gpt-4o-mini")?;
-    let handle = text::stream_with_cancel(
-        &model,
-        ChatRequest::new(vec![user!("Stream...")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    let ChatStreamHandle { mut stream, cancel } = handle;
-    let reader = tokio::spawn(async move { while stream.next().await.is_some() {} });
-    cancel.cancel();
-    reader.await?;
-    Ok(())
-}
-```
-
-### OpenAI WebSocket streaming (Responses API)
-
-If you have many sequential streaming steps (e.g., tool loops), OpenAI's WebSocket mode can reduce
-
-TTFB by reusing a persistent connection. Enable the feature and inject the transport:
-
-Note: `base_url` must use `http://` or `https://` (it is converted to `ws://` / `wss://` internally).
-
-WebSocket mode only applies to **Responses streaming** (`POST /responses`). It is not compatible with
-
-Chat Completions (`POST /chat/completions`).
-
-```toml
-# Cargo.toml
-siumai = { version = "0.11.0-beta.8", features = ["openai-websocket"] }
-```
-
-```rust,no_run
-	use futures::StreamExt;
-	use siumai::prelude::unified::*;
-	use siumai::providers::openai::{OpenAiClient, OpenAiConfig, OpenAiWebSocketTransport};
-	use std::sync::Arc;
-	#[tokio::main]
-	async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	    // OpenAI WebSocket connections are time-limited; by default we avoid reusing connections
-	    // older than ~55 minutes. Customize or disable if needed.
-	    let ws = OpenAiWebSocketTransport::default()
-	        // Keep up to N idle connections for concurrent tool loops.
-	        .with_max_idle_connections(2);
-	    // let ws = ws.with_max_connection_age(std::time::Duration::from_secs(55 * 60));
-	    // let ws = ws.without_max_connection_age();
-    // Optional: connection-local incremental continuation (`previous_response_id`).
-    // Note: OpenAI caches the most recent response per WebSocket connection, so this is
-    // only unambiguous when `max_idle_connections == 1`.
-    // let ws = ws.with_stateful_previous_response_id(true);
-    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o-mini")
-        .with_http_transport(Arc::new(ws.clone()));
-    let client = OpenAiClient::from_config(cfg)?;
-    // Streaming `/responses` requests are routed through WebSocket; everything else uses HTTP.
-    let mut stream = text::stream(
-        &client,
-        ChatRequest::new(vec![user!("Hello!")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    while let Some(ev) = stream.next().await {
-        let ev = ev?;
-        if let Some(delta) = ev.text_delta() {
-            print!("{delta}");
-        }
-    }
-    ws.close().await; // optional: close the cached connection
-    Ok(())
-}
-```
-
-#### OpenAI WebSocket session (warm-up + single connection)
-
-For agentic workflows with many sequential streaming steps, prefer a single-connection session
-
-so `previous_response_id` continuation stays unambiguous:
-
-This session also includes a conservative recovery strategy:
-
-- if WebSocket setup fails (transient/connectivity), it falls back to HTTP (SSE) streaming for that request
-- for some WebSocket-specific OpenAI errors, it may rebuild the connection and retry once
-
-Note: configuration errors (e.g. invalid `base_url`, unsupported URL scheme) are surfaced directly and do not fall back to HTTP.
-
-You can customize it, e.g. disable all recovery:
-
-`OpenAiWebSocketSession::from_config_default_http(cfg)?.with_recovery_config(OpenAiWebSocketRecoveryConfig { allow_http_fallback: false, max_ws_retries: 0 });`
-
-Important: recovery may rebuild the WebSocket connection (or fall back to HTTP), which resets
-
-connection-local continuation state (`previous_response_id`). If you strictly rely on continuation
-
-via a single warm connection, consider disabling recovery.
-
-When recovery happens, the session also emits `ChatStreamEvent::Custom` with `event_type="openai:ws-recovery"`.
-
-`OpenAiWebSocketSession` also attempts best-effort remote cancellation when using `chat_stream_with_cancel(...)`
-
-by calling `POST /responses/{id}/cancel` once the response id is observed. Disable via `session.with_remote_cancel(false)`.
-
-```rust,no_run
-use futures::StreamExt;
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiConfig, OpenAiWebSocketSession};
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o-mini");
-    let session = OpenAiWebSocketSession::from_config_default_http(cfg)?;
-    session.warm_up_messages(vec![user!("Warm up with my toolset")], None).await?;
-    let mut stream = text::stream(
-        &session,
-        ChatRequest::new(vec![user!("Hello!")]),
-        text::StreamOptions::default(),
-    )
-    .await?;
-    while let Some(ev) = stream.next().await {
-        let ev = ev?;
-        if let Some(delta) = ev.text_delta() {
-            print!("{delta}");
-        }
-    }
-    session.close().await;
-    Ok(())
-}
-```
-
-### Structured output
-
-#### 1) Provider‑agnostic decoding (recommended for cross‑provider flows)
-
-Use `siumai-extras` to parse model text into typed JSON with optional schema validation and repair:
-
-```rust
-use serde::Deserialize;
-use siumai::prelude::unified::*;
-use siumai_extras::highlevel::object::generate_object;
-#[derive(Deserialize, Debug)]
-struct Post { title: String }
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = siumai::providers::openai::OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-        .with_model("gpt-4o-mini");
-    let client = siumai::providers::openai::OpenAiClient::from_config(cfg)?;
-    let (post, _resp) = generate_object::<Post>(
-        &client,
-        vec![user!("Return JSON: {\"title\":\"hi\"}")],
-        None,
-        Default::default(),
-    ).await?;
-    println!("{}", post.title);
-    Ok(())
-}
-```
-
-Under the hood this uses `siumai_extras::structured_output::OutputDecodeConfig` to:
-
-- enforce shape hints (object/array/enum)
-- optionally validate against a JSON Schema
-- repair common issues (markdown fences, trailing commas, partial slices)
-
-#### 2) Provider‑native structured outputs (example: OpenAI Responses API)
-
-For providers that expose native structured outputs, configure them via provider options.
-
-You still can combine them with the decoding helpers above if you want:
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions, ResponsesApiConfig};
-use serde_json::json;
-let schema = json!({"type":"object","properties":{"title":{"type":"string"}},"required":["title"]});
-let req = ChatRequestBuilder::new()
-    .message(user!("Return an object with title"))
-    .build()
-    .with_openai_options(OpenAiOptions::new().with_responses_api(
-        ResponsesApiConfig::new().with_response_format(json!({
-            "type": "json_object",
-            "json_schema": { "schema": schema, "strict": true }
-        }))
-    ));
-let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
-// Optionally: further validate/repair/deserialize using `siumai-extras` helpers.
-```
-
-### Retries
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::retry_api::{retry_with, RetryOptions};
-let text = client
-    .ask_with_retry("Hello".to_string(), RetryOptions::backoff())
-    .await?;
-```
-
-## Customization
-
-- HTTP client and headers
-- Middleware chain (defaults, clamping, reasoning extraction)
-- HTTP interceptors (request/response hooks, SSE observation)
-- Retry options and backoff
-
-### HTTP configuration
-
-You have three practical ways to control HTTP behavior, from simple to advanced.
-
-1. Provider config + `HttpConfig` (most common)
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-let http_cfg = HttpConfig::builder()
-    .timeout(Some(std::time::Duration::from_secs(30)))
-    .connect_timeout(Some(std::time::Duration::from_secs(10)))
-    .user_agent(Some("my-app/1.0"))
-    .header("X-User-Project", "acme")
-    .stream_disable_compression(true) // keep SSE stable; default can be controlled by env
-    .build();
-let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-    .with_model("gpt-4o-mini")
-    .with_http_config(http_cfg);
-let client = OpenAiClient::from_config(cfg)?;
-```
-
-2. `HttpConfig` builder + shared client builder (centralized configuration)
-
-```rust
-use siumai::experimental::execution::http::client::build_http_client_from_config;
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-// Construct a reusable HTTP config
-let http_cfg = HttpConfig::builder()
-    .timeout(Some(std::time::Duration::from_secs(30)))
-    .connect_timeout(Some(std::time::Duration::from_secs(10)))
-    .user_agent(Some("my-app/1.0"))
-    .proxy(Some("http://proxy.example.com:8080"))
-    .header("X-User-Project", "acme")
-    .stream_disable_compression(true) // explicit SSE stability
-    .build();
-// Build reqwest client using the shared helper
-let http = build_http_client_from_config(&http_cfg)?;
-let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-    .with_model("gpt-4o-mini")
-    .with_http_config(http_cfg);
-let client = OpenAiClient::new(cfg, http);
-```
-
-3. Fully custom reqwest client (maximum control)
-
-```rust
-use siumai::prelude::unified::*;
-use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
-let http = reqwest::Client::builder()
-    .timeout(std::time::Duration::from_secs(30))
-    // .danger_accept_invalid_certs(true) // if needed for dev
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key(
+        std::env::var("MINIMAX_API_KEY")?,
+    ))
     .build()?;
-let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
-    .with_model("gpt-4o-mini");
-let client = OpenAiClient::new(cfg, http);
+    let model = provider.language(models::MINIMAX_M3)?;
+
+    let provider_options = MinimaxMessagesOptions::new()
+        .with_thinking(MinimaxThinking::Adaptive)
+        .with_service_tier(MinimaxServiceTier::Standard);
+    let options = CallOptions::default().with_provider_options_for(&model, &provider_options)?;
+    let response = language::generate_with_options(
+        &model,
+        LanguageRequest::new(vec![Message::text(
+            MessageRole::User,
+            "Hello MiniMax!",
+        )]),
+        options,
+    )
+    .await?;
+
+    for part in response.content() {
+        if let ContentPart::Text { text } = part {
+            print!("{text}");
+        }
+    }
+    Ok(())
+}
 ```
 
-Notes:
+`provider.language(model)` and `provider.messages(model)` both select Messages. Use
+`provider.chat_completions(model)` or `provider.responses(model)` only when that wire API is an
+explicit requirement. Each mode has a matching typed options type and rejects options from another
+mode.
 
-- Streaming stability: Runtime builder/config-first defaults derive `stream_disable_compression` from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). Direct `HttpConfig::default()` is a deterministic data default; override per client with `HttpConfig::builder().stream_disable_compression(...)`.
-- Builder-style HTTP toggles remain available, but they are part of the builder compatibility surface. Prefer `HttpConfig` + registry/config-first clients for new code.
+Messages prompt-cache breakpoints use typed `MinimaxMessageCache`, `MinimaxContentCache`, or
+`MinimaxToolCache` annotations on the node they modify. The same configured provider owns native
+resources through:
 
-Registry with custom middleware and interceptors:
+- `provider.files()`;
+- `provider.images()`;
+- `provider.video()`;
+- `provider.music()`;
+- `provider.speech()`.
 
-```rust
-use siumai::prelude::unified::*;
-use siumai::experimental::execution::middleware::samples::chain_default_and_clamp;
-use siumai::experimental::execution::http::interceptor::LoggingInterceptor;
-use siumai::prelude::unified::registry::{create_provider_registry, RegistryOptions};
-use std::collections::HashMap;
-use std::sync::Arc;
-let reg = create_provider_registry(
-    HashMap::new(),
-    Some(RegistryOptions {
-        separator: ':',
-        language_model_middleware: chain_default_and_clamp(),
-        http_interceptors: vec![Arc::new(LoggingInterceptor)],
-        http_config: None,
-        retry_options: None,
-        max_cache_entries: Some(128),
-        client_ttl: None,
-        auto_middleware: true,
-    })
-);
+These resources are not flattened into a universal client because their request shapes, result
+types, and task lifecycles are provider-specific.
+
+See [`docs/providers/minimax.md`](docs/providers/minimax.md) for dated support evidence, API-mode
+stability, resource boundaries, and deliberate streaming limitations.
+
+## Optional Registry
+
+Registry stores immutable registrations from providers the caller has already configured. It does
+not discover remote models, read hidden credentials, choose a region, or apply business fallback
+policy. One route may expose several disjoint model families from the same provider; each family
+retains its own exact protocol scope and configured factory.
+
+```rust,no_run
+use siumai::providers::minimax::{MinimaxCredential, MinimaxProvider};
+use siumai::registry::{Registry, RegistryBuilderExt};
+
+let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
+let mut builder = Registry::builder();
+builder.register_provider("minimax", &provider)?;
+let registry = builder.build()?;
+let model = registry.language_model("minimax:MiniMax-M3")?;
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-## Extras (`siumai-extras`)
+The default MiniMax registration uses Messages. Chat Completions and Responses registrations remain
+explicit provider-owned choices while retaining the same portable image and speech families.
+`register_provider` returns a typed error when a valid provider configuration exposes only
+provider-native resources or jobs. Combined registrations can be narrowed with `for_family` before
+assigning a route.
 
-- Telemetry subscribers and helpers
-- OpenTelemetry middleware (W3C Trace Context)
-- JSON schema validation
-- Server adapters (Axum SSE)
-- MCP utilities
+## Provider plane and host control plane
 
-See the `siumai-extras` crate for details and examples.
+Siumai owns request correctness, authentication, technical endpoints, wire behavior, response
+decoding, and provider-native resource operations. The host application owns account and region
+selection, aliases, default models, current commercial availability, pricing, quota, compliance,
+health, weights, and fallback.
 
-## Examples
+A provider may accept a technical region, project, deployment, or endpoint when the remote API needs
+it for addressing or signing. That input is not an SDK-maintained availability catalog.
 
-Examples are split by package:
+## Documentation
 
-- 01-quickstart — basic chat, streaming, provider switching
-- 02-core-api — chat, streaming, tools, multimodal
-- 03-advanced-features — middleware, retry, structured output, error types
-- 04-provider-specific — provider‑unique capabilities
-- 05-integrations — registry and basic telemetry
-- 06-extensibility — custom providers, executors, bridge customization
-- 07-applications — chatbot, code assistant, API server
-- `siumai-extras/examples/` — orchestrator, MCP, OpenTelemetry, and server gateway examples
+- [Repository architecture](docs/architecture/overview.md)
+- [Public API and extension policy](docs/architecture/public-api.md)
+- [Registry contract](docs/architecture/registry.md)
+- [Transport contract](docs/architecture/transport-contract.md)
+- [Provider support policy](docs/providers/support-policy.md)
+- [Google Gemini support evidence](docs/providers/google.md)
+- [Contributing](CONTRIBUTING.md)
+- [Documentation index](docs/README.md)
 
-Extras example index: `siumai-extras/examples/README.md`.
+## Development
 
-Typical commands:
+Run Cargo commands serially and prefer focused package checks:
 
 ```bash
-cargo run --example basic-chat --features openai
-cargo run --example streaming --features openai
-cargo run -p siumai-extras --example basic-orchestrator --features openai
-cargo run --example bedrock-chat --features bedrock
+cargo fmt --all -- --check
+cargo nextest run -p siumai-provider-minimax --all-features --test-threads 1
+cargo clippy -p siumai-provider-minimax --all-targets --all-features -j 1 -- -D warnings
 ```
 
-## Status and notes
-
-- OpenAI Responses API `web_search` is wired through `hosted_tools::openai::web_search` and the OpenAI Responses pipeline, but is still considered experimental and may change.
-- Several modules were reorganized in 0.11: HTTP helpers live under `execution::http::*`, Vertex helpers under `auth::vertex`. See CHANGELOG for migration notes.
-
-API keys and environment variables:
-
-- OpenAI: `.api_key(..)` or `OPENAI_API_KEY`
-- Anthropic: `.api_key(..)` or `ANTHROPIC_API_KEY`
-- Groq: `.api_key(..)` or `GROQ_API_KEY`
-- Gemini: `.api_key(..)` or `GEMINI_API_KEY`
-- Bedrock: prefer `BedrockConfig::with_region(...)` + caller-supplied SigV4 headers in `HttpConfig.headers`; `BEDROCK_API_KEY` is available only for Bearer/proxy compatibility
-- xAI: `.api_key(..)` or `XAI_API_KEY`
-- Ollama: no API key
-- OpenAI‑compatible via Registry: reads `{PROVIDER_ID}_API_KEY` (e.g., `DEEPSEEK_API_KEY`)
-- OpenAI‑compatible via Builder: `.api_key(..)` or `{PROVIDER_ID}_API_KEY`
-
-For Bedrock-specific guidance, see `siumai/examples/04-provider-specific/bedrock/README.md`.
-
-Compatibility note: OpenAI-compatible builder entry points remain available, but they belong to the
-builder compatibility surface and are not the recommended default for new code.
+Default tests are deterministic, offline, and secret-free. Do not run live, credentialed, billable,
+or destructive provider tests without explicit authorization.
 
 ## Acknowledgements
 
-This project draws inspiration from:
-
-- [Vercel AI SDK](https://github.com/vercel/ai) (adapter patterns)
-- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) (transformer design)
+Siumai draws product inspiration from the [Vercel AI SDK](https://github.com/vercel/ai) while keeping
+its public ownership, traits, builders, errors, feature flags, and async boundaries Rust-first.
 
 ## Changelog and license
 
-See `CHANGELOG.md` for detailed changes and migration tips.
-
-Licensed under either of:
-
-- Apache License, Version 2.0, or
-- MIT license
-
-at your option.
+See [`CHANGELOG.md`](CHANGELOG.md) for release history. Siumai is licensed under either the Apache
+License, Version 2.0, or the MIT license, at your option.

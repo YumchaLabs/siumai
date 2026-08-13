@@ -2,6 +2,64 @@
 
 This repository uses [`release-plz`](https://github.com/release-plz/release-plz) to manage releases for a multi-crate Cargo workspace.
 
+## Release preflight
+
+Run the maintained release gates serially from a clean release candidate:
+
+```text
+cargo fmt --all -- --check
+python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
+python3 -B scripts/check_workspace_boundaries.py --target
+python3 -B scripts/test-workspace.py flagship --runner nextest
+python3 -B scripts/test-workspace.py full --runner nextest
+cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
+cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features all-providers --lib -j 1
+cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
+cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
+cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
+cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
+cargo doc --workspace --all-features --no-deps -j 1
+cargo test --doc --workspace --all-features -j 1
+python3 -B scripts/check_package_file_list.py
+```
+
+Also run the CI MSRV lane with Rust 1.95 and inspect `cargo metadata --locked --no-deps` after any
+dependency or feature change. These checks are deterministic and offline; credentialed provider
+tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
+
+Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
+They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
+and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
+flagship examples are each compiled with only their exact provider feature. This remains a small
+fixed gate rather than a provider-by-feature matrix. The documentation lane builds the OpenAI
+provider with all optional modules enabled before the workspace docs pass.
+
+The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
+`claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
+claim. Product surfaces outside the documented package slice remain `intentionally deferred`.
+
+Before publishing, validate the Cargo-native workspace file list with
+`python3 -B scripts/check_package_file_list.py`. The checker invokes Cargo itself, verifies its
+exit status before inspecting a bounded file list, and rejects credentials, private local
+configuration, absolute or parent paths, `target/`, `repo-ref/`, VCS/editor state, and temporary
+or live-canary artifacts. It does not read package contents, decide membership, or infer
+publication order; Cargo and release-plz remain the authorities. For a dirty local release
+candidate, add `--allow-dirty` to the checker command; this changes only Cargo's local cleanliness
+check and never authorizes publishing.
+
+Run `cargo package --workspace --locked --allow-dirty -j 1` as the local package dry run where
+crates.io dependency resolution permits it. New unpublished workspace dependencies can make this
+command fail even when package contents and the workspace graph are correct; record that bootstrap
+limitation separately and use the manual release-plz dry-run to exercise the maintained
+dependency-ordered release path. Neither command publishes, tags, pushes, or opens a release PR.
+
+Every package must carry the workspace license, repository, edition, MSRV, and a useful crate
+README/rustdoc entry point. The facade's documented feature set must match its `[package.metadata.docs.rs]`
+configuration. A breaking release updates the root changelog and migration guide together. The first
+published version after this API reset becomes the new semver baseline; do not hide intentional
+breaks behind compatibility aliases merely to satisfy the previous beta baseline.
+
 ## What gets released
 
 - **Crates.io**: all unpublished workspace crates are published in dependency order.

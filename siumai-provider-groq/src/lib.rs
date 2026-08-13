@@ -1,32 +1,48 @@
-//! siumai-provider-groq
+//! Rust-first Groq provider for Chat Completions, Responses, and final-result transcription.
 //!
-//! Groq provider implementation built on the OpenAI-like protocol standard.
+//! [`GroqProvider`] is long-lived and model-independent. Language and transcription model handles
+//! are lightweight, synchronously constructed, and accept open model IDs. Groq-specific controls
+//! are expressed through typed provider options rather than a universal client or arbitrary JSON
+//! settings map.
+
 #![deny(unsafe_code)]
 
-// Keep provider-agnostic core modules available only to this crate's implementation.
-// Provider crates must not publicly mirror `siumai-core`.
-#[allow(unused_imports)]
-pub(crate) use siumai_provider_utils as provider_utils;
+mod audio;
+mod language;
+mod metadata;
+pub mod models;
+mod options;
+mod provider;
+mod speech;
+pub mod tools;
+mod transcription;
 
-#[allow(unused_imports)]
-pub(crate) use siumai_core::{
-    LlmError, auth, compat as core_compat, core, defaults, error, execution, observability, params,
-    retry, retry_api, streaming, traits, types, utils,
+pub use audio::{GroqAudio, GroqAudioResponse, GroqUrlAudioRequest};
+pub use language::{
+    CHAT_SOURCE, DEFAULT_BASE_URL, DEPRECATIONS_SOURCE, GroqProfileError, MODEL_CATALOG_SOURCE,
+    PLATFORM_ID, PROVIDER_ID, RESPONSES_SOURCE, VERIFIED_ON,
+};
+pub use metadata::{
+    GroqLanguageMetadata, GroqLanguageResponseExt, GroqMcpOutput, GroqMcpOutputKind,
+    GroqTranscriptionMetadata, GroqTranscriptionResponseExt,
+};
+pub use options::{
+    GroqLanguageOptions, GroqReasoningEffort, GroqReasoningFormat, GroqResponsesOptions,
+    GroqResponsesServiceTier, GroqServiceTier, GroqTimestampGranularity, GroqTranscriptionOptions,
+    GroqTranscriptionResponseFormat,
+};
+pub use provider::{
+    GroqConfigError, GroqCredential, GroqLanguageApi, GroqLanguageModel, GroqProvider,
+    GroqProviderBuilder,
+};
+pub use siumai_openai_compatible::{
+    BearerCredential, CredentialRequest, CredentialSourceError, DynamicCredentialSource,
+};
+pub use speech::{GroqSpeechModel, SPEECH_API_MODE_ID, SPEECH_PROTOCOL_ID, SPEECH_SOURCE};
+pub use tools::{GroqMcpApproval, GroqRemoteMcpTool};
+pub use transcription::{
+    GroqTranscriptionModel, TRANSCRIPTION_API_MODE_ID, TRANSCRIPTION_PROTOCOL_ID,
+    TRANSCRIPTION_SOURCE,
 };
 
-/// Builder utilities shared across provider crates.
-pub(crate) mod builder {
-    #[allow(unused_imports)]
-    pub(crate) use siumai_core::builder::*;
-}
-
-pub mod providers;
-pub mod standards;
-pub mod tools;
-
-pub use siumai_core::types::{ChatResponse, CommonParams};
-
-/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["groq"]`).
-pub mod provider_metadata;
-/// Provider-owned typed option structs (Groq-specific).
-pub mod provider_options;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

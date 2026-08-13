@@ -1,0 +1,61 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- Added portable ImageModel and SpeechModel adapters alongside the existing typed native image,
+  speech, music, and video APIs.
+- Added mode-specific endpoint/replay ownership for Messages and OpenAI-compatible language paths,
+  including fail-closed custom-domain handling for caller-controlled endpoints.
+
+## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimax-v0.11.0-beta.8...siumai-provider-minimax-v0.11.0-beta.9) - 2026-05-27
+
+### Other
+
+- retire minimax ollama model constants
+- harden clean architecture boundaries
+- Merge branch 'main' of https://github.com/YumchaLabs/siumai
+- deepen provider and bridge module boundaries
+
+### Removed
+
+- Removed the legacy provider-local `providers::minimax::model_constants` module. Use the curated
+  `providers::minimax::models` surface for chat, speech, image, video, and music model ids.
+
+## [0.11.0-beta.8](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimax-v0.11.0-beta.7...siumai-provider-minimax-v0.11.0-beta.8) - 2026-05-18
+
+### Other
+
+- *(release)* prepare v0.11.0-beta.8
+- converge provider boundary architecture
+- harden crate boundaries
+- *(examples)* move extras example index
+- *(examples)* tighten example guidance
+- clean stale refactor docs
+
+### Added
+
+- MiniMax now exposes a provider-owned curated model surface for the public families (`chat`,
+  `speech`, `video`, `music`, `image`) so facade/catalog/default-model consumers can reuse one
+  source instead of handwritten arrays.
+
+### Fixed
+
+- Stream metadata normalization now also reaches typed finish parts, so MiniMax streaming no
+  longer leaks `providerMetadata["anthropic"]` on the stable finish-part lane.
+
+## [0.11.0-beta.5] - 2026-01-15
+
+### Added
+
+- MiniMax provider extracted into its own crate as part of the workspace split.
+
+### Changed
+
+- Dependency graph decoupled to reduce cross-provider coupling.

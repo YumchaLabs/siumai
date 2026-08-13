@@ -1,0 +1,39 @@
+[package]
+name = "siumai-openai-compatible"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Reusable generic OpenAI-compatible execution engine for Siumai"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/siumai-openai-compatible"
+readme = "../README.md"
+keywords = ["llm", "ai", "openai", "compat"]
+categories = ["api-bindings"]
+
+[lib]
+doctest = false
+
+[dependencies]
+siumai-core = { workspace = true, default-features = false }
+siumai-protocol-openai = { version = "0.11.0-beta.9", path = "../siumai-protocol-openai", default-features = false, features = ["openai-responses"] }
+siumai-transport = { workspace = true, default-features = false }
+
+async-trait.workspace = true
+serde_json.workspace = true
+http.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+async-stream.workspace = true
+tokio-util.workspace = true
+thiserror.workspace = true
+secrecy.workspace = true
+
+[features]
+default = []
+
+[dev-dependencies]
+chrono.workspace = true
+mockito.workspace = true
