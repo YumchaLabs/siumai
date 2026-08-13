@@ -94,20 +94,24 @@ Do **not** create or push release tags manually.
 In this repository, release tags are an output of `release-plz release`, not the trigger for publishing.
 This keeps crates.io publishing, the `v{{ version }}` git tag, and the GitHub Release synchronized.
 
-The long-term configuration uses `release_always = false`, so releases should go through the release-plz
-PR flow before the manual publish job runs.
+The release PR is the preferred way to prepare version and changelog changes, but it is not a
+publishing authorization boundary. The actual publish job is manually dispatched from `main`, and
+`release_always = true` allows it to publish an unpublished workspace version even when a workflow
+fix or another normal PR landed after the release PR.
 
 ## Standard release flow
 
 1. Merge the desired changes into `main`.
-2. Wait for **Release-plz PR** to create or update the release PR.
-3. Review the release PR:
+2. Wait for **Release-plz PR** to create or update the release PR when version or changelog changes
+   are still needed.
+3. If a release PR is created, review it:
    - version bumps
    - root `CHANGELOG.md`
    - crate changelogs
    - migration notes, when the public API changed
    - CI results
-4. Merge the release PR.
+4. Merge the release PR when one exists. If no release PR is created, verify that `main` already
+   contains the intended workspace version and changelog entries.
 5. Go to **Actions** → **Release-plz** → **Run workflow** on `main`.
 6. Set:
    - `release = true`
@@ -146,6 +150,8 @@ The release workflow retries automatically on 429 by waiting until the timestamp
 
 `release-plz release-pr` opens a PR when it needs to bump versions and/or update changelogs.
 
-If versions were already bumped on `main` (e.g. during a migration), `release-pr` can be a no-op and no PR will be created.
-In that case, do not create a tag manually; inspect the Release-plz logs and decide whether the version/changelog
-state should be corrected with a normal PR.
+If versions were already bumped on `main` (for example during a migration), `release-pr` can be a
+no-op and no PR will be created. In that case, do not create a tag manually. Verify the version and
+changelog state on `main`, run the manual dry-run when it is meaningful for the dependency graph,
+then use the same manual release workflow. `release-plz release` remains responsible for publishing
+unpublished crates and creating the repository tag and GitHub Release.

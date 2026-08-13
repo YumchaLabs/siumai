@@ -15,9 +15,10 @@ git_release_enable = false
 pr_branch_prefix = "release-plz-"
 pr_labels = ["release"]
 
-# Long-term release mode: release only from the release-plz PR flow instead of publishing
-# arbitrary version bumps that land directly on `main`.
-release_always = false
+# Publishing is already guarded by the manual release workflow. Allow that workflow to
+# publish an unpublished version even when its version/changelog was prepared outside the
+# latest release-plz PR (for example, after a release-workflow hotfix lands on `main`).
+release_always = true
 
 [[package]]
 name = "siumai"
