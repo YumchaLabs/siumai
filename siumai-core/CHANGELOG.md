@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.9...siumai-core-v0.11.0-beta.10) - 2026-08-13
+
+### Added
+
+- *(anthropic)* [**breaking**] add scoped files and hosted replay
+- *(siumai)* expose OpenAI Responses WebSocket surface
+- *(provider)* [**breaking**] deepen xAI and Groq media surfaces
+- *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
+- *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
+- *(provider)* [**breaking**] deepen Kimi and ARK surfaces
+- *(provider)* [**breaking**] expand flagship and Chinese surfaces
+- *(openai)* [**breaking**] add portable families and native resources
+- *(gemini)* [**breaking**] add provider-owned product surfaces
+- *(gemini)* [**breaking**] add faithful Interactions language
+- *(core)* [**breaking**] enforce typed stream settlement
+- *(core)* [**breaking**] enforce canonical language replay semantics
+- *(core)* separate upstream support evidence
+- *(minimax)* [**breaking**] canonicalize provider identity and protocols
+- *(integrations)* [**breaking**] add bounded MCP and server gateways
+- *(runtime)* [**breaking**] add core-only single-call execution layer
+- *(registry)* [**breaking**] rebuild routing and provider facade
+- *(openai)* add provider-faithful Responses and Realtime runtime
+- *(core)* preserve provider response and session lifecycles
+- [**breaking**] establish provider-faithful family surface
+- *(core)* harden stable family contracts
+- *(core)* add protocol decoder lifecycle
+- *(core)* add configured provider profiles
+- *(core)* add canonical model contracts
+
+### Fixed
+
+- *(core)* redact provider request identifiers
+- *(registry)* preserve exact option route context
+- *(kimi)* [**breaking**] enforce model constraints and preserve error diagnostics
+
+### Other
+
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- close validation ownership migration
+- *(core)* remove lifecycle execution warnings
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- *(options)* [**breaking**] replace origin layers with exact patches
+- *(core)* [**breaking**] remove runtime model policy
+- *(core)* [**breaking**] bind provider options to configured instances
+- align beta.9 migration and downstream handoff
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- *(core)* [**breaking**] remove premature job abstractions
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- establish Siumai Next architecture baseline
+
 ### Changed
 
 - Reworked language history, tool input, provider-owned replay items, typed stream failures, and

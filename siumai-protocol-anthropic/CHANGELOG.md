@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-anthropic-v0.11.0-beta.9...siumai-protocol-anthropic-v0.11.0-beta.10) - 2026-08-13
+
+### Added
+
+- *(anthropic)* [**breaking**] add scoped files and hosted replay
+- *(siumai)* expose OpenAI Responses WebSocket surface
+- *(provider)* [**breaking**] deepen xAI and Groq media surfaces
+- *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
+- *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
+- *(provider)* [**breaking**] deepen Kimi and ARK surfaces
+- *(provider)* [**breaking**] expand flagship and Chinese surfaces
+- *(openai)* [**breaking**] add portable families and native resources
+- *(gemini)* [**breaking**] add provider-owned product surfaces
+- *(gemini)* [**breaking**] add faithful Interactions language
+- *(anthropic)* [**breaking**] align current Messages contracts
+- *(core)* [**breaking**] enforce typed stream settlement
+- *(core)* [**breaking**] enforce canonical language replay semantics
+- *(minimax)* [**breaking**] canonicalize provider identity and protocols
+- *(openai)* add provider-faithful Responses and Realtime runtime
+
+### Fixed
+
+- *(providers)* preserve validated future wire fields
+- *(anthropic)* align resource and option contracts
+- *(anthropic)* align caller tool replay and streaming
+- *(anthropic)* retain complete compaction state
+- *(anthropic)* [**breaking**] preserve compaction replay semantics
+
+### Other
+
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- close validation ownership migration
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- align beta.9 migration and downstream handoff
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- establish Siumai Next architecture baseline
+
 ### Changed
 
 - Aligned Messages request options and annotations with current thinking, prompt-cache, structured

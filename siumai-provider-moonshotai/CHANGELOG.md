@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepgram-v0.11.0-beta.9...siumai-provider-deepgram-v0.11.0-beta.10) - 2026-08-13
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-moonshotai-v0.11.0-beta.9...siumai-provider-moonshotai-v0.11.0-beta.10) - 2026-08-13
 
 ### Added
 
@@ -20,36 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(openai)* [**breaking**] add portable families and native resources
 - *(gemini)* [**breaking**] add provider-owned product surfaces
 - *(gemini)* [**breaking**] add faithful Interactions language
-- *(core)* [**breaking**] enforce typed stream settlement
 - *(minimax)* [**breaking**] canonicalize provider identity and protocols
-- *(registry)* [**breaking**] rebuild routing and provider facade
 - *(openai)* add provider-faithful Responses and Realtime runtime
-- [**breaking**] establish provider-faithful family surface
-
-### Other
-
-- narrow Anthropic Skills support claims
-- publish flagship provider journeys
-- close validation ownership migration
-- *(options)* [**breaking**] replace origin layers with exact patches
-- *(core)* [**breaking**] remove runtime model policy
-- *(core)* [**breaking**] bind provider options to configured instances
-- align beta.9 migration and downstream handoff
-- *(gemini)* [**breaking**] establish product-level provider
-- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
-- [**breaking**] rebuild Siumai around provider-faithful family contracts
-- establish Siumai Next architecture baseline
-
-### Added
-
-- Added a portable buffered Aura speech model alongside prerecorded transcription, with current
-  Nova model hints and bounded request/response codecs.
-
-## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepgram-v0.11.0-beta.8...siumai-provider-deepgram-v0.11.0-beta.9) - 2026-05-27
-
-### Added
-
-- *(deepgram)* add audio provider crate
 - *(openai)* ws connection aging
 - *(openai)* remote cancel for websocket session
 - *(openai)* add WebSocket mode for responses streaming
@@ -92,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- close validation ownership migration
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- *(options)* [**breaking**] replace origin layers with exact patches
+- *(core)* [**breaking**] remove runtime model policy
+- *(core)* [**breaking**] bind provider options to configured instances
+- *(openai)* move prompt cache intent to content annotations
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
 - *(release)* prepare v0.11.0-beta.8
 - converge provider boundary architecture
 - *(examples)* move extras example index

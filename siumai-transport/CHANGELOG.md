@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepgram-v0.11.0-beta.9...siumai-provider-deepgram-v0.11.0-beta.10) - 2026-08-13
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.9...siumai-transport-v0.11.0-beta.10) - 2026-08-13
 
 ### Added
 
 - *(siumai)* expose OpenAI Responses WebSocket surface
+- *(transport)* add exact RFC 6598 endpoint grant
 - *(provider)* [**breaking**] deepen xAI and Groq media surfaces
 - *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
 - *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
@@ -22,34 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(gemini)* [**breaking**] add faithful Interactions language
 - *(core)* [**breaking**] enforce typed stream settlement
 - *(minimax)* [**breaking**] canonicalize provider identity and protocols
-- *(registry)* [**breaking**] rebuild routing and provider facade
 - *(openai)* add provider-faithful Responses and Realtime runtime
 - [**breaking**] establish provider-faithful family surface
-
-### Other
-
-- narrow Anthropic Skills support claims
-- publish flagship provider journeys
-- close validation ownership migration
-- *(options)* [**breaking**] replace origin layers with exact patches
-- *(core)* [**breaking**] remove runtime model policy
-- *(core)* [**breaking**] bind provider options to configured instances
-- align beta.9 migration and downstream handoff
-- *(gemini)* [**breaking**] establish product-level provider
-- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
-- [**breaking**] rebuild Siumai around provider-faithful family contracts
-- establish Siumai Next architecture baseline
-
-### Added
-
-- Added a portable buffered Aura speech model alongside prerecorded transcription, with current
-  Nova model hints and bounded request/response codecs.
-
-## [0.11.0-beta.9](https://github.com/YumchaLabs/siumai/compare/siumai-provider-deepgram-v0.11.0-beta.8...siumai-provider-deepgram-v0.11.0-beta.9) - 2026-05-27
-
-### Added
-
-- *(deepgram)* add audio provider crate
+- *(transport)* add bounded replay-safe provider transport
 - *(openai)* ws connection aging
 - *(openai)* remote cancel for websocket session
 - *(openai)* add WebSocket mode for responses streaming
@@ -85,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- *(transport)* require scoped local network grants
+- *(transport)* version auth refresh and retry classification
+- *(transport)* bound resource lifecycles and diagnostics
+- *(transport)* share persistent SSE event IDs
 - fix clippy and modify changelog
 - modify readme
 - fix clippy and tests
@@ -92,6 +72,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- *(openai)* [**breaking**] remove invented request validation
+- close validation ownership migration
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- *(transport)* make WebSocket sessions concurrently terminal
 - *(release)* prepare v0.11.0-beta.8
 - converge provider boundary architecture
 - *(examples)* move extras example index

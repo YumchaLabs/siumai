@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.9...siumai-provider-openai-v0.11.0-beta.10) - 2026-08-13
+
+### Added
+
+- *(openai)* [**breaking**] deepen native Responses ergonomics
+- *(siumai)* expose OpenAI Responses WebSocket surface
+- *(openai)* add persistent Responses WebSocket sessions
+- *(provider)* [**breaking**] deepen xAI and Groq media surfaces
+- *(provider)* [**breaking**] expand Deepgram and ElevenLabs audio families
+- *(provider)* [**breaking**] deepen MiniMax portable and voice surfaces
+- *(provider)* [**breaking**] deepen Kimi and ARK surfaces
+- *(provider)* [**breaking**] expand flagship and Chinese surfaces
+- *(openai)* [**breaking**] add portable families and native resources
+- *(gemini)* [**breaking**] add provider-owned product surfaces
+- *(gemini)* [**breaking**] add faithful Interactions language
+- *(openai)* [**breaking**] expose native Responses streams
+- *(openai)* [**breaking**] add typed Responses tools
+- *(core)* [**breaking**] enforce typed stream settlement
+- *(core)* [**breaking**] enforce canonical language replay semantics
+- *(minimax)* [**breaking**] canonicalize provider identity and protocols
+- *(runtime)* [**breaking**] add core-only single-call execution layer
+- *(openai)* add provider-faithful Responses and Realtime runtime
+
+### Fixed
+
+- *(providers)* preserve validated future wire fields
+- *(openai)* preserve future provider intent
+- *(openai)* classify retryable WebSocket closes
+- *(openai)* harden Responses WebSocket lifecycles
+- *(openai)* preserve independent cache lifetime controls
+- *(openai)* canonicalize partial responses terminals
+- *(openai)* gate realtime evidence by feature
+- *(openai)* harden native Responses contracts
+- *(openai)* [**breaking**] model prompt cache markers faithfully
+- *(openai)* [**breaking**] complete Responses tool contracts
+- *(openai)* [**breaking**] align cache and token-count contracts
+- *(openai)* [**breaking**] enforce current cache and usage contracts
+- *(kimi)* [**breaking**] enforce model constraints and preserve error diagnostics
+
+### Other
+
+- narrow Anthropic Skills support claims
+- publish flagship provider journeys
+- *(openai)* [**breaking**] remove invented request validation
+- close validation ownership migration
+- *(language)* [**breaking**] unify terminal outcomes and settlement
+- *(options)* [**breaking**] replace origin layers with exact patches
+- *(core)* [**breaking**] remove runtime model policy
+- *(providers)* [**breaking**] preserve explicit option intent
+- *(core)* [**breaking**] bind provider options to configured instances
+- *(openai)* make Responses settlement dialect-owned
+- *(openai)* cover remaining conversation invariants
+- *(openai)* move prompt cache intent to content annotations
+- *(openai)* extract shared execution errors
+- *(gemini)* [**breaking**] establish product-level provider
+- *(providers)* [**breaking**] extract Moonshot and Volcengine owners
+- *(openai)* [**breaking**] rename Responses protocol module
+- [**breaking**] rebuild Siumai around provider-faithful family contracts
+- establish Siumai Next architecture baseline
+
 ### Added
 
 - Added portable embedding, image-generation, buffered-speech, and final-result transcription
