@@ -24,7 +24,7 @@ cargo test --doc --workspace --all-features -j 1
 python3 -B scripts/check_package_file_list.py
 ```
 
-Also run the CI MSRV lane with Rust 1.88 and inspect `cargo metadata --locked --no-deps` after any
+Also run the CI MSRV lane with Rust 1.95 and inspect `cargo metadata --locked --no-deps` after any
 dependency or feature change. These checks are deterministic and offline; credentialed provider
 tests are not a release prerequisite unless a maintainer explicitly authorizes the external calls.
 

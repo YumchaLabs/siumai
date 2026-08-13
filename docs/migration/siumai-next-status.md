@@ -110,13 +110,13 @@ diagnostic, OpenAI, Anthropic, package, version, CI, and support-claim fixes in 
 
 ### Final deterministic release evidence
 
-The serial release verification completed on 2026-08-12 against the current workspace:
+The serial release verification completed on 2026-08-13 against the current workspace:
 
 - 1,161 workspace tests with all features, plus the 361-test fast suite and 380-test fixed flagship
   OpenAI/Anthropic suite;
 - workspace Clippy across all targets and features with warnings denied;
 - OpenAI provider documentation, workspace documentation, and workspace doctests;
-- Rust 1.88 workspace/all-target/all-feature MSRV checking;
+- Rust 1.95 workspace/all-target/all-feature MSRV checking;
 - facade default-free checks for bare, OpenAI, Anthropic, all-provider, and combined Responses
   WebSocket/Realtime ownership, plus each flagship example with its exact provider feature;
 - 27 repository-script tests and the architecture-boundary check;

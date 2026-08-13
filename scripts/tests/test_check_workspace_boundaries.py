@@ -15,7 +15,7 @@ SPEC.loader.exec_module(BOUNDARIES)
 def package(
     name: str,
     dependencies: list[str],
-    rust_version: str = "1.88",
+    rust_version: str = "1.95",
     version: str = "0.11.0-beta.9",
 ) -> dict:
     return {
@@ -35,7 +35,7 @@ def metadata(packages: list[dict]) -> dict:
 
 
 POLICY = {
-    "msrv": "1.88",
+    "msrv": "1.95",
     "workspace_version": "0.11.0-beta.9",
     "package_rules": {
         "siumai-core": {
