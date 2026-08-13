@@ -68,7 +68,7 @@ deferred`, not implied defects in the implemented slice.
 
 ## Current facade surface
 
-The `0.11.0-beta.9` facade intentionally exposes narrow provider slices. Every row is `claimed
+The `0.11.0-beta.10` facade intentionally exposes narrow provider slices. Every row is `claimed
 slice complete`; the last column is `intentionally deferred`. This inventory is not a promise that
 every account can use every model or endpoint.
 

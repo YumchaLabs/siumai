@@ -1,6 +1,6 @@
 # Migrating to the Siumai Next API
 
-This guide targets the breaking Siumai Next API represented by the current `0.11.0-beta.9`
+This guide targets the breaking Siumai Next API represented by the current `0.11.0-beta.10`
 workspace. It describes public API migration, not internal refactor history.
 
 ## Architectural change
@@ -46,7 +46,7 @@ The facade no longer enables an AI provider by default. Select providers explici
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.9", default-features = false, features = ["minimax"] }
+siumai = { version = "0.11.0-beta.10", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -57,7 +57,7 @@ provider but does not enable Realtime:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.9", default-features = false, features = ["openai-responses-websocket"] }
+siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai-responses-websocket"] }
 ```
 
 ## OpenAI Responses module path

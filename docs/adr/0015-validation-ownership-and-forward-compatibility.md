@@ -220,4 +220,3 @@ deletion tests. No provider-by-model-by-option matrix or live credentialed test 
 - `docs/adr/0013-provider-identity-and-family-registration.md`
 - `docs/adr/0014-canonical-language-history-and-replay.md`
 - `docs/providers/support-policy.md`
-- `docs/plans/2026-08-10-001-refactor-validation-ownership-and-forward-compatibility-plan.md`

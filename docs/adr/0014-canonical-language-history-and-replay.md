@@ -176,4 +176,3 @@ wire fidelity remains available without entering the portable execution loop.
 - `docs/adr/0010-provider-plane-and-host-control-plane.md`
 - `docs/adr/0013-provider-identity-and-family-registration.md`
 - `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
-- `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`

@@ -171,4 +171,3 @@ direct and routed model handles retain the same exact descriptors.
 - `docs/architecture/registry.md`
 - `docs/adr/0010-provider-plane-and-host-control-plane.md`
 - `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
-- `docs/plans/2026-08-07-001-refactor-provider-faithful-semantic-revival-plan.md`
