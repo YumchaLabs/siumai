@@ -734,7 +734,7 @@ async fn media_fails_before_wire() {
 }
 
 #[tokio::test]
-async fn responses_maps_supported_controls_and_rejects_known_pro() {
+async fn responses_maps_supported_controls_for_pro() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/responses"))
@@ -742,7 +742,7 @@ async fn responses_maps_supported_controls_and_rejects_known_pro() {
             "id": "resp-deepseek",
             "object": "response",
             "created_at": 1_785_811_200_i64,
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-v4-pro",
             "status": "completed",
             "output": [{
                 "id": "msg-1",
@@ -773,7 +773,7 @@ async fn responses_maps_supported_controls_and_rejects_known_pro() {
         .with_web_search()
         .with_apply_patch();
     let model = provider(&server)
-        .responses("deepseek-v4-flash")
+        .responses("deepseek-v4-pro")
         .expect("model");
     let call_options = CallOptions::default()
         .with_provider_options_for(&model, &options)
@@ -786,26 +786,93 @@ async fn responses_maps_supported_controls_and_rejects_known_pro() {
     assert_eq!(response.usage().cache_read_tokens, UsageValue::Known(1));
 
     let requests = server.received_requests().await.expect("requests");
-    let body: Value = serde_json::from_slice(&requests[0].body).expect("request body");
-    assert_eq!(body["reasoning"], json!({"effort": "max"}));
-    assert_eq!(body["top_logprobs"], 20);
-    assert_eq!(body["user"], "tenant-1");
-    assert_eq!(body["tools"][0], json!({"type": "web_search"}));
+    assert_eq!(requests.len(), 1);
+    let pro_body: Value = serde_json::from_slice(&requests[0].body).expect("Pro request body");
+    assert_eq!(pro_body["model"], "deepseek-v4-pro");
+    assert_eq!(pro_body["reasoning"], json!({"effort": "max"}));
+    assert_eq!(pro_body["top_logprobs"], 20);
+    assert_eq!(pro_body["user"], "tenant-1");
+    assert_eq!(pro_body["tools"][0], json!({"type": "web_search"}));
     assert_eq!(
-        body["tools"][1],
+        pro_body["tools"][1],
         json!({"type": "custom", "name": "apply_patch"})
     );
-    assert!(body.get("reasoning_effort").is_none());
-    assert!(body.get("native_tools").is_none());
+    assert!(pro_body.get("reasoning_effort").is_none());
+    assert!(pro_body.get("native_tools").is_none());
+}
 
-    let error = provider(&server)
-        .responses("deepseek-v4-pro")
-        .expect("model")
-        .generate(request("hello"), CallOptions::default())
+#[tokio::test]
+async fn responses_preserve_future_model_ids_on_final_wire() {
+    const FUTURE_MODEL: &str = "private-deepseek-responses";
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp-deepseek-future",
+            "object": "response",
+            "created_at": 1_785_811_200_i64,
+            "model": FUTURE_MODEL,
+            "status": "completed",
+            "output": [{
+                "id": "msg-future",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "answer", "annotations": []}]
+            }],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 2
+            },
+            "error": null,
+            "incomplete_details": null,
+            "reasoning": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let response = provider(&server)
+        .responses(FUTURE_MODEL)
+        .expect("future model")
+        .generate(request("future"), CallOptions::default())
         .await
-        .expect_err("known Pro model must not use Responses");
-    assert_eq!(error.kind(), ErrorKind::Unsupported);
-    assert_eq!(server.received_requests().await.expect("requests").len(), 1);
+        .expect("future response");
+    assert_eq!(response.id(), Some("resp-deepseek-future"));
+
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 1);
+    let body: Value = serde_json::from_slice(&requests[0].body).expect("future request body");
+    assert_eq!(body["model"], FUTURE_MODEL);
+}
+
+#[tokio::test]
+async fn responses_reject_unreviewed_raw_options_before_submission() {
+    let server = MockServer::start().await;
+    let model = provider(&server)
+        .responses("private-deepseek-responses")
+        .expect("model");
+    let options = CallOptions::default()
+        .with_raw_provider_options_for(
+            &model,
+            json!({"previous_response_id": "resp-not-supported"}),
+        )
+        .expect("raw provider options");
+    let error = model
+        .generate(request("continue"), options)
+        .await
+        .expect_err("unreviewed raw Responses options must fail locally");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
+    );
 }
 
 #[tokio::test]

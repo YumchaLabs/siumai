@@ -76,7 +76,7 @@ impl TypedProviderOptions for GeminiInteractionsOptions {
     const API_MODE: Option<&'static str> = Some("interactions");
 }
 
-/// Aspect ratios accepted by current Gemini image models through Interactions.
+/// Exact aspect-ratio values accepted by the Gemini Interactions image wire schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum GeminiImageAspectRatio {
@@ -110,19 +110,7 @@ pub enum GeminiImageAspectRatio {
     Ultrawide,
 }
 
-impl GeminiImageAspectRatio {
-    pub(crate) const fn is_extended(self) -> bool {
-        matches!(
-            self,
-            Self::PortraitOneFour
-                | Self::PortraitOneEight
-                | Self::LandscapeFourOne
-                | Self::LandscapeEightOne
-        )
-    }
-}
-
-/// Output resolution tiers accepted by current Gemini image models.
+/// Exact output-resolution tiers accepted by the Gemini Interactions image wire schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum GeminiImageSize {

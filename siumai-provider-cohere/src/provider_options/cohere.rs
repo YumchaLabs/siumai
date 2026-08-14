@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use siumai_core::{ModelFamily, ProviderOptionError, TypedProviderOptions};
 
-const VALID_OUTPUT_DIMENSIONS: &[u32] = &[256, 512, 1024, 1536];
+pub(crate) const VALID_OUTPUT_DIMENSIONS: &[u32] = &[256, 512, 1024, 1536];
 
 /// Input type used by Cohere embeddings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +38,7 @@ pub struct CohereEmbeddingOptions {
     /// Truncation strategy for oversized inputs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncate: Option<CohereEmbeddingTruncate>,
-    /// Optional output dimension for Embed v4 models.
+    /// Optional output dimension using one of Cohere v2's documented wire values.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

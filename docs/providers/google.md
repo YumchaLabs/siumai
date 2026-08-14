@@ -7,6 +7,7 @@
 - Portable families: Language, Embedding, Image, and buffered Speech
 - Provider-native surfaces: Files metadata lifecycle and Veo long-running jobs
 - Evidence verified: 2026-08-08
+- Image and Veo option evidence reverified: 2026-08-14
 - Facade feature: `google`
 - Provider crate: `siumai-provider-gemini`
 - Protocol crate: `siumai-protocol-gemini`
@@ -77,7 +78,11 @@ not a claim for Gemini's complete multimodal embedding product surface.
 Image generation uses stable-v1 Interactions. Requests encode the current polymorphic
 `response_format` object and never send deprecated `outputs` or `response_mime_type` fields.
 `GeminiImageOptions` exposes documented aspect ratio and image-size controls while the portable
-adapter retains bounded inline or URI image outputs.
+adapter retains bounded inline or URI image outputs. The provider validates the exact wire enums,
+the explicit JPEG output contract, and whether portable pixel dimensions can be represented by the
+typed tier interface. It does not reject an explicit aspect ratio or image-size tier because the
+selected model is absent from, or differs from, today's documented product matrix.
+Google remains authoritative for product availability and may reject an unsupported combination.
 
 Buffered speech uses the current v1beta Interactions audio response path. The portable
 `SpeechModel` slice requires an explicit voice and currently accepts Gemini's default raw 24 kHz PCM
@@ -102,6 +107,12 @@ requirements. Download URIs and provider error details are redacted from default
 Submit requests are never automatically replayed because duplicate submission may create another
 billable job. Status reads are semantically idempotent. Operation references cannot be reused across
 different replay audiences.
+
+Veo keeps the documented duration value set and the structural requirement that 1080p, 4K, and
+first/last-frame interpolation use an eight-second duration. Model-specific availability such as
+the current Veo 3.1 Lite 4K limitation remains dated product guidance rather than an SDK execution
+allowlist; explicit typed resolution intent is encoded for known, private, and future model IDs.
+Google remains authoritative for whether a selected model currently offers that resolution.
 
 ## Endpoint ownership and replay
 
@@ -145,3 +156,6 @@ Deterministic offline fixtures cover direct and streaming language settlement, t
 canonical tool arguments, replay parity, text embedding, image generation, buffered speech, Files
 get/list/delete, Veo submit/status, endpoint provenance, replay isolation, resource bounds, and
 sanitized diagnostics. They do not perform live, credentialed, or billable calls.
+
+The image response-format and Veo option boundaries were reverified on 2026-08-14 against the
+official Interactions API, image-generation guide, and Veo guide linked above.

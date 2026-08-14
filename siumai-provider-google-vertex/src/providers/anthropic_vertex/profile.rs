@@ -29,7 +29,11 @@ const MESSAGES_SOURCE: &str =
     "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude";
 const MODEL_SOURCE: &str =
     "https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai";
-const VERIFIED_ON: &str = "2026-08-06";
+// Feature-specific evidence verified with this profile on 2026-08-14:
+// - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/prompt-caching
+// - https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/structured-outputs
+const MESSAGES_VERIFIED_ON: &str = "2026-08-14";
+const MODEL_VERIFIED_ON: &str = "2026-08-06";
 
 pub(crate) fn profile(
     endpoint: EndpointConfig,
@@ -69,18 +73,22 @@ fn verified_profile(
         ProtocolId::new(PROTOCOL_ID)?,
         ApiModeId::new(API_MODE_ID)?,
     );
-    let verified_at = VerificationDate::new(
-        NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
+    let messages_verified_at = VerificationDate::new(
+        NaiveDate::parse_from_str(MESSAGES_VERIFIED_ON, "%Y-%m-%d")
+            .map_err(GoogleVertexAnthropicProfileError::VerificationDate)?,
+    );
+    let model_verified_at = VerificationDate::new(
+        NaiveDate::parse_from_str(MODEL_VERIFIED_ON, "%Y-%m-%d")
             .map_err(GoogleVertexAnthropicProfileError::VerificationDate)?,
     );
     let messages_evidence = VerificationEvidence::new(
         OfficialSource::new(MESSAGES_SOURCE)?,
-        verified_at,
+        messages_verified_at,
         ProtocolContractId::new("google-vertex-anthropic-messages-2026-08")?,
     );
     let model_evidence = VerificationEvidence::new(
         OfficialSource::new(MODEL_SOURCE)?,
-        verified_at,
+        model_verified_at,
         ProtocolContractId::new("google-vertex-claude-models-2026-08")?,
     );
     let catalog = ModelCatalog::new([

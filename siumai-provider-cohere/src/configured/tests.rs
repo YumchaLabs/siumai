@@ -300,6 +300,71 @@ async fn embedding_usage_preserves_known_zero_and_absence() {
 }
 
 #[tokio::test]
+async fn future_embedding_dimension_reaches_wire_and_response_length_is_checked() {
+    const FUTURE_MODEL: &str = "private-embed-next";
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .and(body_json(serde_json::json!({
+            "model": FUTURE_MODEL,
+            "embedding_types": ["float"],
+            "texts": ["dimension match"],
+            "input_type": "search_query",
+            "output_dimension": 512
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": { "float": [vec![0.0_f32; 512]] },
+            "meta": {}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .and(body_json(serde_json::json!({
+            "model": FUTURE_MODEL,
+            "embedding_types": ["float"],
+            "texts": ["dimension mismatch"],
+            "input_type": "search_query",
+            "output_dimension": 512
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": { "float": [[0.0, 0.0]] },
+            "meta": {}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let model = test_provider(&server)
+        .embedding(FUTURE_MODEL)
+        .expect("future embedding model");
+    let options = CohereEmbeddingOptions::new().with_output_dimension(512);
+    let call = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("Cohere embedding call options");
+
+    let response = model
+        .embed(
+            EmbeddingRequest::single("dimension match").expect("embedding request"),
+            call.clone(),
+        )
+        .await
+        .expect("future model response");
+    assert_eq!(response.embeddings[0].len(), 512);
+
+    let mismatch = model
+        .embed(
+            EmbeddingRequest::single("dimension mismatch").expect("embedding request"),
+            call,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(mismatch.kind(), ErrorKind::ProtocolViolation);
+}
+
+#[tokio::test]
 async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
     let provider = CohereProvider::builder("test-api-key")
         .build()
@@ -322,6 +387,20 @@ async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
             maximum: 96
         })
     ));
+
+    let invalid_dimension = provider
+        .embedding("private-embed-next")
+        .expect("future embedding model")
+        .embed(
+            EmbeddingRequest::single("hello")
+                .expect("embedding request")
+                .with_dimensions(2048)
+                .expect("non-zero dimensions"),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(invalid_dimension.kind(), ErrorKind::InvalidInput);
 
     let conflict = embedding
         .embed(

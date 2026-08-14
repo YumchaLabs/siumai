@@ -43,41 +43,6 @@ pub const fn current_models() -> [&'static str; 10] {
     ]
 }
 
-pub(crate) fn supports_structured_outputs(model: &str) -> bool {
-    matches!(
-        model,
-        CLAUDE_OPUS_5
-            | CLAUDE_SONNET_5
-            | CLAUDE_FABLE_5
-            | CLAUDE_HAIKU_4_5_20251001
-            | CLAUDE_OPUS_4_8
-            | CLAUDE_OPUS_4_7
-            | CLAUDE_OPUS_4_6
-            | CLAUDE_SONNET_4_6
-            | CLAUDE_OPUS_4_5_20251101
-            | CLAUDE_SONNET_4_5_20250929
-    )
-}
-
-pub(crate) fn supports_one_hour_cache(model: &str) -> bool {
-    matches!(
-        model,
-        CLAUDE_OPUS_5
-            | CLAUDE_SONNET_5
-            | CLAUDE_FABLE_5
-            | CLAUDE_HAIKU_4_5_20251001
-            | CLAUDE_OPUS_4_8
-            | CLAUDE_OPUS_4_7
-            | CLAUDE_OPUS_4_6
-            | CLAUDE_SONNET_4_6
-            | CLAUDE_OPUS_4_5_20251101
-            | CLAUDE_SONNET_4_5_20250929
-            | CLAUDE_OPUS_4_1_20250805
-            | CLAUDE_OPUS_4_20250514
-            | CLAUDE_SONNET_4_20250514
-    )
-}
-
 pub(crate) fn uses_strict_sampling(model: &str) -> bool {
     matches!(
         model,

@@ -69,6 +69,39 @@ fn projected_body(model: &str, text: &str, max_tokens: u64, stream: bool) -> ser
     })
 }
 
+fn strict_function_tool() -> ToolSpec {
+    ToolSpec::new(
+        "lookup",
+        Some("Look up a value".to_string()),
+        json!({
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool")
+    .with_provider_annotation(&GoogleVertexAnthropicToolOptions::new().with_strict(true))
+    .expect("strict tool annotation")
+}
+
+fn structured_and_strict_request(text: &str) -> LanguageRequest {
+    let mut request = request(text, 64);
+    request.structured_output = Some(StructuredOutputSpec {
+        name: "answer".to_string(),
+        description: None,
+        schema: json!({
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+            "additionalProperties": false
+        }),
+        strict: true,
+    });
+    request.tools.push(strict_function_tool());
+    request
+}
+
 fn local_provider(
     server: &MockServer,
     auth: Arc<dyn siumai_transport::AuthApplier>,
@@ -536,35 +569,8 @@ fn google_annotations_encode_cache_and_ignore_foreign_namespaces() {
 }
 
 #[test]
-fn request_policy_tracks_current_vertex_feature_boundaries() {
+fn request_policy_preserves_structural_and_exact_model_restrictions() {
     let policy = GoogleVertexAnthropicRequestPolicy;
-    let mut options = MessagesCallOptions::new();
-    let mut structured = request("hello", 64);
-    structured.structured_output = Some(StructuredOutputSpec {
-        name: "answer".to_string(),
-        description: None,
-        schema: json!({"type": "object"}),
-        strict: true,
-    });
-    assert!(
-        policy
-            .prepare(
-                &ModelId::new(CLAUDE_SONNET_5).expect("model"),
-                &structured,
-                &mut options,
-            )
-            .is_ok()
-    );
-    assert!(
-        policy
-            .prepare(
-                &ModelId::new("claude-future-2030").expect("model"),
-                &structured,
-                &mut options,
-            )
-            .is_err()
-    );
-
     let url_media = MessagePart::new(ContentPart::Media(MediaPart {
         media_type: "image/png".to_string(),
         data: MediaData::Url("https://example.com/private.png".to_string()),
@@ -660,30 +666,145 @@ fn request_policy_tracks_current_vertex_feature_boundaries() {
     );
 }
 
-#[test]
-fn one_hour_cache_is_model_gated_and_message_annotations_are_google_owned() {
-    let message = Message::text(MessageRole::User, "cache me")
+#[tokio::test]
+async fn future_model_projects_one_hour_cache_at_message_content_and_tool_targets() {
+    const FUTURE_MODEL: &str = "claude-private-2030";
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/v1/projects/test-project/locations/us-central1/publishers/anthropic/models/{FUTURE_MODEL}:rawPredict"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            FUTURE_MODEL,
+            "msg_future_cache",
+            "ok",
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let system = Message::text(MessageRole::System, "stable policy")
         .with_provider_annotation(&GoogleVertexAnthropicMessageCache::one_hour())
-        .expect("annotation");
-    let mut request = LanguageRequest::new(vec![message]);
+        .expect("message cache annotation");
+    let content = MessagePart::text("cache this content")
+        .with_provider_annotation(&GoogleVertexAnthropicContentCache::one_hour())
+        .expect("content cache annotation");
+    let tool = ToolSpec::new(
+        "lookup",
+        None,
+        json!({
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool")
+    .with_provider_annotation(
+        &GoogleVertexAnthropicToolOptions::new()
+            .with_cache_ttl(GoogleVertexAnthropicCacheTtl::OneHour),
+    )
+    .expect("tool cache annotation");
+    let mut request =
+        LanguageRequest::new(vec![system, Message::new(MessageRole::User, [content])]);
     request.generation.max_output_tokens = Some(64);
-    let policy = GoogleVertexAnthropicRequestPolicy;
-    assert!(
-        policy
-            .prepare(
-                &ModelId::new(CLAUDE_OPUS_5).expect("model"),
-                &request,
-                &mut MessagesCallOptions::new(),
-            )
-            .is_ok()
+    request.tools.push(tool);
+
+    let provider = local_provider(&server, Arc::new(NoAuth));
+    provider
+        .language(FUTURE_MODEL)
+        .expect("future model")
+        .generate(request, CallOptions::default())
+        .await
+        .expect("future model cache request");
+
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&requests[0].body).expect("body");
+    assert_eq!(body["system"][0]["cache_control"]["ttl"], "1h");
+    assert_eq!(
+        body["messages"][0]["content"][0]["cache_control"]["ttl"],
+        "1h"
     );
-    assert!(
-        policy
-            .prepare(
-                &ModelId::new("claude-future-2030").expect("model"),
-                &request,
-                &mut MessagesCallOptions::new(),
+    assert_eq!(body["tools"][0]["cache_control"]["ttl"], "1h");
+}
+
+#[tokio::test]
+async fn known_and_future_models_project_structured_output_and_strict_tools() {
+    const FUTURE_MODEL: &str = "claude-private-structured-2030";
+
+    let server = MockServer::start().await;
+    for (model, id) in [
+        (CLAUDE_SONNET_5, "msg_known_structured"),
+        (FUTURE_MODEL, "msg_future_structured"),
+    ] {
+        Mock::given(method("POST"))
+            .and(path(format!(
+                "/v1/projects/test-project/locations/us-central1/publishers/anthropic/models/{model}:rawPredict"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response(model, id, "{}")))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+
+    let provider = local_provider(&server, Arc::new(NoAuth));
+    for model in [CLAUDE_SONNET_5, FUTURE_MODEL] {
+        provider
+            .language(model)
+            .expect("model")
+            .generate(
+                structured_and_strict_request("return a structured answer"),
+                CallOptions::default(),
             )
-            .is_err()
+            .await
+            .expect("structured response");
+    }
+
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 2);
+    for model in [CLAUDE_SONNET_5, FUTURE_MODEL] {
+        let suffix = format!("/models/{model}:rawPredict");
+        let request = requests
+            .iter()
+            .find(|request| request.url.path().ends_with(&suffix))
+            .expect("model request");
+        let body: serde_json::Value = serde_json::from_slice(&request.body).expect("body");
+        assert_eq!(body["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(
+            body["output_config"]["format"]["schema"]["required"],
+            json!(["answer"])
+        );
+        assert_eq!(body["tools"][0]["strict"], true);
+    }
+}
+
+#[tokio::test]
+async fn non_strict_structured_output_fails_before_vertex_submission() {
+    let server = MockServer::start().await;
+    let provider = local_provider(&server, Arc::new(NoAuth));
+    let mut request = request("return a structured answer", 64);
+    request.structured_output = Some(StructuredOutputSpec {
+        name: "answer".to_string(),
+        description: None,
+        schema: json!({"type": "object"}),
+        strict: false,
+    });
+
+    let error = provider
+        .language("claude-private-structured-2030")
+        .expect("future model")
+        .generate(request, CallOptions::default())
+        .await
+        .expect_err("non-strict constrained output must fail locally");
+
+    assert_eq!(error.kind(), ErrorKind::Unsupported);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
     );
 }

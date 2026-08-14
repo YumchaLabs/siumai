@@ -111,11 +111,11 @@ names the exact execution surface; it is not provider-wide identity.
 | `openai` / OpenAI | `openai` / `openai-api` | Transcription | `openai.audio` / `audio-transcriptions` | `native` | `stable` | https://developers.openai.com/api/docs/guides/speech-to-text | 2026-08-08 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Language | `anthropic-messages` / `messages` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages | 2026-08-06 |
 | `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/api/interactions-api | 2026-08-08 |
-| `google` / Google Gemini | `google` / `gemini-api` | Image | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Image | `gemini-interactions` / `interactions` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/image-generation | 2026-08-14 |
 | `google` / Google Gemini | `google` / `gemini-api` | Language | `gemini-generate-content` / `generate-content` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/generate-content/text-generation | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Embedding | `gemini-embed-content` / `embed-content-v1` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/embeddings | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Speech | `gemini-interactions` / `interactions-speech` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/speech-generation | 2026-08-08 |
-| `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-06 |
+| `google-vertex-anthropic` / Claude on Vertex AI | `google` / `vertex-ai` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude | 2026-08-14 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses | 2026-08-05 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://www.alibabacloud.com/help/en/model-studio/anthropic-api-messages | 2026-08-08 |
@@ -140,10 +140,10 @@ names the exact execution surface; it is not provider-wide identity.
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Image | `minimax-image` / `image-generation` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-08 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Speech | `minimax-speech` / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-08 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/api/create-chat-completion | 2026-08-05 |
-| `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/responses_api | 2026-08-05 |
+| `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/responses_api | 2026-08-14 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://api-docs.deepseek.com/guides/anthropic_api | 2026-08-08 |
 | `deepseek` / DeepSeek | `deepseek` / `deepseek-beta-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://api-docs.deepseek.com/guides/tool_calls | 2026-08-08 |
-| `cohere` / Cohere | `cohere` / `public-api` | Embedding | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/embed | 2026-08-06 |
+| `cohere` / Cohere | `cohere` / `public-api` | Embedding | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/embed | 2026-08-14 |
 | `cohere` / Cohere | `cohere` / `public-api` | Rerank | `cohere-native` / `v2` | `native` | `stable` | https://docs.cohere.com/v2/reference/rerank | 2026-08-06 |
 | `deepgram` / Deepgram | `deepgram` / `public-api` | Transcription | `deepgram-prerecorded` / `prerecorded` | `native` | `stable` | https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded | 2026-08-09 |
 | `deepgram` / Deepgram | `deepgram` / `public-api` | Speech | `deepgram-aura-tts` / `tts` | `native` | `stable` | https://developers.deepgram.com/reference/text-to-speech/speak | 2026-08-09 |
@@ -175,7 +175,7 @@ portable model families.
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `token-counting` | `native` | `stable` | https://platform.claude.com/docs/en/api/messages-count-tokens | 2026-08-11 |
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/build-with-claude/skills-guide | 2026-08-11 |
 | `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
-| `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-08 |
+| `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-14 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
 | `groq` / Groq | `groq` / `groq-cloud` | Resource / `url-audio-transcription` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
 | `groq` / Groq | `groq` / `groq-cloud` | Resource / `audio-translation` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
