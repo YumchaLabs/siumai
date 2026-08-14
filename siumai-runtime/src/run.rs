@@ -179,7 +179,6 @@ pub struct RunReport {
     steps: Vec<StepRecord>,
     model_transitions: Vec<ModelTransitionRecord>,
     usage: Usage,
-    #[serde(default)]
     usage_settled: bool,
     budget: BudgetLedger,
     execution_log: ToolExecutionLog,
@@ -227,6 +226,10 @@ impl RunReport {
 
     pub fn usage(&self) -> &Usage {
         &self.usage
+    }
+
+    pub(crate) fn usage_is_settled(&self) -> bool {
+        self.usage_settled
     }
 
     pub fn budget(&self) -> &BudgetLedger {

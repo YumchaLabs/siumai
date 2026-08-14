@@ -173,6 +173,13 @@ bounded sensitive diagnostics.
 Usage events state whether they are cumulative snapshots or deltas. Runtime reconciles observations
 per provider call, treats the terminal usage as the final snapshot, and charges budgets exactly once.
 
+Durable snapshot schema version and durable execution ABI are independent contracts. Snapshot v6
+serializes the private usage-settlement state explicitly, so a missing field is malformed data rather
+than an instruction to reset previously aggregated usage. Before every durable CAS, including crash
+recovery, the runtime checkpoint port validates the loaded snapshot-to-candidate successor
+transition. A `RunStore` owns lease fencing, run identity, revisions, terminal-write rejection, and
+atomic replacement; it does not implement a second runtime state machine.
+
 When an executable item appears in both stable stream events and the terminal response, both views
 must agree on item kind, identity, ownership, tool name, and normalized JSON input. A protocol may
 merge a completed stable-only caller-executable function call when its terminal format permits

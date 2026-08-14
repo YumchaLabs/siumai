@@ -1,7 +1,12 @@
 //! Versioned durable run snapshots and lease/CAS persistence hooks.
 
+mod checkpoint;
 mod model;
 mod store;
+
+pub(crate) use checkpoint::{
+    InitialSnapshotParts, assemble_initial_snapshot, assemble_successor_snapshot,
+};
 
 pub use model::{
     CheckpointId, CompletedToolSnapshot, IndeterminateReason, InvalidSnapshotId, LineageId,
@@ -19,7 +24,10 @@ pub use store::{
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{Duration, Instant};
 
     use serde::{Deserialize, Serialize};
     use serde_json::json;
@@ -89,9 +97,13 @@ mod tests {
     }
 
     fn checkpoint(id: &str, parent: Option<&str>) -> SnapshotCheckpoint {
+        checkpoint_for_run("run-1", id, parent)
+    }
+
+    fn checkpoint_for_run(run_id: &str, id: &str, parent: Option<&str>) -> SnapshotCheckpoint {
         SnapshotCheckpoint::new(
             SnapshotEngineVersion::new("runtime-test-v2").unwrap(),
-            RunId::new("run-1").unwrap(),
+            RunId::new(run_id).unwrap(),
             LineageId::new("lineage-1").unwrap(),
             CheckpointId::new(id).unwrap(),
             parent.map(|parent| CheckpointId::new(parent).unwrap()),
@@ -250,6 +262,231 @@ mod tests {
         )
     }
 
+    fn ready_snapshot_for_run(
+        run_id: &str,
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+    ) -> RunSnapshot {
+        let report = ready_report();
+        RunSnapshot::new(
+            checkpoint_for_run(run_id, checkpoint_id, parent_checkpoint_id),
+            fingerprints(),
+            LanguageRequest::new(report.messages().to_vec()),
+            report,
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 0,
+                target: target(),
+            },
+        )
+        .unwrap()
+    }
+
+    static NEXT_JSON_STORE_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[derive(Debug)]
+    struct JsonRoundTripStore {
+        store_id: u64,
+        state: Mutex<JsonRoundTripState>,
+    }
+
+    #[derive(Debug, Default)]
+    struct JsonRoundTripState {
+        next_lease_token: u64,
+        leases: BTreeMap<RunId, JsonLeaseRecord>,
+        runs: BTreeMap<RunId, JsonStoredRun>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JsonLeaseToken {
+        store_id: u64,
+        run_id: RunId,
+        token: u64,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct JsonLeaseRecord {
+        token: u64,
+        expires_at: Instant,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JsonStoredRun {
+        revision: u64,
+        snapshot: Vec<u8>,
+    }
+
+    impl Default for JsonRoundTripStore {
+        fn default() -> Self {
+            Self {
+                store_id: NEXT_JSON_STORE_ID.fetch_add(1, Ordering::Relaxed),
+                state: Mutex::new(JsonRoundTripState {
+                    next_lease_token: 1,
+                    ..JsonRoundTripState::default()
+                }),
+            }
+        }
+    }
+
+    impl JsonRoundTripStore {
+        fn lock(&self) -> Result<MutexGuard<'_, JsonRoundTripState>, RunStoreError> {
+            self.state.lock().map_err(|_| RunStoreError::Unavailable)
+        }
+
+        fn validate_lease(
+            &self,
+            state: &mut JsonRoundTripState,
+            lease: &RunLease,
+        ) -> Result<(), RunStoreError> {
+            let token = lease
+                .store_token::<JsonLeaseToken>()
+                .ok_or(RunStoreError::ForeignLease)?;
+            if token.store_id != self.store_id || &token.run_id != lease.run_id() {
+                return Err(RunStoreError::ForeignLease);
+            }
+            let Some(record) = state.leases.get(lease.run_id()).copied() else {
+                return Err(RunStoreError::LeaseLost);
+            };
+            if record.token != token.token {
+                return Err(RunStoreError::LeaseLost);
+            }
+            if Instant::now() >= record.expires_at {
+                state.leases.remove(lease.run_id());
+                return Err(RunStoreError::LeaseExpired);
+            }
+            Ok(())
+        }
+    }
+
+    impl RunStore for JsonRoundTripStore {
+        fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease> {
+            Box::pin(async move {
+                let expires_at = Instant::now()
+                    .checked_add(ttl)
+                    .filter(|_| !ttl.is_zero())
+                    .ok_or(RunStoreError::InvalidLeaseDuration)?;
+                let mut state = self.lock()?;
+                if state
+                    .leases
+                    .get(run_id)
+                    .is_some_and(|record| Instant::now() < record.expires_at)
+                {
+                    return Err(RunStoreError::LeaseConflict {
+                        run_id: run_id.clone(),
+                    });
+                }
+                state.leases.remove(run_id);
+                let token = state.next_lease_token;
+                state.next_lease_token = token
+                    .checked_add(1)
+                    .ok_or(RunStoreError::LeaseTokenExhausted)?;
+                state
+                    .leases
+                    .insert(run_id.clone(), JsonLeaseRecord { token, expires_at });
+                Ok(RunLease::from_store_token(
+                    run_id.clone(),
+                    expires_at,
+                    JsonLeaseToken {
+                        store_id: self.store_id,
+                        run_id: run_id.clone(),
+                        token,
+                    },
+                ))
+            })
+        }
+
+        fn load<'a>(&'a self, lease: &'a RunLease) -> RunStoreFuture<'a, Option<StoredRun>> {
+            Box::pin(async move {
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                state
+                    .runs
+                    .get(lease.run_id())
+                    .map(|stored| {
+                        let snapshot = serde_json::from_slice::<RunSnapshot>(&stored.snapshot)
+                            .map_err(|_| RunStoreError::Unavailable)?;
+                        Ok(StoredRun::new(
+                            SnapshotRevision::from_value(stored.revision),
+                            snapshot,
+                        ))
+                    })
+                    .transpose()
+            })
+        }
+
+        fn compare_and_swap<'a>(
+            &'a self,
+            lease: &'a RunLease,
+            expected: SnapshotRevision,
+            snapshot: RunSnapshot,
+        ) -> RunStoreFuture<'a, SnapshotRevision> {
+            Box::pin(async move {
+                if snapshot.run_id() != lease.run_id() {
+                    return Err(RunStoreError::RunIdMismatch {
+                        leased_run_id: lease.run_id().clone(),
+                        snapshot_run_id: snapshot.run_id().clone(),
+                    });
+                }
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                let actual = state.runs.get(lease.run_id()).map_or(0, |run| run.revision);
+                if actual != expected.value() {
+                    return Err(RunStoreError::CasConflict {
+                        expected,
+                        actual: SnapshotRevision::from_value(actual),
+                    });
+                }
+                if let Some(current) = state.runs.get(lease.run_id()) {
+                    let current = serde_json::from_slice::<RunSnapshot>(&current.snapshot)
+                        .map_err(|_| RunStoreError::Unavailable)?;
+                    if current.resume_point().is_terminal() {
+                        return Err(RunStoreError::RunAlreadyTerminal);
+                    }
+                }
+                let revision = actual
+                    .checked_add(1)
+                    .ok_or(RunStoreError::RevisionExhausted)?;
+                let encoded =
+                    serde_json::to_vec(&snapshot).map_err(|_| RunStoreError::Unavailable)?;
+                state.runs.insert(
+                    lease.run_id().clone(),
+                    JsonStoredRun {
+                        revision,
+                        snapshot: encoded,
+                    },
+                );
+                Ok(SnapshotRevision::from_value(revision))
+            })
+        }
+
+        fn renew<'a>(&'a self, lease: &'a mut RunLease, ttl: Duration) -> RunStoreFuture<'a, ()> {
+            Box::pin(async move {
+                let expires_at = Instant::now()
+                    .checked_add(ttl)
+                    .filter(|_| !ttl.is_zero())
+                    .ok_or(RunStoreError::InvalidLeaseDuration)?;
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                state
+                    .leases
+                    .get_mut(lease.run_id())
+                    .ok_or(RunStoreError::LeaseLost)?
+                    .expires_at = expires_at;
+                lease.set_expires_at(expires_at);
+                Ok(())
+            })
+        }
+
+        fn release<'a>(&'a self, lease: RunLease) -> RunStoreFuture<'a, ()> {
+            Box::pin(async move {
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, &lease)?;
+                state.leases.remove(lease.run_id());
+                Ok(())
+            })
+        }
+    }
+
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     struct SnapshotMessageAnnotation {
@@ -389,12 +626,61 @@ mod tests {
     }
 
     #[test]
-    fn version_six_round_trip_preserves_partial_terminals() {
+    fn version_six_requires_explicit_usage_settlement_state() {
+        let base_snapshot = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
+        let encoded = serde_json::to_value(base_snapshot).unwrap();
+        let mut missing = encoded.clone();
+        missing["report"]
+            .as_object_mut()
+            .unwrap()
+            .remove("usage_settled");
+
+        let error = serde_json::from_value::<RunSnapshot>(missing).unwrap_err();
+        assert!(error.to_string().contains("missing field `usage_settled`"));
+
+        let mut wrong_kind = encoded;
+        wrong_kind["report"]["usage_settled"] = json!("not-a-boolean");
+        let error = serde_json::from_value::<RunSnapshot>(wrong_kind).unwrap_err();
+        assert!(error.to_string().contains("invalid type"));
+
+        let usage = Usage::default().with_output_tokens(4_u64);
+        let mut report = ready_report();
+        report.accumulate_usage(&usage);
         let partial = PartialLanguageOutput::new(
             vec![PartialLanguageOutputPart::Text {
                 text: "partial output".to_string(),
             }],
-            Usage::default().with_output_tokens(4_u64),
+            usage,
+        )
+        .unwrap();
+        let snapshot = snapshot(
+            "checkpoint-partial",
+            None,
+            report,
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Failed {
+                reason: SnapshotReason::new("provider_failed", None).unwrap(),
+                partial: Some(partial),
+            }),
+        );
+        let mut encoded = serde_json::to_value(snapshot).unwrap();
+        encoded["report"]["usage_settled"] = json!(false);
+        let error = serde_json::from_value::<RunSnapshot>(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("snapshot usage observations require settled report usage state")
+        );
+    }
+
+    #[test]
+    fn version_six_round_trip_preserves_partial_terminals() {
+        let usage = Usage::default().with_output_tokens(4_u64);
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "partial output".to_string(),
+            }],
+            usage.clone(),
         )
         .unwrap();
         let terminals = [
@@ -413,10 +699,12 @@ mod tests {
         ];
 
         for (index, resume_point) in terminals.into_iter().enumerate() {
+            let mut report = ready_report();
+            report.accumulate_usage(&usage);
             let snapshot = snapshot(
                 &format!("checkpoint-terminal-{index}"),
                 None,
-                ready_report(),
+                report,
                 Some(DEADLINE),
                 resume_point,
             );
@@ -650,6 +938,94 @@ mod tests {
         );
     }
 
+    async fn assert_atomic_store_contract(store: &dyn RunStore) {
+        let run_id = RunId::new("run-1").unwrap();
+        let lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(
+                &lease,
+                SnapshotRevision::EMPTY,
+                ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    revision,
+                    ready_snapshot_for_run("another-run", "checkpoint-other", None),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::RunIdMismatch {
+                leased_run_id: run_id.clone(),
+                snapshot_run_id: RunId::new("another-run").unwrap(),
+            }
+        );
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    SnapshotRevision::EMPTY,
+                    ready_snapshot(
+                        "checkpoint-stale",
+                        Some("checkpoint-1"),
+                        ready_report(),
+                        Some(DEADLINE),
+                    ),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::CasConflict {
+                expected: SnapshotRevision::EMPTY,
+                actual: revision,
+            }
+        );
+
+        let terminal = snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+        );
+        let terminal_revision = store
+            .compare_and_swap(&lease, revision, terminal)
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    terminal_revision,
+                    ready_snapshot(
+                        "checkpoint-3",
+                        Some("checkpoint-2"),
+                        ready_report(),
+                        Some(DEADLINE),
+                    ),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::RunAlreadyTerminal
+        );
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn built_in_and_external_store_share_atomic_cas_contract() {
+        let built_in = InMemoryRunStore::new();
+        assert_atomic_store_contract(&built_in).await;
+
+        let external = JsonRoundTripStore::default();
+        assert_atomic_store_contract(&external).await;
+    }
+
     #[tokio::test]
     async fn one_run_cannot_have_two_live_leases() {
         let store = InMemoryRunStore::new();
@@ -674,6 +1050,63 @@ mod tests {
             .acquire(&run_id, Duration::from_secs(30))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn expired_lease_is_fenced_after_a_new_owner_acquires() {
+        let store = InMemoryRunStore::new();
+        let run_id = RunId::new("run-1").unwrap();
+        let mut old_lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let initial = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
+        let revision = store
+            .compare_and_swap(&old_lease, SnapshotRevision::EMPTY, initial)
+            .await
+            .unwrap();
+
+        store.expire_lease_for_test(&old_lease).unwrap();
+        let new_lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            store.load(&old_lease).await.unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store
+                .compare_and_swap(&old_lease, revision, successor.clone())
+                .await
+                .unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store
+                .renew(&mut old_lease, Duration::from_secs(30))
+                .await
+                .unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store.release(old_lease).await.unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+
+        let next_revision = store
+            .compare_and_swap(&new_lease, revision, successor)
+            .await
+            .unwrap();
+        assert_eq!(next_revision.value(), revision.value() + 1);
+        store.release(new_lease).await.unwrap();
     }
 
     #[test]
@@ -832,27 +1265,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cas_rejects_wrong_parent_checkpoint() {
+    async fn store_cas_does_not_own_successor_semantics() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
         let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot("checkpoint-2", None, ready_report(), Some(DEADLINE));
 
-        assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::ParentCheckpointMismatch {
-                expected: CheckpointId::new("checkpoint-1").unwrap(),
-                actual: None,
-            })
-        );
+        let next_revision = store
+            .compare_and_swap(&lease, revision, successor)
+            .await
+            .unwrap();
+        assert_eq!(next_revision.value(), revision.value() + 1);
     }
 
-    #[tokio::test]
-    async fn cas_rejects_message_history_regression() {
+    #[test]
+    fn successor_rejects_message_history_regression() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor_report = RunReport::new(target(), Vec::new());
         let successor = ready_snapshot(
             "checkpoint-2",
@@ -862,16 +1289,13 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::MessageHistoryRegression)
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::MessageHistoryRegression
         );
     }
 
-    #[tokio::test]
-    async fn cas_accepts_only_an_exact_reprojection_for_history_regression() {
+    #[test]
+    fn successor_accepts_only_an_exact_reprojection_for_history_regression() {
         let source = ModelTarget::new(
             ProviderId::new("source-provider").unwrap(),
             ModelId::new("source-model").unwrap(),
@@ -1004,13 +1428,7 @@ mod tests {
             ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
         )
         .unwrap();
-        let (store, lease, revision) = store_current(previous).await;
-
-        let next_revision = store
-            .compare_and_swap(&lease, revision, successor)
-            .await
-            .unwrap();
-        assert_eq!(next_revision.value(), revision.value() + 1);
+        previous.validate_successor(&successor).unwrap();
     }
 
     #[test]
@@ -1120,15 +1538,14 @@ mod tests {
         assert_eq!(snapshot.target(), &destination);
     }
 
-    #[tokio::test]
-    async fn cas_rejects_budget_regression() {
+    #[test]
+    fn successor_rejects_budget_regression() {
         let mut current_report = ready_report();
         current_report
             .budget_mut()
             .charge_model_step(&RunBudget::default())
             .unwrap();
         let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1137,22 +1554,18 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::BudgetRegression {
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::BudgetRegression {
                 dimension: "model_steps",
                 previous: 1,
                 next: 0,
-            })
+            }
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_deadline_extension() {
+    #[test]
+    fn successor_rejects_deadline_extension() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1161,26 +1574,22 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::DeadlineRegression {
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::DeadlineRegression {
                 previous: Some(DEADLINE),
                 next: Some(DEADLINE + 1),
-            })
+            }
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_execution_log_regression() {
+    #[test]
+    fn successor_rejects_execution_log_regression() {
         let current = ready_snapshot(
             "checkpoint-1",
             None,
             report_with_log(completed_log()),
             Some(DEADLINE),
         );
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1189,16 +1598,13 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::ExecutionLogRegression)
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::ExecutionLogRegression
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_illegal_resume_transition() {
+    #[test]
+    fn successor_rejects_illegal_resume_transition() {
         let current = snapshot(
             "checkpoint-1",
             None,
@@ -1206,7 +1612,6 @@ mod tests {
             Some(DEADLINE),
             ResumePoint::ReadyToDispatch(pending_step(Vec::new())),
         );
-        let (store, lease, revision) = store_current(current).await;
         let provider_step = PendingProviderStepSnapshot::new(
             0,
             target(),
@@ -1227,19 +1632,16 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::InvalidResumeTransition {
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::InvalidResumeTransition {
                 from: ResumePointKind::ReadyToDispatch,
                 to: ResumePointKind::AwaitingProvider,
-            })
+            }
         );
     }
 
-    #[tokio::test]
-    async fn cas_accepts_approval_resolution_to_ready_to_dispatch() {
+    #[test]
+    fn successor_accepts_approval_resolution_to_ready_to_dispatch() {
         let current = awaiting_approval_snapshot("checkpoint-1", None);
         let mut successor_report = current.report().clone();
         successor_report.budget_mut().release_pending_approval();
@@ -1250,13 +1652,7 @@ mod tests {
             Some(DEADLINE),
             ResumePoint::ReadyToDispatch(pending_step(Vec::new())),
         );
-        let (store, lease, revision) = store_current(current).await;
-
-        let next_revision = store
-            .compare_and_swap(&lease, revision, successor)
-            .await
-            .unwrap();
-        assert_eq!(next_revision.value(), revision.value() + 1);
+        current.validate_successor(&successor).unwrap();
     }
 
     #[test]

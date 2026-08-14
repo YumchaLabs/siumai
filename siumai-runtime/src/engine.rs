@@ -28,8 +28,9 @@ use crate::snapshot::{
 };
 use crate::tool::{
     ApprovalDecider, ApprovalDecision, ApprovalPolicy, ApprovalRequest, AuthorizedToolCall,
-    EffectCertainty, ToolConcurrency, ToolEffect, ToolExecutionError, ToolExecutionRequest,
-    ToolSet,
+    EffectCertainty, PreparedVisibleToolCatalog, ToolConcurrency, ToolEffect, ToolExecutionError,
+    ToolExecutionRequest, ToolSet, VisibleToolCatalogError, VisibleToolCatalogSource,
+    prepare_visible_tool_catalog,
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
 use crate::usage::CallUsageReconciler;
@@ -51,6 +52,7 @@ pub(crate) struct StepEngine {
     runtime: Runtime,
     model: Arc<dyn LanguageModel>,
     tools: ToolSet,
+    visible_tools: PreparedVisibleToolCatalog,
     request: LanguageRequest,
     step_options: StepOptions,
     call_options: CallOptions,
@@ -87,6 +89,7 @@ enum EnginePhase {
 
 pub(crate) struct EngineResumeSeed {
     pub(crate) continuation: LanguageRequest,
+    pub(crate) visible_tools: PreparedVisibleToolCatalog,
     pub(crate) report: RunReport,
     pub(crate) resume_point: ResumePoint,
     pub(crate) verified_approvals: BTreeMap<String, VerifiedApproval>,
@@ -195,8 +198,12 @@ impl StepEngine {
         step: u32,
         establishment_failure_as_terminal: bool,
     ) -> Result<Self, Error> {
-        reject_untrusted_collisions(&request, &tools)?;
-        request.tools = tools.specs().to_vec();
+        let visible_tools = prepare_visible_tool_catalog(
+            VisibleToolCatalogSource::Caller(std::mem::take(&mut request.tools)),
+            &tools,
+        )
+        .map_err(visible_catalog_error)?;
+        request.tools = visible_tools.specs().to_vec();
 
         let budget = runtime.run_budget().clone();
         let cancellation = options.cancellation().child();
@@ -226,6 +233,7 @@ impl StepEngine {
             runtime,
             model,
             tools,
+            visible_tools,
             request,
             step_options,
             call_options,
@@ -282,17 +290,13 @@ impl StepEngine {
     ) -> Result<Self, EngineResumeError> {
         let EngineResumeSeed {
             mut continuation,
+            visible_tools,
             report,
             resume_point,
             verified_approvals,
         } = seed;
-        // The durable adapter already matched the persisted catalog to this
-        // trusted ToolSet. Reinstall it after applying the normal untrusted
-        // request collision check.
-        continuation.tools.clear();
-        reject_untrusted_collisions(&continuation, &tools)?;
         continuation.messages = report.messages().to_vec();
-        continuation.tools = tools.specs().to_vec();
+        continuation.tools = visible_tools.specs().to_vec();
 
         let budget = runtime.run_budget().clone();
         let cancellation = options.cancellation().child();
@@ -305,6 +309,7 @@ impl StepEngine {
             runtime,
             model,
             tools,
+            visible_tools,
             request: continuation,
             step_options,
             call_options,
@@ -357,6 +362,10 @@ impl StepEngine {
             }
         }
         Ok(engine)
+    }
+
+    pub(crate) fn visible_tool_catalog(&self) -> &PreparedVisibleToolCatalog {
+        &self.visible_tools
     }
 
     pub(crate) fn cancellation(&self) -> &Cancellation {
@@ -556,7 +565,7 @@ impl StepEngine {
     fn continuation(&self) -> LanguageRequest {
         let mut continuation = self.request.clone();
         continuation.messages = self.report.messages().to_vec();
-        continuation.tools = self.tools.specs().to_vec();
+        continuation.tools = self.visible_tools.specs().to_vec();
         continuation
     }
 
@@ -572,7 +581,7 @@ impl StepEngine {
         );
         let mut request = self.request.clone();
         request.messages = self.report.messages().to_vec();
-        request.tools = self.tools.specs().to_vec();
+        request.tools = self.visible_tools.specs().to_vec();
         let single_step = SingleStep::new(&self.runtime, self.model.as_ref(), &self.step_options);
         let future = single_step.stream(request, self.call_options.clone());
 
@@ -723,7 +732,7 @@ impl StepEngine {
     fn prepare_next_model(&mut self, selected: SelectedStepModel) -> Result<bool, Error> {
         let mut request = self.request.clone();
         request.messages = self.report.messages().to_vec();
-        request.tools = self.tools.specs().to_vec();
+        request.tools = self.visible_tools.specs().to_vec();
         match prepare_selected_step_model(
             selected,
             request,
@@ -1100,25 +1109,20 @@ impl StepEngine {
         // Provider-owned work is an orchestration boundary. Inspect the whole
         // step before resolving any local name so a provider/local collision or
         // an unrelated invalid local call cannot cross that boundary.
-        let mut provider_states = state
-            .provider_states
-            .iter()
-            .filter(|(id, _)| !provider_result_ids.contains(id))
-            .map(|(id, item)| provider_state_from_deferred(id, item))
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap_or_else(|error| {
-                self.queue_terminal(RunTerminal::Failed {
-                    error,
-                    partial: None,
-                    report: Box::new(self.report.clone()),
-                });
-                Vec::new()
-            });
+        let provider_states =
+            normalize_provider_states(&state.provider_states, &provider_result_ids).unwrap_or_else(
+                |error| {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error,
+                        partial: None,
+                        report: Box::new(self.report.clone()),
+                    });
+                    Vec::new()
+                },
+            );
         if matches!(self.phase, EnginePhase::Terminal) {
             return Ok(());
         }
-        provider_states.sort_unstable_by(|left, right| left.namespace.cmp(&right.namespace));
-        provider_states.dedup_by(|left, right| left.namespace == right.namespace);
         if !provider_states.is_empty() {
             let state_ids = provider_states
                 .iter()
@@ -2320,18 +2324,12 @@ async fn await_tool_attempt(
     }
 }
 
-fn reject_untrusted_collisions(request: &LanguageRequest, tools: &ToolSet) -> Result<(), Error> {
-    if request
-        .tools
-        .iter()
-        .any(|spec| tools.get(spec.name()).is_some())
-    {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "request tool definition conflicts with a trusted local binding",
-        ));
-    }
-    Ok(())
+fn visible_catalog_error(error: VisibleToolCatalogError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "model-visible tool catalog is incompatible with trusted local bindings",
+    )
+    .with_source(error)
 }
 
 fn is_parallel_safe(request: &ToolExecutionRequest) -> bool {
@@ -2434,6 +2432,27 @@ fn provider_state_from_deferred(
         encoding: "siumai.opaque-provider-item+json".to_string(),
         payload,
     })
+}
+
+fn normalize_provider_states(
+    observations: &[(String, siumai_core::OpaqueProviderItem)],
+    completed_ids: &BTreeSet<String>,
+) -> Result<Vec<ProviderStateSnapshot>, Error> {
+    let mut positions = BTreeMap::<String, usize>::new();
+    let mut states = Vec::new();
+    for (id, item) in observations {
+        if completed_ids.contains(id) {
+            continue;
+        }
+        let state = provider_state_from_deferred(id, item)?;
+        if let Some(position) = positions.get(&state.namespace).copied() {
+            states[position] = state;
+        } else {
+            positions.insert(state.namespace.clone(), states.len());
+            states.push(state);
+        }
+    }
+    Ok(states)
 }
 
 fn execution_log_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {

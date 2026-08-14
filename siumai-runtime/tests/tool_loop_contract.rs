@@ -5,14 +5,16 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use serde::Serialize;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageCallError,
     LanguageCompletionReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
-    PartialLanguageOutput, PartialLanguageOutputPart, ProviderId, StreamTerminal, ToolCall,
-    ToolOutcome, ToolSpec, Usage, UsageUpdate, UsageValue,
+    PartialLanguageOutput, PartialLanguageOutputPart, ProviderId, StreamTerminal,
+    ToolAnnotationTarget, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
+    UsageUpdate, UsageValue,
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
@@ -154,6 +156,31 @@ fn tool_spec(name: &str) -> ToolSpec {
         json!({ "type": "object" }),
     )
     .expect("valid tool spec")
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct TestToolAnnotation(Value);
+
+impl TypedProviderAnnotation for TestToolAnnotation {
+    type Target = ToolAnnotationTarget;
+
+    const NAMESPACE: &'static str = "test-provider";
+    const API_MODE: Option<&'static str> = Some("messages");
+}
+
+fn provider_visible_tool_spec(name: &str) -> ToolSpec {
+    ToolSpec::new(
+        name,
+        Some("provider-visible search".to_string()),
+        json!({ "type": "object" }),
+    )
+    .expect("valid provider-visible tool spec")
+    .with_provider_annotation(&TestToolAnnotation(json!({
+        "type": "hosted_search",
+        "maxUses": 4
+    })))
+    .expect("valid provider-visible tool annotation")
 }
 
 fn local_call(id: &str, name: &str, arguments: Value) -> ToolCall {
@@ -415,8 +442,12 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
 
     let requests = run_model.requests();
     assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0].tools.len(), 1);
-    assert_eq!(requests[0].tools[0].name(), "lookup");
+    for request in &requests {
+        assert_eq!(
+            request.tools.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["client-only", "lookup"]
+        );
+    }
     assert_eq!(
         requests[1]
             .messages
@@ -432,6 +463,39 @@ async fn run_and_stream_share_one_stream_only_execution_trace() {
             .iter()
             .all(|part| part.annotations().is_empty())
     );
+}
+
+#[tokio::test]
+async fn caller_visible_annotated_tool_survives_later_steps_without_gaining_execution() {
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![local_call(
+            "hosted_1",
+            "web_search",
+            json!({ "query": "rust" }),
+        )])),
+        terminal_step(final_response("done")),
+    ]);
+    let hosted = provider_visible_tool_spec("web_search");
+    let mut request = user_request();
+    request.tools.push(hosted.clone());
+    let loop_ = ToolLoop::new(model.clone(), ToolSet::default()).with_outcome_policy(
+        ToolOutcomePolicy::default().with_execution_failed(ToolOutcomeAction::Continue),
+    );
+
+    let (_, terminal) = collect_terminal(&loop_, request).await;
+    let report = completed_report(&terminal);
+    assert!(matches!(
+        report.steps()[0].tool_results()[0].outcome,
+        ToolOutcome::ExecutionFailed { .. }
+    ));
+    assert!(report.execution_log().events().is_empty());
+
+    let requests = model.requests();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        assert_eq!(request.tools, vec![hosted.clone()]);
+        assert!(!request.tools[0].annotations().is_empty());
+    }
 }
 
 #[tokio::test]

@@ -16,6 +16,10 @@ pub use binding::{
     CatalogFingerprint, ToolBinding, ToolBindingConfigError, ToolSet, ToolSetBuildError,
     ToolSetBuilder, canonical_arguments_digest,
 };
+pub(crate) use binding::{
+    PreparedVisibleToolCatalog, VisibleToolCatalogError, VisibleToolCatalogSource,
+    prepare_visible_tool_catalog,
+};
 pub(crate) use execution::AuthorizedToolCall;
 pub use execution::{
     ApprovalPolicy, EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolArgumentValidator,

@@ -109,6 +109,19 @@ fn request() -> LanguageRequest {
     LanguageRequest::new(vec![Message::text(MessageRole::User, "research rust")])
 }
 
+fn request_with_caller_tool() -> LanguageRequest {
+    let mut request = request();
+    request.tools.push(
+        ToolSpec::new(
+            "client_search",
+            Some("provider-visible search".to_string()),
+            json!({"type": "object"}),
+        )
+        .expect("valid caller-visible tool"),
+    );
+    request
+}
+
 fn local_call() -> ToolCall {
     ToolCall::local("call-1", "lookup", json!({"query": "rust"})).expect("valid tool call")
 }
@@ -207,7 +220,7 @@ async fn strict_portable_switch_uses_one_engine_and_records_the_transition() {
         [final_response("done")],
     );
     let mut stream = switching_loop(source.clone(), target.clone(), ProjectionPolicy::Strict)
-        .stream(request(), CallOptions::default())
+        .stream(request_with_caller_tool(), CallOptions::default())
         .await
         .expect("run establishes");
     let mut events = Vec::new();
@@ -238,6 +251,22 @@ async fn strict_portable_switch_uses_one_engine_and_records_the_transition() {
     assert_eq!(target.stream_calls.load(Ordering::SeqCst), 1);
     assert_eq!(source.generate_calls.load(Ordering::SeqCst), 0);
     assert_eq!(target.generate_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        source.requests()[0]
+            .tools
+            .iter()
+            .map(ToolSpec::name)
+            .collect::<Vec<_>>(),
+        vec!["client_search", "lookup"]
+    );
+    assert_eq!(
+        target.requests()[0]
+            .tools
+            .iter()
+            .map(ToolSpec::name)
+            .collect::<Vec<_>>(),
+        vec!["client_search", "lookup"]
+    );
 }
 
 #[tokio::test]

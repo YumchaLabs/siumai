@@ -756,6 +756,15 @@ cancellation partial output. They are rejected before typed payload decoding and
 automatically. Recreate them from trusted application history instead of synthesizing provider
 provenance or terminal state.
 
+The schema remains version 6, but the durable execution ABI is now
+`siumai-runtime-durable-v6`. Tool loops preserve caller-supplied model-visible tools, append trusted
+local bindings in deterministic name order, and bind snapshots and approvals to the complete
+annotated visible catalog plus exact local execution identities. Snapshots carrying an older
+execution ABI or tool catalog fingerprint are rejected explicitly; restart those beta-era runs
+from trusted application history. Caller-visible tools remain non-executable unless they are
+defined by the host as `ToolBinding`s instead. Provider-hosted tools remain provider-owned, and a
+caller-visible definition that duplicates a local binding name fails before model I/O.
+
 ## Anthropic Message Batches and Skills
 
 `AnthropicMessageBatches::results` now returns `AnthropicBatchResultsStream` instead of a buffered

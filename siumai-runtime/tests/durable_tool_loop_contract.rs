@@ -4,14 +4,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::{Value, json};
 use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, ContentPart, Error, ErrorKind, GenerationConfig, LanguageCallError,
     LanguageCompletionReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
-    OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId,
-    StreamTerminal, StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome, ToolSpec, Usage,
+    OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
+    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec,
+    ToolAnnotationTarget, ToolCall, ToolChoice, ToolOutcome, ToolSpec, TypedProviderAnnotation,
+    Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -40,11 +43,71 @@ struct ScriptedModel {
 
 struct DeferredModel {
     descriptor: ModelDescriptor,
-    item: OpaqueProviderItem,
+    items: Vec<OpaqueProviderItem>,
+}
+
+struct TerminalScriptedModel {
+    descriptor: ModelDescriptor,
+    terminals: Mutex<VecDeque<StreamTerminal>>,
+}
+
+impl TerminalScriptedModel {
+    fn new(terminals: impl IntoIterator<Item = StreamTerminal>) -> Arc<Self> {
+        Arc::new(Self {
+            descriptor: ModelDescriptor::new(
+                ProviderId::new("durable-terminal-test").expect("valid provider"),
+                ModelId::new("durable-terminal-model").expect("valid model"),
+                ModelFamily::Language,
+            ),
+            terminals: Mutex::new(terminals.into_iter().collect()),
+        })
+    }
+}
+
+impl Model for TerminalScriptedModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for TerminalScriptedModel {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        Err(Error::new(
+            ErrorKind::Internal,
+            "durable terminal test model must use streaming",
+        )
+        .into())
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        let terminal = self
+            .terminals
+            .lock()
+            .expect("terminal lock")
+            .pop_front()
+            .ok_or_else(|| Error::new(ErrorKind::Internal, "missing scripted terminal"))?;
+        let cancellation = options.cancellation().clone();
+        Ok(established_stream(cancellation, move |_| {
+            futures::stream::iter([Ok(LanguageStreamEvent::Terminal(terminal))])
+        }))
+    }
 }
 
 impl DeferredModel {
     fn new(item: OpaqueProviderItem) -> Arc<Self> {
+        Self::sequence([item])
+    }
+
+    fn sequence(items: impl IntoIterator<Item = OpaqueProviderItem>) -> Arc<Self> {
         Arc::new(Self {
             descriptor: ModelDescriptor::new(
                 ProviderId::new("deferred-test").expect("valid provider"),
@@ -55,7 +118,7 @@ impl DeferredModel {
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
             )),
-            item,
+            items: items.into_iter().collect(),
         })
     }
 }
@@ -85,18 +148,25 @@ impl LanguageModel for DeferredModel {
         _request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
-        let item = self.item.clone();
-        let cancellation = options.cancellation().clone();
-        Ok(established_stream(cancellation, move |_| {
-            futures::stream::iter([
+        let mut events = self
+            .items
+            .iter()
+            .cloned()
+            .map(|state| {
                 Ok(LanguageStreamEvent::ProviderDeferred {
                     id: "provider-state-1".to_string(),
-                    state: item,
-                }),
-                Ok(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
-                    response: Box::new(final_response()),
-                })),
-            ])
+                    state,
+                })
+            })
+            .collect::<Vec<_>>();
+        events.push(Ok(LanguageStreamEvent::Terminal(
+            StreamTerminal::Completed {
+                response: Box::new(final_response()),
+            },
+        )));
+        let cancellation = options.cancellation().clone();
+        Ok(established_stream(cancellation, move |_| {
+            futures::stream::iter(events)
         }))
     }
 }
@@ -212,6 +282,10 @@ impl RunStore for FailOnceStore {
         if call == self.fail_on_cas {
             return Box::pin(async { Err(RunStoreError::Unavailable) });
         }
+        let snapshot = serde_json::from_value(
+            serde_json::to_value(snapshot).expect("fake external store encodes snapshot"),
+        )
+        .expect("fake external store decodes snapshot");
         self.inner.compare_and_swap(lease, expected, snapshot)
     }
 
@@ -287,6 +361,28 @@ fn tool_spec() -> ToolSpec {
     .expect("valid tool spec")
 }
 
+#[derive(Serialize)]
+#[serde(transparent)]
+struct TestToolAnnotation(Value);
+
+impl TypedProviderAnnotation for TestToolAnnotation {
+    type Target = ToolAnnotationTarget;
+
+    const NAMESPACE: &'static str = "test-provider";
+    const API_MODE: Option<&'static str> = Some("messages");
+}
+
+fn caller_tool_spec(annotation: Value) -> ToolSpec {
+    ToolSpec::new(
+        "web_search",
+        Some("provider-visible search".to_string()),
+        json!({ "type": "object" }),
+    )
+    .expect("valid caller-visible tool")
+    .with_provider_annotation(&TestToolAnnotation(annotation))
+    .expect("valid caller-visible annotation")
+}
+
 fn tool_call() -> ToolCall {
     ToolCall::local("call-1", "write_record", json!({"value": 7})).expect("valid tool call")
 }
@@ -325,6 +421,43 @@ fn final_response() -> LanguageResponse {
         Usage::default(),
     )
     .expect("valid final response")
+}
+
+fn usage(input: u64, output: u64) -> Usage {
+    Usage::default()
+        .with_input_tokens(input)
+        .with_output_tokens(output)
+        .with_total_tokens(input + output)
+}
+
+fn tool_response_with_usage(usage: Usage) -> LanguageResponse {
+    LanguageResponse::completed(
+        vec![ContentPart::ToolCall(tool_call())],
+        LanguageCompletionReason::ToolCalls,
+        usage,
+    )
+    .expect("valid tool response")
+}
+
+fn final_response_with_usage(usage: Usage) -> LanguageResponse {
+    LanguageResponse::completed(
+        vec![ContentPart::Text {
+            text: "done".to_string(),
+        }],
+        LanguageCompletionReason::Stop,
+        usage,
+    )
+    .expect("valid final response")
+}
+
+fn partial_with_usage(usage: Usage) -> PartialLanguageOutput {
+    PartialLanguageOutput::new(
+        vec![PartialLanguageOutputPart::Text {
+            text: "partial".to_string(),
+        }],
+        usage,
+    )
+    .expect("valid partial output")
 }
 
 fn fingerprints() -> (SnapshotFingerprint, SnapshotFingerprint) {
@@ -455,6 +588,11 @@ async fn durable_continuation_preserves_complete_request_state() {
         schema: json!({"type": "object"}),
         strict: true,
     });
+    let caller_tool = caller_tool_spec(json!({
+        "type": "web_search_20250305",
+        "maxUses": 4
+    }));
+    request.tools.push(caller_tool.clone());
 
     let completed = loop_
         .start(
@@ -472,14 +610,139 @@ async fn durable_continuation_preserves_complete_request_state() {
         assert_eq!(observed.generation, request.generation);
         assert_eq!(observed.tool_choice, request.tool_choice);
         assert_eq!(observed.structured_output, request.structured_output);
-        assert_eq!(observed.tools.len(), 1);
-        assert_eq!(observed.tools[0].name(), "write_record");
+        assert_eq!(
+            observed
+                .tools
+                .iter()
+                .map(ToolSpec::name)
+                .collect::<Vec<_>>(),
+            vec!["web_search", "write_record"]
+        );
+        assert_eq!(observed.tools[0], caller_tool);
     }
     let continuation = completed.snapshot().continuation();
     assert_eq!(continuation.generation, request.generation);
     assert_eq!(continuation.tool_choice, request.tool_choice);
     assert_eq!(continuation.structured_output, request.structured_output);
-    assert_eq!(continuation.tools.len(), 1);
+    assert_eq!(
+        continuation
+            .tools
+            .iter()
+            .map(ToolSpec::name)
+            .collect::<Vec<_>>(),
+        vec!["web_search", "write_record"]
+    );
+    assert_eq!(continuation.tools[0], caller_tool);
+}
+
+#[tokio::test]
+async fn caller_visible_annotations_are_canonical_parts_of_durable_catalog_identity() {
+    let store = Arc::new(InMemoryRunStore::new());
+    let model = ScriptedModel::new([final_response(), final_response(), final_response()]);
+    let loop_ = durable_loop(model, ToolSet::default(), store);
+    let annotations = [
+        serde_json::from_str(
+            r#"{"type":"web_search_20250305","config":{"region":"us","maxUses":4}}"#,
+        )
+        .expect("valid annotation"),
+        serde_json::from_str(
+            r#"{"config":{"maxUses":4,"region":"us"},"type":"web_search_20250305"}"#,
+        )
+        .expect("valid reordered annotation"),
+        serde_json::from_str(
+            r#"{"type":"web_search_20250305","config":{"region":"eu","maxUses":4}}"#,
+        )
+        .expect("valid changed annotation"),
+    ];
+    let mut catalog_fingerprints = Vec::new();
+
+    for (index, annotation) in annotations.into_iter().enumerate() {
+        let mut request = request();
+        request.tools.push(caller_tool_spec(annotation));
+        let completed = loop_
+            .start(
+                run_id(&format!("catalog-{index}")),
+                lineage_id(&format!("catalog-{index}")),
+                request,
+                CallOptions::default(),
+            )
+            .await
+            .expect("catalog run completes");
+        catalog_fingerprints.push(completed.snapshot().fingerprints().tool_catalog.clone());
+    }
+
+    assert_eq!(catalog_fingerprints[0], catalog_fingerprints[1]);
+    assert_ne!(catalog_fingerprints[0], catalog_fingerprints[2]);
+}
+
+#[tokio::test]
+async fn old_catalog_identity_and_execution_abi_fail_explicitly() {
+    let original_store = Arc::new(InMemoryRunStore::new());
+    let original_model = ScriptedModel::new([final_response()]);
+    let original_loop = durable_loop(original_model, ToolSet::default(), original_store);
+    let run = run_id("legacy-identity");
+    let completed = original_loop
+        .start(
+            run.clone(),
+            lineage_id("legacy-identity"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("baseline snapshot completes");
+    let baseline = serde_json::to_value(completed.snapshot()).expect("snapshot serializes");
+
+    let mut old_abi_value = baseline.clone();
+    old_abi_value["checkpoint"]["engine_version"] = json!("siumai-runtime-durable-v5");
+    let old_abi = serde_json::from_value(old_abi_value).expect("old ABI snapshot remains valid v6");
+    let old_abi_store = Arc::new(InMemoryRunStore::new());
+    let lease = old_abi_store
+        .acquire(&run, Duration::from_secs(30))
+        .await
+        .expect("lease acquired");
+    old_abi_store
+        .compare_and_swap(&lease, SnapshotRevision::EMPTY, old_abi)
+        .await
+        .expect("old ABI snapshot seeded");
+    old_abi_store.release(lease).await.expect("lease released");
+    let old_abi_model = ScriptedModel::new(Vec::<LanguageResponse>::new());
+    let old_abi_loop = durable_loop(old_abi_model, ToolSet::default(), old_abi_store);
+    assert!(matches!(
+        old_abi_loop
+            .resume(&run, DurableResume::default(), CallOptions::default())
+            .await,
+        Err(DurableRunError::IncompatibleSnapshot {
+            field: "engine_version"
+        })
+    ));
+
+    let mut old_catalog_value = baseline;
+    old_catalog_value["fingerprints"]["tool_catalog"] = json!("sha256:legacy-catalog");
+    let old_catalog = serde_json::from_value(old_catalog_value)
+        .expect("old catalog snapshot remains structurally valid");
+    let old_catalog_store = Arc::new(InMemoryRunStore::new());
+    let lease = old_catalog_store
+        .acquire(&run, Duration::from_secs(30))
+        .await
+        .expect("lease acquired");
+    old_catalog_store
+        .compare_and_swap(&lease, SnapshotRevision::EMPTY, old_catalog)
+        .await
+        .expect("old catalog snapshot seeded");
+    old_catalog_store
+        .release(lease)
+        .await
+        .expect("lease released");
+    let old_catalog_model = ScriptedModel::new(Vec::<LanguageResponse>::new());
+    let old_catalog_loop = durable_loop(old_catalog_model, ToolSet::default(), old_catalog_store);
+    assert!(matches!(
+        old_catalog_loop
+            .resume(&run, DurableResume::default(), CallOptions::default())
+            .await,
+        Err(DurableRunError::IncompatibleSnapshot {
+            field: "fingerprints"
+        })
+    ));
 }
 
 #[tokio::test]
@@ -747,6 +1010,78 @@ async fn crash_matrix_preserves_dispatch_boundaries() {
 }
 
 #[tokio::test]
+async fn serialized_resume_settles_usage_exactly_once_for_all_model_terminals() {
+    for (name, terminal) in [
+        (
+            "completed",
+            StreamTerminal::Completed {
+                response: Box::new(final_response_with_usage(usage(3, 4))),
+            },
+        ),
+        (
+            "failed-partial",
+            StreamTerminal::Failed {
+                error: Error::protocol_violation("scripted failure"),
+                partial: Some(partial_with_usage(usage(3, 4))),
+            },
+        ),
+        (
+            "cancelled-partial",
+            StreamTerminal::Cancelled {
+                reason: "scripted cancellation".to_string(),
+                partial: Some(partial_with_usage(usage(3, 4))),
+            },
+        ),
+    ] {
+        let executions = Arc::new(AtomicUsize::new(0));
+        let binding = not_required_binding(Arc::clone(&executions), None);
+        let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+        let store = FailOnceStore::new(4);
+        let model = TerminalScriptedModel::new([
+            StreamTerminal::Completed {
+                response: Box::new(tool_response_with_usage(usage(2, 3))),
+            },
+            terminal,
+        ]);
+        let loop_ = durable_loop(model, tools, store);
+        let run = run_id(&format!("usage-{name}"));
+
+        loop_
+            .start(
+                run.clone(),
+                lineage_id(&format!("usage-{name}")),
+                request(),
+                CallOptions::default(),
+            )
+            .await
+            .expect_err("injected checkpoint failure separates model calls");
+
+        let resumed = loop_
+            .resume(&run, DurableResume::default(), CallOptions::default())
+            .await
+            .expect("serialized snapshot resumes");
+
+        assert_eq!(
+            resumed.snapshot().usage().input_tokens.value(),
+            Some(5),
+            "{name} input usage"
+        );
+        assert_eq!(
+            resumed.snapshot().usage().output_tokens.value(),
+            Some(7),
+            "{name} output usage"
+        );
+        assert_eq!(
+            resumed.snapshot().usage().total_tokens.value(),
+            Some(12),
+            "{name} total usage"
+        );
+        assert_eq!(resumed.snapshot().budget().known_tokens(), 12, "{name}");
+        assert_eq!(executions.load(Ordering::SeqCst), 1, "{name}");
+    }
+}
+
+#[tokio::test]
 async fn stable_recovery_reuses_key_and_increments_attempt() {
     let executions = Arc::new(AtomicUsize::new(0));
     let attempts = Arc::new(Mutex::new(Vec::new()));
@@ -814,12 +1149,15 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
     let loop_ = durable_loop(model.clone(), tools, store.clone())
         .with_approval_verification(verifier.clone(), consume_store);
     let run = run_id("approval");
+    let caller_tool = caller_tool_spec(json!({ "type": "web_search_20250305" }));
+    let mut initial_request = request();
+    initial_request.tools.push(caller_tool.clone());
 
     let suspended = loop_
         .start(
             run.clone(),
             lineage_id("approval"),
-            request(),
+            initial_request,
             CallOptions::default(),
         )
         .await
@@ -856,7 +1194,7 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
     let replacement_executions = Arc::new(AtomicUsize::new(0));
     let replacement = not_required_binding(Arc::clone(&replacement_executions), None);
     let replacement_tools = ToolSet::from_bindings([replacement]).expect("unique tool");
-    let replacement_loop = durable_loop(model, replacement_tools, store.clone());
+    let replacement_loop = durable_loop(model.clone(), replacement_tools, store.clone());
     let drift = replacement_loop
         .resume(&run, DurableResume::default(), CallOptions::default())
         .await
@@ -880,6 +1218,15 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
     assert!(completed.is_terminal());
     assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert_eq!(replacement_executions.load(Ordering::SeqCst), 0);
+    let requests = model.requests();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        assert_eq!(
+            request.tools.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["web_search", "write_record"]
+        );
+        assert_eq!(request.tools[0], caller_tool);
+    }
 }
 
 #[tokio::test]
@@ -922,6 +1269,52 @@ async fn provider_deferred_without_a_tool_call_is_a_durable_boundary() {
     assert_eq!(suspended.snapshot().provider_state().len(), 1);
     assert!(!suspended.snapshot().provider_state()[0].payload.is_empty());
     assert_eq!(suspended.snapshot().report().provider_deferred().len(), 1);
+}
+
+#[tokio::test]
+async fn provider_deferred_same_namespace_persists_only_the_latest_observation() {
+    let scope = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+    ));
+    let provenance =
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone()).expect("provenance");
+    let queued = OpaqueProviderItem::new(
+        provenance.clone(),
+        "provider.deferred",
+        json!({"status": "queued"}),
+    )
+    .expect("queued state");
+    let in_progress = OpaqueProviderItem::new(
+        provenance,
+        "provider.deferred",
+        json!({"status": "in_progress"}),
+    )
+    .expect("in-progress state");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model: Arc<dyn LanguageModel> = DeferredModel::sequence([queued, in_progress]);
+    let loop_ = durable_loop(model, ToolSet::default(), store);
+
+    let suspended = loop_
+        .start(
+            run_id("provider-deferred-latest"),
+            lineage_id("provider-deferred-latest"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("latest provider-owned state is persisted");
+
+    let states = suspended.snapshot().provider_state();
+    assert_eq!(states.len(), 1);
+    let retained: OpaqueProviderItem =
+        serde_json::from_slice(&states[0].payload).expect("provider state decodes");
+    assert_eq!(retained.data()["status"], "in_progress");
 }
 
 #[tokio::test]

@@ -2,8 +2,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use siumai_core::{ToolCall, ToolOutcome, ToolSpec};
+use siumai_core::{ToolAnnotationTarget, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation};
 use siumai_runtime::tool::{
     ApprovalDecision, ApprovalDecisionError, ApprovalPolicy, ApprovalPolicyFingerprint,
     EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolBinding, ToolBindingConfigError,
@@ -13,6 +14,23 @@ use siumai_runtime::tool::{
 
 fn spec(name: &str, schema: Value) -> ToolSpec {
     ToolSpec::new(name, Some(format!("{name} tool")), schema).expect("valid tool spec")
+}
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct TestToolAnnotation(Value);
+
+impl TypedProviderAnnotation for TestToolAnnotation {
+    type Target = ToolAnnotationTarget;
+
+    const NAMESPACE: &'static str = "test-provider";
+    const API_MODE: Option<&'static str> = Some("messages");
+}
+
+fn annotated_spec(name: &str, annotation: Value) -> ToolSpec {
+    spec(name, json!({ "type": "object" }))
+        .with_provider_annotation(&TestToolAnnotation(annotation))
+        .expect("valid annotated tool spec")
 }
 
 fn successful_binding(name: &str, marker: &'static str) -> ToolBinding {
@@ -156,6 +174,52 @@ fn catalog_fingerprint_is_independent_of_insertion_and_json_object_order() {
         .expect("unique names");
 
     assert_eq!(left.fingerprint(), right.fingerprint());
+}
+
+#[test]
+fn provider_annotations_are_canonical_parts_of_binding_and_catalog_identity() {
+    let left = ToolBinding::from_fn(
+        annotated_spec(
+            "web_search",
+            json!({ "type": "web_search_20250305", "config": { "region": "us", "maxUses": 3 } }),
+        ),
+        "v1",
+        |_| Ok(()),
+        |_| async { Ok(ToolOutcome::Success { value: Value::Null }) },
+    )
+    .expect("valid annotated binding");
+    let reordered = ToolBinding::from_fn(
+        annotated_spec(
+            "web_search",
+            json!({ "config": { "maxUses": 3, "region": "us" }, "type": "web_search_20250305" }),
+        ),
+        "v1",
+        |_| Ok(()),
+        |_| async { Ok(ToolOutcome::Success { value: Value::Null }) },
+    )
+    .expect("valid reordered binding");
+    let changed = ToolBinding::from_fn(
+        annotated_spec(
+            "web_search",
+            json!({ "type": "web_search_20250305", "config": { "region": "eu", "maxUses": 3 } }),
+        ),
+        "v1",
+        |_| Ok(()),
+        |_| async { Ok(ToolOutcome::Success { value: Value::Null }) },
+    )
+    .expect("valid changed binding");
+
+    assert_eq!(
+        left.identity().fingerprint,
+        reordered.identity().fingerprint
+    );
+    assert_ne!(left.identity().fingerprint, changed.identity().fingerprint);
+
+    let left = ToolSet::from_bindings([left]).expect("unique tool");
+    let reordered = ToolSet::from_bindings([reordered]).expect("unique tool");
+    let changed = ToolSet::from_bindings([changed]).expect("unique tool");
+    assert_eq!(left.fingerprint(), reordered.fingerprint());
+    assert_ne!(left.fingerprint(), changed.fingerprint());
 }
 
 #[test]
