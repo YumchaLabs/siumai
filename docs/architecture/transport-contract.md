@@ -91,9 +91,11 @@ forget or reorder.
 `ResourceDownloader` cannot receive an `AuthApplier` or an external `reqwest::Client`.
 It follows redirects manually within a fixed budget, validates each new URL and DNS
 answer, disables proxy/referer/retry behavior, and never copies provider credentials.
-Resources authorized through the RFC 6598 grant additionally keep redirects on the
-exact original scheme, normalized host, and effective port, preventing lateral
-overlay-network pivots or scheme downgrade.
+Resources authorized through any `LocalExplicit` grant keep redirects on the exact
+original scheme, normalized host, and effective port. Same-origin redirects remain
+available, while a loopback, private, link-local, or RFC 6598 response cannot pivot
+to another local service or downgrade its scheme. Public resource redirects remain
+subject to validation on every hop.
 Network and data URLs share the decompressed response-byte limit and the same
 admission controls. Data URLs are decoded in bounded blocking work that observes
 cancellation and deadlines while retaining its permits. Declared media type and
@@ -123,6 +125,19 @@ Default diagnostics include only fixed public messages and allowlisted bounded
 headers. Credential headers use `HeaderValue::set_sensitive(true)`. Raw bodies,
 headers, signed URLs, and underlying errors require explicit sensitive access and
 are captured only within fixed limits.
+
+MCP applies the same ownership rules at its integration boundary. Streamable HTTP
+disables automatic redirects, proxy discovery, client retries, and rmcp session
+reinitialization. JSON responses and error bodies are byte-bounded before decoding;
+SSE and stdio messages are incrementally bounded before protocol materialization.
+Backend errors cross the public API through static operation phases, with their
+original source available only through the explicit sensitive accessor. Progress
+notifications use a bounded broadcast queue; queue lag is observable, but a
+drained long-lived session is never poisoned by a lifetime notification counter.
+The current runtime executor boundary does not pass a cancellation token into an
+MCP call, and rmcp's high-level tool helper does not expose its request handle;
+therefore cancellation after dispatch is recorded as indeterminate rather than
+being treated as proof that replay is safe.
 
 ## Framing Boundary
 

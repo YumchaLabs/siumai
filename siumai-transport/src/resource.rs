@@ -586,10 +586,7 @@ impl ResourceDownloader {
 
 impl ResourceUrl {
     fn validate_redirect_target(&self, redirected: &Url) -> Result<(), ResourceUrlError> {
-        if !matches!(
-            &self.policy,
-            EndpointPolicy::LocalExplicit(LocalNetworkGrant::SharedAddressSpace)
-        ) {
+        if !matches!(&self.policy, EndpointPolicy::LocalExplicit(_)) {
             return Ok(());
         }
         let current = crate::CredentialAudience::from_url(&self.url)
@@ -917,7 +914,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_address_resources_require_exact_same_origin_redirects() {
+    fn local_resources_require_exact_same_origin_redirects() {
         let resource = ResourceUrl::shared_address_space_explicit(
             "https://100.64.0.10:8443/files/item?token=secret",
         )
@@ -940,9 +937,12 @@ mod tests {
         }
 
         let private = ResourceUrl::private_network_explicit("http://10.0.0.1/files/item").unwrap();
-        private
-            .validate_redirect_target(&Url::parse("http://10.0.0.2/files/next").unwrap())
-            .unwrap();
+        assert_eq!(
+            private
+                .validate_redirect_target(&Url::parse("http://10.0.0.2/files/next").unwrap())
+                .unwrap_err(),
+            ResourceUrlError::Endpoint
+        );
     }
 
     #[tokio::test]

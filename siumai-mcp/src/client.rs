@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -10,15 +10,16 @@ use rmcp::model::{
     CallToolRequestParams, CallToolResult, ClientInfo, JsonObject, NumberOrString,
     PaginatedRequestParams, ProgressNotificationParam, ProgressToken, RequestMetaObject, Tool,
 };
-use rmcp::service::{Peer, RoleClient, RunningService, ServiceExt};
-use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::service::{Peer, QuitReason, RoleClient, RunningService, ServiceExt};
 use serde::Serialize;
 use serde_json::Value;
-use siumai_core::ToolOutcome;
+use siumai_core::{Error, ErrorKind, ToolOutcome};
 use siumai_runtime::tool::{EffectCertainty, ToolExecutionError};
 use tokio::sync::{Mutex, broadcast};
 
 use crate::catalog::{McpCatalogFingerprint, McpToolCatalog};
+use crate::error::McpBackendSource;
+use crate::transport::{BoundedChildProcess, http_transport, sensitive_details};
 use crate::{McpClientConfig, McpError, McpHttpEndpointPolicy};
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,33 +34,18 @@ pub struct McpProgress {
 struct SessionState {
     closed: AtomicBool,
     stale: AtomicBool,
-    notification_overflowed: AtomicBool,
     epoch: AtomicU64,
-    notification_count: AtomicUsize,
-    progress_count: AtomicUsize,
     active_catalog: RwLock<Option<McpCatalogFingerprint>>,
     progress_tx: RwLock<Option<broadcast::Sender<McpProgress>>>,
-    max_notifications: AtomicUsize,
 }
 
 impl SessionState {
     fn configure(&self, config: &McpClientConfig) {
-        self.max_notifications
-            .store(config.limits().max_notifications(), Ordering::Release);
         let (sender, _) = broadcast::channel(config.limits().progress_queue_capacity());
         *self
             .progress_tx
             .write()
             .expect("state lock is not poisoned") = Some(sender);
-    }
-
-    fn record_notification(&self) -> bool {
-        let count = self.notification_count.fetch_add(1, Ordering::AcqRel) + 1;
-        if count > self.max_notifications.load(Ordering::Acquire) {
-            self.notification_overflowed.store(true, Ordering::Release);
-            return false;
-        }
-        true
     }
 
     fn mark_catalog_changed(&self) {
@@ -68,14 +54,6 @@ impl SessionState {
     }
 
     fn mark_progress(&self, params: ProgressNotificationParam) {
-        if !self.record_notification() {
-            return;
-        }
-        let count = self.progress_count.fetch_add(1, Ordering::AcqRel) + 1;
-        if count > self.max_notifications.load(Ordering::Acquire) {
-            self.notification_overflowed.store(true, Ordering::Release);
-            return;
-        }
         let progress_token = serde_json::to_value(params.progress_token).unwrap_or(Value::Null);
         let event = McpProgress {
             progress_token,
@@ -127,9 +105,7 @@ struct McpClientHandler {
 
 impl ClientHandler for McpClientHandler {
     async fn on_tool_list_changed(&self, _context: rmcp::service::NotificationContext<RoleClient>) {
-        if self.state.record_notification() {
-            self.state.mark_catalog_changed();
-        }
+        self.state.mark_catalog_changed();
     }
 
     async fn on_progress(
@@ -147,14 +123,14 @@ impl ClientHandler for McpClientHandler {
 
 #[async_trait]
 trait McpBackend: Send + Sync {
-    async fn list_tools_page(&self, cursor: Option<String>) -> Result<McpToolsPage, String>;
+    async fn list_tools_page(&self, cursor: Option<String>) -> Result<McpToolsPage, Error>;
     async fn call_tool(
         &self,
         name: &str,
         arguments: JsonObject,
         call_id: &str,
-    ) -> Result<CallToolResult, String>;
-    async fn close(&self, timeout: Duration) -> Result<bool, String>;
+    ) -> Result<CallToolResult, Error>;
+    async fn close(&self, timeout: Duration) -> Result<bool, Error>;
     fn is_closed(&self) -> bool;
 }
 
@@ -166,15 +142,15 @@ struct RmcpBackend {
 
 #[async_trait]
 impl McpBackend for RmcpBackend {
-    async fn list_tools_page(&self, cursor: Option<String>) -> Result<McpToolsPage, String> {
+    async fn list_tools_page(&self, cursor: Option<String>) -> Result<McpToolsPage, Error> {
         if self.is_closed() {
-            return Err("service is closed".to_string());
+            return Err(Error::new(ErrorKind::Transport, "MCP service is closed"));
         }
         let result = self
             .peer
             .list_tools(Some(PaginatedRequestParams::default().with_cursor(cursor)))
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| backend_error("MCP tool discovery failed", error))?;
         Ok(McpToolsPage {
             tools: result.tools,
             next_cursor: result.next_cursor,
@@ -186,9 +162,9 @@ impl McpBackend for RmcpBackend {
         name: &str,
         arguments: JsonObject,
         call_id: &str,
-    ) -> Result<CallToolResult, String> {
+    ) -> Result<CallToolResult, Error> {
         if self.is_closed() {
-            return Err("service is closed".to_string());
+            return Err(Error::new(ErrorKind::Transport, "MCP service is closed"));
         }
         let token = ProgressToken(NumberOrString::String(call_id.to_string().into()));
         let mut params = CallToolRequestParams::new(name.to_string()).with_arguments(arguments);
@@ -196,24 +172,23 @@ impl McpBackend for RmcpBackend {
         self.peer
             .call_tool(params)
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| backend_error("MCP tool call failed", error))
     }
 
-    async fn close(&self, timeout: Duration) -> Result<bool, String> {
+    async fn close(&self, timeout: Duration) -> Result<bool, Error> {
         let mut guard = self.service.lock().await;
-        let Some(service) = guard.as_mut() else {
+        let Some(mut service) = guard.take() else {
             return Ok(true);
         };
-        let result = service
-            .close_with_timeout(timeout)
-            .await
-            .map_err(|error| error.to_string())?;
-        if result.is_some() {
-            self.state.closed.store(true, Ordering::Release);
-            *guard = None;
-            Ok(true)
-        } else {
-            Ok(false)
+        let result = service.close_with_timeout(timeout).await;
+        self.state.closed.store(true, Ordering::Release);
+        match result {
+            Ok(Some(QuitReason::JoinError(error))) => {
+                Err(backend_error("MCP service close failed", error))
+            }
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(false),
+            Err(error) => Err(backend_error("MCP service close failed", error)),
         }
     }
 
@@ -268,12 +243,13 @@ impl McpClient {
         let handler = McpClientHandler {
             state: state.clone(),
         };
-        let transport = TokioChildProcess::new(command)
-            .map_err(|error| McpError::Connect(error.to_string()))?;
-        let service = handler
-            .serve(transport)
-            .await
-            .map_err(|error| McpError::Connect(error.to_string()))?;
+        let transport = BoundedChildProcess::spawn(command, config.limits().max_message_bytes())
+            .map_err(|error| {
+                McpError::Connect(backend_error("MCP child process spawn failed", error))
+            })?;
+        let service = handler.serve(transport).await.map_err(|error| {
+            McpError::Connect(backend_error("MCP service initialization failed", error))
+        })?;
         let peer = service.peer().clone();
         let backend = Arc::new(RmcpBackend {
             peer,
@@ -291,11 +267,13 @@ impl McpClient {
         let handler = McpClientHandler {
             state: state.clone(),
         };
-        let transport = StreamableHttpClientTransport::from_uri(url);
-        let service = handler
-            .serve(transport)
-            .await
-            .map_err(|error| McpError::Connect(error.to_string()))?;
+        let transport =
+            http_transport(url, config.limits().max_message_bytes()).map_err(|error| {
+                McpError::Connect(backend_error("MCP HTTP client construction failed", error))
+            })?;
+        let service = handler.serve(transport).await.map_err(|error| {
+            McpError::Connect(backend_error("MCP service initialization failed", error))
+        })?;
         let peer = service.peer().clone();
         let backend = Arc::new(RmcpBackend {
             peer,
@@ -496,14 +474,6 @@ impl McpClient {
         if self.inner.backend.is_closed() || self.inner.state.closed.load(Ordering::Acquire) {
             return Err(McpError::Closed);
         }
-        if self
-            .inner
-            .state
-            .notification_overflowed
-            .load(Ordering::Acquire)
-        {
-            return Err(McpError::NotificationLimitExceeded);
-        }
         Ok(())
     }
 
@@ -523,6 +493,14 @@ impl McpClient {
     }
 }
 
+fn backend_error(
+    message: &'static str,
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> Error {
+    let details = sensitive_details(&source);
+    Error::new(ErrorKind::Transport, message).with_source(McpBackendSource::new(source, details))
+}
+
 fn validate_http_endpoint(endpoint: &str, policy: McpHttpEndpointPolicy) -> Result<(), McpError> {
     let parsed = url::Url::parse(endpoint).map_err(|_| McpError::InvalidEndpoint)?;
     if !parsed.username().is_empty() || parsed.password().is_some() {
@@ -536,10 +514,9 @@ fn validate_http_endpoint(endpoint: &str, policy: McpHttpEndpointPolicy) -> Resu
                     .strip_prefix('[')
                     .and_then(|value| value.strip_suffix(']'))
                     .unwrap_or(host);
-                host.eq_ignore_ascii_case("localhost")
-                    || literal
-                        .parse::<std::net::IpAddr>()
-                        .is_ok_and(|address| address.is_loopback())
+                literal
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|address| address.is_loopback())
             });
             if loopback {
                 Ok(())
@@ -563,8 +540,8 @@ mod tests {
     use super::*;
 
     struct MockBackend {
-        pages: StdMutex<VecDeque<Result<McpToolsPage, String>>>,
-        results: StdMutex<VecDeque<Result<CallToolResult, String>>>,
+        pages: StdMutex<VecDeque<Result<McpToolsPage, Error>>>,
+        results: StdMutex<VecDeque<Result<CallToolResult, Error>>>,
         calls: StdMutex<Vec<String>>,
         closed: AtomicBool,
     }
@@ -585,11 +562,18 @@ mod tests {
                 .expect("test lock is not poisoned")
                 .push_back(Ok(result));
         }
+
+        fn push_error(&self, error: Error) {
+            self.results
+                .lock()
+                .expect("test lock is not poisoned")
+                .push_back(Err(error));
+        }
     }
 
     #[async_trait]
     impl McpBackend for MockBackend {
-        async fn list_tools_page(&self, _cursor: Option<String>) -> Result<McpToolsPage, String> {
+        async fn list_tools_page(&self, _cursor: Option<String>) -> Result<McpToolsPage, Error> {
             self.pages
                 .lock()
                 .expect("test lock is not poisoned")
@@ -607,7 +591,7 @@ mod tests {
             name: &str,
             _arguments: JsonObject,
             _call_id: &str,
-        ) -> Result<CallToolResult, String> {
+        ) -> Result<CallToolResult, Error> {
             self.calls
                 .lock()
                 .expect("test lock is not poisoned")
@@ -619,7 +603,7 @@ mod tests {
                 .unwrap_or_else(|| Ok(CallToolResult::success(Vec::new())))
         }
 
-        async fn close(&self, _timeout: Duration) -> Result<bool, String> {
+        async fn close(&self, _timeout: Duration) -> Result<bool, Error> {
             self.closed.store(true, Ordering::Release);
             Ok(true)
         }
@@ -711,6 +695,131 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancelled_completion_is_indeterminate_and_not_replayed() {
+        let backend = Arc::new(MockBackend::new([page(vec![tool("mutate")], None)]));
+        backend.push_error(Error::new(
+            ErrorKind::Cancelled,
+            "test MCP call was cancelled after submission",
+        ));
+        let client = client(McpClientConfig::default(), backend.clone());
+        let catalog = client.discover_tools().await.unwrap();
+
+        let error = client
+            .execute_bound_tool("mutate", &json!({}), catalog.fingerprint(), "call-1")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.effect_certainty(), EffectCertainty::Indeterminate);
+        let calls = backend.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0], "mutate");
+    }
+
+    #[tokio::test]
+    async fn drained_progress_stream_outlives_the_removed_notification_cap() {
+        let config = McpClientConfig::default().with_limits(
+            crate::McpLimits::default()
+                .with_progress_queue_capacity(1)
+                .unwrap(),
+        );
+        let state = SessionState::default();
+        state.configure(&config);
+        let mut receiver = state
+            .progress_tx
+            .read()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .subscribe();
+
+        for index in 0..5_000 {
+            state.mark_progress(ProgressNotificationParam::new(
+                ProgressToken(NumberOrString::Number(index)),
+                index as f64,
+            ));
+            assert_eq!(receiver.recv().await.unwrap().progress, index as f64);
+        }
+    }
+
+    #[tokio::test]
+    async fn progress_queue_lag_remains_observable() {
+        let config = McpClientConfig::default().with_limits(
+            crate::McpLimits::default()
+                .with_progress_queue_capacity(1)
+                .unwrap(),
+        );
+        let state = SessionState::default();
+        state.configure(&config);
+        let mut receiver = state
+            .progress_tx
+            .read()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .subscribe();
+        for index in 0..2 {
+            state.mark_progress(ProgressNotificationParam::new(
+                ProgressToken(NumberOrString::Number(index)),
+                index as f64,
+            ));
+        }
+
+        assert!(matches!(
+            receiver.recv().await,
+            Err(broadcast::error::RecvError::Lagged(1))
+        ));
+    }
+
+    #[test]
+    fn backend_errors_are_redacted_until_explicitly_inspected() {
+        #[derive(Debug, thiserror::Error)]
+        #[error(
+            "endpoint-query-canary body-canary auth-challenge-canary authorization-credential-canary"
+        )]
+        struct SensitiveBackend;
+
+        let errors = [
+            McpError::Connect(backend_error(
+                "MCP service initialization failed",
+                SensitiveBackend,
+            )),
+            McpError::ListTools(backend_error("MCP tool discovery failed", SensitiveBackend)),
+            McpError::Close(backend_error("MCP service close failed", SensitiveBackend)),
+        ];
+
+        for error in errors {
+            let debug = format!("{error:?}");
+            let display = error.to_string();
+            let default_chain = std::iter::successors(
+                Some(&error as &(dyn std::error::Error + 'static)),
+                |error| error.source(),
+            )
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+            for canary in [
+                "endpoint-query-canary",
+                "body-canary",
+                "auth-challenge-canary",
+                "authorization-credential-canary",
+            ] {
+                assert!(!debug.contains(canary));
+                assert!(!display.contains(canary));
+                assert!(!default_chain.contains(canary));
+                assert!(
+                    error
+                        .sensitive_source()
+                        .unwrap()
+                        .expose()
+                        .to_string()
+                        .contains(canary)
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn repeated_pagination_cursor_is_rejected() {
         let backend = Arc::new(MockBackend::new([
             page(vec![tool("one")], Some("same")),
@@ -760,10 +869,27 @@ mod tests {
         );
         assert!(
             validate_http_endpoint(
+                "http://localhost:3000/mcp",
+                McpHttpEndpointPolicy::AllowHttpLoopback,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_http_endpoint(
                 "https://user:secret@example.com/mcp",
                 McpHttpEndpointPolicy::HttpsOnly,
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn raw_message_limit_must_be_non_zero() {
+        assert!(matches!(
+            crate::McpLimits::default().with_max_message_bytes(0),
+            Err(McpError::InvalidLimit {
+                name: "max_message_bytes"
+            })
+        ));
     }
 }

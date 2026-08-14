@@ -11,9 +11,9 @@ use crate::McpError;
 pub struct McpLimits {
     max_pages: NonZeroUsize,
     max_tools: NonZeroUsize,
+    max_message_bytes: NonZeroUsize,
     max_schema_bytes: NonZeroUsize,
     max_result_bytes: NonZeroUsize,
-    max_notifications: NonZeroUsize,
     progress_queue_capacity: NonZeroUsize,
     close_timeout: Duration,
 }
@@ -23,9 +23,9 @@ impl Default for McpLimits {
         Self {
             max_pages: NonZeroUsize::new(32).expect("constant is non-zero"),
             max_tools: NonZeroUsize::new(256).expect("constant is non-zero"),
+            max_message_bytes: NonZeroUsize::new(8 * 1024 * 1024).expect("constant is non-zero"),
             max_schema_bytes: NonZeroUsize::new(256 * 1024).expect("constant is non-zero"),
             max_result_bytes: NonZeroUsize::new(2 * 1024 * 1024).expect("constant is non-zero"),
-            max_notifications: NonZeroUsize::new(4096).expect("constant is non-zero"),
             progress_queue_capacity: NonZeroUsize::new(128).expect("constant is non-zero"),
             close_timeout: Duration::from_secs(5),
         }
@@ -43,6 +43,12 @@ impl McpLimits {
         Ok(self)
     }
 
+    /// Set the maximum raw size of one JSON-RPC message, HTTP body, or SSE event.
+    pub fn with_max_message_bytes(mut self, value: usize) -> Result<Self, McpError> {
+        self.max_message_bytes = non_zero("max_message_bytes", value)?;
+        Ok(self)
+    }
+
     pub fn with_max_schema_bytes(mut self, value: usize) -> Result<Self, McpError> {
         self.max_schema_bytes = non_zero("max_schema_bytes", value)?;
         Ok(self)
@@ -50,11 +56,6 @@ impl McpLimits {
 
     pub fn with_max_result_bytes(mut self, value: usize) -> Result<Self, McpError> {
         self.max_result_bytes = non_zero("max_result_bytes", value)?;
-        Ok(self)
-    }
-
-    pub fn with_max_notifications(mut self, value: usize) -> Result<Self, McpError> {
-        self.max_notifications = non_zero("max_notifications", value)?;
         Ok(self)
     }
 
@@ -81,16 +82,16 @@ impl McpLimits {
         self.max_tools.get()
     }
 
+    pub(crate) fn max_message_bytes(&self) -> usize {
+        self.max_message_bytes.get()
+    }
+
     pub(crate) fn max_schema_bytes(&self) -> usize {
         self.max_schema_bytes.get()
     }
 
     pub(crate) fn max_result_bytes(&self) -> usize {
         self.max_result_bytes.get()
-    }
-
-    pub(crate) fn max_notifications(&self) -> usize {
-        self.max_notifications.get()
     }
 
     pub(crate) fn progress_queue_capacity(&self) -> usize {

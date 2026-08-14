@@ -11,6 +11,7 @@ mod catalog;
 mod client;
 mod config;
 mod error;
+mod transport;
 
 pub use catalog::{McpCatalogFingerprint, McpToolCatalog, McpToolDefinition};
 pub use client::{McpClient, McpProgress};
