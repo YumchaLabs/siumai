@@ -104,7 +104,14 @@ async fn future_raw_provider_values_reach_the_request_body() {
             }],
             "stream": false,
             "service_tier": "priority_v2",
-            "output_config": {"effort": "ultra"}
+            "output_config": {"effort": "ultra"},
+            "future_remote_mcp": {
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            },
+            "request_endpoint": "provider-body-value",
+            "x-token-count-mode": "provider-defined"
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "future-model",
@@ -116,15 +123,33 @@ async fn future_raw_provider_values_reach_the_request_body() {
         .await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
     let model = provider.language("future-model").expect("model");
+    let typed = AnthropicMessagesOptions::new()
+        .try_with_extra(
+            "future_remote_mcp",
+            json!({
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            }),
+        )
+        .expect("nested provider body data")
+        .try_with_extra("request_endpoint", json!("provider-body-value"))
+        .expect("exact non-authority field");
     let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &typed)
+        .expect("typed provider options")
         .with_raw_provider_options_for(
             &model,
             json!({
                 "service_tier": "priority_v2",
-                "output_config": {"effort": "ultra"}
+                "output_config": {"effort": "ultra"},
+                "x-token-count-mode": "provider-defined"
             }),
         )
         .expect("bounded raw options");
+    let debug = format!("{call_options:?}");
+    assert!(!debug.contains("provider-body-canary"));
+    assert!(!debug.contains("nested-token-canary"));
 
     model
         .generate(request("future values", 64), call_options)
@@ -1216,16 +1241,26 @@ async fn protected_raw_options_fail_before_network() {
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
     let model = provider.language("future-model").expect("model");
     for field in [
-        "credential_token",
-        "apiKey",
-        "base-url",
-        "method",
-        "target",
+        "Mo-De_L",
+        "Mes-Sa_Ges",
+        "To-Ol_S",
+        "End-Point",
+        "Authorization",
+        "authorization-token",
+        "API-Key",
+        "Base-Url",
+        "Head-Er_S",
+        "Me-Th_Od",
+        "Tar-Get",
         "Retry-Policy",
-        "connectTimeout",
+        "Connect-Time_Out",
+        "Read-Time_Out",
+        "Call-Time_Out",
     ] {
+        let mut raw = serde_json::Map::new();
+        raw.insert(field.to_string(), json!("canary-secret"));
         let call_options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({field: "canary-secret"}))
+            .with_raw_provider_options_for(&model, serde_json::Value::Object(raw))
             .expect("checked raw layer");
         let error = model
             .generate(request("hello", 64), call_options)

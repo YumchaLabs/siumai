@@ -873,8 +873,8 @@ mod tests {
         OpenAiContextManagement, OpenAiCredential, OpenAiFunctionToolOptions,
         OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
         OpenAiPromptCacheTtl, OpenAiProvider, OpenAiReasoning, OpenAiReasoningEffort,
-        OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
-        OpenAiToolNamespace,
+        OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiServiceTier,
+        OpenAiTextVerbosity, OpenAiToolNamespace,
     };
 
     fn provider() -> OpenAiProvider {
@@ -1119,7 +1119,14 @@ mod tests {
     fn checked_raw_options_forward_future_values_but_not_canonical_fields() {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let typed = OpenAiResponsesOptions {
+            service_tier: Some(OpenAiServiceTier::Flex),
+            ..OpenAiResponsesOptions::default()
+                .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes())
+        };
         let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap()
             .with_raw_provider_options_for(
                 &model,
                 json!({
@@ -1132,14 +1139,23 @@ mod tests {
                     "metadata": {
                         "label": "future",
                         "priority": 2,
-                        "enabled": true
+                        "enabled": true,
+                        "future_nested": {"mode": "provider-defined"}
                     },
-                    "prompt_cache_key": "",
-                    "safety_identifier": "future-user",
+                    "prompt_cache_key": "x".repeat(65),
+                    "prompt_cache_options": {
+                        "mode": "future-adaptive",
+                        "retention": {"policy": "future"}
+                    },
+                    "prompt_cache_retention": "future-retention",
+                    "safety_identifier": "future\nuser",
                     "user": ""
                 }),
             )
             .unwrap();
+        let debug = format!("{call_options:?}");
+        assert!(!debug.contains("future-adaptive"));
+        assert!(!debug.contains("future-retention"));
         let merged = model
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
@@ -1159,63 +1175,43 @@ mod tests {
         assert_eq!(body["metadata"]["label"], "future");
         assert_eq!(body["metadata"]["priority"], 2);
         assert_eq!(body["metadata"]["enabled"], true);
-        assert_eq!(body["prompt_cache_key"], "");
-        assert_eq!(body["safety_identifier"], "future-user");
+        assert_eq!(
+            body["metadata"]["future_nested"]["mode"],
+            "provider-defined"
+        );
+        assert_eq!(body["prompt_cache_key"], "x".repeat(65));
+        assert_eq!(body["prompt_cache_options"]["mode"], "future-adaptive");
+        assert_eq!(
+            body["prompt_cache_options"]["retention"]["policy"],
+            "future"
+        );
+        assert!(body["prompt_cache_options"].get("ttl").is_none());
+        assert_eq!(body["prompt_cache_retention"], "future-retention");
+        assert_eq!(body["safety_identifier"], "future\nuser");
         assert_eq!(body["user"], "");
 
-        for (field, value) in [
-            ("prompt_cache_key", json!("x".repeat(65))),
-            ("safety_identifier", json!("unsafe\nidentifier")),
-            (
-                "metadata",
-                Value::Object(
-                    (0..17)
-                        .map(|index| (format!("key-{index}"), json!("value")))
-                        .collect(),
-                ),
-            ),
-        ] {
-            let mut raw = serde_json::Map::new();
-            raw.insert(field.to_string(), value);
-            let options = CallOptions::default()
-                .with_raw_provider_options_for(&model, Value::Object(raw))
-                .unwrap();
-            let result =
-                model
-                    .runtime
-                    .merge_options_for(&model, OpenAiApiMode::Responses, &options);
-            assert!(
-                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
-                "unbounded raw field {field} reached the request body"
-            );
-        }
-
         for field in [
-            "model",
-            "Model",
-            "MODEL",
-            "input",
-            "text",
-            "tools",
-            "stream",
-            "stream_options",
-            "streamOptions",
-            "background",
-            "prompt_cache_options",
-            "method",
-            "target",
-            "endpoint",
-            "base-url",
-            "authorization",
-            "apiKey",
-            "headers",
-            "retry",
-            "retry_policy",
+            "Mo-De_L",
+            "In-Pu_T",
+            "Te-Xt",
+            "To-Ol_S",
+            "Str-Ea_M",
+            "Stream-Opt_Ions",
+            "Back-Gro_Und",
+            "Prompt-Cache_Breakpoints",
+            "Me-Th_Od",
+            "Tar-Get",
+            "End-Point",
+            "Base-Url",
+            "Authorization",
+            "authorization-token",
+            "API-Key",
+            "Head-Er_S",
             "Retry-Policy",
-            "timeout",
-            "connectTimeout",
-            "read_timeout",
-            "call-timeout",
+            "Time-Out",
+            "Connect-Time_Out",
+            "Read-Time_Out",
+            "Call-Time_Out",
         ] {
             let mut raw = serde_json::Map::new();
             raw.insert(field.to_string(), json!(true));
@@ -1232,14 +1228,33 @@ mod tests {
             );
         }
 
+        let chat = provider.chat_completions("future-chat-model").unwrap();
+        for field in ["Mo-De_L", "Mes-Sa_Ges", "To-Ol_S", "Me-Th_Od", "API-Key"] {
+            let mut raw = serde_json::Map::new();
+            raw.insert(field.to_string(), json!(true));
+            let options = CallOptions::default()
+                .with_raw_provider_options_for(&chat, Value::Object(raw))
+                .unwrap();
+            let result =
+                chat.runtime
+                    .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &options);
+            assert!(
+                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
+                "protected Chat raw field {field} reached the request body"
+            );
+        }
+
         let nested_body_data = CallOptions::default()
             .with_raw_provider_options_for(
                 &model,
                 json!({
                     "future_remote_tool": {
                         "url": "https://provider.example/tool",
-                        "headers": {"Authorization": "provider-body-value"}
-                    }
+                        "headers": {"Authorization": "provider-body-value"},
+                        "authorization_token": "nested-token-value"
+                    },
+                    "request_endpoint": "provider-body-value",
+                    "x-token-count-mode": "provider-defined"
                 }),
             )
             .unwrap();
@@ -1251,18 +1266,63 @@ mod tests {
             merged.wire["future_remote_tool"]["headers"]["Authorization"],
             "provider-body-value"
         );
+        assert_eq!(
+            merged.wire["future_remote_tool"]["authorization_token"],
+            "nested-token-value"
+        );
+        assert_eq!(merged.wire["request_endpoint"], "provider-body-value");
+        assert_eq!(merged.wire["x-token-count-mode"], "provider-defined");
 
         let options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({"service_tier": {"future": true}}))
+            .with_raw_provider_options_for(
+                &model,
+                json!({
+                    "future_remote_tool": {
+                        "headers": {"Authorization": "accepted-nested-canary"}
+                    },
+                    "service_tier": {"future": true}
+                }),
+            )
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("invalid raw service tier reached the request body"),
+        };
+        assert!(
+            matches!(&error, ProviderOptionError::Rejected { path, .. } if path == "service_tier")
+        );
+        assert!(!format!("{error:?} {error}").contains("accepted-nested-canary"));
+
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"prompt_cache_options": "invalid"}))
             .unwrap();
         let result = model
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &options);
         assert!(
-            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "service_tier")
+            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "prompt_cache_options")
         );
 
-        let chat = provider.chat_completions("future-chat-model").unwrap();
+        let typed_chat = OpenAiChatCompletionsOptions {
+            logprobs: Some(true),
+            top_logprobs: Some(1),
+            ..OpenAiChatCompletionsOptions::default()
+        };
+        let options = CallOptions::default()
+            .with_provider_options_for(&chat, &typed_chat)
+            .unwrap()
+            .with_raw_provider_options_for(&chat, json!({"top_logprobs": 5}))
+            .unwrap();
+        let merged = chat
+            .runtime
+            .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &options)
+            .unwrap();
+        assert_eq!(merged.wire["logprobs"], true);
+        assert_eq!(merged.wire["top_logprobs"], 5);
+
         let options = CallOptions::default()
             .with_raw_provider_options_for(&chat, json!({"top_logprobs": 5}))
             .unwrap();

@@ -87,9 +87,24 @@ values cannot cross two configurations that share public labels.
 
 Raw options are a bounded provider-body escape hatch, not a transport escape hatch. Core validates
 their target envelope and resource budget. The owning provider or codec rejects canonical request
-fields, protected fields, invalid shapes, and stable relationship violations before overlaying the
-remaining value. Unknown fields and future string enum values remain representable. A codec without
-an explicit reviewed raw-body policy rejects raw options.
+fields, exact transport or credential-authority fields, invalid stable shapes, and stable
+relationship violations before overlaying the remaining value. Protected names match exactly after
+ASCII case and separator normalization; substring, prefix, suffix, and recursive name heuristics are
+not authority checks. Unknown fields, nested provider objects, and future string enum values remain
+representable. A codec without an explicit reviewed raw-body policy rejects raw options.
+
+Raw-body authority follows these path rules:
+
+| Location | Owner | Required behavior |
+| --- | --- | --- |
+| Top-level canonical request field such as `model`, `input`, `messages`, or `tools` | Protocol codec | Reject the exact normalized name before encoding. |
+| Top-level endpoint, method, authentication, header, retry, timeout, or credential-owned field | Provider and transport | Reject the exact normalized name; raw body data cannot modify `RequestPlan` or `CredentialPatch`. |
+| Nested provider object field such as remote-MCP `url`, `headers`, or `authorization_token` | Provider body schema | Preserve it within the bounded body. The transport never interprets it as HTTP authority. |
+| Typed/raw conflict on an allowed provider field | Owning provider | Apply the checked raw value last as whole-field replacement; do not recursively merge typed and raw objects. |
+
+For OpenAI language requests, the local synthetic `prompt_cache_breakpoints` field remains
+protected because annotations project cache intent into canonical content nodes. Provider-owned
+prompt-cache objects and future enum strings remain available through checked raw options.
 
 Byte limits are stated at the boundary where they can be enforced. A bounded byte constructor may
 reject before JSON materialization. A `serde_json::Value` convenience constructor can only perform

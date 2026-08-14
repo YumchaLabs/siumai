@@ -411,6 +411,11 @@ pub enum OpenAiTruncation {
 /// generation fields remain owned by the canonical language request and cannot
 /// be overridden here. `tools` is the explicit provider-specific lane for OpenAI
 /// Responses tools that have no portable `ToolSpec` representation.
+///
+/// Checked raw options are a separate bounded body escape hatch. After typed
+/// options are validated and encoded, raw fields replace conflicting top-level
+/// provider fields as a whole. Canonical request and transport-authority names
+/// remain protected; nested raw values are not recursively merged.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiResponsesOptions {
@@ -559,6 +564,10 @@ impl TypedProviderOptions for OpenAiResponsesOptions {
 }
 
 /// Typed OpenAI Chat Completions options.
+///
+/// Checked raw options are applied after typed encoding with whole-field,
+/// raw-last replacement. They cannot override canonical request or transport
+/// authority, but may carry bounded future provider fields and enum strings.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OpenAiChatCompletionsOptions {

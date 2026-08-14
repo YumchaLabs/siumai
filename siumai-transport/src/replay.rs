@@ -13,7 +13,7 @@ pub struct IdempotencyHeader(HeaderName);
 
 impl IdempotencyHeader {
     pub fn new(name: HeaderName) -> Result<Self, RequestBuildError> {
-        if is_transport_controlled(&name) || is_authentication_header(&name) {
+        if is_transport_controlled(&name) || is_common_credential_header(&name) {
             return Err(RequestBuildError::InvalidIdempotencyHeader);
         }
         Ok(Self(name))
@@ -141,14 +141,22 @@ pub(crate) fn is_transport_controlled(name: &HeaderName) -> bool {
     )
 }
 
-pub(crate) fn is_authentication_header(name: &HeaderName) -> bool {
+/// Whether a header is part of the small provider-independent credential set.
+///
+/// `HeaderName` already provides ASCII case-insensitive HTTP name semantics.
+/// Provider-specific credential names stay out of this list: the selected
+/// credential applier declares them exactly through its [`crate::CredentialPatch`].
+pub(crate) fn is_common_credential_header(name: &HeaderName) -> bool {
     matches!(
         name.as_str(),
-        "authorization" | "cookie" | "proxy-authenticate" | "set-cookie" | "www-authenticate"
-    ) || name.as_str().contains("api-key")
-        || name.as_str().contains("api_key")
-        || name.as_str().contains("token")
-        || name.as_str().contains("secret")
+        "api-key"
+            | "authorization"
+            | "cookie"
+            | "proxy-authenticate"
+            | "set-cookie"
+            | "www-authenticate"
+            | "x-api-key"
+    )
 }
 
 #[cfg(test)]
@@ -159,6 +167,30 @@ mod tests {
     fn authentication_header_cannot_be_an_idempotency_header() {
         let error = IdempotencyHeader::new(http::header::AUTHORIZATION).unwrap_err();
         assert_eq!(error, RequestBuildError::InvalidIdempotencyHeader);
+    }
+
+    #[test]
+    fn credential_header_matching_is_exact_and_case_insensitive() {
+        for name in ["Authorization", "API-Key", "X-API-Key"] {
+            let name = HeaderName::from_bytes(name.as_bytes()).unwrap();
+            assert!(
+                is_common_credential_header(&name),
+                "{name} must be protected"
+            );
+        }
+
+        for name in [
+            "x-token-count-mode",
+            "x-secret-sampling-mode",
+            "x-api-key-count",
+            "api_key",
+        ] {
+            let name = HeaderName::from_bytes(name.as_bytes()).unwrap();
+            assert!(
+                !is_common_credential_header(&name),
+                "{name} must not be classified by a fuzzy credential heuristic"
+            );
+        }
     }
 
     #[test]

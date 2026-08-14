@@ -75,9 +75,9 @@ impl AnthropicThinking {
 
 /// Typed call options for Anthropic's Messages API.
 ///
-/// Unknown, non-protected request fields can be carried in `extra`. The configured
-/// engine validates every erased layer again before encoding, so checked raw and
-/// typed values share the same protected-field policy.
+/// Unknown request fields can be carried in `extra`. Exact top-level canonical
+/// request and transport-authority names remain protected; nested provider-body
+/// data is bounded by the protocol codec and does not gain HTTP authority.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "snake_case")]
 pub struct AnthropicMessagesOptions {
@@ -273,10 +273,13 @@ impl AnthropicMessagesOptions {
         value: Value,
     ) -> Result<Self, ProviderOptionError> {
         let name = name.into();
-        if name.is_empty() || is_protected_option_field(&name) || is_security_sensitive(&name) {
+        if name.trim().is_empty()
+            || name.chars().any(char::is_control)
+            || is_protected_option_field(&name)
+        {
             return Err(ProviderOptionError::Rejected {
                 path: name,
-                reason: "field is owned by the provider, protocol codec, or transport".to_string(),
+                reason: "field is owned by the canonical request or transport".to_string(),
             });
         }
         self.extra.insert(name, value);
@@ -536,15 +539,6 @@ impl TypedProviderOptions for AnthropicMessagesOptions {
                 reason: "must be at least 1024".to_string(),
             });
         }
-        for name in self.extra.keys() {
-            if name.is_empty() || is_protected_option_field(name) || is_security_sensitive(name) {
-                return Err(ProviderOptionError::Rejected {
-                    path: format!("extra.{name}"),
-                    reason: "field is owned by the provider, protocol codec, or transport"
-                        .to_string(),
-                });
-            }
-        }
         let mut request =
             LanguageRequest::new(vec![Message::text(MessageRole::User, "option validation")]);
         request.generation.max_output_tokens = Some(u64::MAX);
@@ -556,49 +550,4 @@ impl TypedProviderOptions for AnthropicMessagesOptions {
             })?;
         Ok(())
     }
-}
-
-fn is_security_sensitive(name: &str) -> bool {
-    let compact = name
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-    matches!(
-        compact.as_str(),
-        "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "credential"
-            | "credentials"
-            | "endpoint"
-            | "baseurl"
-            | "url"
-            | "host"
-            | "header"
-            | "headers"
-            | "anthropicversion"
-            | "anthropicbeta"
-            | "proxy"
-            | "tls"
-            | "audience"
-            | "method"
-            | "target"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
-    ) || compact.ends_with("apikey")
-        || compact.ends_with("token")
-        || compact.ends_with("credential")
-        || compact.ends_with("credentials")
-        || compact.ends_with("authorization")
-        || compact.ends_with("endpoint")
-        || compact.ends_with("baseurl")
-        || compact.ends_with("headers")
 }

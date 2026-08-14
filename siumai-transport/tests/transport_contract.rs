@@ -11,9 +11,10 @@ use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, EndpointConfig,
     EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
-    ProviderTransport, ReplaySafety, RequestBody, RequestPlan, RequestTarget, Resolver,
-    ResourceDownloadOptions, ResourceDownloader, ResourceUrl, RetryClassifier, RetryPolicy,
-    RetryReason, TransportEvent, TransportLimits, TransportObserver, WebSocketEndpoint,
+    ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
+    RequestTarget, Resolver, ResourceDownloadOptions, ResourceDownloader, ResourceUrl,
+    RetryClassifier, RetryPolicy, RetryReason, TransportEvent, TransportLimits, TransportObserver,
+    WebSocketEndpoint,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -225,6 +226,160 @@ fn json_post(replay: ReplaySafety) -> RequestPlan {
         .with_body(RequestBody::json(&serde_json::json!({ "input": "hello" })).unwrap())
         .with_replay_safety(replay)
         .unwrap()
+}
+
+#[test]
+fn common_credential_and_transport_headers_are_protected_exactly() {
+    for name in ["Authorization", "API-Key", "X-API-Key", "Host"] {
+        let error = RequestHeaders::new()
+            .try_insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_static("caller-value"),
+            )
+            .unwrap_err();
+        assert_eq!(error, RequestBuildError::ProtectedHeader, "header: {name}");
+    }
+
+    for name in [
+        "x-token-count-mode",
+        "x-secret-sampling-mode",
+        "x-api-key-count",
+        "api_key",
+    ] {
+        RequestHeaders::new()
+            .try_insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_static("ordinary-provider-value"),
+            )
+            .unwrap_or_else(|error| panic!("ordinary header {name} was rejected: {error}"));
+    }
+}
+
+#[derive(Default)]
+struct ExactCredentialHeaderAuth;
+
+#[async_trait]
+impl AuthApplier for ExactCredentialHeaderAuth {
+    async fn apply(
+        &self,
+        _context: AuthContext<'_>,
+        _refresh: AuthRefresh,
+    ) -> Result<CredentialPatch, Error> {
+        CredentialPatch::new()
+            .try_insert(
+                AUTHORIZATION,
+                HeaderValue::from_static("Bearer transport-owned"),
+            )
+            .and_then(|patch| {
+                patch.try_insert(
+                    HeaderName::from_static("x-provider-credential"),
+                    HeaderValue::from_static("transport-owned"),
+                )
+            })
+            .map_err(|_| Error::new(ErrorKind::Authentication, "credential construction failed"))
+    }
+}
+
+#[tokio::test]
+async fn selected_credential_header_collision_fails_before_submission() {
+    let server = TestServer::spawn(vec![ServerAction::Respond {
+        status: 200,
+        headers: Vec::new(),
+        body: Vec::new(),
+    }])
+    .await;
+    let plan = RequestPlan::new(Method::POST, RequestTarget::new("responses").unwrap())
+        .with_headers(
+            RequestHeaders::new()
+                .try_insert(
+                    HeaderName::from_static("x-provider-credential"),
+                    HeaderValue::from_static("caller-canary-credential"),
+                )
+                .unwrap(),
+        );
+    let error = ProviderTransport::builder(server.endpoint())
+        .with_auth(Arc::new(ExactCredentialHeaderAuth))
+        .build()
+        .unwrap()
+        .execute(plan, CallOptions::default())
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(server.requests().is_empty());
+    for surface in [format!("{error:?}"), error.to_string()] {
+        assert!(!surface.contains("caller-canary-credential"));
+        assert!(!surface.contains("transport-owned"));
+    }
+}
+
+#[tokio::test]
+async fn provider_body_authority_names_are_inert_transport_data() {
+    let server = TestServer::spawn(vec![
+        ServerAction::DropAfterRead,
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"ok".to_vec(),
+        },
+    ])
+    .await;
+    let body = serde_json::json!({
+        "endpoint": "http://attacker.invalid/admin",
+        "method": "DELETE",
+        "retry": 0,
+        "timeout": 0,
+        "authorization": "Bearer body-owned",
+        "api_key": "body-owned",
+        "headers": {
+            "Authorization": "Bearer nested-body-owned",
+            "X-Provider-Credential": "nested-body-owned"
+        }
+    });
+    let plan = RequestPlan::new(Method::POST, RequestTarget::new("authority-check").unwrap())
+        .with_headers(
+            RequestHeaders::new()
+                .try_insert(
+                    HeaderName::from_static("x-token-count-mode"),
+                    HeaderValue::from_static("enabled"),
+                )
+                .unwrap(),
+        )
+        .with_body(RequestBody::json(&body).unwrap())
+        .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+        .unwrap();
+    let response = ProviderTransport::builder(server.endpoint())
+        .with_auth(Arc::new(ExactCredentialHeaderAuth))
+        .with_retry_policy(retry_policy(2))
+        .build()
+        .unwrap()
+        .execute(plan, CallOptions::default())
+        .await
+        .unwrap();
+
+    assert_eq!(response.attempts(), 2);
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        assert!(
+            request
+                .head
+                .starts_with("POST /v1/authority-check HTTP/1.1")
+        );
+        assert_eq!(
+            request.header("authorization"),
+            Some("Bearer transport-owned")
+        );
+        assert_eq!(
+            request.header("x-provider-credential"),
+            Some("transport-owned")
+        );
+        assert_eq!(request.header("x-token-count-mode"), Some("enabled"));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap(),
+            body
+        );
+    }
 }
 
 #[tokio::test]
@@ -833,6 +988,39 @@ async fn resource_redirects_are_manual_bounded_and_never_authenticated() {
     assert!(requests.iter().all(|request| {
         request.header("authorization").is_none() && request.header("proxy-authorization").is_none()
     }));
+}
+
+#[tokio::test]
+async fn local_resource_redirect_cannot_change_origin() {
+    let destination = TestServer::spawn(vec![ServerAction::Respond {
+        status: 200,
+        headers: Vec::new(),
+        body: b"must-not-arrive".to_vec(),
+    }])
+    .await;
+    let source = TestServer::spawn(vec![ServerAction::Respond {
+        status: 302,
+        headers: vec![(
+            "Location".to_owned(),
+            format!("http://{}/redirected", destination.address),
+        )],
+        body: Vec::new(),
+    }])
+    .await;
+
+    let error = ResourceDownloader::builder()
+        .build()
+        .unwrap()
+        .download(
+            ResourceUrl::local_explicit(format!("http://{}/start", source.address)).unwrap(),
+            ResourceDownloadOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(source.requests().len(), 1);
+    assert!(destination.requests().is_empty());
 }
 
 #[tokio::test]

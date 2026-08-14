@@ -17,8 +17,9 @@ use siumai_protocol_anthropic::messages::{
 /// This type intentionally does not implement `TypedProviderOptions`: branded providers
 /// own their namespaces and may expose their own typed option structs. After exact-target
 /// selection, the engine applies provider-owned typed patches in order over configured defaults.
-/// At most one checked raw patch is retained as the final body overlay; canonical request fields
-/// and provider or transport security fields remain protected.
+/// At most one checked raw patch is retained as the final body overlay. It replaces whole
+/// top-level fields after canonical encoding; exact canonical request and transport-authority
+/// names remain protected, while nested provider-body data is inert to transport.
 #[derive(Debug, Clone, Default)]
 pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
@@ -342,7 +343,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
     let mut patch = OptionsPatch::default();
     for (name, value) in options.value() {
         if options.is_raw() {
-            validate_raw_body_field(name, value, name)?;
+            validate_body_field(name, name)?;
             insert_extra(&mut patch.raw_body_overlay, name, value)?;
             continue;
         }
@@ -394,7 +395,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                     )
                 })?;
                 for (extra_name, extra_value) in object {
-                    validate_extra_field(extra_name, extra_value, extra_name)?;
+                    validate_body_field(extra_name, extra_name)?;
                     insert_extra(&mut patch.extra, extra_name, extra_value)?;
                 }
             }
@@ -405,7 +406,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                 ));
             }
             _ => {
-                validate_extra_field(name, value, name)?;
+                validate_body_field(name, name)?;
                 insert_extra(&mut patch.extra, name, value)?;
             }
         }
@@ -490,164 +491,20 @@ fn parse_typed<T: DeserializeOwned>(
         .map_err(|_| rejected(field, "must use the canonical typed option shape"))
 }
 
-fn validate_extra_field(name: &str, value: &Value, path: &str) -> Result<(), ProviderOptionError> {
-    if is_engine_protected(name) || is_protected_option_field(name) || is_security_sensitive(name) {
+fn validate_body_field(name: &str, path: &str) -> Result<(), ProviderOptionError> {
+    if name.trim().is_empty() || name.chars().any(char::is_control) {
         return Err(rejected(
             path,
-            "field is owned by the engine or canonical codec",
+            "body field names must be non-empty and contain no control characters",
         ));
     }
-    validate_nested_extra(value, path)
-}
-
-fn validate_raw_body_field(
-    name: &str,
-    value: &Value,
-    path: &str,
-) -> Result<(), ProviderOptionError> {
-    if is_canonical_body_field(name) || is_security_sensitive(name) {
+    if is_protected_option_field(name) {
         return Err(rejected(
             path,
-            "field is owned by the canonical request, provider, or transport",
+            "field is owned by the canonical request or transport",
         ));
-    }
-    validate_nested_extra(value, path)
-}
-
-fn is_canonical_body_field(name: &str) -> bool {
-    matches!(
-        compact_name(name).as_str(),
-        "model"
-            | "messages"
-            | "system"
-            | "maxtokens"
-            | "maxoutputtokens"
-            | "stream"
-            | "tools"
-            | "toolchoice"
-            | "temperature"
-            | "topp"
-            | "stopsequence"
-            | "stopsequences"
-            | "diagnostics"
-    )
-}
-
-fn validate_nested_extra(value: &Value, path: &str) -> Result<(), ProviderOptionError> {
-    match value {
-        Value::Object(object) => {
-            for (name, child) in object {
-                let child_path = format!("{path}.{name}");
-                if is_security_sensitive(name) {
-                    return Err(rejected(
-                        &child_path,
-                        "credentials, endpoints, versions, and headers are protected",
-                    ));
-                }
-                validate_nested_extra(child, &child_path)?;
-            }
-        }
-        Value::Array(values) => {
-            for (index, child) in values.iter().enumerate() {
-                validate_nested_extra(child, &format!("{path}[{index}]"))?;
-            }
-        }
-        _ => {}
     }
     Ok(())
-}
-
-fn is_engine_protected(name: &str) -> bool {
-    matches!(
-        compact_name(name).as_str(),
-        "model"
-            | "messages"
-            | "system"
-            | "maxtokens"
-            | "maxoutputtokens"
-            | "stream"
-            | "tools"
-            | "toolchoice"
-            | "temperature"
-            | "topp"
-            | "topk"
-            | "stopsequence"
-            | "stopsequences"
-            | "outputconfig"
-            | "taskbudget"
-            | "servicetier"
-            | "cachecontrol"
-            | "speed"
-            | "inferencegeo"
-            | "container"
-            | "contextmanagement"
-            | "mcpservers"
-            | "mcptoolset"
-            | "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "endpoint"
-            | "baseurl"
-            | "url"
-            | "host"
-            | "headers"
-            | "header"
-            | "anthropicversion"
-            | "anthropicbeta"
-            | "proxy"
-            | "tls"
-            | "audience"
-            | "method"
-            | "target"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
-    )
-}
-
-fn is_security_sensitive(name: &str) -> bool {
-    let name = compact_name(name);
-    matches!(
-        name.as_str(),
-        "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "endpoint"
-            | "baseurl"
-            | "url"
-            | "host"
-            | "headers"
-            | "header"
-            | "anthropicversion"
-            | "anthropicbeta"
-            | "proxy"
-            | "tls"
-            | "audience"
-            | "method"
-            | "target"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
-    ) || name.ends_with("apikey")
-        || name.ends_with("token")
-        || name.ends_with("credential")
-        || name.ends_with("credentials")
-        || name.ends_with("authorization")
-        || name.ends_with("endpoint")
-        || name.ends_with("baseurl")
-        || name.ends_with("headers")
 }
 
 fn compact_name(name: &str) -> String {
@@ -734,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_provider_values_cannot_override_canonical_or_security_fields() {
+    fn raw_provider_values_protect_top_level_authority_and_allow_nested_provider_data() {
         let canonical = ProviderOptions::checked_raw(
             ProviderId::new("anthropic").expect("provider"),
             json!({"model": "override"}),
@@ -744,9 +601,30 @@ mod tests {
 
         let nested_secret = ProviderOptions::checked_raw(
             ProviderId::new("anthropic").expect("provider"),
-            json!({"future_feature": {"authorization_token": "secret"}}),
+            json!({
+                "future_feature": {
+                    "url": "https://provider.example/mcp",
+                    "headers": {"Authorization": "provider-body-canary"},
+                    "authorization_token": "nested-token-canary"
+                },
+                "x-token-count-mode": "provider-defined"
+            }),
         )
         .expect("bounded raw options");
-        assert!(parse_patch(&nested_secret).is_err());
+        let mut options = MessagesCallOptions::new();
+        options.apply(parse_patch(&nested_secret).expect("nested provider data"));
+        let mut body = json!({"model": "future-model", "messages": []});
+        options
+            .apply_raw_body_overlay(&mut body)
+            .expect("raw overlay");
+        assert_eq!(
+            body["future_feature"]["headers"]["Authorization"],
+            "provider-body-canary"
+        );
+        assert_eq!(
+            body["future_feature"]["authorization_token"],
+            "nested-token-canary"
+        );
+        assert_eq!(body["x-token-count-mode"], "provider-defined");
     }
 }

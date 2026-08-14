@@ -306,14 +306,18 @@ fn rejects_cache_breakpoint_limit_and_invalid_ttl_order() {
 #[test]
 fn rejects_protected_options() {
     for (field, value) in [
-        ("api_key", "secret"),
-        ("apiKey", "secret"),
+        ("Mo-De_L", "override"),
+        ("Mes-Sa_Ges", "override"),
+        ("To-Ol_S", "override"),
+        ("api-key", "secret"),
+        ("AUTHORIZATION", "secret"),
+        ("authorization-token", "secret"),
         ("base-url", "https://invalid.example"),
-        ("retry", "unsafe"),
+        ("Head-Er_S", "unsafe"),
         ("Retry-Policy", "unsafe"),
-        ("timeout", "unsafe"),
+        ("Time-Out", "unsafe"),
         ("connectTimeout", "unsafe"),
-        ("method", "DELETE"),
+        ("Me-Th_Od", "DELETE"),
         ("target", "https://invalid.example"),
         ("service_tier", "auto"),
         ("cache_control", "ephemeral"),
@@ -332,39 +336,46 @@ fn rejects_protected_options() {
         ));
     }
 
-    let mut nested_sensitive = BTreeMap::new();
-    nested_sensitive.insert(
-        "future_feature".to_string(),
-        json!({"authorization": "canary-secret"}),
-    );
-    let options = MessagesRequestOptions::default().with_extra(nested_sensitive);
-    assert!(matches!(
-        encode_request(
-            &model(),
-            &request(vec![Message::text(MessageRole::User, "Hello")]),
-            &options,
-        ),
-        Err(MessagesCodecError::ProtectedOptionField { .. })
-    ));
+    assert!(!is_protected_option_field("request_endpoint"));
+    assert!(!is_protected_option_field("x-token-count-mode"));
 }
 
 #[test]
-fn allows_provider_owned_nested_retry_and_timeout_fields() {
+fn allows_bounded_nested_provider_fields_without_transport_authority() {
     let mut nested_provider_controls = BTreeMap::new();
     nested_provider_controls.insert(
         "future_feature".to_string(),
         json!({
+            "url": "https://provider.example/mcp",
+            "headers": {"Authorization": "provider-body-canary"},
+            "authorization_token": "nested-token-canary",
             "retry": {"mode": "provider"},
             "timeout": 30,
             "connectTimeout": "provider-defined",
         }),
     );
+    nested_provider_controls.insert("request_endpoint".to_string(), json!("provider-body-value"));
+    nested_provider_controls.insert("x-token-count-mode".to_string(), json!("provider-defined"));
     let encoded = encode_request(
         &model(),
         &request(vec![Message::text(MessageRole::User, "Hello")]),
         &MessagesRequestOptions::default().with_extra(nested_provider_controls),
     )
     .unwrap();
+    assert_eq!(
+        encoded["future_feature"]["url"],
+        "https://provider.example/mcp"
+    );
+    assert_eq!(
+        encoded["future_feature"]["headers"]["Authorization"],
+        "provider-body-canary"
+    );
+    assert_eq!(
+        encoded["future_feature"]["authorization_token"],
+        "nested-token-canary"
+    );
+    assert_eq!(encoded["request_endpoint"], "provider-body-value");
+    assert_eq!(encoded["x-token-count-mode"], "provider-defined");
     assert_eq!(encoded["future_feature"]["retry"]["mode"], "provider");
     assert_eq!(encoded["future_feature"]["timeout"], 30);
     assert_eq!(

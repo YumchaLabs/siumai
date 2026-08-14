@@ -2616,19 +2616,24 @@ fn validate_extra(extra: &BTreeMap<String, Value>) -> Result<(), MessagesCodecEr
 
     let mut fields = 0usize;
     for (name, value) in extra {
-        if is_protected_option_field(name) {
+        if name.trim().is_empty() || name.chars().any(char::is_control) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "extra",
+                reason: "field names must be non-empty and contain no control characters",
+            });
+        }
+        if is_protected_option_field(name) || is_codec_owned_option_field(name) {
             return Err(MessagesCodecError::ProtectedOptionField {
                 path: safe_path(name),
             });
         }
-        validate_extra_value(value, name, 1, &mut fields)?;
+        validate_extra_value(value, 1, &mut fields)?;
     }
     Ok(())
 }
 
 fn validate_extra_value(
     value: &Value,
-    path: &str,
     depth: usize,
     fields: &mut usize,
 ) -> Result<(), MessagesCodecError> {
@@ -2640,7 +2645,7 @@ fn validate_extra_value(
     }
     match value {
         Value::Object(object) => {
-            for (name, child) in object {
+            for child in object.values() {
                 *fields = fields.saturating_add(1);
                 if *fields > MAX_EXTRA_FIELDS {
                     return Err(MessagesCodecError::InvalidOption {
@@ -2648,23 +2653,12 @@ fn validate_extra_value(
                         reason: "JSON object exceeds 1024 fields",
                     });
                 }
-                let child_path = format!("{path}.{name}");
-                if is_sensitive_nested_field(name) {
-                    return Err(MessagesCodecError::ProtectedOptionField {
-                        path: safe_path(&child_path),
-                    });
-                }
-                validate_extra_value(child, &child_path, depth.saturating_add(1), fields)?;
+                validate_extra_value(child, depth.saturating_add(1), fields)?;
             }
         }
         Value::Array(values) => {
-            for (index, child) in values.iter().enumerate() {
-                validate_extra_value(
-                    child,
-                    &format!("{path}[{index}]"),
-                    depth.saturating_add(1),
-                    fields,
-                )?;
+            for child in values {
+                validate_extra_value(child, depth.saturating_add(1), fields)?;
             }
         }
         _ => {}
@@ -2672,25 +2666,28 @@ fn validate_extra_value(
     Ok(())
 }
 
-fn is_sensitive_nested_field(name: &str) -> bool {
+// Known typed codec fields cannot be duplicated through `MessagesRequestOptions::extra`.
+// Checked raw overlays are applied by the compatible engine and intentionally do not use this
+// list, so future enum strings remain representable without weakening canonical authority.
+fn is_codec_owned_option_field(name: &str) -> bool {
     matches!(
         compact_field(name).as_str(),
-        "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "credential"
-            | "credentials"
-            | "endpoint"
-            | "baseurl"
-            | "host"
-            | "headers"
-            | "header"
-            | "proxy"
-            | "tls"
-            | "audience"
+        "topk"
+            | "metadata"
+            | "thinking"
+            | "outputconfig"
+            | "outputformat"
+            | "taskbudget"
+            | "fallbacks"
+            | "fallbackcredittoken"
+            | "speed"
+            | "servicetier"
+            | "container"
+            | "contextmanagement"
+            | "mcpservers"
+            | "mcptoolset"
+            | "inferencegeo"
+            | "cachecontrol"
     )
 }
 

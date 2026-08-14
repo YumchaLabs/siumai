@@ -601,7 +601,14 @@ async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
                 "content": [{"type": "text", "text": "tier"}]
             }],
             "stream": false,
-            "service_tier": "priority_v2"
+            "service_tier": "priority_v2",
+            "future_remote_mcp": {
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            },
+            "request_endpoint": "provider-body-value",
+            "x-token-count-mode": "provider-defined"
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "tier-model",
@@ -633,8 +640,23 @@ async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
         .unwrap();
 
     let raw_options = CallOptions::default()
-        .with_raw_provider_options_for(&model, json!({"service_tier": "priority_v2"}))
+        .with_raw_provider_options_for(
+            &model,
+            json!({
+                "service_tier": "priority_v2",
+                "future_remote_mcp": {
+                    "url": "https://provider.example/mcp",
+                    "headers": {"Authorization": "provider-body-canary"},
+                    "authorization_token": "nested-token-canary"
+                },
+                "request_endpoint": "provider-body-value",
+                "x-token-count-mode": "provider-defined"
+            }),
+        )
         .unwrap();
+    let debug = format!("{raw_options:?}");
+    assert!(!debug.contains("provider-body-canary"));
+    assert!(!debug.contains("nested-token-canary"));
     model
         .generate(request("tier", 64), raw_options)
         .await
@@ -729,7 +751,7 @@ async fn current_typed_request_controls_survive_the_compatible_merge() {
 }
 
 #[tokio::test]
-async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
+async fn exact_top_level_authority_fields_fail_before_network() {
     let server = MockServer::start().await;
     let provider = AnthropicCompatibleProvider::builder(
         local_profile(&server),
@@ -739,17 +761,22 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
     .unwrap();
     let model = provider.language("model").unwrap();
     for field in [
-        "anthropicVersion",
-        "requestEndpoint",
-        "credentialToken",
-        "apiKey",
-        "base-url",
-        "method",
-        "target",
+        "Anthropic-Version",
+        "Mo-De_L",
+        "Mes-Sa_Ges",
+        "To-Ol_S",
+        "End-Point",
+        "Authorization",
+        "authorization-token",
+        "API-Key",
+        "Base-Url",
+        "Head-Er_S",
+        "Me-Th_Od",
+        "Tar-Get",
         "Retry-Policy",
-        "connectTimeout",
-        "read_timeout",
-        "call-timeout",
+        "Connect-Time_Out",
+        "Read-Time_Out",
+        "Call-Time_Out",
     ] {
         let mut value = serde_json::Map::new();
         value.insert(field.to_string(), json!("canary-secret"));
@@ -763,6 +790,24 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
         assert!(!format!("{error:?}").contains("canary-secret"));
     }
+
+    let options = CallOptions::default()
+        .with_raw_provider_options_for(
+            &model,
+            json!({
+                "future_remote_mcp": {
+                    "headers": {"Authorization": "accepted-nested-canary"}
+                },
+                "model": "override"
+            }),
+        )
+        .unwrap();
+    let error = model
+        .generate(request("hello", 32), options)
+        .await
+        .unwrap_err();
+    let public = format!("{error:?} {error}");
+    assert!(!public.contains("accepted-nested-canary"));
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 
