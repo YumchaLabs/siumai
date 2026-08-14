@@ -171,8 +171,8 @@ pub mod experimental {
             OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
             OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
             OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
-            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
-            OpenAiResponsesWebSocketTurnKind,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
+            OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
 
         pub mod advanced {

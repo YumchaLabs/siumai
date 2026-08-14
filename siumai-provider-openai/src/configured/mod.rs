@@ -85,7 +85,8 @@ pub use responses_resource::{
 pub use responses_websocket::{
     OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame, OpenAiResponsesWarmUpOutcome,
     OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError,
-    OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
+    OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession,
+    OpenAiResponsesWebSocketSubmissionState, OpenAiResponsesWebSocketTurn,
     OpenAiResponsesWebSocketTurnKind,
 };
 pub use speech::{
@@ -215,8 +216,8 @@ pub mod experimental {
             OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
             OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
             OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
-            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
-            OpenAiResponsesWebSocketTurnKind,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
+            OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
 
         /// Connector seams for custom transports and deterministic integration tests.

@@ -149,6 +149,23 @@ desynchronization close the session conservatively. Retryable WebSocket availabi
 such as service restart, try again later, and bad gateway become sanitized
 `ErrorKind::Unavailable`; provider-controlled close reasons are not copied into the turn error.
 
+Turn startup and execution now expose submission certainty through
+`OpenAiResponsesWebSocketSubmissionState`. A cancellation or deadline while the payload is still
+provably outside the socket sender is `NotSubmitted` and can be retried safely. Once the command
+enters an uncertain actor/acknowledgement race or the socket sender is polled without a provider
+terminal, the result is `Indeterminate`; callers must not replay it automatically. A turn becomes
+`Settled` only after an authoritative Responses terminal event. Inspect a returned turn with
+`turn.submission_state()`, or classify a startup error with
+`OpenAiResponsesWebSocketSubmissionState::from_error(&error)`.
+
+The session now owns and monitors its actor task. Actor panic or abort, socket failure, and an
+unsettled turn-channel close emit exactly one typed failure followed by EOF. Queue and
+acknowledgement waits share the caller cancellation and deadline, and dropping the last session or
+turn handle follows the same bounded actor cleanup path. This lifecycle contract was verified
+against the
+[official OpenAI Responses WebSocket mode documentation](https://developers.openai.com/api/docs/guides/websocket-mode/)
+on 2026-08-14.
+
 The official provider constructor supplies the provider-owned
 `wss://api.openai.com/v1/responses` endpoint and publishes the experimental
 `responses-websocket` native support claim. A custom HTTP endpoint has no inferred WebSocket route:

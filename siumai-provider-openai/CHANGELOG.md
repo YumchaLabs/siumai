@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Exposed typed `NotSubmitted`, `Indeterminate`, and `Settled` submission state for experimental
+  Responses WebSocket turns and call errors.
+
+### Fixed
+
+- Responses WebSocket queue, acknowledgement, cancellation, deadline, actor-exit, and socket-close
+  races now converge on one terminal result. Sessions retain and monitor their actor task, and an
+  unsettled turn channel can no longer end as a clean EOF.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.9...siumai-provider-openai-v0.11.0-beta.10) - 2026-08-13
 
 ### Added
