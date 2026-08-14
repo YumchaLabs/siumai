@@ -13,8 +13,8 @@ use siumai_core::{
     LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
     OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
     ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec,
-    ToolAnnotationTarget, ToolCall, ToolChoice, ToolOutcome, ToolSpec, TypedProviderAnnotation,
-    Usage,
+    ToolAnnotationTarget, ToolCall, ToolChoice, ToolOutcome, ToolResult, ToolSpec,
+    TypedProviderAnnotation, Usage,
 };
 use siumai_runtime::approval::{
     ApprovalClaims, ApprovalEnvelope, ApprovalVerifier, ApprovalVerifierError,
@@ -43,7 +43,12 @@ struct ScriptedModel {
 
 struct DeferredModel {
     descriptor: ModelDescriptor,
-    items: Vec<OpaqueProviderItem>,
+    items: Vec<(String, OpaqueProviderItem)>,
+}
+
+struct CompletedDeferredModel {
+    descriptor: ModelDescriptor,
+    turns: Mutex<VecDeque<(OpaqueProviderItem, LanguageResponse)>>,
 }
 
 struct TerminalScriptedModel {
@@ -108,6 +113,16 @@ impl DeferredModel {
     }
 
     fn sequence(items: impl IntoIterator<Item = OpaqueProviderItem>) -> Arc<Self> {
+        Self::identified_sequence(
+            items
+                .into_iter()
+                .map(|item| ("provider-state-1".to_string(), item)),
+        )
+    }
+
+    fn identified_sequence(
+        items: impl IntoIterator<Item = (String, OpaqueProviderItem)>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             descriptor: ModelDescriptor::new(
                 ProviderId::new("deferred-test").expect("valid provider"),
@@ -152,12 +167,7 @@ impl LanguageModel for DeferredModel {
             .items
             .iter()
             .cloned()
-            .map(|state| {
-                Ok(LanguageStreamEvent::ProviderDeferred {
-                    id: "provider-state-1".to_string(),
-                    state,
-                })
-            })
+            .map(|(id, state)| Ok(LanguageStreamEvent::ProviderDeferred { id, state }))
             .collect::<Vec<_>>();
         events.push(Ok(LanguageStreamEvent::Terminal(
             StreamTerminal::Completed {
@@ -167,6 +177,74 @@ impl LanguageModel for DeferredModel {
         let cancellation = options.cancellation().clone();
         Ok(established_stream(cancellation, move |_| {
             futures::stream::iter(events)
+        }))
+    }
+}
+
+impl CompletedDeferredModel {
+    fn new(turns: impl IntoIterator<Item = (OpaqueProviderItem, LanguageResponse)>) -> Arc<Self> {
+        Arc::new(Self {
+            descriptor: ModelDescriptor::new(
+                ProviderId::new("deferred-test").expect("valid provider"),
+                ModelId::new("deferred-model").expect("valid model"),
+                ModelFamily::Language,
+            )
+            .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+            )),
+            turns: Mutex::new(turns.into_iter().collect()),
+        })
+    }
+}
+
+impl Model for CompletedDeferredModel {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl LanguageModel for CompletedDeferredModel {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        Err(Error::new(
+            ErrorKind::Internal,
+            "completed deferred test model must use streaming",
+        )
+        .into())
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        let (state, response) = self
+            .turns
+            .lock()
+            .expect("deferred turn lock")
+            .pop_front()
+            .ok_or_else(|| Error::new(ErrorKind::Internal, "missing deferred test turn"))?;
+        let cancellation = options.cancellation().clone();
+        Ok(established_stream(cancellation, move |_| {
+            futures::stream::iter([
+                Ok(LanguageStreamEvent::ProviderDeferred {
+                    id: "provider-state-1".to_string(),
+                    state,
+                }),
+                Ok(LanguageStreamEvent::ToolResult(ToolResult {
+                    call_id: "provider-state-1".to_string(),
+                    name: "provider_task".to_string(),
+                    outcome: ToolOutcome::Success { value: json!(true) },
+                })),
+                Ok(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
+                    response: Box::new(response),
+                })),
+            ])
         }))
     }
 }
@@ -694,7 +772,7 @@ async fn old_catalog_identity_and_execution_abi_fail_explicitly() {
 
     let mut old_abi_value = baseline.clone();
     old_abi_value["checkpoint"]["engine_version"] = json!("siumai-runtime-durable-v5");
-    let old_abi = serde_json::from_value(old_abi_value).expect("old ABI snapshot remains valid v6");
+    let old_abi = serde_json::from_value(old_abi_value).expect("old ABI snapshot remains valid v7");
     let old_abi_store = Arc::new(InMemoryRunStore::new());
     let lease = old_abi_store
         .acquire(&run, Duration::from_secs(30))
@@ -1315,6 +1393,137 @@ async fn provider_deferred_same_namespace_persists_only_the_latest_observation()
     let retained: OpaqueProviderItem =
         serde_json::from_slice(&states[0].payload).expect("provider state decodes");
     assert_eq!(retained.data()["status"], "in_progress");
+
+    let report_items = suspended.snapshot().report().provider_deferred();
+    assert_eq!(report_items.len(), 1);
+    assert_eq!(report_items[0].item().data()["status"], "in_progress");
+}
+
+#[tokio::test]
+async fn provider_deferred_distinct_keys_keep_first_seen_order() {
+    let scope = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+    ));
+    let provenance =
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone()).expect("provenance");
+    let first_queued = OpaqueProviderItem::new(
+        provenance.clone(),
+        "provider.deferred",
+        json!({"status": "first_queued"}),
+    )
+    .expect("first queued state");
+    let second_queued = OpaqueProviderItem::new(
+        provenance.clone(),
+        "provider.deferred",
+        json!({"status": "second_queued"}),
+    )
+    .expect("second queued state");
+    let first_in_progress = OpaqueProviderItem::new(
+        provenance,
+        "provider.deferred",
+        json!({"status": "first_in_progress"}),
+    )
+    .expect("first in-progress state");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model: Arc<dyn LanguageModel> = DeferredModel::identified_sequence([
+        ("provider-state-1".to_string(), first_queued),
+        ("provider-state-2".to_string(), second_queued),
+        ("provider-state-1".to_string(), first_in_progress),
+    ]);
+    let loop_ = durable_loop(model, ToolSet::default(), store);
+
+    let suspended = loop_
+        .start(
+            run_id("provider-deferred-distinct"),
+            lineage_id("provider-deferred-distinct"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("distinct provider-owned states are persisted");
+
+    let states = suspended.snapshot().provider_state();
+    assert_eq!(states.len(), 2);
+    assert_eq!(states[0].namespace, states[1].namespace);
+    assert_eq!(
+        states[0].correlation_id.as_deref(),
+        Some("provider-state-1")
+    );
+    assert_eq!(
+        states[1].correlation_id.as_deref(),
+        Some("provider-state-2")
+    );
+    let retained = states
+        .iter()
+        .map(|state| {
+            serde_json::from_slice::<OpaqueProviderItem>(&state.payload)
+                .expect("provider state decodes")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(retained[0].data()["status"], "first_in_progress");
+    assert_eq!(retained[1].data()["status"], "second_queued");
+
+    let report_items = suspended.snapshot().report().provider_deferred();
+    assert_eq!(report_items.len(), 2);
+    assert_eq!(report_items[0].item().data()["status"], "first_in_progress");
+    assert_eq!(report_items[1].item().data()["status"], "second_queued");
+}
+
+#[tokio::test]
+async fn provider_deferred_same_key_is_updated_across_model_steps() {
+    let scope = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+    ));
+    let provenance =
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone()).expect("provenance");
+    let queued = OpaqueProviderItem::new(
+        provenance.clone(),
+        "provider.deferred",
+        json!({"status": "queued"}),
+    )
+    .expect("queued state");
+    let in_progress = OpaqueProviderItem::new(
+        provenance,
+        "provider.deferred",
+        json!({"status": "in_progress"}),
+    )
+    .expect("in-progress state");
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tools = ToolSet::from_bindings([not_required_binding(Arc::clone(&executions), None)])
+        .expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model: Arc<dyn LanguageModel> =
+        CompletedDeferredModel::new([(queued, tool_response()), (in_progress, final_response())]);
+    let loop_ = durable_loop(model, tools, store);
+
+    let completed = loop_
+        .start(
+            run_id("provider-deferred-cross-step"),
+            lineage_id("provider-deferred-cross-step"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("deferred observations complete across model steps");
+
+    assert!(completed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(completed.snapshot().report().steps().len(), 2);
+    let observations = completed.snapshot().report().provider_deferred();
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].item().data()["status"], "in_progress");
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 //! Durable orchestration over the shared step engine and snapshot store.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error as StdError;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,8 +31,8 @@ use crate::snapshot::{
 };
 use crate::tool::{
     ApprovalPolicy, EffectCertainty, ExternalApprovalDecider, PreparedVisibleToolCatalog,
-    ToolExecutionError, ToolExecutionRequest, ToolSet, VisibleToolCatalogSource,
-    prepare_visible_tool_catalog,
+    ToolExecutionError, ToolExecutionRequest, ToolSet, VisibleToolCatalogError,
+    VisibleToolCatalogSource, prepare_visible_tool_catalog,
 };
 use crate::tool_loop::ToolOutcomePolicy;
 use crate::{ModelTarget, ProjectionPolicy, RunReport, Runtime, StepModelSelector, StepOptions};
@@ -509,9 +510,7 @@ impl DurableToolLoop {
             VisibleToolCatalogSource::Canonical(stored.snapshot().continuation().tools.clone()),
             &self.tools,
         )
-        .map_err(|_| DurableRunError::IncompatibleSnapshot {
-            field: "continuation_tools",
-        })?;
+        .map_err(map_visible_catalog_error)?;
         let fingerprints = self.fingerprints_for_catalog(&visible_catalog)?;
         self.ensure_compatible(stored.snapshot(), &fingerprints)?;
 
@@ -1006,6 +1005,30 @@ fn map_engine_resume_error(error: EngineResumeError) -> DurableRunError {
     }
 }
 
+fn map_visible_catalog_error(error: VisibleToolCatalogError) -> DurableRunError {
+    match error {
+        VisibleToolCatalogError::DuplicateName { name } => {
+            let source = VisibleToolCatalogError::DuplicateName { name: name.clone() };
+            DurableRunError::VisibleToolCatalogDuplicateName {
+                name,
+                source: Box::new(source),
+            }
+        }
+        VisibleToolCatalogError::TrustedBindingCollision { name } => {
+            let source = VisibleToolCatalogError::TrustedBindingCollision { name: name.clone() };
+            DurableRunError::VisibleToolCatalogTrustedBindingCollision {
+                name,
+                source: Box::new(source),
+            }
+        }
+        VisibleToolCatalogError::LocalCatalogMismatch => {
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch {
+                source: Box::new(VisibleToolCatalogError::LocalCatalogMismatch),
+            }
+        }
+    }
+}
+
 /// Typed durable orchestration failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -1018,6 +1041,23 @@ pub enum DurableRunError {
     ResumeConflict { run_id: RunId },
     #[error("durable run snapshot is incompatible in field `{field}`")]
     IncompatibleSnapshot { field: &'static str },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogDuplicateName {
+        name: String,
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogTrustedBindingCollision {
+        name: String,
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogLocalSuffixMismatch {
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
     #[error("durable selector changed the frozen model target from {expected:?} to {actual:?}")]
     SelectedModelTargetChanged {
         expected: Box<ModelTarget>,
@@ -1081,7 +1121,7 @@ mod tests {
         ContentPart, LanguageCallError, LanguageCompletionReason, LanguageResponse, LanguageStream,
         Message, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
         ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, ToolBindingIdentity,
-        ToolCall, Usage,
+        ToolCall, ToolOutcome, ToolSpec, Usage,
     };
 
     use super::*;
@@ -1090,7 +1130,7 @@ mod tests {
         InMemoryRunStore, SnapshotCheckpoint, SnapshotReason, SnapshotTerminal, StoredRun,
         ToolExecutionLog,
     };
-    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt};
+    use crate::tool::{RecoveryPolicy, ToolBinding, ToolExecutionAttempt};
 
     struct TestModel {
         descriptor: ModelDescriptor,
@@ -1200,12 +1240,35 @@ mod tests {
     }
 
     fn test_loop(store: Arc<dyn RunStore>) -> DurableToolLoop {
+        test_loop_with_tools(store, ToolSet::default())
+    }
+
+    fn test_loop_with_tools(store: Arc<dyn RunStore>, tools: ToolSet) -> DurableToolLoop {
         DurableToolLoop::new(
             TestModel::new(),
-            ToolSet::default(),
+            tools,
             store,
             SnapshotFingerprint::new("sha256:test-options").unwrap(),
             SnapshotFingerprint::new("sha256:test-approval").unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn test_binding(name: &str) -> ToolBinding {
+        ToolBinding::from_fn(
+            ToolSpec::new(
+                name,
+                Some(format!("{name} test tool")),
+                serde_json::json!({"type": "object"}),
+            )
+            .unwrap(),
+            "v1",
+            |_| Ok(()),
+            |_| async {
+                Ok(ToolOutcome::Success {
+                    value: serde_json::Value::Null,
+                })
+            },
         )
         .unwrap()
     }
@@ -1337,6 +1400,83 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn visible_catalog_errors_remain_typed_and_source_preserving() {
+        let duplicate = map_visible_catalog_error(VisibleToolCatalogError::DuplicateName {
+            name: "duplicate".to_string(),
+        });
+        assert!(matches!(
+            &duplicate,
+            DurableRunError::VisibleToolCatalogDuplicateName { name, .. }
+                if name == "duplicate"
+        ));
+        assert_eq!(
+            std::error::Error::source(&duplicate).unwrap().to_string(),
+            "model-visible tool `duplicate` is defined more than once"
+        );
+
+        let collision =
+            map_visible_catalog_error(VisibleToolCatalogError::TrustedBindingCollision {
+                name: "collision".to_string(),
+            });
+        assert!(matches!(
+            &collision,
+            DurableRunError::VisibleToolCatalogTrustedBindingCollision { name, .. }
+                if name == "collision"
+        ));
+        assert_eq!(
+            std::error::Error::source(&collision).unwrap().to_string(),
+            "model-visible tool `collision` conflicts with a trusted local binding"
+        );
+
+        let mismatch = map_visible_catalog_error(VisibleToolCatalogError::LocalCatalogMismatch);
+        assert!(matches!(
+            &mismatch,
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch { .. }
+        ));
+        assert_eq!(
+            std::error::Error::source(&mismatch).unwrap().to_string(),
+            "restored model-visible tool catalog does not contain the exact local binding suffix"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_preserves_the_typed_visible_catalog_mismatch() {
+        let store = CountingStore::new();
+        let tools = ToolSet::from_bindings([test_binding("write_record")]).unwrap();
+        let loop_ = test_loop_with_tools(store.clone(), tools);
+        let previous = test_snapshot(&loop_, "checkpoint-1", None);
+        let lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.release(lease).await.unwrap();
+        store.reset_cas_calls();
+
+        let error = loop_
+            .resume(
+                previous.run_id(),
+                DurableResume::new(),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            &error,
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch { .. }
+        ));
+        assert_eq!(
+            std::error::Error::source(&error).unwrap().to_string(),
+            "restored model-visible tool catalog does not contain the exact local binding suffix"
+        );
+        assert_eq!(store.cas_calls(), 0);
+    }
+
     #[tokio::test]
     async fn runtime_rejects_invalid_successor_before_store_cas() {
         let store = CountingStore::new();
@@ -1423,12 +1563,15 @@ mod tests {
             let mut next_report = RunReport::new(target.clone(), base_messages.clone());
 
             match case {
-                SuccessorRegression::Step => previous_report.steps_mut().push(StepRecord::new(
-                    0,
-                    target.clone(),
-                    completed_response(0),
-                    Vec::new(),
-                )),
+                SuccessorRegression::Step => {
+                    previous_report.accumulate_usage(&Usage::default());
+                    previous_report.steps_mut().push(StepRecord::new(
+                        0,
+                        target.clone(),
+                        completed_response(0),
+                        Vec::new(),
+                    ));
+                }
                 SuccessorRegression::History => {
                     previous_report
                         .messages_mut()
@@ -1442,9 +1585,10 @@ mod tests {
                     previous_report.accumulate_usage(&Usage::default().with_total_tokens(10));
                     next_report.accumulate_usage(&Usage::default().with_total_tokens(5));
                 }
-                SuccessorRegression::Provider => previous_report
-                    .provider_deferred_mut()
-                    .push(provider_item(&loop_)),
+                SuccessorRegression::Provider => {
+                    let item = provider_item(&loop_);
+                    previous_report.observe_provider_deferred("provider-state-1", &item);
+                }
                 SuccessorRegression::ExecutionLog => {
                     *previous_report.execution_log_mut() = prepared_log();
                 }
@@ -1545,6 +1689,70 @@ mod tests {
             recovered.snapshot.resume_point(),
             ResumePoint::Terminal(SnapshotTerminal::Indeterminate { .. })
         ));
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn recovery_rejects_a_tampered_successor_before_store_cas() {
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        let mut report = RunReport::new(target.clone(), vec![Message::user("test")]);
+        report.accumulate_usage(&Usage::default());
+        *report.execution_log_mut() = dispatched_log();
+        let pending = PendingStepSnapshot::new(
+            0,
+            target,
+            tool_response(),
+            vec![prepared_tool()],
+            Vec::new(),
+            Vec::new(),
+        );
+        let previous = test_snapshot_with_report(
+            &loop_,
+            "checkpoint-1",
+            None,
+            report,
+            ResumePoint::ReadyToDispatch(pending),
+        );
+        let mut lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+
+        let state = DurableRun {
+            revision,
+            snapshot: previous.clone(),
+        };
+        let recovered = previous.recovered_for_resume(3).unwrap();
+        let candidate = loop_
+            .successor_snapshot(
+                &state.snapshot,
+                recovered.report().clone(),
+                recovered.resume_point().clone(),
+            )
+            .unwrap();
+        let mut encoded = serde_json::to_value(candidate).unwrap();
+        encoded["checkpoint"]["parent_checkpoint_id"] = serde_json::Value::Null;
+        let invalid: RunSnapshot = serde_json::from_value(encoded).unwrap();
+
+        let error = loop_
+            .commit_snapshot(&mut lease, Some(&state), invalid)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            DurableRunError::InvalidSuccessor(
+                RunSnapshotSuccessorError::ParentCheckpointMismatch { .. }
+            )
+        ));
+        assert_eq!(store.cas_calls(), 0);
         store.release(lease).await.unwrap();
     }
 

@@ -152,6 +152,9 @@ mod tests {
             target(),
             vec![Message::text(MessageRole::User, "history-secret")],
         );
+        if !log.events().is_empty() {
+            report.accumulate_usage(&Usage::default());
+        }
         *report.execution_log_mut() = log;
         report
     }
@@ -209,6 +212,23 @@ mod tests {
         report_with_log(ToolExecutionLog::new())
     }
 
+    fn deferred_item(status: &str) -> OpaqueProviderItem {
+        let target = ModelTarget::new(
+            ProviderId::new("deferred-provider").unwrap(),
+            ModelId::new("deferred-model").unwrap(),
+        )
+        .with_protocol(ProtocolId::new("deferred.protocol").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("snapshot-deferred").unwrap(),
+        ));
+        OpaqueProviderItem::new(
+            ProviderProvenance::from_scope(target.scope(), target.model().clone()).unwrap(),
+            "provider.deferred",
+            json!({"status": status}),
+        )
+        .unwrap()
+    }
+
     fn report_with_refusal_step() -> RunReport {
         let mut report = ready_report();
         let response = LanguageResponse::completed(
@@ -219,6 +239,7 @@ mod tests {
             Usage::default(),
         )
         .unwrap();
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, target(), response, Vec::new()));
@@ -591,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn version_six_round_trip_preserves_language_termination() {
+    fn version_seven_round_trip_preserves_language_termination() {
         let mut report = ready_report();
         let response = LanguageResponse::incomplete(
             vec![ContentPart::Text {
@@ -601,6 +622,7 @@ mod tests {
             Usage::default().with_total_tokens(9_u64),
         )
         .unwrap();
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, target(), response, Vec::new()));
@@ -616,7 +638,7 @@ mod tests {
         );
 
         let encoded = serde_json::to_value(&snapshot).unwrap();
-        assert_eq!(encoded["snapshot_version"], json!(6));
+        assert_eq!(encoded["snapshot_version"], json!(7));
         let restored: RunSnapshot = serde_json::from_value(encoded).unwrap();
 
         assert!(matches!(
@@ -626,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn version_six_requires_explicit_usage_settlement_state() {
+    fn version_seven_requires_explicit_usage_settlement_state() {
         let base_snapshot = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
         let encoded = serde_json::to_value(base_snapshot).unwrap();
         let mut missing = encoded.clone();
@@ -674,7 +696,36 @@ mod tests {
     }
 
     #[test]
-    fn version_six_round_trip_preserves_partial_terminals() {
+    fn version_seven_rejects_unsettled_unknown_usage_after_a_completed_call() {
+        let snapshot = snapshot(
+            "checkpoint-settled-unknown",
+            None,
+            report_with_refusal_step(),
+            Some(DEADLINE),
+            ResumePoint::ReadyForModel {
+                next_step: 1,
+                target: target(),
+            },
+        );
+        assert_eq!(snapshot.usage(), &Usage::default());
+
+        let mut encoded = serde_json::to_value(&snapshot).unwrap();
+        encoded["report"]["usage_settled"] = json!(false);
+
+        let error = serde_json::from_value::<RunSnapshot>(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("snapshot usage observations require settled report usage state")
+        );
+
+        let mut resumed_report = snapshot.report().clone();
+        resumed_report.accumulate_usage(&Usage::default().with_total_tokens(7_u64));
+        assert_eq!(resumed_report.usage(), &Usage::default());
+    }
+
+    #[test]
+    fn version_seven_round_trip_preserves_partial_terminals() {
         let usage = Usage::default().with_output_tokens(4_u64);
         let partial = PartialLanguageOutput::new(
             vec![PartialLanguageOutputPart::Text {
@@ -987,10 +1038,12 @@ mod tests {
             }
         );
 
+        let mut terminal_report = ready_report();
+        terminal_report.accumulate_usage(&Usage::default());
         let terminal = snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
-            ready_report(),
+            terminal_report,
             Some(DEADLINE),
             ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
         );
@@ -1124,7 +1177,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialization_rejects_real_version_five_before_payload_decode() {
+    fn deserialization_rejects_real_version_six_before_payload_decode() {
         let snapshot = snapshot(
             "checkpoint-1",
             None,
@@ -1136,7 +1189,7 @@ mod tests {
             },
         );
         let mut value = serde_json::to_value(snapshot).unwrap();
-        value["snapshot_version"] = json!(5);
+        value["snapshot_version"] = json!(6);
         let response = value["report"]["steps"][0]["response"]
             .as_object_mut()
             .unwrap();
@@ -1146,7 +1199,7 @@ mod tests {
 
         let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
         let public = error.to_string();
-        assert!(public.contains("unsupported run snapshot version 5"));
+        assert!(public.contains("unsupported run snapshot version 6"));
         assert!(!public.contains("missing field `termination`"));
         assert!(!public.contains("history-secret"));
         assert!(!public.contains("tool-secret"));
@@ -1332,6 +1385,7 @@ mod tests {
             ),
         ];
         let mut previous_report = RunReport::new(source.clone(), source_messages.clone());
+        previous_report.accumulate_usage(source_response.usage());
         previous_report.steps_mut().push(StepRecord::new(
             0,
             source.clone(),
@@ -1383,6 +1437,7 @@ mod tests {
                 .map(MessagePart::from),
         ));
         let mut successor_report = previous.report().clone();
+        successor_report.accumulate_usage(final_response.usage());
         successor_report.replace_messages(continuation.messages.clone());
         successor_report
             .model_transitions_mut()
@@ -1452,6 +1507,7 @@ mod tests {
         .unwrap();
         let messages = vec![Message::text(MessageRole::User, "continue")];
         let mut report = RunReport::new(source.clone(), messages.clone());
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, source, response, Vec::new()));
@@ -1508,6 +1564,7 @@ mod tests {
         .unwrap();
         let messages = vec![Message::text(MessageRole::User, "continue")];
         let mut report = RunReport::new(source.clone(), messages.clone());
+        report.accumulate_usage(first.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, source.clone(), first, Vec::new()));
@@ -1522,6 +1579,7 @@ mod tests {
                 ModelTransitionOutcome::Applied,
                 Vec::new(),
             ));
+        report.accumulate_usage(second.usage());
         report
             .steps_mut()
             .push(StepRecord::new(1, destination.clone(), second, Vec::new()));
@@ -1561,6 +1619,148 @@ mod tests {
                 next: 0,
             }
         );
+    }
+
+    #[test]
+    fn successor_rejects_usage_settlement_regression_with_unknown_usage() {
+        let mut current_report = ready_report();
+        current_report.accumulate_usage(&Usage::default());
+        let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::UsageSettlementRegression
+        );
+    }
+
+    #[test]
+    fn provider_deferred_successor_accepts_same_key_payload_update() {
+        let mut current_report = ready_report();
+        let queued = deferred_item("queued");
+        current_report.observe_provider_deferred("provider-state-1", &queued);
+        let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let mut successor_report = current.report().clone();
+        let in_progress = deferred_item("in_progress");
+        successor_report.observe_provider_deferred("provider-state-1", &in_progress);
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            successor_report,
+            Some(DEADLINE),
+        );
+
+        current.validate_successor(&successor).unwrap();
+        assert_eq!(
+            successor.report().provider_deferred()[0].item().data()["status"],
+            "in_progress"
+        );
+    }
+
+    #[test]
+    fn provider_deferred_successor_rejects_key_deletion_reorder_and_substitution() {
+        let mut current_report = ready_report();
+        let first = deferred_item("first");
+        let second = deferred_item("second");
+        current_report.observe_provider_deferred("provider-state-1", &first);
+        current_report.observe_provider_deferred("provider-state-2", &second);
+        let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let deletion = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+        );
+        assert_eq!(
+            current.validate_successor(&deletion).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+
+        let mut reordered_report = ready_report();
+        reordered_report.observe_provider_deferred("provider-state-2", &second);
+        reordered_report.observe_provider_deferred("provider-state-1", &first);
+        let reordered = ready_snapshot(
+            "checkpoint-3",
+            Some("checkpoint-1"),
+            reordered_report,
+            Some(DEADLINE),
+        );
+        assert_eq!(
+            current.validate_successor(&reordered).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+
+        let mut substituted_report = ready_report();
+        substituted_report.observe_provider_deferred("provider-state-3", &first);
+        substituted_report.observe_provider_deferred("provider-state-2", &second);
+        let substituted = ready_snapshot(
+            "checkpoint-4",
+            Some("checkpoint-1"),
+            substituted_report,
+            Some(DEADLINE),
+        );
+        assert_eq!(
+            current.validate_successor(&substituted).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+    }
+
+    #[test]
+    fn deserialization_rejects_duplicate_provider_deferred_keys_and_unbounded_ids() {
+        let mut report = ready_report();
+        let item = deferred_item("queued");
+        report.observe_provider_deferred("provider-state-1", &item);
+        let snapshot = ready_snapshot("checkpoint-1", None, report, Some(DEADLINE));
+        let encoded = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(
+            encoded["report"]["provider_deferred"][0]["correlation_id"],
+            "provider-state-1"
+        );
+        assert!(encoded["report"]["provider_deferred"][0]["item"].is_object());
+
+        let mut duplicate = encoded.clone();
+        let observation = duplicate["report"]["provider_deferred"][0].clone();
+        duplicate["report"]["provider_deferred"] = json!([observation.clone(), observation]);
+        let report_error =
+            serde_json::from_value::<RunReport>(duplicate["report"].clone()).unwrap_err();
+        assert!(
+            report_error
+                .to_string()
+                .contains("provider-deferred observation keys")
+        );
+        let error = serde_json::from_value::<RunSnapshot>(duplicate).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("provider-deferred observation keys")
+        );
+
+        let mut oversized = encoded;
+        oversized["report"]["provider_deferred"][0]["correlation_id"] = json!("x".repeat(1_025));
+        let error = serde_json::from_value::<RunSnapshot>(oversized).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("provider correlation identifier")
+        );
+    }
+
+    #[test]
+    fn provider_deferred_observation_debug_redacts_identity_and_payload() {
+        let mut report = ready_report();
+        let item = deferred_item("private-payload");
+        report.observe_provider_deferred("correlation-secret", &item);
+
+        let debug = format!("{:?}", report.provider_deferred()[0]);
+        assert!(!debug.contains("correlation-secret"));
+        assert!(!debug.contains("private-payload"));
     }
 
     #[test]
@@ -1662,7 +1862,7 @@ mod tests {
             target(),
             tool_response(),
             vec![ProviderStateSnapshot {
-                namespace: "test.provider".to_string(),
+                namespace: "provider-deferred:test-provider:test-protocol".to_string(),
                 correlation_id: Some("correlation-secret".to_string()),
                 encoding: "application/octet-stream".to_string(),
                 payload: b"provider-secret".to_vec(),

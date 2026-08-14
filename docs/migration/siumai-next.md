@@ -767,14 +767,17 @@ The former Google `gcp` credential helper is also removed. Supply a short-lived 
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token
 refresh remains under the application's credential policy.
 
-Runtime durable snapshots now use schema version 6. Version 5 and earlier development snapshots use
-the former response-status/finish-reason terminal shape and cannot represent bounded failure or
-cancellation partial output. They are rejected before typed payload decoding and are not migrated
-automatically. Recreate them from trusted application history instead of synthesizing provider
-provenance or terminal state.
+Runtime durable snapshots now use schema version 7. Version 6 and earlier development snapshots use
+an older terminal or provider-state shape and are rejected at the version envelope before typed
+payload decoding; Siumai does not migrate them automatically. Recreate those snapshots from trusted
+application history instead of synthesizing provider provenance, usage settlement, or terminal state.
 
-The schema remains version 6, but the durable execution ABI is now
-`siumai-runtime-durable-v6`. Tool loops preserve caller-supplied model-visible tools, append trusted
+The durable execution ABI remains `siumai-runtime-durable-v6`; snapshot schema and execution ABI are
+independent contracts. Schema v7 records explicit usage settlement and keyed provider-deferred
+observations. A provider-deferred codec namespace contains only provider and protocol; its bounded
+correlation identifier is stored separately and participates in the composite observation key.
+
+Tool loops preserve caller-supplied model-visible tools, append trusted
 local bindings in deterministic name order, and bind snapshots and approvals to the complete
 annotated visible catalog plus exact local execution identities. Snapshots carrying an older
 execution ABI or tool catalog fingerprint are rejected explicitly; restart those beta-era runs

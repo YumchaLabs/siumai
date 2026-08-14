@@ -1,5 +1,6 @@
 //! Observable lifecycle and terminal algebra for one high-level run.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -8,7 +9,8 @@ use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
     AssistantHistoryOmission, Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message,
-    OpaqueProviderItem, PartialLanguageOutput, ToolCall, ToolOutcome, ToolResult, Usage,
+    OpaqueProviderItem, PartialLanguageOutput, ProtocolId, ProviderId, ToolCall, ToolOutcome,
+    ToolResult, Usage,
 };
 
 use crate::snapshot::ToolExecutionLog;
@@ -171,8 +173,85 @@ impl StepRecord {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ProviderDeferredKey {
+    provider: ProviderId,
+    protocol: ProtocolId,
+    correlation_id: String,
+}
+
+impl ProviderDeferredKey {
+    pub(crate) fn new(correlation_id: &str, item: &OpaqueProviderItem) -> Self {
+        Self {
+            provider: item.provenance().provider().clone(),
+            protocol: item.provenance().protocol().clone(),
+            correlation_id: correlation_id.to_string(),
+        }
+    }
+
+    pub(crate) fn correlation_id(&self) -> &str {
+        &self.correlation_id
+    }
+
+    pub(crate) fn namespace(&self) -> String {
+        format!("provider-deferred:{}:{}", self.provider, self.protocol)
+    }
+}
+
+/// One provider-deferred observation retained in a durable run report.
+///
+/// The correlation identifier participates in durable last-observation-wins
+/// identity but is redacted from diagnostics. Serialized snapshots are not an
+/// encryption boundary and retain both fields for deterministic continuation.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderDeferredObservation {
+    correlation_id: String,
+    item: OpaqueProviderItem,
+}
+
+impl ProviderDeferredObservation {
+    pub fn correlation_id(&self) -> &str {
+        &self.correlation_id
+    }
+
+    pub fn item(&self) -> &OpaqueProviderItem {
+        &self.item
+    }
+
+    pub(crate) fn new(correlation_id: String, item: OpaqueProviderItem) -> Self {
+        Self {
+            correlation_id,
+            item,
+        }
+    }
+
+    pub(crate) fn key(&self) -> ProviderDeferredKey {
+        ProviderDeferredKey::new(&self.correlation_id, &self.item)
+    }
+
+    pub(crate) fn has_same_key(&self, other: &Self) -> bool {
+        self.correlation_id == other.correlation_id
+            && self.item.provenance().provider() == other.item.provenance().provider()
+            && self.item.provenance().protocol() == other.item.provenance().protocol()
+    }
+
+    fn matches_key(&self, key: &ProviderDeferredKey) -> bool {
+        self.key().eq(key)
+    }
+}
+
+impl fmt::Debug for ProviderDeferredObservation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderDeferredObservation")
+            .field("correlation_id", &"<redacted>")
+            .field("item", &self.item)
+            .finish()
+    }
+}
+
 /// Durable, provider-neutral trace accumulated before a run terminal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunReport {
     initial_target: ModelTarget,
     messages: Vec<Message>,
@@ -182,7 +261,46 @@ pub struct RunReport {
     usage_settled: bool,
     budget: BudgetLedger,
     execution_log: ToolExecutionLog,
-    provider_deferred: Vec<OpaqueProviderItem>,
+    provider_deferred: Vec<ProviderDeferredObservation>,
+}
+
+#[derive(Deserialize)]
+struct RunReportWire {
+    initial_target: ModelTarget,
+    messages: Vec<Message>,
+    steps: Vec<StepRecord>,
+    model_transitions: Vec<ModelTransitionRecord>,
+    usage: Usage,
+    usage_settled: bool,
+    budget: BudgetLedger,
+    execution_log: ToolExecutionLog,
+    provider_deferred: Vec<ProviderDeferredObservation>,
+}
+
+impl<'de> Deserialize<'de> for RunReport {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = RunReportWire::deserialize(deserializer)?;
+        let report = Self {
+            initial_target: wire.initial_target,
+            messages: wire.messages,
+            steps: wire.steps,
+            model_transitions: wire.model_transitions,
+            usage: wire.usage,
+            usage_settled: wire.usage_settled,
+            budget: wire.budget,
+            execution_log: wire.execution_log,
+            provider_deferred: wire.provider_deferred,
+        };
+        if !report.provider_deferred_keys_are_unique() {
+            return Err(serde::de::Error::custom(
+                "provider-deferred observation keys must be unique",
+            ));
+        }
+        Ok(report)
+    }
 }
 
 impl RunReport {
@@ -240,7 +358,7 @@ impl RunReport {
         &self.execution_log
     }
 
-    pub fn provider_deferred(&self) -> &[OpaqueProviderItem] {
+    pub fn provider_deferred(&self) -> &[ProviderDeferredObservation] {
         &self.provider_deferred
     }
 
@@ -281,8 +399,33 @@ impl RunReport {
         &mut self.execution_log
     }
 
-    pub(crate) fn provider_deferred_mut(&mut self) -> &mut Vec<OpaqueProviderItem> {
-        &mut self.provider_deferred
+    pub(crate) fn observe_provider_deferred(
+        &mut self,
+        correlation_id: &str,
+        item: &OpaqueProviderItem,
+    ) -> ProviderDeferredKey {
+        let key = ProviderDeferredKey::new(correlation_id, item);
+        if let Some(observation) = self
+            .provider_deferred
+            .iter_mut()
+            .find(|observation| observation.matches_key(&key))
+        {
+            observation.item.clone_from(item);
+        } else {
+            self.provider_deferred
+                .push(ProviderDeferredObservation::new(
+                    correlation_id.to_string(),
+                    item.clone(),
+                ));
+        }
+        key
+    }
+
+    pub(crate) fn provider_deferred_keys_are_unique(&self) -> bool {
+        let mut keys = BTreeSet::new();
+        self.provider_deferred
+            .iter()
+            .all(|observation| keys.insert(observation.key()))
     }
 }
 

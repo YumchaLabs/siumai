@@ -206,7 +206,7 @@ impl fmt::Debug for SnapshotFingerprints {
 /// crate's package version. Change the schema version only for incompatible
 /// serialized-shape changes; change this ABI when execution or fingerprint
 /// interpretation changes. The serialized field remains `engine_version` for
-/// snapshot v6 compatibility.
+/// snapshot v7 compatibility.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct SnapshotEngineVersion(String);
@@ -1555,21 +1555,7 @@ impl RunSnapshot {
         }
         if !self.report.usage_is_settled()
             && (self.report.usage() != &Usage::default()
-                || matches!(
-                    &self.resume_point,
-                    ResumePoint::Terminal(
-                        SnapshotTerminal::Cancelled {
-                            partial: Some(_),
-                            ..
-                        } | SnapshotTerminal::Exhausted {
-                            partial: Some(_),
-                            ..
-                        } | SnapshotTerminal::Failed {
-                            partial: Some(_),
-                            ..
-                        }
-                    )
-                ))
+                || requires_settled_usage(&self.report, &self.resume_point))
         {
             return Err(RunSnapshotError::UsageSettlementMismatch);
         }
@@ -1628,6 +1614,31 @@ impl RunSnapshot {
         }
         Ok(())
     }
+}
+
+fn requires_settled_usage(report: &RunReport, resume_point: &ResumePoint) -> bool {
+    !report.steps().is_empty()
+        || matches!(
+            resume_point,
+            ResumePoint::AwaitingApprovals(_)
+                | ResumePoint::AwaitingProvider(_)
+                | ResumePoint::ReadyToDispatch(_)
+                | ResumePoint::Terminal(
+                    SnapshotTerminal::Completed { .. }
+                        | SnapshotTerminal::Cancelled {
+                            partial: Some(_),
+                            ..
+                        }
+                        | SnapshotTerminal::Exhausted {
+                            partial: Some(_),
+                            ..
+                        }
+                        | SnapshotTerminal::Failed {
+                            partial: Some(_),
+                            ..
+                        }
+                )
+        )
 }
 
 impl fmt::Debug for RunSnapshot {
@@ -1752,6 +1763,8 @@ pub enum RunSnapshotError {
     ApprovalPreparedMismatch { call_id: String },
     #[error("provider-state namespaces must be unique")]
     DuplicateProviderStateNamespace,
+    #[error("provider-deferred observation keys must be unique")]
+    DuplicateProviderDeferredObservation,
     #[error("AwaitingApprovals requires at least one pending approval")]
     MissingPendingApproval,
     #[error("ReadyToDispatch cannot retain pending approvals")]
@@ -1765,6 +1778,7 @@ pub enum RunSnapshotError {
 }
 
 fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
+    validate_provider_deferred_observations(report)?;
     let mut expected = 0_u32;
     for step in report.steps() {
         if step.index() != expected {
@@ -1783,6 +1797,28 @@ fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
             .ok_or(RunSnapshotError::ReportStepIndexOverflow)?;
     }
     Ok(expected)
+}
+
+fn validate_provider_deferred_observations(report: &RunReport) -> Result<(), RunSnapshotError> {
+    let mut keys = BTreeSet::new();
+    for observation in report.provider_deferred() {
+        validate_bounded_text(
+            observation.correlation_id(),
+            "provider correlation identifier",
+            MAX_CORRELATION_ID_BYTES,
+            false,
+        )?;
+        let item = observation.item();
+        let key = (
+            item.provenance().provider().as_str(),
+            item.provenance().protocol().as_str(),
+            observation.correlation_id(),
+        );
+        if !keys.insert(key) {
+            return Err(RunSnapshotError::DuplicateProviderDeferredObservation);
+        }
+    }
+    Ok(())
 }
 
 fn validate_model_transitions(
@@ -2116,7 +2152,7 @@ fn validate_provider_step(
         return Err(RunSnapshotError::MissingProviderState);
     }
 
-    let mut provider_namespaces = BTreeSet::new();
+    let mut provider_state_keys = BTreeSet::new();
     for state in step.provider_state() {
         validate_bounded_text(
             &state.namespace,
@@ -2138,7 +2174,8 @@ fn validate_provider_step(
                 false,
             )?;
         }
-        if !provider_namespaces.insert(state.namespace.as_str()) {
+        let provider_state_key = (state.namespace.as_str(), state.correlation_id.as_deref());
+        if !provider_state_keys.insert(provider_state_key) {
             return Err(RunSnapshotError::DuplicateProviderStateNamespace);
         }
     }

@@ -49,8 +49,9 @@ pub use output::{
     StructuredOutputFailureKind, StructuredOutputRepair, StructuredOutputResult,
 };
 pub use run::{
-    IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord, RunEvent, RunReport,
-    RunStopReason, RunStream, RunTerminal, RunTimeoutKind, StepRecord, SuspensionReason,
+    IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord,
+    ProviderDeferredObservation, RunEvent, RunReport, RunStopReason, RunStream, RunTerminal,
+    RunTimeoutKind, StepRecord, SuspensionReason,
 };
 pub use selection::{
     StepModelContext, StepModelSelector, StepModelSelectorIdentity, VersionedStepModelSelector,

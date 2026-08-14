@@ -17,6 +17,7 @@ use siumai_core::{
 };
 
 use crate::approval::VerifiedApproval;
+use crate::run::ProviderDeferredKey;
 use crate::selection::{
     PreparedStepModel, SelectedStepModel, prepare_selected_step_model, select_step_model,
 };
@@ -600,6 +601,7 @@ impl StepEngine {
                 StepStream {
                     stream,
                     provider_states: Vec::new(),
+                    provider_state_positions: BTreeMap::new(),
                     provider_result_ids: BTreeSet::new(),
                     usage: CallUsageReconciler::default(),
                     timeout,
@@ -967,8 +969,7 @@ impl StepEngine {
             Some(event) => {
                 match &event {
                     LanguageStreamEvent::ProviderDeferred { id, state: item } => {
-                        state.provider_states.push((id.clone(), item.clone()));
-                        self.report.provider_deferred_mut().push(item.clone());
+                        state.observe_provider_deferred(&mut self.report, id, item);
                     }
                     LanguageStreamEvent::ToolResult(result) => {
                         state.provider_result_ids.insert(result.call_id.clone());
@@ -2193,9 +2194,32 @@ impl StepEngine {
 struct StepStream {
     stream: LanguageStream,
     provider_states: Vec<(String, siumai_core::OpaqueProviderItem)>,
+    provider_state_positions: BTreeMap<ProviderDeferredKey, usize>,
     provider_result_ids: BTreeSet<String>,
     usage: CallUsageReconciler,
     timeout: Arc<StreamTimeoutState>,
+}
+
+impl StepStream {
+    fn observe_provider_deferred(
+        &mut self,
+        report: &mut RunReport,
+        id: &str,
+        item: &siumai_core::OpaqueProviderItem,
+    ) {
+        let key = report.observe_provider_deferred(id, item);
+        if let Some(position) = self.provider_state_positions.get(&key).copied() {
+            if let Some(observation) = self.provider_states.get_mut(position) {
+                *observation = (id.to_string(), item.clone());
+                return;
+            }
+            self.provider_state_positions.remove(&key);
+        }
+
+        let position = self.provider_states.len();
+        self.provider_states.push((id.to_string(), item.clone()));
+        self.provider_state_positions.insert(key, position);
+    }
 }
 
 #[derive(Default)]
@@ -2415,6 +2439,7 @@ fn provider_state_from_deferred(
     id: &str,
     item: &siumai_core::OpaqueProviderItem,
 ) -> Result<ProviderStateSnapshot, Error> {
+    let key = ProviderDeferredKey::new(id, item);
     let payload = serde_json::to_vec(item).map_err(|error| {
         Error::new(
             ErrorKind::Internal,
@@ -2423,12 +2448,8 @@ fn provider_state_from_deferred(
         .with_source(error)
     })?;
     Ok(ProviderStateSnapshot {
-        namespace: format!(
-            "provider-deferred:{}:{}:{id}",
-            item.provenance().provider(),
-            item.provenance().protocol()
-        ),
-        correlation_id: Some(id.to_string()),
+        namespace: key.namespace(),
+        correlation_id: Some(key.correlation_id().to_string()),
         encoding: "siumai.opaque-provider-item+json".to_string(),
         payload,
     })
@@ -2438,21 +2459,11 @@ fn normalize_provider_states(
     observations: &[(String, siumai_core::OpaqueProviderItem)],
     completed_ids: &BTreeSet<String>,
 ) -> Result<Vec<ProviderStateSnapshot>, Error> {
-    let mut positions = BTreeMap::<String, usize>::new();
-    let mut states = Vec::new();
-    for (id, item) in observations {
-        if completed_ids.contains(id) {
-            continue;
-        }
-        let state = provider_state_from_deferred(id, item)?;
-        if let Some(position) = positions.get(&state.namespace).copied() {
-            states[position] = state;
-        } else {
-            positions.insert(state.namespace.clone(), states.len());
-            states.push(state);
-        }
-    }
-    Ok(states)
+    observations
+        .iter()
+        .filter(|(id, _)| !completed_ids.contains(id))
+        .map(|(id, item)| provider_state_from_deferred(id, item))
+        .collect()
 }
 
 fn execution_log_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {

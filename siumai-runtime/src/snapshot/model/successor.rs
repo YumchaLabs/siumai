@@ -45,7 +45,7 @@ pub enum RunSnapshotSuccessorError {
     ProjectionResultMismatch,
     #[error("successor rewrites or removes completed step history")]
     StepHistoryRegression,
-    #[error("successor rewrites or removes provider-native report history")]
+    #[error("successor removes, reorders, or changes provider-native observation identity")]
     ProviderHistoryRegression,
     #[error("successor rewrites or removes execution-log history")]
     ExecutionLogRegression,
@@ -61,6 +61,8 @@ pub enum RunSnapshotSuccessorError {
         previous: u64,
         next: u64,
     },
+    #[error("successor regresses settled usage state")]
+    UsageSettlementRegression,
     #[error("successor extends or removes deadline {previous:?} with {next:?}")]
     DeadlineRegression {
         previous: Option<u64>,
@@ -119,11 +121,10 @@ impl RunSnapshot {
         if !successor.report.steps().starts_with(self.report.steps()) {
             return Err(RunSnapshotSuccessorError::StepHistoryRegression);
         }
-        if !successor
-            .report
-            .provider_deferred()
-            .starts_with(self.report.provider_deferred())
-        {
+        if !provider_deferred_keys_advance(
+            self.report.provider_deferred(),
+            successor.report.provider_deferred(),
+        ) {
             return Err(RunSnapshotSuccessorError::ProviderHistoryRegression);
         }
         if !successor
@@ -134,10 +135,26 @@ impl RunSnapshot {
             return Err(RunSnapshotSuccessorError::ExecutionLogRegression);
         }
         validate_budget_successor(self.report.budget(), successor.report.budget())?;
-        validate_usage_successor(self.report.usage(), successor.report.usage())?;
+        validate_usage_successor(
+            self.report.usage(),
+            self.report.usage_is_settled(),
+            successor.report.usage(),
+            successor.report.usage_is_settled(),
+        )?;
         validate_deadline_successor(self.deadline_unix_ms, successor.deadline_unix_ms)?;
         validate_resume_successor(&self.resume_point, &successor.resume_point)
     }
+}
+
+fn provider_deferred_keys_advance(
+    previous: &[crate::ProviderDeferredObservation],
+    successor: &[crate::ProviderDeferredObservation],
+) -> bool {
+    successor.len() >= previous.len()
+        && previous
+            .iter()
+            .zip(successor)
+            .all(|(previous, successor)| previous.has_same_key(successor))
 }
 
 fn validate_continuation_successor(
@@ -274,8 +291,13 @@ fn validate_budget_successor(
 
 fn validate_usage_successor(
     previous: &Usage,
+    previous_settled: bool,
     next: &Usage,
+    next_settled: bool,
 ) -> Result<(), RunSnapshotSuccessorError> {
+    if previous_settled && !next_settled {
+        return Err(RunSnapshotSuccessorError::UsageSettlementRegression);
+    }
     for (dimension, previous, next) in [
         ("input_tokens", previous.input_tokens, next.input_tokens),
         ("output_tokens", previous.output_tokens, next.output_tokens),
