@@ -12,7 +12,14 @@ pub mod models {
     };
 }
 
+pub mod common {
+    pub use siumai_provider_openai::{
+        OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity,
+    };
+}
+
 pub mod chat_completions {
+    pub use super::common::{OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity};
     pub use siumai_provider_openai::{OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions};
 }
 

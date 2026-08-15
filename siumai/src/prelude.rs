@@ -5,10 +5,10 @@ pub use crate::{
     CallOptions, Cancellation, ContentPart, EmbeddingModel, EmbeddingRequest, EmbeddingResponse,
     Error, ImageModel, ImageRequest, ImageResponse, LanguageCallError, LanguageCompletionReason,
     LanguageIncompleteReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
-    LanguageStreamEvent, LanguageTermination, Message, MessageRole, Model, ModelDescriptor,
-    ModelFamily, ModelId, PartialLanguageOutput, Provider, ProviderId, RerankCandidate,
-    RerankModel, RerankRequest, RerankResponse, SpeechModel, SpeechRequest, SpeechResponse,
-    StreamTerminal, ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest,
+    LanguageStreamEvent, LanguageTermination, Message, MessagePart, MessageRole, Model,
+    ModelDescriptor, ModelFamily, ModelId, PartialLanguageOutput, Provider, ProviderId,
+    RerankCandidate, RerankModel, RerankRequest, RerankResponse, SpeechModel, SpeechRequest,
+    SpeechResponse, StreamTerminal, ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest,
     TranscriptionResponse, Usage, UsageUpdate, UsageUpdateKind,
 };
 

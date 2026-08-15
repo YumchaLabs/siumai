@@ -386,6 +386,9 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     use siumai::providers::openai::audio::transcription::{
         GPT_4O_TRANSCRIBE, OpenAiTranscriptionOptions,
     };
+    use siumai::providers::openai::chat_completions::{
+        OpenAiChatCompletionsOptions, OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity,
+    };
     use siumai::providers::openai::embeddings::{OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_SMALL};
     use siumai::providers::openai::experimental::skills::{
         OpenAiSkillUpload, OpenAiSkillsProviderExt,
@@ -430,6 +433,13 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     let _ = OpenAiSpeechOptions::default();
     let _ = OpenAiTranscriptionOptions::default();
     let _ = OpenAiContentOptions::prompt_cache_breakpoint();
+    let _: siumai::MessagePart = MessagePart::text("facade message part");
+    let _ = OpenAiChatCompletionsOptions {
+        reasoning_effort: Some(OpenAiReasoningEffort::High),
+        service_tier: Some(OpenAiServiceTier::Priority),
+        text_verbosity: Some(OpenAiTextVerbosity::Low),
+        ..OpenAiChatCompletionsOptions::default()
+    };
     let _ = OpenAiResponsesOptions {
         context_management: vec![OpenAiContextManagement::compaction(None)],
         ..OpenAiResponsesOptions::default()
