@@ -484,9 +484,8 @@ Prompt-cache intent no longer uses numeric message/content selectors or an untyp
 Attach a typed MiniMax cache marker to the semantic node it modifies:
 
 ```rust,no_run
-use siumai::core::MessagePart;
 use siumai::providers::minimax::MinimaxContentCache;
-use siumai::{LanguageRequest, Message, MessageRole};
+use siumai::{LanguageRequest, Message, MessagePart, MessageRole};
 
 let cached_context = MessagePart::text("A large reusable context")
     .with_provider_annotation(&MinimaxContentCache::new())?;
@@ -505,9 +504,8 @@ wire breakpoint; it does not classify the node as historical or as a write candi
 predict whether OpenAI will read or write cache state:
 
 ```rust,no_run
-use siumai::core::MessagePart;
 use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
-use siumai::{LanguageRequest, Message, MessageRole};
+use siumai::{LanguageRequest, Message, MessagePart, MessageRole};
 
 let cached = MessagePart::text("A stable reusable prefix")
     .with_provider_annotation(&OpenAiContentOptions::prompt_cache_breakpoint())?;
