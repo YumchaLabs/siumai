@@ -22,12 +22,25 @@ use crate::error::McpBackendSource;
 use crate::transport::{BoundedChildProcess, http_transport, sensitive_details};
 use crate::{McpClientConfig, McpError, McpHttpEndpointPolicy};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct McpProgress {
     pub progress_token: Value,
     pub progress: f64,
     pub total: Option<f64>,
     pub message: Option<String>,
+}
+
+impl std::fmt::Debug for McpProgress {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("McpProgress")
+            .field("progress_token", &"[REDACTED]")
+            .field("progress", &self.progress)
+            .field("total", &self.total)
+            .field("has_message", &self.message.is_some())
+            .field("message_bytes", &self.message.as_ref().map(String::len))
+            .finish()
+    }
 }
 
 #[derive(Default)]
@@ -813,6 +826,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn progress_debug_redacts_token_and_message() {
+        let progress = McpProgress {
+            progress_token: json!({"token": "progress-token-canary"}),
+            progress: 1.0,
+            total: Some(2.0),
+            message: Some("progress-message-canary".to_string()),
+        };
+
+        let debug = format!("{progress:?}");
+        assert!(debug.contains("progress: 1.0"));
+        assert!(debug.contains("has_message: true"));
+        assert!(!debug.contains("progress-token-canary"));
+        assert!(!debug.contains("progress-message-canary"));
     }
 
     #[tokio::test]

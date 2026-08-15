@@ -26,7 +26,7 @@ impl std::fmt::Display for McpCatalogFingerprint {
 }
 
 /// One discovered MCP tool and its lossless bounded native definition.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpToolDefinition {
     remote_name: String,
     exposed_name: String,
@@ -34,6 +34,33 @@ pub struct McpToolDefinition {
     input_schema: Value,
     native_definition: Value,
     revision: Arc<str>,
+}
+
+impl std::fmt::Debug for McpToolDefinition {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("McpToolDefinition")
+            .field("remote_name_bytes", &self.remote_name.len())
+            .field("exposed_name_bytes", &self.exposed_name.len())
+            .field(
+                "description_bytes",
+                &self.description.as_ref().map(String::len),
+            )
+            .field(
+                "input_schema_bytes",
+                &serde_json::to_vec(&self.input_schema)
+                    .ok()
+                    .map(|bytes| bytes.len()),
+            )
+            .field(
+                "native_definition_bytes",
+                &serde_json::to_vec(&self.native_definition)
+                    .ok()
+                    .map(|bytes| bytes.len()),
+            )
+            .field("revision_bytes", &self.revision.len())
+            .finish()
+    }
 }
 
 impl McpToolDefinition {
@@ -220,4 +247,37 @@ pub(crate) fn catalog_fingerprint(definitions: &[McpToolDefinition]) -> McpCatal
         encoded.push_str(&format!("{byte:02x}"));
     }
     McpCatalogFingerprint(encoded.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn tool_definition_debug_exposes_only_structural_metadata() {
+        let definition = McpToolDefinition {
+            remote_name: "remote-name-canary".to_string(),
+            exposed_name: "exposed-name-canary".to_string(),
+            description: Some("description-canary".to_string()),
+            input_schema: json!({"secret": "schema-canary"}),
+            native_definition: json!({"authorization": "native-canary"}),
+            revision: Arc::from("revision-canary"),
+        };
+
+        let debug = format!("{definition:?}");
+        assert!(debug.contains("remote_name_bytes"));
+        assert!(debug.contains("native_definition_bytes"));
+        for canary in [
+            "remote-name-canary",
+            "exposed-name-canary",
+            "description-canary",
+            "schema-canary",
+            "native-canary",
+            "revision-canary",
+        ] {
+            assert!(!debug.contains(canary));
+        }
+    }
 }
