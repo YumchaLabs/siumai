@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,7 +79,7 @@ impl AnthropicThinking {
 /// Unknown request fields can be carried in `extra`. Exact top-level canonical
 /// request and transport-authority names remain protected; nested provider-body
 /// data is bounded by the protocol codec and does not gain HTTP authority.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "snake_case")]
 pub struct AnthropicMessagesOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +110,28 @@ pub struct AnthropicMessagesOptions {
     mcp_servers: Option<Vec<McpServer>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for AnthropicMessagesOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AnthropicMessagesOptions")
+            .field("has_metadata", &self.metadata.is_some())
+            .field("has_thinking", &self.thinking.is_some())
+            .field("has_output_effort", &self.output_effort.is_some())
+            .field("has_task_budget", &self.task_budget.is_some())
+            .field("has_fallbacks", &self.fallbacks.is_some())
+            .field("has_top_k", &self.top_k.is_some())
+            .field("has_service_tier", &self.service_tier.is_some())
+            .field("has_cache_control", &self.cache_control.is_some())
+            .field("has_speed", &self.speed.is_some())
+            .field("has_inference_geo", &self.inference_geo.is_some())
+            .field("has_container", &self.container.is_some())
+            .field("has_context_management", &self.context_management.is_some())
+            .field("mcp_server_count", &self.mcp_servers.as_ref().map(Vec::len))
+            .field("extra_field_count", &self.extra.len())
+            .finish()
+    }
 }
 
 impl AnthropicMessagesOptions {
@@ -549,5 +572,31 @@ impl TypedProviderOptions for AnthropicMessagesOptions {
                 reason: error.to_string(),
             })?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn debug_redacts_nested_provider_body_values() {
+        let options = AnthropicMessagesOptions::new()
+            .try_with_extra(
+                "future_feature",
+                json!({
+                    "headers": {"Authorization": "provider-body-token-canary"},
+                    "url": "https://private.example/mcp?token=url-canary"
+                }),
+            )
+            .unwrap();
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(!debug.contains("provider-body-token-canary"));
+        assert!(!debug.contains("url-canary"));
+        assert!(!debug.contains("Authorization"));
     }
 }

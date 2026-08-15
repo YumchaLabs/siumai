@@ -171,13 +171,26 @@ impl FunctionToolEncodingOptions {
 
 /// Protocol-owned request shaping. Provider crates keep typed user options and
 /// translate them into this wire-focused structure after applying precedence.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RequestEncodingOptions {
     stream: Option<bool>,
     extra: BTreeMap<String, Value>,
     native_tools: Vec<Value>,
     function_tools: BTreeMap<String, FunctionToolEncodingOptions>,
     media_dialect: ResponsesMediaDialect,
+}
+
+impl fmt::Debug for RequestEncodingOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RequestEncodingOptions")
+            .field("stream", &self.stream)
+            .field("extra_field_count", &self.extra.len())
+            .field("native_tool_count", &self.native_tools.len())
+            .field("function_tool_count", &self.function_tools.len())
+            .field("media_dialect", &self.media_dialect)
+            .finish()
+    }
 }
 
 impl RequestEncodingOptions {
@@ -1072,4 +1085,29 @@ fn insert_optional_f64(
         object.insert(key.to_string(), Value::Number(number));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    fn request_options_debug_redacts_raw_provider_values() {
+        let options = RequestEncodingOptions::new(false)
+            .with_extra(BTreeMap::from([(
+                "prompt_cache_options".to_string(),
+                json!({"authorization_token": "responses-extra-canary"}),
+            )]))
+            .with_native_tool(json!({
+                "type": "mcp",
+                "headers": {"Authorization": "responses-tool-canary"}
+            }));
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(debug.contains("native_tool_count: 1"));
+        assert!(!debug.contains("responses-extra-canary"));
+        assert!(!debug.contains("responses-tool-canary"));
+        assert!(!debug.contains("Authorization"));
+    }
 }

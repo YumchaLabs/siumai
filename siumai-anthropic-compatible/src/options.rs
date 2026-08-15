@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -20,7 +21,7 @@ use siumai_protocol_anthropic::messages::{
 /// At most one checked raw patch is retained as the final body overlay. It replaces whole
 /// top-level fields after canonical encoding; exact canonical request and transport-authority
 /// names remain protected, while nested provider-body data is inert to transport.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
     thinking: Option<ThinkingConfig>,
@@ -37,6 +38,29 @@ pub struct MessagesCallOptions {
     mcp_servers: Option<Vec<McpServer>>,
     extra: BTreeMap<String, Value>,
     raw_body_overlay: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for MessagesCallOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesCallOptions")
+            .field("has_metadata", &self.metadata.is_some())
+            .field("has_thinking", &self.thinking.is_some())
+            .field("has_output_effort", &self.output_effort.is_some())
+            .field("has_task_budget", &self.task_budget.is_some())
+            .field("has_fallbacks", &self.fallbacks.is_some())
+            .field("has_top_k", &self.top_k.is_some())
+            .field("has_service_tier", &self.service_tier.is_some())
+            .field("has_cache_control", &self.cache_control.is_some())
+            .field("has_speed", &self.speed.is_some())
+            .field("has_inference_geo", &self.inference_geo.is_some())
+            .field("has_container", &self.container.is_some())
+            .field("has_context_management", &self.context_management.is_some())
+            .field("mcp_server_count", &self.mcp_servers.as_ref().map(Vec::len))
+            .field("extra_field_count", &self.extra.len())
+            .field("raw_overlay_field_count", &self.raw_body_overlay.len())
+            .finish()
+    }
 }
 
 impl MessagesCallOptions {
@@ -626,5 +650,26 @@ mod tests {
             "nested-token-canary"
         );
         assert_eq!(body["x-token-count-mode"], "provider-defined");
+    }
+
+    #[test]
+    fn debug_redacts_typed_extra_and_raw_overlay_values() {
+        let mut options = MessagesCallOptions::new().with_extra(BTreeMap::from([(
+            "typed_extra".to_string(),
+            json!({"token": "typed-extra-canary"}),
+        )]));
+        let raw = ProviderOptions::checked_raw(
+            ProviderId::new("anthropic").expect("provider"),
+            json!({"future_feature": {"authorization_token": "raw-overlay-canary"}}),
+        )
+        .expect("bounded raw options");
+        options.apply(parse_patch(&raw).expect("raw patch"));
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(debug.contains("raw_overlay_field_count: 1"));
+        assert!(!debug.contains("typed-extra-canary"));
+        assert!(!debug.contains("raw-overlay-canary"));
+        assert!(!debug.contains("authorization_token"));
     }
 }

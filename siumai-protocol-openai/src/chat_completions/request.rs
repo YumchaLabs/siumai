@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use base64::Engine;
 use serde_json::{Map, Value, json};
@@ -36,10 +37,20 @@ pub fn is_protected_option_field(name: &str) -> bool {
 }
 
 /// Protocol-owned Chat Completions request shaping.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ChatRequestEncodingOptions {
     stream: bool,
     extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for ChatRequestEncodingOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ChatRequestEncodingOptions")
+            .field("stream", &self.stream)
+            .field("extra_field_count", &self.extra.len())
+            .finish()
+    }
 }
 
 impl ChatRequestEncodingOptions {
@@ -718,5 +729,19 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn request_options_debug_redacts_raw_provider_values() {
+        let options = ChatRequestEncodingOptions::new(true).with_extra(BTreeMap::from([(
+            "prompt_cache_options".to_string(),
+            json!({"authorization_token": "chat-extra-canary"}),
+        )]));
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("stream: true"));
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(!debug.contains("chat-extra-canary"));
+        assert!(!debug.contains("authorization_token"));
     }
 }
