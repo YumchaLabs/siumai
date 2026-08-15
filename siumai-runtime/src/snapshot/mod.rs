@@ -32,12 +32,13 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        ContentAnnotationTarget, ContentPart, LanguageCompletionReason, LanguageIncompleteReason,
-        LanguageRequest, LanguageResponse, LanguageTermination, Message, MessageAnnotationTarget,
-        MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem,
-        PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
-        ProviderProvenance, ReplayDomain, ReplayDomainId, RouteId, ToolAnnotationTarget,
-        ToolBindingIdentity, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
+        ApiModeId, ContentAnnotationTarget, ContentPart, LanguageCompletionReason,
+        LanguageIncompleteReason, LanguageRequest, LanguageResponse, LanguageTermination, Message,
+        MessageAnnotationTarget, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
+        ModelId, OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputPart, PlatformId,
+        ProtocolId, ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, RouteId,
+        ToolAnnotationTarget, ToolBindingIdentity, ToolCall, ToolOutcome, ToolSpec,
+        TypedProviderAnnotation, Usage,
     };
 
     use super::*;
@@ -213,13 +214,29 @@ mod tests {
     }
 
     fn deferred_item(status: &str) -> OpaqueProviderItem {
+        deferred_item_in_scope(
+            status,
+            "deferred-platform",
+            "deferred-mode",
+            "snapshot-deferred",
+        )
+    }
+
+    fn deferred_item_in_scope(
+        status: &str,
+        platform: &str,
+        api_mode: &str,
+        replay_domain: &str,
+    ) -> OpaqueProviderItem {
         let target = ModelTarget::new(
             ProviderId::new("deferred-provider").unwrap(),
             ModelId::new("deferred-model").unwrap(),
         )
+        .with_platform(PlatformId::new(platform).unwrap())
         .with_protocol(ProtocolId::new("deferred.protocol").unwrap())
+        .with_api_mode(ApiModeId::new(api_mode).unwrap())
         .with_replay_domain(ReplayDomain::custom(
-            ReplayDomainId::new("snapshot-deferred").unwrap(),
+            ReplayDomainId::new(replay_domain).unwrap(),
         ));
         OpaqueProviderItem::new(
             ProviderProvenance::from_scope(target.scope(), target.model().clone()).unwrap(),
@@ -1660,6 +1677,48 @@ mod tests {
         assert_eq!(
             successor.report().provider_deferred()[0].item().data()["status"],
             "in_progress"
+        );
+    }
+
+    #[test]
+    fn provider_deferred_identity_includes_complete_replay_scope() {
+        let observations = [
+            deferred_item_in_scope("platform", "platform-a", "mode-a", "domain-a"),
+            deferred_item_in_scope("api-mode", "platform-b", "mode-b", "domain-a"),
+            deferred_item_in_scope("replay-domain", "platform-b", "mode-a", "domain-b"),
+            deferred_item_in_scope("baseline", "platform-b", "mode-a", "domain-a"),
+        ];
+        let mut report = ready_report();
+        for item in &observations {
+            report.observe_provider_deferred("shared-correlation", item);
+        }
+
+        assert_eq!(report.provider_deferred().len(), observations.len());
+        let round_trip: RunReport = serde_json::from_value(serde_json::to_value(&report).unwrap())
+            .expect("distinct replay scopes remain valid after serialization");
+        assert_eq!(round_trip.provider_deferred().len(), observations.len());
+    }
+
+    #[test]
+    fn provider_deferred_successor_rejects_scope_substitution() {
+        let mut current_report = ready_report();
+        let current_item = deferred_item_in_scope("queued", "platform-a", "mode-a", "domain-a");
+        current_report.observe_provider_deferred("shared-correlation", &current_item);
+        let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let mut successor_report = ready_report();
+        let substituted_item = deferred_item_in_scope("queued", "platform-a", "mode-a", "domain-b");
+        successor_report.observe_provider_deferred("shared-correlation", &substituted_item);
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            successor_report,
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
         );
     }
 

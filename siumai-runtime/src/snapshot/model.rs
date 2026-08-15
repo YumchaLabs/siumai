@@ -1808,12 +1808,7 @@ fn validate_provider_deferred_observations(report: &RunReport) -> Result<(), Run
             MAX_CORRELATION_ID_BYTES,
             false,
         )?;
-        let item = observation.item();
-        let key = (
-            item.provenance().provider().as_str(),
-            item.provenance().protocol().as_str(),
-            observation.correlation_id(),
-        );
+        let key = observation.key();
         if !keys.insert(key) {
             return Err(RunSnapshotError::DuplicateProviderDeferredObservation);
         }

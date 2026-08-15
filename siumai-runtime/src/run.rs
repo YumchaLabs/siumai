@@ -9,8 +9,8 @@ use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
     AssistantHistoryOmission, Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message,
-    OpaqueProviderItem, PartialLanguageOutput, ProtocolId, ProviderId, ToolCall, ToolOutcome,
-    ToolResult, Usage,
+    OpaqueProviderItem, PartialLanguageOutput, ProviderScope, ToolCall, ToolOutcome, ToolResult,
+    Usage,
 };
 
 use crate::snapshot::ToolExecutionLog;
@@ -175,16 +175,14 @@ impl StepRecord {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct ProviderDeferredKey {
-    provider: ProviderId,
-    protocol: ProtocolId,
+    scope: ProviderScope,
     correlation_id: String,
 }
 
 impl ProviderDeferredKey {
     pub(crate) fn new(correlation_id: &str, item: &OpaqueProviderItem) -> Self {
         Self {
-            provider: item.provenance().provider().clone(),
-            protocol: item.provenance().protocol().clone(),
+            scope: item.provenance().scope().clone(),
             correlation_id: correlation_id.to_string(),
         }
     }
@@ -194,7 +192,13 @@ impl ProviderDeferredKey {
     }
 
     pub(crate) fn namespace(&self) -> String {
-        format!("provider-deferred:{}:{}", self.provider, self.protocol)
+        format!(
+            "provider-deferred:{}:{}",
+            self.scope.provider_id(),
+            self.scope
+                .protocol()
+                .expect("validated provider scope has protocol")
+        )
     }
 }
 
@@ -231,14 +235,11 @@ impl ProviderDeferredObservation {
 
     pub(crate) fn has_same_key(&self, other: &Self) -> bool {
         self.correlation_id == other.correlation_id
-            && self.item.provenance().provider() == other.item.provenance().provider()
-            && self.item.provenance().protocol() == other.item.provenance().protocol()
+            && self.item.provenance().scope() == other.item.provenance().scope()
     }
 
     fn matches_key(&self, key: &ProviderDeferredKey) -> bool {
-        self.correlation_id == key.correlation_id
-            && self.item.provenance().provider() == &key.provider
-            && self.item.provenance().protocol() == &key.protocol
+        self.correlation_id == key.correlation_id && self.item.provenance().scope() == &key.scope
     }
 }
 
