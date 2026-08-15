@@ -13,7 +13,7 @@ use crate::provider_options::{
     CohereEmbeddingInputType, CohereEmbeddingOptions, CohereEmbeddingTruncate, CohereRerankOptions,
 };
 
-use super::CohereProvider;
+use super::{CohereProvider, CohereTranscriptionRequest};
 
 fn test_provider(server: &MockServer) -> CohereProvider {
     test_provider_with_retry(server, RetryPolicy::default())
@@ -66,6 +66,72 @@ fn official_profile_covers_current_embedding_and_rerank_models() {
         profile.catalog().expect("model catalog").iter().count(),
         crate::models::CURRENT_EMBEDDING_MODELS.len() + crate::models::CURRENT_RERANK_MODELS.len()
     );
+    let native_claims = provider.support_manifest().native_claims();
+    assert_eq!(native_claims.len(), 1);
+    assert_eq!(
+        native_claims[0]
+            .scope()
+            .binding()
+            .surface_id()
+            .expect("transcription surface")
+            .as_str(),
+        "audio-transcriptions"
+    );
+}
+
+#[tokio::test]
+async fn audio_transcription_uses_model_less_multipart_contract() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/audio/transcriptions"))
+        .and(header("authorization", "Bearer test-api-key"))
+        .and(header("accept", "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-request-id", "transcription-request")
+                .set_body_json(serde_json::json!({ "text": "hello world" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = test_provider(&server);
+    let response = provider
+        .transcriptions()
+        .create(
+            CohereTranscriptionRequest::new(vec![1_u8, 2, 3], "audio/wav", "en")
+                .unwrap()
+                .with_temperature(0.25)
+                .unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.text, "hello world");
+    assert_eq!(response.language, None);
+    assert_eq!(
+        response.metadata.request_id.as_deref(),
+        Some("transcription-request")
+    );
+    assert_eq!(response.usage.input_tokens, UsageValue::Unknown);
+
+    let requests = server.received_requests().await.unwrap();
+    let body = String::from_utf8_lossy(&requests[0].body);
+    for expected in [
+        "name=\"file\"",
+        "filename=\"audio.wav\"",
+        "name=\"language\"",
+        "\r\n\r\nen\r\n",
+        "name=\"temperature\"",
+        "\r\n\r\n0.25\r\n",
+    ] {
+        assert!(
+            body.contains(expected),
+            "missing multipart value {expected}"
+        );
+    }
+    assert!(!body.contains("name=\"model\""));
 }
 
 #[test]
@@ -125,6 +191,19 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
             .embedding_model(ModelId::new("future-embed-model").expect("future model ID"))
             .is_ok()
     );
+
+    let custom = CohereProvider::builder("test-api-key")
+        .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9/v2").unwrap())
+        .build()
+        .unwrap();
+    assert!(
+        custom
+            .profile()
+            .provider_profile()
+            .generic_claim()
+            .is_some()
+    );
+    assert!(custom.support_manifest().native_claims().is_empty());
 }
 
 #[tokio::test]

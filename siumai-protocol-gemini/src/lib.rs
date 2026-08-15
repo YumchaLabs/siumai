@@ -9,3 +9,6 @@ pub mod generate_content;
 
 /// Gemini Interactions request and response codecs.
 pub mod interactions;
+
+/// Gemini v1beta multimodal embedding request and response codecs.
+pub mod multimodal_embedding;

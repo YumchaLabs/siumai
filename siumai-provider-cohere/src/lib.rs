@@ -1,6 +1,6 @@
 //! siumai-provider-cohere
 //!
-//! Cohere embedding and rerank provider for siumai.
+//! Cohere embedding, rerank, and audio transcription provider for siumai.
 #![deny(unsafe_code)]
 
 mod configured;
@@ -8,7 +8,7 @@ pub mod models;
 
 pub use configured::{
     CohereConfigError, CohereEmbeddingModel, CohereProfile, CohereProfileError, CohereProvider,
-    CohereProviderBuilder, CohereRerankModel,
+    CohereProviderBuilder, CohereRerankModel, CohereTranscriptionRequest, CohereTranscriptions,
 };
 
 /// Provider-owned typed option structs (Cohere-specific).

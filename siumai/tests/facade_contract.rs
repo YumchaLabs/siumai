@@ -317,6 +317,20 @@ fn facade_registration_sources_cover_all_six_stable_families() {
     assert_registration_source::<elevenlabs::ElevenLabsProvider>();
 }
 
+#[cfg(feature = "cohere")]
+#[test]
+fn facade_exposes_cohere_model_less_transcription_resource() {
+    use siumai::providers::cohere::{
+        CohereProvider, CohereTranscriptionRequest, CohereTranscriptions,
+    };
+
+    let provider = CohereProvider::builder("test-key").build().unwrap();
+    let _: CohereTranscriptions = provider.transcriptions();
+    let request = CohereTranscriptionRequest::new(vec![1_u8], "audio/wav", "en").unwrap();
+    assert_eq!(request.language(), "en");
+    assert_eq!(provider.support_manifest().native_claims().len(), 1);
+}
+
 #[cfg(feature = "openai-compatible")]
 #[test]
 fn facade_exposes_explicit_responses_wire_dialects() {
@@ -462,7 +476,8 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
     use siumai::core::{ApiStability, Model, ModelFamily, ProviderOptions, VerifiedFidelity};
     use siumai::providers::google::models::{
         GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_3_6_FLASH,
-        GEMINI_EMBEDDING_001, current_image_models, current_interactions_models,
+        GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2, current_image_models,
+        current_interactions_models,
     };
     use siumai::providers::google::options::{
         GeminiEmbeddingOptions, GeminiEmbeddingTaskType, GeminiGenerateContentOptions,
@@ -470,7 +485,10 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
         GeminiGenerateContentThinkingLevel, GeminiImageAspectRatio, GeminiImageOptions,
         GeminiImageSize, GeminiInteractionsOptions, GeminiSpeechOptions, GeminiThinkingLevel,
     };
-    use siumai::providers::google::{GeminiCredential, GeminiProvider};
+    use siumai::providers::google::{
+        GeminiCredential, GeminiEmbeddingContentPart, GeminiMultimodalEmbeddingRequest,
+        GeminiProvider,
+    };
 
     let provider = GeminiProvider::builder(GeminiCredential::api_key("test-key"))
         .build()
@@ -504,6 +522,14 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
             .as_str(),
         GEMINI_EMBEDDING_001
     );
+    let multimodal = provider.multimodal_embedding(GEMINI_EMBEDDING_2).unwrap();
+    assert_eq!(
+        multimodal.descriptor().api_mode(),
+        Some("embed-content-v1beta-multimodal")
+    );
+    let _ =
+        GeminiMultimodalEmbeddingRequest::new([GeminiEmbeddingContentPart::text("hello").unwrap()])
+            .unwrap();
     assert_eq!(
         provider
             .speech(GEMINI_3_1_FLASH_TTS_PREVIEW)
@@ -583,7 +609,7 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
             .filter(|claim| claim.scope().api_mode().as_str() != "interactions-speech")
             .all(|claim| claim.stability() == ApiStability::Stable)
     );
-    assert_eq!(provider.support_manifest().native_claims().len(), 2);
+    assert_eq!(provider.support_manifest().native_claims().len(), 3);
     assert!(
         provider
             .support_manifest()
@@ -601,6 +627,16 @@ fn facade_exposes_the_current_google_multi_family_and_native_slices() {
             .any(|claim| {
                 claim.scope().binding().surface_id().map(|id| id.as_str())
                     == Some("veo-predict-long-running")
+            })
+    );
+    assert!(
+        provider
+            .support_manifest()
+            .native_claims()
+            .iter()
+            .any(|claim| {
+                claim.scope().binding().api_mode().map(|id| id.as_str())
+                    == Some("embed-content-v1beta-multimodal")
             })
     );
 }

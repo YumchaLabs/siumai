@@ -8,6 +8,7 @@ mod http;
 mod image;
 mod language;
 mod models;
+mod multimodal_embedding;
 mod options;
 mod profile;
 mod provider;
@@ -33,6 +34,9 @@ pub use models::{
     GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_5_FLASH, GEMINI_3_5_FLASH_LITE,
     GEMINI_3_6_FLASH, GEMINI_3_PRO_IMAGE, current_image_models, current_interactions_models,
 };
+pub use multimodal_embedding::{
+    GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID, GeminiMultimodalEmbeddingModel,
+};
 pub use options::{
     GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize, GeminiInteractionStorage,
     GeminiInteractionsOptions, GeminiThinkingLevel, GeminiThinkingSummaries,
@@ -41,6 +45,10 @@ pub use profile::{GeminiProfile, GeminiProfileError};
 pub use provider::{GeminiConfigError, GeminiCredential, GeminiProvider, GeminiProviderBuilder};
 pub use siumai_protocol_gemini::generate_content::DecodedGenerateContent as GeminiDecodedGenerateContent;
 pub use siumai_protocol_gemini::interactions::DecodedInteraction as GeminiDecodedInteraction;
+pub use siumai_protocol_gemini::multimodal_embedding::{
+    GeminiEmbeddingContentPart, GeminiEmbeddingModalityUsage, GeminiMultimodalEmbeddingRequest,
+    GeminiMultimodalEmbeddingResponse,
+};
 pub use speech::{
     GEMINI_2_5_FLASH_PREVIEW_TTS, GEMINI_2_5_PRO_PREVIEW_TTS, GEMINI_3_1_FLASH_TTS_PREVIEW,
     GEMINI_SPEECH_API_MODE_ID, GeminiSpeechModel, GeminiSpeechOptions,

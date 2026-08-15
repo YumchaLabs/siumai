@@ -78,7 +78,7 @@ every account can use every model or endpoint.
 | `openai-realtime` | Experimental native Realtime bootstrap and session transport | A stable provider-neutral realtime family |
 | `openai-responses-websocket` | Experimental provider-owned persistent Responses WebSocket sessions over the official OpenAI endpoint | A provider-neutral session family, concurrent turns on one connection, or an official claim for caller-controlled endpoints |
 | `anthropic` | Native Messages plus Anthropic-owned Files, Message Batches, token counting, and Skills metadata/version CRUD with bounded multipart uploads | Agents/Sessions, OpenAI-shaped language modes, hidden batch polling or result-count reconciliation, client-side ZIP inspection, Skill version-content download, or a universal native-resource client |
-| `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, buffered speech, Files metadata, and Veo submit/status | Multimodal embedding, stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
+| `google` | Stable-v1 Interactions language/image, explicit stable-v1 Legacy GenerateContent, text embedding, provider-native single-content v1beta multimodal embedding, buffered speech, Files metadata, and Veo submit/status | Multimodal batch embedding, stored/background Interactions, Live, File upload/register, broad Veo workflows, and broad Vertex support |
 | `google-vertex-anthropic` | Verified Anthropic Messages execution on the caller-selected Vertex project and location | Vertex Gemini/media APIs or an SDK-maintained region/model catalog |
 | `alibaba` | Verified Chat Completions, Responses, and Anthropic-compatible Messages modes, native embeddings, and experimental Wan video jobs | Complete Anthropic parity, a separate DashScope provider identity, or business-region routing |
 | `moonshotai` | Verified Moonshot AI Kimi Chat Completions dialect with typed Kimi options, Partial Mode, and Files lifecycle | Kimi Batch, token-estimate, Formula, or other resources not implemented by the branded provider |
@@ -88,7 +88,7 @@ every account can use every model or endpoint.
 | `xai` | Responses-primary language with explicit Chat Completions, typed hosted tools, portable image/speech/final transcription, Files lifecycle, and typed video jobs | Realtime, Batch, image/video editing, or a generic native-resource client |
 | `minimax` | Verified Messages, Chat Completions, and bounded Responses modes; portable image and buffered speech; native files, media, input-token counting, and voice lifecycle resources | WebSocket speech streaming, cross-provider media/voice abstractions, or hidden polling workflows |
 | `deepseek` | Verified Chat Completions, explicit beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes | Unverified non-language products |
-| `cohere` | Native v2 embedding, including Embed v4, and rerank through Rerank v4/v3 | Cohere chat or transcription |
+| `cohere` | Native v2 embedding, including Embed v4, rerank through Rerank v4/v3, and model-less audio transcription | Cohere chat or streaming transcription |
 | `deepgram` | Native final-result prerecorded transcription plus portable buffered Aura speech | Flux/live transcription or legacy-model lifecycle claims |
 | `elevenlabs` | Native buffered speech synthesis plus portable final-result/batch transcription | Streaming speech, realtime transcription sessions, or broad resource clients |
 
@@ -182,8 +182,10 @@ portable model families.
 | `anthropic` / Anthropic | `anthropic` / `anthropic-api` | Resource / `skills` | `native` | `experimental` | https://platform.claude.com/docs/en/build-with-claude/skills-guide | 2026-08-11 |
 | `google` / Google Gemini | `google` / `gemini-api` | Resource / `files-metadata` | `native` | `stable` | https://ai.google.dev/gemini-api/docs/files | 2026-08-08 |
 | `google` / Google Gemini | `google` / `gemini-api` | Job / `veo-predict-long-running` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/veo | 2026-08-14 |
+| `google` / Google Gemini | `google` / `gemini-api` | Resource / `gemini-embed-content` / `embed-content-v1beta-multimodal` | `native` | `experimental` | https://ai.google.dev/gemini-api/docs/embeddings | 2026-08-15 |
 | `alibaba` / Alibaba | `alibaba` / `alibaba-model-studio` | Job / `video-tasks` | `native` | `experimental` | https://www.alibabacloud.com/help/en/model-studio/text-to-video-api-reference | 2026-08-06 |
 | `moonshotai` / Kimi | `moonshotai` / `kimi-public-api` | Resource / `files-basic-lifecycle` | `native` | `stable` | https://platform.kimi.ai/docs/api/files | 2026-08-08 |
+| `cohere` / Cohere | `cohere` / `public-api` | Resource / `audio-transcriptions` | `native` | `stable` | https://docs.cohere.com/reference/create-audio-transcription | 2026-08-15 |
 | `groq` / Groq | `groq` / `groq-cloud` | Resource / `url-audio-transcription` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
 | `groq` / Groq | `groq` / `groq-cloud` | Resource / `audio-translation` | `native` | `stable` | https://console.groq.com/docs/speech-to-text | 2026-08-09 |
 | `xai` / xAI | `xai` / `xai-public-api` | Resource / `files-lifecycle` | `native` | `stable` | https://docs.x.ai/developers/files/managing-files | 2026-08-09 |

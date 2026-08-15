@@ -7,11 +7,11 @@ use chrono::NaiveDate;
 use http::header::{HeaderName, HeaderValue};
 use secrecy::{ExposeSecret, SecretString};
 use siumai_core::{
-    ApiStability, EmbeddingModel, EmbeddingModelProvider, Error as CoreError, ErrorKind,
+    ApiModeId, ApiStability, EmbeddingModel, EmbeddingModelProvider, Error as CoreError, ErrorKind,
     ImageModel, ImageModelProvider, InvalidId, LanguageModel, LanguageModelProvider, ModelId,
     ModelLookupError, NativeSupportScope, NativeSurfaceId, NativeSurfaceKind,
-    NativeVerificationEvidence, OfficialSource, PlatformId, Provider, ProviderInstanceId,
-    ProviderOptionError, ProviderOptions, ProviderRegistration, ProviderScope,
+    NativeVerificationEvidence, OfficialSource, PlatformId, ProtocolId, Provider,
+    ProviderInstanceId, ProviderOptionError, ProviderOptions, ProviderRegistration, ProviderScope,
     ProviderSupportManifest, ReplayDomain, ReplayDomainId, SpeechModel, SpeechModelProvider,
     SupportManifestError, UpstreamLifecycle, UpstreamMaturity, UpstreamSupportStatus,
     VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
@@ -27,6 +27,9 @@ use crate::files::GeminiFiles;
 use crate::generate_content::{GeminiGenerateContentModel, GeminiGenerateContentOptions};
 use crate::image::GeminiImageModel;
 use crate::language::GeminiLanguageModel;
+use crate::multimodal_embedding::{
+    GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID, GeminiMultimodalEmbeddingModel,
+};
 use crate::options::{GeminiImageOptions, GeminiInteractionsOptions};
 use crate::profile::{
     FILES_SOURCE, GeminiProfile, GeminiProfileError, PLATFORM_ID, PROVIDER_ID, VEO_SOURCE,
@@ -149,6 +152,15 @@ impl GeminiProvider {
         Ok(self.create_embedding_model(model))
     }
 
+    /// Create a provider-native v1beta multimodal embedding handle.
+    pub fn multimodal_embedding(
+        &self,
+        model: impl Into<String>,
+    ) -> Result<GeminiMultimodalEmbeddingModel, ModelLookupError> {
+        let model = ModelId::new(model.into())?;
+        Ok(self.create_multimodal_embedding_model(model))
+    }
+
     /// Create a current v1beta Interactions buffered TTS model handle.
     pub fn speech(&self, model: impl Into<String>) -> Result<GeminiSpeechModel, ModelLookupError> {
         let model = ModelId::new(model.into())?;
@@ -264,6 +276,14 @@ impl GeminiProvider {
             self.runtime.embedding_scope.clone(),
             model,
             self.runtime.embedding_defaults.clone(),
+        )
+    }
+
+    fn create_multimodal_embedding_model(&self, model: ModelId) -> GeminiMultimodalEmbeddingModel {
+        GeminiMultimodalEmbeddingModel::new(
+            self.runtime.clone(),
+            self.runtime.multimodal_embedding_scope.clone(),
+            model,
         )
     }
 
@@ -499,6 +519,7 @@ impl GeminiProviderBuilder {
                 instance_id: ProviderInstanceId::new(),
                 interactions_scope: profile.interactions_scope(),
                 embedding_scope: profile.embedding_scope(),
+                multimodal_embedding_scope: profile.multimodal_embedding_scope(),
                 image_scope: profile.image_scope(),
                 speech_scope: profile.speech_scope(),
                 veo_scope: profile.veo_scope(),
@@ -548,6 +569,7 @@ pub(crate) struct ProviderRuntime {
     pub(crate) instance_id: ProviderInstanceId,
     pub(crate) interactions_scope: Arc<ProviderScope>,
     pub(crate) embedding_scope: Arc<ProviderScope>,
+    pub(crate) multimodal_embedding_scope: Arc<ProviderScope>,
     pub(crate) image_scope: Arc<ProviderScope>,
     pub(crate) speech_scope: Arc<ProviderScope>,
     pub(crate) veo_scope: Arc<ProviderScope>,
@@ -567,6 +589,10 @@ impl fmt::Debug for ProviderRuntime {
             .debug_struct("ProviderRuntime")
             .field("interactions_scope", &self.interactions_scope)
             .field("embedding_scope", &self.embedding_scope)
+            .field(
+                "multimodal_embedding_scope",
+                &self.multimodal_embedding_scope,
+            )
             .field("image_scope", &self.image_scope)
             .field("speech_scope", &self.speech_scope)
             .field("veo_scope", &self.veo_scope)
@@ -588,7 +614,7 @@ fn native_support_claims() -> Result<Vec<VerifiedNativeSupportClaim>, GeminiConf
     let verified_at = VerificationDate::new(
         NaiveDate::from_ymd_opt(2026, 8, 8).ok_or(GeminiConfigError::SupportVerificationDate)?,
     );
-    [
+    let mut claims = [
         (
             "files-metadata",
             NativeSurfaceKind::Resource,
@@ -627,7 +653,31 @@ fn native_support_claims() -> Result<Vec<VerifiedNativeSupportClaim>, GeminiConf
                 .with_upstream(upstream),
         ))
     })
-    .collect()
+    .collect::<Result<Vec<_>, GeminiConfigError>>()?;
+    claims.push(VerifiedNativeSupportClaim::new(
+        NativeSupportScope::protocol(
+            provider,
+            platform,
+            NativeSurfaceKind::Resource,
+            ProtocolId::new(crate::profile::EMBEDDING_PROTOCOL_ID)?,
+            ApiModeId::new(GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID)?,
+        ),
+        VerifiedFidelity::Native,
+        ApiStability::Experimental,
+        NativeVerificationEvidence::new(
+            OfficialSource::new(crate::profile::EMBEDDING_SOURCE)?,
+            VerificationDate::new(
+                NaiveDate::from_ymd_opt(2026, 8, 15)
+                    .ok_or(GeminiConfigError::SupportVerificationDate)?,
+            ),
+        )
+        .with_upstream(UpstreamLifecycle::new(
+            Some(UpstreamMaturity::Stable),
+            Some(UpstreamSupportStatus::Active),
+            Some("stable Gemini Embedding 2 over v1beta REST".to_string()),
+        )),
+    ));
+    Ok(claims)
 }
 
 #[cfg(test)]
@@ -637,8 +687,11 @@ mod tests {
         EmbeddingModel, EmbeddingRequest, Model as _, Provider, ReplayAudience, SpeechModel,
         SpeechRequest, UsageValue,
     };
+    use siumai_protocol_gemini::multimodal_embedding::{
+        GeminiEmbeddingContentPart, GeminiMultimodalEmbeddingRequest,
+    };
 
-    use crate::{GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_EMBEDDING_001};
+    use crate::{GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2};
 
     use super::*;
 
@@ -816,5 +869,70 @@ mod tests {
 
         embedding.assert_async().await;
         speech.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn multimodal_embedding_uses_v1beta_native_wire_and_shared_runtime() {
+        let mut server = mockito::Server::new_async().await;
+        let embedding = server
+            .mock("POST", "/v1beta/models/gemini-embedding-2:embedContent")
+            .match_header("x-goog-api-key", "test-key")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "model": "models/gemini-embedding-2",
+                "content": {
+                    "parts": [
+                        { "text": "describe the image" },
+                        { "inlineData": { "mimeType": "image/png", "data": "AAEC" } }
+                    ]
+                },
+                "embedContentConfig": {
+                    "autoTruncate": false,
+                    "outputDimensionality": 768
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "embedding": { "values": [0.1, 0.2], "shape": [2] },
+                    "usageMetadata": { "promptTokenCount": 7 }
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let provider = GeminiProvider::builder(GeminiCredential::api_key("test-key"))
+            .with_endpoint(EndpointConfig::local_explicit(server.url()).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("gemini-multimodal-test").unwrap(),
+            ))
+            .build()
+            .unwrap();
+        let model = provider.multimodal_embedding(GEMINI_EMBEDDING_2).unwrap();
+        assert_eq!(
+            model.descriptor().instance_id(),
+            provider
+                .embedding(GEMINI_EMBEDDING_001)
+                .unwrap()
+                .descriptor()
+                .instance_id()
+        );
+
+        let response = model
+            .embed(
+                GeminiMultimodalEmbeddingRequest::new([
+                    GeminiEmbeddingContentPart::text("describe the image").unwrap(),
+                    GeminiEmbeddingContentPart::inline_data("image/png", vec![0_u8, 1, 2]).unwrap(),
+                ])
+                .unwrap()
+                .with_output_dimensionality(768)
+                .unwrap(),
+                siumai_core::CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.embedding(), &[0.1_f32, 0.2_f32]);
+        assert_eq!(response.usage().input_tokens, UsageValue::Known(7));
+        embedding.assert_async().await;
     }
 }

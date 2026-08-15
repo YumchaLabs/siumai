@@ -46,7 +46,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `openai-realtime` | Experimental provider-owned OpenAI Realtime bootstrap and session transport |
 | `openai-responses-websocket` | Experimental persistent OpenAI Responses WebSocket sessions; also enables `openai` |
 | `anthropic` | Messages plus Files, Message Batches, token counting, and Skills metadata/version CRUD with bounded uploads |
-| `google` | Gemini Interactions/GenerateContent language, embedding, image, speech, Files, and Veo |
+| `google` | Gemini Interactions/GenerateContent language, text and native multimodal embedding, image, speech, Files, and Veo |
 | `google-vertex-anthropic` | Anthropic Messages on Google Vertex AI |
 | `alibaba` | Chat, Responses, Anthropic-compatible Messages, embeddings, and experimental Wan video |
 | `moonshotai` | Moonshot AI's Kimi Chat Completions, Partial Mode, and typed Files lifecycle |
@@ -56,7 +56,7 @@ Provider features describe the exact retained slice, not every product sold unde
 | `xai` | Responses-primary language, explicit Chat Completions, image, speech, transcription, Files, and video jobs |
 | `minimax` | Three language modes, portable image/speech, Responses input-token counting, and typed files/media/voice resources |
 | `deepseek` | Chat, beta Chat strict/prefix, Responses, and Anthropic-compatible Messages language modes |
-| `cohere` | Embeddings and reranking |
+| `cohere` | Embeddings, reranking, and provider-native audio transcription |
 | `deepgram` | Final-result transcription and buffered Aura speech synthesis |
 | `elevenlabs` | Buffered speech synthesis and final-result/batch transcription |
 

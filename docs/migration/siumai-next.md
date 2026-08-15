@@ -692,9 +692,14 @@ or a temporary hidden feature:
   speech, typed Remote MCP options and outputs, and provider-owned URL-audio transcription and
   translation. Files and Batch remain unclaimed until their official contracts are consistent
   enough for a bounded implementation.
-- Cohere retains embeddings and reranking; the old chat surface is removed.
+- Cohere retains embeddings and reranking; the old chat surface is removed. The new model-less
+  `provider.transcriptions()` resource exposes the official v2 audio transcription endpoint
+  without inventing a model identifier or Registry family.
 - Cohere model hints now track Embed v4 and Rerank v4/v3. Obsolete Embed v2 hints are removed;
   textual future or legacy IDs remain callable through the open model-ID contract.
+- Gemini keeps portable text embedding on stable v1 and adds the separate provider-native
+  `provider.multimodal_embedding(model)` v1beta path for ordered text/image/audio/video/PDF input.
+  Existing portable embedding requests are not widened into a cross-provider multimodal type.
 - Deepgram publishes current Nova-3/Nova-2 prerecorded hints and a portable buffered Aura speech
   family. Legacy Base, Enhanced, and Nova constants remain removed, and every model ID stays open.
 - ElevenLabs retains buffered speech synthesis and restores final-result/batch transcription over

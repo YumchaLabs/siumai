@@ -4,22 +4,27 @@ use std::time::Duration;
 
 use secrecy::SecretString;
 use siumai_core::{
-    EmbeddingModel, EmbeddingModelProvider, InvalidId, ModelId, ModelLookupError, Provider,
-    ProviderInstanceId, ProviderRegistration, ProviderRegistrationError, ProviderScope,
-    RerankModel, RerankModelProvider,
+    ApiStability, EmbeddingModel, EmbeddingModelProvider, InvalidId, ModelId, ModelLookupError,
+    NativeSupportScope, NativeSurfaceId, NativeSurfaceKind, NativeVerificationEvidence,
+    OfficialSource, Provider, ProviderInstanceId, ProviderRegistration, ProviderRegistrationError,
+    ProviderScope, ProviderSupportManifest, RerankModel, RerankModelProvider, SupportManifestError,
+    UpstreamLifecycle, UpstreamMaturity, UpstreamSupportStatus, VerificationDate, VerifiedFidelity,
+    VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, ReplaySafety,
-    RetryPolicy, TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
+    TransportConfigError, TransportLimits,
 };
 use thiserror::Error;
 
 use super::auth::{CohereBearerAuth, validate_api_key};
 use super::model::{CohereEmbeddingModel, CohereRerankModel};
 use super::profile::{CohereProfile, CohereProfileError};
+use super::transcription::CohereTranscriptions;
 
 const COHERE_ORIGIN: &str = "https://api.cohere.com";
 const COHERE_V2_BASE_URL: &str = "https://api.cohere.com/v2";
+const TRANSCRIPTION_SOURCE: &str = "https://docs.cohere.com/reference/create-audio-transcription";
 
 /// A synchronously configured Cohere v2 provider.
 #[derive(Clone)]
@@ -27,6 +32,7 @@ pub struct CohereProvider {
     pub(crate) runtime: Arc<CohereRuntime>,
     profile: CohereProfile,
     registration: ProviderRegistration,
+    support_manifest: Arc<ProviderSupportManifest>,
 }
 
 impl CohereProvider {
@@ -66,6 +72,11 @@ impl CohereProvider {
         Ok(self.create_rerank_model(model))
     }
 
+    /// Access Cohere's model-less v2 audio transcription operation.
+    pub fn transcriptions(&self) -> CohereTranscriptions {
+        CohereTranscriptions::new(self.runtime.clone())
+    }
+
     /// Capture narrow factories backed by this provider's shared runtime.
     pub fn registration(&self) -> ProviderRegistration {
         self.registration.clone()
@@ -100,6 +111,11 @@ impl CohereProvider {
         &self.profile
     }
 
+    /// Return evidence-backed portable and provider-native support claims.
+    pub fn support_manifest(&self) -> &ProviderSupportManifest {
+        self.support_manifest.as_ref()
+    }
+
     fn create_embedding_model(&self, model: ModelId) -> CohereEmbeddingModel {
         CohereEmbeddingModel::new(self.runtime.clone(), model)
     }
@@ -111,7 +127,7 @@ impl CohereProvider {
 
 impl Provider for CohereProvider {
     fn provider_id(&self) -> &siumai_core::ProviderId {
-        self.runtime.scope.provider_id()
+        self.support_manifest.provider_id()
     }
 }
 
@@ -145,6 +161,7 @@ impl fmt::Debug for CohereProvider {
 pub struct CohereProviderBuilder {
     api_key: SecretString,
     endpoint: Option<EndpointConfig>,
+    provider_selected_endpoint: bool,
     limits: TransportLimits,
     retry_policy: RetryPolicy,
     connect_timeout: Option<Duration>,
@@ -157,6 +174,7 @@ impl CohereProviderBuilder {
         Self {
             api_key: SecretString::from(api_key.into()),
             endpoint: None,
+            provider_selected_endpoint: true,
             limits: TransportLimits::default(),
             retry_policy: RetryPolicy::default(),
             connect_timeout: None,
@@ -168,6 +186,7 @@ impl CohereProviderBuilder {
     /// Replace the official endpoint with an explicitly validated endpoint.
     pub fn with_endpoint(mut self, endpoint: EndpointConfig) -> Self {
         self.endpoint = Some(endpoint);
+        self.provider_selected_endpoint = false;
         self
     }
 
@@ -205,12 +224,21 @@ impl CohereProviderBuilder {
             Some(endpoint) => endpoint,
             None => default_endpoint()?,
         };
-        let verified_endpoint = matches!(endpoint.policy(), EndpointPolicy::Official(_));
+        let verified_endpoint = self.provider_selected_endpoint;
         let profile = if verified_endpoint {
             CohereProfile::current()?
         } else {
             CohereProfile::custom()?
         };
+        let support_manifest = Arc::new(ProviderSupportManifest::new(
+            profile.scope().provider_id().clone(),
+            [profile.provider_profile().clone()],
+            if verified_endpoint {
+                vec![transcription_support_claim()?]
+            } else {
+                Vec::new()
+            },
+        )?);
         let scope = profile.scope();
         let mut transport = ProviderTransport::builder(endpoint)
             .with_auth(Arc::new(CohereBearerAuth::new(self.api_key)))
@@ -237,6 +265,7 @@ impl CohereProviderBuilder {
             runtime,
             profile,
             registration,
+            support_manifest,
         })
     }
 }
@@ -297,6 +326,36 @@ pub enum CohereConfigError {
     Transport(#[from] TransportConfigError),
     #[error("invalid Cohere default registration: {0}")]
     Registration(#[from] ProviderRegistrationError),
+    #[error("invalid Cohere support manifest: {0}")]
+    SupportManifest(#[from] SupportManifestError),
+    #[error("invalid Cohere support evidence: {0}")]
+    SupportEvidence(#[from] siumai_core::ProfileError),
+    #[error("invalid Cohere support verification date")]
+    SupportVerificationDate,
+}
+
+fn transcription_support_claim() -> Result<VerifiedNativeSupportClaim, CohereConfigError> {
+    let verified_at = chrono::NaiveDate::from_ymd_opt(2026, 8, 15)
+        .ok_or(CohereConfigError::SupportVerificationDate)?;
+    Ok(VerifiedNativeSupportClaim::new(
+        NativeSupportScope::surface(
+            siumai_core::ProviderId::new(super::profile::PROVIDER_ID)?,
+            siumai_core::PlatformId::new(super::profile::PLATFORM_ID)?,
+            NativeSurfaceKind::Resource,
+            NativeSurfaceId::new("audio-transcriptions")?,
+        ),
+        VerifiedFidelity::Native,
+        ApiStability::Stable,
+        NativeVerificationEvidence::new(
+            OfficialSource::new(TRANSCRIPTION_SOURCE)?,
+            VerificationDate::new(verified_at),
+        )
+        .with_upstream(UpstreamLifecycle::new(
+            Some(UpstreamMaturity::Stable),
+            Some(UpstreamSupportStatus::Active),
+            None,
+        )),
+    ))
 }
 
 #[cfg(test)]

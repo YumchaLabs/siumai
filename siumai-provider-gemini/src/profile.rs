@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use crate::embedding::{GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2, GEMINI_EMBEDDING_API_MODE_ID};
 use crate::models::{current_image_models, current_interactions_models};
+use crate::multimodal_embedding::GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID;
 use crate::speech::{
     GEMINI_2_5_FLASH_PREVIEW_TTS, GEMINI_2_5_PRO_PREVIEW_TTS, GEMINI_3_1_FLASH_TTS_PREVIEW,
     GEMINI_SPEECH_API_MODE_ID,
@@ -42,6 +43,7 @@ pub struct GeminiProfile {
     interactions_scope: Arc<ProviderScope>,
     image_scope: Arc<ProviderScope>,
     embedding_scope: Arc<ProviderScope>,
+    multimodal_embedding_scope: Arc<ProviderScope>,
     speech_scope: Arc<ProviderScope>,
     veo_scope: Arc<ProviderScope>,
     generate_content_scope: Arc<ProviderScope>,
@@ -55,6 +57,8 @@ impl GeminiProfile {
         let api_mode = ApiModeId::new(API_MODE_ID)?;
         let embedding_protocol = ProtocolId::new(EMBEDDING_PROTOCOL_ID)?;
         let embedding_api_mode = ApiModeId::new(GEMINI_EMBEDDING_API_MODE_ID)?;
+        let multimodal_embedding_api_mode =
+            ApiModeId::new(GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID)?;
         let speech_api_mode = ApiModeId::new(GEMINI_SPEECH_API_MODE_ID)?;
         let generate_content_protocol = ProtocolId::new(GENERATE_CONTENT_PROTOCOL_ID)?;
         let generate_content_api_mode = ApiModeId::new(GENERATE_CONTENT_API_MODE_ID)?;
@@ -254,8 +258,15 @@ impl GeminiProfile {
         let embedding_execution_scope = Arc::new(
             ProviderScope::new(provider.clone())
                 .with_platform(platform.clone())
-                .with_protocol(embedding_protocol)
+                .with_protocol(embedding_protocol.clone())
                 .with_api_mode(embedding_api_mode)
+                .with_replay_domain(replay_domain.clone()),
+        );
+        let multimodal_embedding_execution_scope = Arc::new(
+            ProviderScope::new(provider.clone())
+                .with_platform(platform.clone())
+                .with_protocol(embedding_protocol)
+                .with_api_mode(multimodal_embedding_api_mode)
                 .with_replay_domain(replay_domain.clone()),
         );
         let veo_execution_scope = Arc::new(
@@ -284,6 +295,7 @@ impl GeminiProfile {
             interactions_scope: execution_scope.clone(),
             image_scope: execution_scope,
             embedding_scope: embedding_execution_scope,
+            multimodal_embedding_scope: multimodal_embedding_execution_scope,
             speech_scope: speech_execution_scope,
             veo_scope: veo_execution_scope,
             generate_content_scope: generate_content_execution_scope,
@@ -297,6 +309,8 @@ impl GeminiProfile {
         let api_mode = ApiModeId::new(API_MODE_ID)?;
         let embedding_protocol = ProtocolId::new(EMBEDDING_PROTOCOL_ID)?;
         let embedding_api_mode = ApiModeId::new(GEMINI_EMBEDDING_API_MODE_ID)?;
+        let multimodal_embedding_api_mode =
+            ApiModeId::new(GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID)?;
         let speech_api_mode = ApiModeId::new(GEMINI_SPEECH_API_MODE_ID)?;
         let generate_content_protocol = ProtocolId::new(GENERATE_CONTENT_PROTOCOL_ID)?;
         let generate_content_api_mode = ApiModeId::new(GENERATE_CONTENT_API_MODE_ID)?;
@@ -366,8 +380,15 @@ impl GeminiProfile {
         let embedding_execution_scope = Arc::new(
             ProviderScope::new(provider.clone())
                 .with_platform(platform.clone())
-                .with_protocol(embedding_protocol)
+                .with_protocol(embedding_protocol.clone())
                 .with_api_mode(embedding_api_mode)
+                .with_replay_domain(replay_domain.clone()),
+        );
+        let multimodal_embedding_execution_scope = Arc::new(
+            ProviderScope::new(provider.clone())
+                .with_platform(platform.clone())
+                .with_protocol(embedding_protocol)
+                .with_api_mode(multimodal_embedding_api_mode)
                 .with_replay_domain(replay_domain.clone()),
         );
         let veo_execution_scope = Arc::new(
@@ -396,6 +417,7 @@ impl GeminiProfile {
             interactions_scope: execution_scope.clone(),
             image_scope: execution_scope,
             embedding_scope: embedding_execution_scope,
+            multimodal_embedding_scope: multimodal_embedding_execution_scope,
             speech_scope: speech_execution_scope,
             veo_scope: veo_execution_scope,
             generate_content_scope: generate_content_execution_scope,
@@ -416,6 +438,10 @@ impl GeminiProfile {
 
     pub(crate) fn embedding_scope(&self) -> Arc<ProviderScope> {
         self.embedding_scope.clone()
+    }
+
+    pub(crate) fn multimodal_embedding_scope(&self) -> Arc<ProviderScope> {
+        self.multimodal_embedding_scope.clone()
     }
 
     pub(crate) fn speech_scope(&self) -> Arc<ProviderScope> {

@@ -375,7 +375,7 @@ fn provider_metadata(meta: &serde_json::Value) -> BTreeMap<String, serde_json::V
     BTreeMap::from([("cohere".to_string(), meta.clone())])
 }
 
-fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
+pub(crate) fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
     headers
         .get(&HeaderName::from_static("x-request-id"))
         .and_then(|value| value.to_str().ok())
@@ -383,7 +383,7 @@ fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn provider_status_error(response: TransportResponse) -> Error {
+pub(crate) fn provider_status_error(response: TransportResponse) -> Error {
     let (status, headers, body) = response.into_parts();
     let kind = match status {
         StatusCode::UNAUTHORIZED => ErrorKind::Authentication,

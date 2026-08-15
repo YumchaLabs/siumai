@@ -1,8 +1,8 @@
-//! Curated Cohere embedding and rerank provider facade.
+//! Curated Cohere embedding, rerank, and audio transcription provider facade.
 
 pub use siumai_provider_cohere::{
     CohereConfigError, CohereEmbeddingModel, CohereProfile, CohereProfileError, CohereProvider,
-    CohereProviderBuilder, CohereRerankModel,
+    CohereProviderBuilder, CohereRerankModel, CohereTranscriptionRequest, CohereTranscriptions,
 };
 
 pub mod models {
