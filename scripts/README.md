@@ -68,20 +68,17 @@ It does not parse source, inspect file contents, or reproduce Cargo membership a
 semantics. Pass `--allow-dirty` only for a local dirty-worktree inspection. Cargo and release-plz
 remain authoritative for the package graph and publication order.
 
-## Architecture checks
+## Repository script tests
 
 ```text
-python3 -B scripts/check_workspace_boundaries.py
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
 ```
 
-The boundary check reads Cargo metadata directly and rejects only stable dependency-direction
-violations: foundation back-edges, provider-neutral packages depending on branded providers,
-provider-to-provider dependencies, and facade or host-layer back-edges. Cargo remains the sole
-authority for workspace membership, package versions, MSRV, features, and dependency resolution.
-Protocol fixtures live beside their owning crate and are exercised directly by Rust tests; there
-is no separate inventory of unused snapshots. The scripts intentionally do not parse Rust source
-or attempt to infer compiler semantics.
+The script suite covers only maintained bounded tooling. Dependency direction is reviewed in the
+affected manifests and Cargo metadata instead of being mirrored in a partial policy graph. Cargo
+remains the sole authority for workspace membership, package versions, MSRV, features, and
+dependency resolution. Protocol fixtures live beside their owning crate and are exercised directly
+by Rust tests; there is no separate inventory of unused snapshots.
 
 ## Release retry
 

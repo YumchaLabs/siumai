@@ -9,7 +9,6 @@ Run the maintained release gates serially from a clean release candidate:
 ```text
 cargo fmt --all -- --check
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
-python3 -B scripts/check_workspace_boundaries.py
 python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
@@ -93,6 +92,13 @@ Do **not** create or push release tags manually.
 
 In this repository, release tags are an output of `release-plz release`, not the trigger for publishing.
 This keeps crates.io publishing, the `v{{ version }}` git tag, and the GitHub Release synchronized.
+
+The pinned `release-plz` 0.3.157 release command is not a general repair tool for partially created
+repository releases. It treats any local tag with the expected name as already handled before it
+checks the tag target or GitHub Release state. If a run leaves an exact tag without a GitHub Release,
+or a same-name tag points at the wrong commit, stop and inspect the repository state instead of
+rerunning or wrapping the command. Do not pre-create, move, or delete release tags as an automated
+workaround.
 
 The release PR is the preferred way to prepare version and changelog changes, but it is not a
 publishing authorization boundary. The actual publish job is manually dispatched from `main`, and

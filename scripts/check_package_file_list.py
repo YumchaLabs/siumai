@@ -97,11 +97,7 @@ def is_private_path(raw_path: str) -> bool:
         return True
     if name in FORBIDDEN_NAMES:
         return True
-    if name.startswith(".env.") and name not in {
-        ".env.example",
-        ".env.sample",
-        ".env.template",
-    }:
+    if name.startswith(".env."):
         return True
     if PRIVATE_CONFIG_PATTERN.fullmatch(name) or PRIVATE_DATA_PATTERN.fullmatch(name):
         return True

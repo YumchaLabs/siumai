@@ -120,11 +120,11 @@ Keep responsibilities flowing from reusable foundations toward concrete assembly
    providers.
 5. The facade and integration crates assemble or project lower layers without reimplementing them.
 
-Before adding a workspace dependency, inspect the affected manifests and Cargo metadata, then run
-`scripts/check_workspace_boundaries.py`. Avoid dependency cycles, neutral-to-provider edges, facade
-back-edges, provider-to-Registry coupling, and feature flags that activate unrelated crates. Cargo
-is the authority for workspace membership, package versions, MSRV, and dependency resolution; do
-not mirror those values in a separate policy file.
+Before adding a workspace dependency, inspect the affected manifests and Cargo metadata. Avoid
+dependency cycles, neutral-to-provider edges, facade back-edges, provider-to-Registry coupling, and
+feature flags that activate unrelated crates. Cargo is the authority for workspace membership,
+package versions, MSRV, features, and dependency resolution; do not mirror those values in a
+separate policy file or partial dependency-graph checker.
 
 Use the following placement test when ownership is unclear:
 
