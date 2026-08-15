@@ -384,7 +384,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     use siumai::core::{ModelFamily, ReplayDomain, ReplayDomainId};
     use siumai::providers::openai::audio::speech::{GPT_4O_MINI_TTS, OpenAiSpeechOptions};
     use siumai::providers::openai::audio::transcription::{
-        GPT_4O_TRANSCRIBE, OpenAiTranscriptionOptions,
+        GPT_TRANSCRIBE, OpenAiTranscriptionOptions,
     };
     use siumai::providers::openai::chat_completions::{
         OpenAiChatCompletionsOptions, OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity,
@@ -426,7 +426,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     assert!(provider.embedding(TEXT_EMBEDDING_3_SMALL).is_ok());
     assert!(provider.image(GPT_IMAGE_1).is_ok());
     assert!(provider.speech(GPT_4O_MINI_TTS).is_ok());
-    assert!(provider.transcription(GPT_4O_TRANSCRIBE).is_ok());
+    assert!(provider.transcription(GPT_TRANSCRIBE).is_ok());
 
     let _ = OpenAiEmbeddingOptions::default();
     let _ = OpenAiImageOptions::default();

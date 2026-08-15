@@ -8,7 +8,9 @@ use serde_json::Value;
 use siumai_core::{CallOptions, Error, ErrorKind};
 use siumai_transport::{ReplaySafety, RequestBody};
 
-use crate::models::image::{IMAGE_01, IMAGE_01_LIVE};
+#[cfg(test)]
+use crate::models::image::IMAGE_01;
+use crate::models::image::IMAGE_01_LIVE;
 
 use super::common::{BaseResponse, NativeResponseEnvelope, NativeRuntime, execute_json, target};
 
@@ -44,7 +46,7 @@ impl MinimaxImageAspectRatio {
     }
 }
 
-/// Validated explicit dimensions for the `image-01` model.
+/// Validated explicit dimensions for MiniMax image generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MinimaxImageDimensions {
     width: u16,
@@ -176,7 +178,6 @@ impl MinimaxImageRequest {
 
     pub fn with_size(mut self, size: MinimaxImageSize) -> Result<Self, Error> {
         self.size = Some(size);
-        self.validate_size_policy()?;
         Ok(self)
     }
 
@@ -249,7 +250,6 @@ impl MinimaxImageRequest {
 
     fn validate(&self) -> Result<(), Error> {
         self.validate_basics()?;
-        self.validate_size_policy()?;
         if self.model == IMAGE_01_LIVE && self.subject_references.is_empty() {
             return Err(invalid_input(
                 "MiniMax image-01-live requires a subject reference",
@@ -267,15 +267,6 @@ impl MinimaxImageRequest {
             "MiniMax image prompt must contain between 1 and 1500 characters",
         )?;
         validate_count(self.count)
-    }
-
-    fn validate_size_policy(&self) -> Result<(), Error> {
-        if self.model != IMAGE_01 && matches!(self.size, Some(MinimaxImageSize::Dimensions(_))) {
-            return Err(invalid_input(
-                "MiniMax explicit dimensions are supported only by image-01",
-            ));
-        }
-        Ok(())
     }
 
     fn wire(&self) -> ImageRequestWire<'_> {
@@ -674,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn image_validation_is_operation_and_model_specific() {
+    fn image_validation_keeps_operation_invariants_without_closing_future_models() {
         let live = MinimaxImageRequest::new(IMAGE_01_LIVE, "animate this portrait")
             .expect("a staged request should be constructible");
         assert_eq!(
@@ -693,15 +684,14 @@ mod tests {
 
         let future = MinimaxImageRequest::new("image-future", "future baseline request")
             .expect("future model ids should remain open");
-        assert_eq!(
-            future
-                .with_dimensions(
-                    MinimaxImageDimensions::new(512, 512).expect("dimensions should be valid"),
-                )
-                .expect_err("unverified models must not inherit image-01 dimensions")
-                .kind(),
-            ErrorKind::InvalidInput
-        );
+        let future = future
+            .with_dimensions(
+                MinimaxImageDimensions::new(512, 512).expect("dimensions should be valid"),
+            )
+            .expect("future models should preserve explicit dimension intent");
+        let wire = serde_json::to_value(future.wire()).expect("request should serialize");
+        assert_eq!(wire["width"], 512);
+        assert_eq!(wire["height"], 512);
 
         assert_eq!(
             MinimaxImageRequest::new(IMAGE_01, "valid prompt")

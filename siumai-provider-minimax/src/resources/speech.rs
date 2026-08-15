@@ -11,9 +11,9 @@ use siumai_core::{CallOptions, Error, ErrorKind, ModelId};
 use siumai_transport::{ReplaySafety, RequestBody};
 use thiserror::Error as ThisError;
 
-use crate::models::speech::{
-    SPEECH_01_HD, SPEECH_01_TURBO, SPEECH_2_8_HD, SPEECH_2_8_TURBO, SPEECH_02_HD, SPEECH_02_TURBO,
-};
+use crate::models::speech::{SPEECH_01_HD, SPEECH_01_TURBO, SPEECH_02_HD, SPEECH_02_TURBO};
+#[cfg(test)]
+use crate::models::speech::{SPEECH_2_8_HD, SPEECH_2_8_TURBO};
 
 use super::common::{BaseResponse, NativeResponseEnvelope, NativeRuntime, execute_json, target};
 use super::files::MinimaxFileId;
@@ -36,7 +36,7 @@ pub const SPEECH_ASYNC_API_SOURCE: &str =
 pub const SPEECH_ASYNC_QUERY_API_SOURCE: &str =
     "https://platform.minimax.io/docs/api-reference/speech-t2a-async-query";
 /// Date on which the Speech API contract in this module was verified.
-pub const SPEECH_API_VERIFIED_ON: &str = "2026-08-06";
+pub const SPEECH_API_VERIFIED_ON: &str = "2026-08-15";
 
 /// Validation errors for MiniMax speech settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ThisError)]
@@ -1911,24 +1911,19 @@ fn validate_voice_for_model(model: &ModelId, voice: &MinimaxVoiceSettings) -> Re
         voice.emotion,
         Some(MinimaxSpeechEmotion::Fluent | MinimaxSpeechEmotion::Whisper)
     );
-    if restricted_emotion && is_known_non_2_6_speech_model(model.as_str()) {
+    if restricted_emotion && is_known_legacy_speech_model(model.as_str()) {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "MiniMax fluent and whisper emotion overrides require a speech-2.6 model",
+            "MiniMax fluent and whisper emotion overrides are not supported by legacy speech-01 or speech-02 models",
         ));
     }
     Ok(())
 }
 
-fn is_known_non_2_6_speech_model(model: &str) -> bool {
+fn is_known_legacy_speech_model(model: &str) -> bool {
     matches!(
         model,
-        SPEECH_2_8_HD
-            | SPEECH_2_8_TURBO
-            | SPEECH_02_HD
-            | SPEECH_02_TURBO
-            | SPEECH_01_HD
-            | SPEECH_01_TURBO
+        SPEECH_02_HD | SPEECH_02_TURBO | SPEECH_01_HD | SPEECH_01_TURBO
     )
 }
 
@@ -2137,16 +2132,22 @@ mod tests {
     }
 
     #[test]
-    fn known_model_restrictions_fail_before_network_without_closing_future_model_ids() {
+    fn emotion_support_tracks_legacy_negatives_without_closing_future_models() {
         let whisper =
             MinimaxVoiceSettings::new(MinimaxVoiceId::new("known-voice").expect("valid voice"))
                 .with_emotion(MinimaxSpeechEmotion::Whisper);
-        let known = MinimaxSpeechSynthesisRequest::new(SPEECH_2_8_HD, "hello", whisper.clone())
+        let current = MinimaxSpeechSynthesisRequest::new(SPEECH_2_8_HD, "hello", whisper.clone())
+            .expect("request construction should succeed");
+        current
+            .validate()
+            .expect("speech-2.8 supports the whisper emotion override");
+
+        let legacy = MinimaxSpeechSynthesisRequest::new(SPEECH_02_HD, "hello", whisper.clone())
             .expect("request construction should succeed");
         assert_eq!(
-            known
+            legacy
                 .validate()
-                .expect_err("known invalid combination must fail")
+                .expect_err("legacy model restriction must fail")
                 .kind(),
             ErrorKind::InvalidInput
         );

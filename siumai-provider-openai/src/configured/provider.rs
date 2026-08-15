@@ -1829,17 +1829,17 @@ mod tests {
             .find(|claim| claim.scope().family() == ModelFamily::Image)
             .unwrap()
             .scope();
-        let deprecated = ModelId::new(DALL_E_2).unwrap();
+        let retired = ModelId::new(DALL_E_2).unwrap();
         assert!(matches!(
             profile
                 .catalog()
                 .unwrap()
-                .get(image_scope, &deprecated)
+                .get(image_scope, &retired)
                 .unwrap()
                 .lifecycle(),
-            ModelLifecycle::Deprecated { .. }
+            ModelLifecycle::Retired { .. }
         ));
-        assert!(provider.registration().image_model(deprecated).is_ok());
+        assert!(provider.registration().image_model(retired).is_ok());
     }
 
     #[test]

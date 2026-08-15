@@ -133,7 +133,7 @@ pub use tools::{
 };
 pub use transcription::{
     GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20, GPT_4O_MINI_TRANSCRIBE_2025_12_15,
-    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, OpenAiTranscriptionModel,
+    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, GPT_TRANSCRIBE, OpenAiTranscriptionModel,
     OpenAiTranscriptionOptions, OpenAiTranscriptionResponseFormat,
     OpenAiTranscriptionTimestampGranularity, WHISPER_1,
 };

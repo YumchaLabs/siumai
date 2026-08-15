@@ -2,7 +2,7 @@
 
 - Provider identity: `minimax`
 - Technical platform: `minimax-api`
-- Evidence verified: 2026-08-08
+- Evidence verified: 2026-08-15
 - Facade feature: `minimax`
 - Owning crate: `siumai-provider-minimax`
 
@@ -83,7 +83,7 @@ model-family contract.
 | Entry point | Implemented operations | Verified boundary |
 |---|---|---|
 | `provider.files()` | Upload, list, retrieve metadata, download content, delete | Operation-specific purpose enums, positive signed-64-bit file IDs, bounded multipart input, explicit delete purpose |
-| `provider.images()` | Generate images | Native text-to-image and subject-reference image-to-image request forms, model-specific validation, URL or base64 response representation |
+| `provider.images()` | Generate images | Native text-to-image and subject-reference image-to-image request forms, open future model identifiers, structural request validation, URL or base64 response representation |
 | `provider.video()` | Create, query, list, cancel, or delete H3 V2 tasks | Multimodal H3 V2 content, 4–15 second duration, 768P/2K output, explicit open task states, no hidden polling |
 | `provider.music()` | Generate music | Typed lyrics, generated-lyrics, instrumental, and cover request forms; non-streaming URL or decoded audio output |
 | `provider.speech()` | Buffered synchronous synthesis, asynchronous submit, asynchronous query | Typed voice/audio settings, direct text or uploaded-text input for async tasks, explicit task state, no hidden polling |
@@ -133,7 +133,9 @@ control plane.
 ## Evidence
 
 The language and established resource claims in this document were checked against official
-MiniMax documentation on 2026-08-08. The Responses input-token, voice lifecycle, and portable image
+MiniMax documentation on 2026-08-08. Image sizing and Speech 2.8 emotion behavior were rechecked on
+2026-08-15; open future model IDs preserve explicit caller intent while known operation-specific
+invariants remain local. The Responses input-token, voice lifecycle, and portable image
 representation boundaries were rechecked against official documentation on 2026-08-09. The local
 Vercel AI SDK checkout is secondary design and fixture evidence only.
 

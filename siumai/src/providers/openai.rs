@@ -58,7 +58,7 @@ pub mod audio {
         pub use siumai_provider_openai::{
             GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20,
             GPT_4O_MINI_TRANSCRIBE_2025_12_15, GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE,
-            OpenAiTranscriptionModel, OpenAiTranscriptionOptions,
+            GPT_TRANSCRIBE, OpenAiTranscriptionModel, OpenAiTranscriptionOptions,
             OpenAiTranscriptionResponseFormat, OpenAiTranscriptionTimestampGranularity, WHISPER_1,
         };
     }

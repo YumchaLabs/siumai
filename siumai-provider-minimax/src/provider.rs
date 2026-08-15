@@ -48,6 +48,8 @@ use crate::resources::{
 
 const RESOURCE_BASE_URL: &str = "https://api.minimax.io/";
 const RESOURCE_VERIFIED_ON: &str = "2026-08-08";
+const IMAGE_VERIFIED_ON: &str = "2026-08-15";
+const SPEECH_VERIFIED_ON: &str = "2026-08-15";
 const FILES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/file-management-upload";
 const IMAGES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/image-generation-t2i";
 const VIDEO_SOURCE: &str =
@@ -523,7 +525,8 @@ impl MinimaxProviderBuilder {
             IMAGE_PROTOCOL_ID,
             IMAGE_API_MODE_ID,
             IMAGES_SOURCE,
-            "minimax-images-2026-08",
+            IMAGE_VERIFIED_ON,
+            "minimax-images-2026-08-15",
         )?;
         let speech_profile = media_support_profile(
             resource_is_verified,
@@ -531,7 +534,8 @@ impl MinimaxProviderBuilder {
             SPEECH_PROTOCOL_ID,
             SPEECH_API_MODE_ID,
             SPEECH_SOURCE,
-            "minimax-speech-http-2026-08",
+            SPEECH_VERIFIED_ON,
+            "minimax-speech-http-2026-08-15",
         )?;
         let native_claims = native_support_claims(resource_is_verified, openai_is_verified)?;
         let support_manifest = Arc::new(ProviderSupportManifest::new(
@@ -750,6 +754,7 @@ fn media_support_profile(
     protocol: &str,
     api_mode: &str,
     source: &str,
+    verified_on: &str,
     contract: &str,
 ) -> Result<ProviderProfile, MinimaxConfigError> {
     let scope = SupportScope::new(
@@ -774,7 +779,7 @@ fn media_support_profile(
             ApiStability::Stable,
             VerificationEvidence::new(
                 OfficialSource::new(source)?,
-                resource_verification_date(),
+                verification_date(verified_on),
                 siumai_core::ProtocolContractId::new(contract)?,
             ),
         )],
@@ -812,6 +817,8 @@ fn native_support_claims(
     let provider = siumai_core::ProviderId::new(PROVIDER_ID)?;
     let platform = siumai_core::PlatformId::new("minimax-api")?;
     let resource_verified_at = resource_verification_date();
+    let image_verified_at = verification_date(IMAGE_VERIFIED_ON);
+    let speech_verified_at = verification_date(SPEECH_VERIFIED_ON);
     let current_surface_verified_at = verification_date(RESPONSES_INPUT_TOKENS_VERIFIED_ON);
     let mut claims = Vec::new();
     if resource_is_verified {
@@ -828,7 +835,7 @@ fn native_support_claims(
                 NativeSurfaceKind::Resource,
                 ApiStability::Stable,
                 IMAGES_SOURCE,
-                resource_verified_at,
+                image_verified_at,
             ),
             (
                 "video-tasks",
@@ -849,7 +856,7 @@ fn native_support_claims(
                 NativeSurfaceKind::Resource,
                 ApiStability::Stable,
                 SPEECH_SOURCE,
-                resource_verified_at,
+                speech_verified_at,
             ),
             (
                 "speech-async-tasks",
