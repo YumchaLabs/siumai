@@ -54,8 +54,8 @@ pub use model::{
 pub use options::{
     CallOptions, Cancellation, MAX_PROVIDER_OPTION_ENTRIES, MAX_PROVIDER_OPTION_TARGETS,
     MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionError,
-    ProviderOptionSelection, ProviderOptionTarget, ProviderOptions, RetryIntent,
-    TypedProviderOptions,
+    ProviderOptionPatch, ProviderOptionSelection, ProviderOptionTarget, ProviderOptions,
+    RetryIntent, TypedProviderOptions,
 };
 pub use profile::{
     ApiStability, CatalogError, GenericSupportClaim, ModelCatalog, ModelLifecycle, ModelProfile,

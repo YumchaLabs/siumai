@@ -444,7 +444,6 @@ struct ExactProviderOptionEntry {
 pub struct ProviderOptionSelection<'a> {
     typed: Vec<&'a ProviderOptions>,
     raw_override: Option<&'a ProviderOptions>,
-    unconsumed: Vec<&'a ProviderOptionTarget>,
 }
 
 impl fmt::Debug for ProviderOptionSelection<'_> {
@@ -453,7 +452,6 @@ impl fmt::Debug for ProviderOptionSelection<'_> {
             .debug_struct("ProviderOptionSelection")
             .field("typed_count", &self.typed.len())
             .field("has_raw_override", &self.raw_override.is_some())
-            .field("unconsumed_count", &self.unconsumed.len())
             .finish()
     }
 }
@@ -465,16 +463,6 @@ impl<'a> ProviderOptionSelection<'a> {
 
     pub const fn raw_override(&self) -> Option<&'a ProviderOptions> {
         self.raw_override
-    }
-
-    pub fn unconsumed_targets(
-        &self,
-    ) -> impl ExactSizeIterator<Item = &'a ProviderOptionTarget> + '_ {
-        self.unconsumed.iter().copied()
-    }
-
-    pub const fn unconsumed_count(&self) -> usize {
-        self.unconsumed.len()
     }
 }
 
@@ -506,6 +494,59 @@ fn validate_options_target(
         });
     }
     Ok(())
+}
+
+/// Core-owned validated provider-option patch used by runtime assembly.
+///
+/// Ordinary callers should use the typed [`CallOptions`] builders. This
+/// carrier exists so higher-level orchestration can retain one validated
+/// target/options pair without duplicating route, scope, family, API-mode, or
+/// configured-instance identity.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ProviderOptionPatch {
+    target: ProviderOptionTarget,
+    options: ProviderOptions,
+}
+
+impl fmt::Debug for ProviderOptionPatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderOptionPatch")
+            .field("target", &self.target)
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
+impl ProviderOptionPatch {
+    /// Create a validated typed patch bound to one configured model.
+    pub fn typed_for_model<M, T>(model: &M, value: &T) -> Result<Self, ProviderOptionError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let options = ProviderOptions::typed(value)?;
+        let target = ProviderOptionTarget::for_model(model);
+        validate_options_target(&target, &options)?;
+        Ok(Self { target, options })
+    }
+
+    pub fn target(&self) -> &ProviderOptionTarget {
+        &self.target
+    }
+
+    pub fn matches_model<M: Model + ?Sized>(&self, model: &M) -> bool {
+        self.target.matches_model(model, model.route_id())
+    }
+
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.target == other.target
+    }
+
+    fn into_parts(self) -> (ProviderOptionTarget, ProviderOptions) {
+        (self.target, self.options)
+    }
 }
 
 /// Controls shared by all six stable model families.
@@ -571,14 +612,12 @@ impl CallOptions {
         let selected_route = model.route_id().or(self.selected_route_context.as_ref());
         let mut typed = Vec::new();
         let mut raw_override = None;
-        let mut unconsumed = Vec::new();
 
         for entry in &self.exact_provider_options {
             if !entry.target.matches_model(model, selected_route) {
                 if entry.applicability == ProviderOptionApplicability::Required {
                     return Err(entry.target.mismatch_error(model));
                 }
-                unconsumed.push(&entry.target);
                 continue;
             }
             if entry.options.is_raw() {
@@ -593,7 +632,6 @@ impl CallOptions {
         Ok(ProviderOptionSelection {
             typed,
             raw_override,
-            unconsumed,
         })
     }
 
@@ -716,11 +754,11 @@ impl CallOptions {
     #[doc(hidden)]
     pub fn prepend_provider_options<I>(mut self, patches: I) -> Result<Self, ProviderOptionError>
     where
-        I: IntoIterator<Item = (ProviderOptionTarget, ProviderOptions)>,
+        I: IntoIterator<Item = ProviderOptionPatch>,
     {
         let existing = std::mem::take(&mut self.exact_provider_options);
-        for (target, options) in patches {
-            validate_options_target(&target, &options)?;
+        for patch in patches {
+            let (target, options) = patch.into_parts();
             self.push_exact_provider_option(ExactProviderOptionEntry {
                 applicability: ProviderOptionApplicability::Required,
                 target,
@@ -1112,10 +1150,6 @@ mod tests {
         }
     }
 
-    fn layer(value: &'static str) -> ProviderOptions {
-        ProviderOptions::typed(&Layer { value }).unwrap()
-    }
-
     #[test]
     fn typed_options_keep_namespace_and_hide_values_from_debug() {
         let options = ProviderOptions::typed(&OpenAiOptions {
@@ -1265,7 +1299,6 @@ mod tests {
             .unwrap();
         let selection = optional.provider_options_for(&second).unwrap();
         assert_eq!(selection.raw_override(), None);
-        assert_eq!(selection.unconsumed_count(), 1);
     }
 
     #[test]
@@ -1318,13 +1351,12 @@ mod tests {
     #[test]
     fn prepend_runtime_patches_preserve_source_order_before_call_entries() {
         let model = fake_model("openai", "responses", None);
-        let target = ProviderOptionTarget::for_model(&model);
         let call = CallOptions::default()
             .with_provider_options(&Layer { value: "call" })
             .unwrap()
             .prepend_provider_options(vec![
-                (target.clone(), layer("route")),
-                (target, layer("step")),
+                ProviderOptionPatch::typed_for_model(&model, &Layer { value: "route" }).unwrap(),
+                ProviderOptionPatch::typed_for_model(&model, &Layer { value: "step" }).unwrap(),
             ])
             .unwrap();
 

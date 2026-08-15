@@ -3,9 +3,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use siumai_core::{
     ApiModeId, CallOptions, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelFamily, ModelId, PlatformId, ProtocolId, ProviderId,
-    ProviderInstanceId, ProviderOptionError, ProviderOptionTarget, ProviderOptions, ProviderScope,
-    ReplayDomain, RouteId, TypedProviderOptions,
+    LanguageStream, Model, ModelId, PlatformId, ProtocolId, ProviderId, ProviderOptionError,
+    ProviderOptionPatch, ProviderScope, ReplayDomain, RouteId, TypedProviderOptions,
 };
 use thiserror::Error;
 
@@ -122,84 +121,10 @@ pub enum RuntimeConfigError {
     ProviderOptions(#[from] ProviderOptionError),
 }
 
-#[derive(Clone)]
-struct ExactProviderPatch {
-    target: ProviderOptionTarget,
-    route: Option<RouteId>,
-    scope: ProviderScope,
-    family: ModelFamily,
-    instance_id: ProviderInstanceId,
-    options: ProviderOptions,
-}
-
-impl std::fmt::Debug for ExactProviderPatch {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ExactProviderPatch")
-            .field("target", &self.target)
-            .field("options", &self.options)
-            .finish()
-    }
-}
-
-impl ExactProviderPatch {
-    fn typed<M, T>(model: &M, value: &T) -> Result<Self, RuntimeConfigError>
-    where
-        M: Model + ?Sized,
-        T: TypedProviderOptions,
-    {
-        let options = ProviderOptions::typed(value)?;
-        let target = ProviderOptionTarget::for_model(model);
-        if options.namespace() != target.provider() {
-            return Err(ProviderOptionError::NamespaceMismatch {
-                expected: target.provider().to_string(),
-                actual: options.namespace().to_string(),
-            }
-            .into());
-        }
-        if options.model_family() != Some(target.family())
-            || options.api_mode() != target.api_mode()
-        {
-            return Err(ProviderOptionError::TargetMismatch {
-                expected_family: target.family(),
-                expected_api_mode: target.api_mode().map(ApiModeId::to_string),
-                actual_family: options.model_family().unwrap_or(target.family()),
-                actual_api_mode: options.api_mode().map(ApiModeId::to_string),
-            }
-            .into());
-        }
-
-        let descriptor = model.descriptor();
-        Ok(Self {
-            target,
-            route: model.route_id().cloned(),
-            scope: descriptor.scope().clone(),
-            family: descriptor.family(),
-            instance_id: descriptor.instance_id().clone(),
-            options,
-        })
-    }
-
-    fn matches_model<M>(&self, model: &M) -> bool
-    where
-        M: Model + ?Sized,
-    {
-        let descriptor = model.descriptor();
-        self.route.as_ref() == model.route_id()
-            && self.scope == *descriptor.scope()
-            && self.family == descriptor.family()
-            && self.instance_id == *descriptor.instance_id()
-    }
-
-    fn same_target(&self, other: &Self) -> bool {
-        self.target == other.target
-    }
-}
-
 /// Options owned by one model step inside the high-level runtime.
 #[derive(Debug, Clone, Default)]
 pub struct StepOptions {
-    patches: Vec<ExactProviderPatch>,
+    patches: Vec<ProviderOptionPatch>,
 }
 
 impl StepOptions {
@@ -213,7 +138,7 @@ impl StepOptions {
         M: Model + ?Sized,
         T: TypedProviderOptions,
     {
-        let patch = ExactProviderPatch::typed(model, value)?;
+        let patch = ProviderOptionPatch::typed_for_model(model, value)?;
         if self
             .patches
             .iter()
@@ -231,13 +156,13 @@ impl StepOptions {
 #[derive(Debug, Clone)]
 struct RouteDefaults {
     route: RouteId,
-    patch: ExactProviderPatch,
+    patch: ProviderOptionPatch,
 }
 
 #[derive(Debug, Clone)]
 struct ModelDefaults {
     target: ModelTarget,
-    patch: ExactProviderPatch,
+    patch: ProviderOptionPatch,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -250,7 +175,7 @@ struct RuntimeDefaults {
 /// Runtime-private source ordering. Providers consume only the resulting
 /// exact-target patch order and never observe these host-level source labels.
 struct OrderedProviderPatches<'a> {
-    patches: Vec<&'a ExactProviderPatch>,
+    patches: Vec<&'a ProviderOptionPatch>,
 }
 
 impl<'a> OrderedProviderPatches<'a> {
@@ -345,7 +270,7 @@ impl Runtime {
         let patches = OrderedProviderPatches::for_call(&self.defaults, model, step)
             .patches
             .into_iter()
-            .map(|patch| (patch.target.clone(), patch.options.clone()));
+            .cloned();
         options
             .prepend_provider_options(patches)
             .map_err(runtime_provider_options_error)
@@ -381,7 +306,7 @@ impl RuntimeBuilder {
             .ok_or_else(|| RuntimeConfigError::MissingRoute {
                 target: Box::new(target),
             })?;
-        let patch = ExactProviderPatch::typed(model, value)?;
+        let patch = ProviderOptionPatch::typed_for_model(model, value)?;
         if self
             .defaults
             .route
@@ -405,7 +330,7 @@ impl RuntimeBuilder {
         T: TypedProviderOptions,
     {
         let target = ModelTarget::from_model(model);
-        let patch = ExactProviderPatch::typed(model, value)?;
+        let patch = ProviderOptionPatch::typed_for_model(model, value)?;
         if self
             .defaults
             .model
