@@ -33,8 +33,10 @@ Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship
 They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
 and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
 flagship examples are each compiled with only their exact provider feature. This remains a small
-fixed gate rather than a provider-by-feature matrix. The documentation lane builds the OpenAI
-provider with all optional modules enabled before the workspace docs pass.
+fixed gate rather than a provider-by-feature matrix. Pull requests also run the documentation lane,
+which builds the OpenAI provider with all optional modules enabled before workspace docs and
+doctests pass. Deterministic nextest failures are not retried, and the workspace has a finite global
+test timeout.
 
 The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
 `claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
@@ -91,7 +93,8 @@ Fallback (not recommended):
 Do **not** create or push release tags manually.
 
 In this repository, release tags are an output of `release-plz release`, not the trigger for publishing.
-This keeps crates.io publishing, the `v{{ version }}` git tag, and the GitHub Release synchronized.
+The workflow keeps publication order, tag creation, and GitHub Release creation inside that one
+pinned native command rather than maintaining a second publication or tag engine.
 
 The pinned `release-plz` 0.3.157 release command is not a general repair tool for partially created
 repository releases. It treats any local tag with the expected name as already handled before it
@@ -99,6 +102,12 @@ checks the tag target or GitHub Release state. If a run leaves an exact tag with
 or a same-name tag points at the wrong commit, stop and inspect the repository state instead of
 rerunning or wrapping the command. Do not pre-create, move, or delete release tags as an automated
 workaround.
+
+The manual job therefore runs only from `refs/heads/main`, verifies that the checkout still equals
+the current remote `main` commit, and rejects any pre-existing tag for the workspace version before
+installing release tooling or using publish credentials. Partially published crates can converge on
+a later run while that tag is absent. A tag-only state is intentionally a visible manual stop, not
+an automated recovery path.
 
 The release PR is the preferred way to prepare version and changelog changes, but it is not a
 publishing authorization boundary. The actual publish job is manually dispatched from `main`, and
@@ -127,7 +136,8 @@ fix or another normal PR landed after the release PR.
    - the `siumai` tag exists in the repository
    - the GitHub Release exists and uses the expected changelog section
 
-This runs `release-plz release` to publish crates to crates.io and create the `siumai` tag + GitHub Release.
+This runs the preflight above and then one pinned `release-plz release` command to publish crates to
+crates.io and create the `siumai` tag + GitHub Release.
 
 ## Manual dry run
 
@@ -150,7 +160,9 @@ to avoid accidentally enabling dry-run due to string input handling.
 
 When publishing many new crates (common during a workspace split), crates.io can return `429 Too Many Requests`.
 
-The release workflow retries automatically on 429 by waiting until the timestamp suggested by crates.io and then re-running `release-plz release`.
+The release workflow retries automatically on 429 by waiting until the timestamp suggested by
+crates.io and then re-running the same `release-plz release`. Only a bounded diagnostic suffix is
+retained for classification; non-429 failures stop immediately.
 
 ## Why there may be no release PR
 

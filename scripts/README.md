@@ -84,6 +84,8 @@ by Rust tests; there is no separate inventory of unused snapshots.
 
 `release_plz_release_with_retry.py` is the release-only retry wrapper used by GitHub Actions. It
 streams `release-plz` output, recognizes crates.io rate limiting, parses the retry timestamp with
-the Python standard library, and applies bounded retries without depending on Bash or GNU `date`.
-The workflow also uses `--dry-run` on this same Python entry point. Credentials remain in the
-environment consumed by release-plz and are never copied into process arguments.
+the Python standard library, retains only a bounded output suffix for retry classification, and
+applies bounded retries without depending on Bash or GNU `date`. The workflow also uses `--dry-run`
+on this same Python entry point. Credentials remain in the environment consumed by release-plz and
+are never copied into process arguments. Main/SHA/tag preflights remain in the workflow; this script
+does not implement repository release repair or publication ordering.

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPT = Path(__file__).resolve().parent.parent / "release_plz_release_with_retry.py"
+WORKFLOW = SCRIPT.parents[1] / ".github" / "workflows" / "release-plz.yml"
 SPEC = importlib.util.spec_from_file_location("release_plz_retry", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 RETRY = importlib.util.module_from_spec(SPEC)
@@ -74,6 +75,41 @@ class ReleasePlzRetryTests(unittest.TestCase):
         with patch.dict(os.environ, {"RETRY_TEST_VALUE": "0"}):
             with self.assertRaisesRegex(ValueError, "positive integer"):
                 RETRY.positive_env_int("RETRY_TEST_VALUE", 1)
+
+    def test_output_tail_keeps_only_the_bounded_suffix(self) -> None:
+        tail = RETRY.BoundedOutputTail(maximum_bytes=8)
+
+        tail.append("first-")
+        tail.append("second")
+
+        self.assertEqual(tail.text(), "t-second")
+
+    def test_run_release_returns_a_bounded_diagnostic_tail(self) -> None:
+        process = MagicMock()
+        process.stdout = ["x" * RETRY.OUTPUT_TAIL_BYTES, "rate-limit-tail\n"]
+        process.wait.return_value = 1
+
+        with (
+            patch.object(RETRY.subprocess, "Popen", return_value=process),
+            patch("builtins.print"),
+        ):
+            status, output = RETRY.run_release("github-token")
+
+        self.assertEqual(status, 1)
+        self.assertLessEqual(len(output.encode("utf-8")), RETRY.OUTPUT_TAIL_BYTES)
+        self.assertTrue(output.endswith("rate-limit-tail\n"))
+
+    def test_manual_release_fails_closed_before_tool_installation(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        preflight = workflow.index("Verify release commit is current main")
+        install = workflow.index("Install release tooling")
+        release = workflow.index("Run release-plz (release)")
+        self.assertLess(preflight, install)
+        self.assertLess(preflight, release)
+        self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/commits/main"', workflow)
+        self.assertIn('git/ref/tags/${expected_tag}', workflow)
 
 
 if __name__ == "__main__":

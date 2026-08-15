@@ -57,12 +57,12 @@ These are not requests for more validation. They are requests to move or delete 
 #### Release and repository automation
 
 - R1. A manual publish job runs only for `refs/heads/main`, and the checked-out commit must equal the current remote `main` commit before any publish or finalize command starts.
-- R2. Publishing all workspace crates and creating the facade repository tag/GitHub Release are two ordered phases. Phase 2 cannot run unless Phase 1 exits successfully for the entire workspace.
-- R3. Phase 1 publishes with git tags/releases disabled. Phase 2 uses release-plz `0.3.157` `git_only = true` with `publish = false` for `siumai`; no custom crate graph, publication order, or tag implementation is introduced.
-- R4. The bounded crates.io 429 retry wrapper remains, but it accepts an explicit release-plz config path and retains only a bounded diagnostic tail for retry classification.
+- R2. One pinned release-plz `0.3.157` release command remains responsible for workspace publication order, the facade tag, and the GitHub Release. The workflow rejects any pre-existing expected tag before invoking it, so a tag-only or mismatched-tag state cannot be mistaken for a successful rerun.
+- R3. Do not add a custom publisher, package graph, tag engine, or GitHub Release repair script. The pinned tool cannot safely repair an exact tag without a release because it short-circuits on local tag existence before checking tag target or forge state; that state requires explicit maintainer inspection.
+- R4. The bounded crates.io 429 retry wrapper remains and retains only a bounded diagnostic tail for retry classification. Retries re-run the same native release command and occur only for recognized crates.io publication throttling.
 - R5. Release PR generation never receives a crates.io publish token. The publish job keeps token auth until all 26 crates have configured crates.io Trusted Publishing; OIDC migration is an operational follow-up and cannot produce a half-token/half-OIDC workflow.
 - R6. PR CI includes docs and doctests, deterministic tests are not blanket-retried, and nextest has a measured finite global timeout. Do not create a provider-by-feature matrix or add a live credentialed gate.
-- R7. Cargo, release-plz, the two existing bounded repository checkers, and the fixed test-workspace lanes remain the authorities. Do not reintroduce a workspace-version policy file, provider matrix script, or Rust source parser.
+- R7. Cargo, release-plz, the bounded package-list checker, and the fixed test-workspace lanes remain the authorities. Cargo metadata and the compiler own workspace dependency correctness. Do not reintroduce a workspace-version policy file, dependency-policy mirror, provider matrix script, or Rust source parser.
 
 #### Runtime tool and durable identity
 
@@ -125,10 +125,10 @@ These are not requests for more validation. They are requests to move or delete 
 
 ### Key Flows
 
-- F1. **Atomic release finalization**
+- F1. **Fail-closed native release**
   - Trigger: a maintainer manually dispatches the publish workflow from `main`.
-  - Steps: preflight verifies the exact remote-main commit; publish-only release-plz config publishes the complete workspace with bounded 429 retries; only on success does the git-only finalize config create the `siumai` tag and GitHub Release.
-  - Outcome: no public repository release exists for a partially published workspace.
+  - Steps: preflight verifies the exact remote-main commit and absence of the expected tag; the pinned native release command publishes the workspace and creates the `siumai` tag/GitHub Release with bounded 429 retries.
+  - Outcome: non-main and stale commits cannot publish, ordinary partial crate publication can converge on rerun while no tag exists, and any pre-existing tag state fails visibly instead of being treated as complete.
   - Covered by: R1-R7.
 
 - F2. **Model-visible tool catalog with trusted execution bindings**
@@ -163,7 +163,7 @@ These are not requests for more validation. They are requests to move or delete 
 
 ### Acceptance Examples
 
-- AE1. Covers F1. If the last independently publishable crate fails permanently, the workflow exits without creating `vX.Y.Z` or a GitHub Release. Re-running Phase 1 publishes only still-unpublished crates, then Phase 2 finalizes exactly once.
+- AE1. Covers F1. If an independently publishable crate fails permanently, the native command exits before repository release finalization. A rerun may converge while the expected tag is absent; if the tag already exists, preflight stops and requires explicit inspection instead of claiming idempotent repair.
 - AE2. Covers R1. Dispatching the release job from a non-main ref fails before installation/authentication/publish work; moving remote `main` after checkout also fails the commit preflight.
 - AE3. Covers F2. A request with one Anthropic hosted-tool annotation and an empty local ToolSet reaches Anthropic wire unchanged and never enters local approval/execution.
 - AE4. Covers F2. A caller-visible spec plus a distinct local binding are both sent on the first and later model steps; a same-name pair fails before the model transport is called.
@@ -181,7 +181,7 @@ These are not requests for more validation. They are requests to move or delete 
 
 ### Success Criteria
 
-- The next manual release cannot tag a partially published workspace or run from a non-main commit.
+- The next manual release cannot run from a non-main or stale commit, and an existing expected tag can never be silently accepted as a repaired release.
 - Runtime preserves all model-visible tool intent while keeping executable bindings host-owned and durable identities annotation-complete.
 - One runtime MCP dispatch cannot be replayed invisibly by rmcp, and raw MCP inputs are bounded before deserialization.
 - Valid v6 snapshots cannot silently reset usage, and custom stores do not weaken successor validation.
@@ -235,7 +235,7 @@ These are not requests for more validation. They are requests to move or delete 
 
 ### Key Technical Decisions
 
-- KTD1. **Finalize releases in a separate release-plz git-only phase.** Keep normal `release-plz.toml` for release-PR calculation, add explicit publish-only and finalize configs, and pass the config path through the existing retry wrapper. This uses the pinned tool's native `git_only = true` plus `publish = false` seam and avoids a custom publication engine. Governs R1-R7. *(session-settled: user-directed — chosen over additional release policy scripts.)*
+- KTD1. **Keep one native release-plz release operation and fail closed around it.** The pinned tool short-circuits on local tag existence before validating tag target or GitHub Release state, so a git-only second phase is not safely restartable. Keep release-plz as the publication/tag authority, add main/SHA/tag-absence preflights, and document explicit inspection for tag-partial states instead of inventing a repair engine. Governs R1-R7. *(implementation-evidence update — chosen over an unrepairable two-phase contract or a custom release implementation.)*
 - KTD2. **Separate visibility from executability.** `LanguageRequest.tools` is the visible catalog; `ToolSet` is the trusted binding map. Runtime derives a private merged catalog once per run and never uses visibility as proof of execution authority. Governs R8-R13.
 - KTD3. **Fingerprint wire-semantic tool identity.** Canonically hash the whole `ToolSpec`, including annotations, alongside host binding policy. Bump both fingerprint domain versions and the durable execution ABI so old approval/resume identities fail explicitly. Governs R10-R12.
 - KTD4. **No transparent replay below runtime.** Disable rmcp session reinitialization and classify uncertain `tools/call` outcomes as indeterminate. Discovery may be retried only through an explicit caller/runtime action, not by the transport worker. Governs R14, R19.
@@ -273,20 +273,15 @@ trusted binding -> approval -> checkpoint -> dispatch
 ```text
 manual workflow_dispatch on main
           |
-remote-main commit preflight
+remote-main commit + expected-tag-absence preflight
           |
-Phase 1: release-plz publish config
-  - workspace publishing enabled
-  - all git tags/releases disabled
+one pinned release-plz release command
+  - workspace publishing remains dependency ordered
+  - only siumai owns the repository tag/release
   - bounded 429 retries
           |
-          +-- any crate failure --> stop; no tag/release
-          |
-Phase 2: release-plz finalize config
-  - only siumai release enabled
-  - git_only = true
-  - publish = false
-  - v{{version}} tag + GitHub Release
+          +-- crate failure --> stop; rerun only while tag is absent
+          +-- tag exists --> stop for explicit inspection
 ```
 
 ```text
@@ -317,15 +312,15 @@ new StoredRun revision
 - **Durable state:** Tool fingerprint domains and durable execution ABI change. Existing snapshots/approvals tied to the old catalog identity fail closed. Snapshot schema remains v6 if only requiredness changes.
 - **Transport:** Local redirect policy and exact credential-header collisions become narrower but stronger. Provider-body fields cannot mutate transport because the carrier boundary stays typed.
 - **Provider protocols:** Provider eligibility changes affect final request admission, not encoding. Each removal requires final-wire fixtures for known and future model IDs plus a structural negative.
-- **Release operations:** The workflow becomes restartable in two phases. An interrupted publish may leave a partially published crates.io workspace, but no repository release; rerunning publish converges before finalize.
+- **Release operations:** The workflow remains one native release-plz operation. Crate publication can converge on rerun while the expected tag is absent; any existing expected tag is an explicit stop condition because the pinned tool cannot validate or repair that partial repository state.
 - **Security/privacy:** MCP remote source material remains explicitly sensitive; no new raw payload is admitted to default diagnostics or durable snapshots.
 
 ### Risks and Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| release-plz git-only finalize calculates an unexpected version/tag | Pin `0.3.157`; add config parse/dry-run fixtures against a temporary workspace with an existing prior tag; assert output contains only the facade release before enabling the workflow step. |
-| publish succeeds but finalize transiently fails | Keep phases separately rerunnable; finalize is git-only and must reject an already-existing mismatched tag while treating the exact existing release as complete. |
+| release-plz creates a tag but GitHub Release creation fails | Reject every pre-existing expected tag before a new run and require explicit maintainer inspection; do not automate tag movement/deletion or claim the pinned tool can repair the state. |
+| workspace publication is partially complete before a crates.io failure | Retry only recognized 429 failures with the same native command; release-plz skips already-published versions while the expected tag remains absent. |
 | preserving caller-visible tools causes the model to call an unbound tool | Keep the current local resolver fail-closed and document that ToolLoop executes only ToolSet bindings; hosted provider tools remain ProviderOpaque/provider-owned. |
 | fingerprint change strands beta snapshots | Bump the execution ABI and migration guide explicitly; do not attempt to reinterpret old annotation-blind identities. |
 | custom rmcp adapters duplicate too much upstream code | Implement only bounded I/O and required trait adaptation; keep JSON-RPC/session logic in rmcp; reassess replacement only if public traits cannot enforce pre-parse bounds. |
@@ -346,13 +341,10 @@ No launch-blocking question remains. The following are implementation checks wit
 
 ### U1. Make workspace publication precede repository release
 
-- **Goal:** Make a manual release main-only, restartable, and atomic at the repository tag/release boundary.
+- **Goal:** Make a manual release main-only, stale-commit-safe, and fail closed around the pinned tool's non-repairable tag boundary.
 - **Requirements:** R1-R7; F1; AE1-AE2; KTD1.
 - **Files:**
   - Modify `.github/workflows/release-plz.yml`
-  - Modify `release-plz.toml`
-  - Create `config/release/release-plz-publish.toml`
-  - Create `config/release/release-plz-finalize.toml`
   - Modify `scripts/release_plz_release_with_retry.py`
   - Modify `scripts/tests/test_release_plz_release_with_retry.py`
   - Modify `.github/workflows/ci.yml`
@@ -360,18 +352,17 @@ No launch-blocking question remains. The following are implementation checks wit
   - Modify `docs/releasing.md`
   - Modify `scripts/README.md`
 - **Approach:**
-  - Add both workflow-level and checked-out-commit `main` preflights before credentials or release commands.
-  - Keep `release-plz.toml` as release-PR configuration; the publish config disables every git tag/release while preserving workspace publication; the finalize config disables/restricts other packages and configures `siumai` with `git_only = true`, `publish = false`, and the existing tag/release templates.
-  - Extend the existing Python wrapper with a required/explicit config path, same secret-to-`GIT_TOKEN` mapping, dry-run mode, 429 retry only for the publish phase, and a bounded rolling output tail. Do not parse package graphs or publication order.
-  - Split the workflow into publish and finalize steps/jobs with a hard success dependency. Remove unused release-job semver tooling and release-PR publish credentials.
+  - Add workflow-level, checked-out-commit, remote-main, and expected-tag-absence preflights before publish credentials or release commands.
+  - Keep `release-plz.toml` as the single release-PR and release configuration; do not add a custom publication or repository-finalization engine.
+  - Keep the existing Python wrapper's secret-to-`GIT_TOKEN` mapping and dry-run mode; apply 429 retry only to recognized crates.io throttling and retain a bounded rolling output tail. Do not parse package graphs or publication order.
+  - Remove unused release-job semver tooling and release-PR publish credentials.
   - Add PR docs/doctests, remove blanket nextest retry, and choose a finite timeout from current serial full-lane timing plus margin.
 - **Test scenarios:**
-  - Wrapper forwards real/dry-run/config arguments without putting credentials in argv.
-  - 429 then success retries publish with the same config; non-429 and finalize failures never retry as crates.io rate limits.
-  - A temporary release-plz fixture proves publish config produces no tag and finalize config publishes no crate but produces the expected facade tag.
-  - Static workflow contract verifies non-main dispatch and remote-main mismatch stop before release.
+  - Wrapper forwards real/dry-run arguments without putting credentials in argv and retains only the bounded diagnostic suffix.
+  - 429 then success retries the same command; non-429 failures never retry as crates.io rate limits.
+  - Static workflow contract verifies non-main dispatch, remote-main mismatch, and an existing expected tag stop before release.
   - CI docs/doctest path runs for pull requests; deterministic failure is not retried.
-- **Verification:** Script unit suite passes; release-plz config fixture shows disjoint outputs; YAML parses; package/checker tests remain green; docs describe the actual two phases and restart behavior.
+- **Verification:** Script unit suite passes; YAML parses; package/checker tests remain green; docs describe the actual native command, its bounded retry behavior, and the non-repairable tag-partial state.
 
 ### U4. Correct durable usage and successor ownership
 
@@ -591,7 +582,7 @@ No launch-blocking question remains. The following are implementation checks wit
 
 ### Per-Unit Gates
 
-- U1: `python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'`; release-plz `0.3.157` temporary-workspace config fixtures; YAML parse/action validation; existing package and architecture checkers.
+- U1: `python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'`; pinned release-plz `0.3.157` source-behavior verification; YAML parse/action validation; bounded package-list checks.
 - U4/U2/U8 runtime slices: `cargo nextest run -p siumai-runtime --all-features --test-threads 1`; `cargo check -p siumai-runtime --no-default-features --features json-schema -j 1`; `cargo clippy -p siumai-runtime --all-targets --all-features -j 1 -- -D warnings`.
 - U3: `cargo nextest run -p siumai-mcp --all-features --test-threads 1`; `cargo clippy -p siumai-mcp --all-targets --all-features -j 1 -- -D warnings`; focused `siumai-transport` resource tests.
 - U5: run each changed provider's all-feature nextest and Clippy serially; run only its directly affected protocol/compat crate when the final wire owner changed.
@@ -606,7 +597,6 @@ Run Cargo commands serially in the shared target directory:
 ```text
 cargo fmt --all -- --check
 python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
-python3 -B scripts/check_workspace_boundaries.py
 python3 -B scripts/check_package_file_list.py
 python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
@@ -633,7 +623,7 @@ The CI MSRV lane at Rust `1.95` and `cargo package --workspace --locked -j 1` re
 ## Definition of Done
 
 - [ ] U1-U8 satisfy their cited requirements, flows, acceptance examples, and verification outcomes in dependency order.
-- [ ] A failed or partial workspace publish cannot create a repository tag/GitHub Release, and non-main dispatch cannot begin publishing.
+- [ ] Non-main/stale dispatch cannot begin publishing, ordinary partial crate publication can converge while no tag exists, and any pre-existing expected tag fails visibly before release-plz runs.
 - [ ] Runtime preserves caller/provider-visible tools, executes only trusted local bindings, fingerprints complete annotated specs, and resumes with the same catalog/usage/successor semantics.
 - [ ] MCP performs no hidden replay, applies raw bounds before parsing, sanitizes default errors, and does not permanently poison long-lived sessions by notification count.
 - [ ] Responses WebSocket produces one submission-aware terminal under success, cancellation, timeout, actor failure, socket failure, and drop.
