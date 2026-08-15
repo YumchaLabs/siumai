@@ -509,15 +509,11 @@ fn validate_http_endpoint(endpoint: &str, policy: McpHttpEndpointPolicy) -> Resu
     match parsed.scheme() {
         "https" => Ok(()),
         "http" if policy == McpHttpEndpointPolicy::AllowHttpLoopback => {
-            let loopback = parsed.host_str().is_some_and(|host| {
-                let literal = host
-                    .strip_prefix('[')
-                    .and_then(|value| value.strip_suffix(']'))
-                    .unwrap_or(host);
-                literal
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|address| address.is_loopback())
-            });
+            let loopback = match parsed.host() {
+                Some(url::Host::Ipv4(address)) => address.is_loopback(),
+                Some(url::Host::Ipv6(address)) => address.is_loopback(),
+                Some(url::Host::Domain(_)) | None => false,
+            };
             if loopback {
                 Ok(())
             } else {

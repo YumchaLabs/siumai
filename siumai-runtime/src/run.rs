@@ -236,7 +236,9 @@ impl ProviderDeferredObservation {
     }
 
     fn matches_key(&self, key: &ProviderDeferredKey) -> bool {
-        self.key().eq(key)
+        self.correlation_id == key.correlation_id
+            && self.item.provenance().provider() == &key.provider
+            && self.item.provenance().protocol() == &key.protocol
     }
 }
 

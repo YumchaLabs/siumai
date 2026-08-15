@@ -29,6 +29,27 @@ mod speech;
 mod tools;
 mod transcription;
 
+#[cfg(any(feature = "openai-realtime", feature = "openai-responses-websocket"))]
+fn effective_deadline(
+    explicit: Option<std::time::Instant>,
+    timeout: std::time::Duration,
+) -> Option<std::time::Instant> {
+    let configured = std::time::Instant::now().checked_add(timeout);
+    match (explicit, configured) {
+        (Some(explicit), Some(configured)) => Some(explicit.min(configured)),
+        (Some(explicit), None) => Some(explicit),
+        (None, configured) => configured,
+    }
+}
+
+#[cfg(any(feature = "openai-realtime", feature = "openai-responses-websocket"))]
+async fn wait_for_deadline(deadline: Option<std::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 pub use annotations::OpenAiContentOptions;
 pub use catalog::{
     GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,

@@ -34,6 +34,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot};
 use url::Url;
 
 use super::credential::{OpenAiCredential, OpenAiCredentialError};
+use super::{effective_deadline, wait_for_deadline};
 
 /// Current official OpenAI Realtime conversation model.
 pub const OPENAI_REALTIME_MODEL: &str = "gpt-realtime-2.1";
@@ -1315,7 +1316,7 @@ where
     let prepared = config.prepare().map_err(configuration_error)?;
     let cancellation = options.cancellation().clone();
     let session_deadline =
-        effective_session_deadline(options.deadline(), prepared.transport.session_timeout());
+        effective_deadline(options.deadline(), prepared.transport.session_timeout());
     let lineage_id = new_lineage_id(config.route)?;
     let request = OpenAiRealtimeConnectRequest {
         lineage_id: lineage_id.clone(),
@@ -1737,22 +1738,6 @@ fn expired_terminal() -> SessionTerminal {
         reason: Some(PublicDiagnosticText::from(
             "OpenAI Realtime session deadline elapsed",
         )),
-    }
-}
-
-fn effective_session_deadline(explicit: Option<Instant>, timeout: Duration) -> Option<Instant> {
-    let configured = Instant::now().checked_add(timeout);
-    match (explicit, configured) {
-        (Some(explicit), Some(configured)) => Some(explicit.min(configured)),
-        (Some(explicit), None) => Some(explicit),
-        (None, configured) => configured,
-    }
-}
-
-async fn wait_for_deadline(deadline: Option<Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
-        None => std::future::pending::<()>().await,
     }
 }
 

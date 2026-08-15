@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use super::mode::OpenAiApiMode;
 use super::model::{OpenAiResponsesModel, contextualize_terminal_error, model_error_context};
+use super::{effective_deadline, wait_for_deadline};
 
 /// Current provider-owned endpoint for persistent Responses sessions.
 pub const OPENAI_RESPONSES_WEBSOCKET_URL: &str = "wss://api.openai.com/v1/responses";
@@ -1927,22 +1928,6 @@ fn configuration_error(source: OpenAiResponsesWebSocketConfigError) -> Error {
         "OpenAI Responses WebSocket configuration is invalid",
     )
     .with_source(source)
-}
-
-fn effective_deadline(explicit: Option<Instant>, timeout: Duration) -> Option<Instant> {
-    let configured = Instant::now().checked_add(timeout);
-    match (explicit, configured) {
-        (Some(explicit), Some(configured)) => Some(explicit.min(configured)),
-        (Some(explicit), None) => Some(explicit),
-        (None, configured) => configured,
-    }
-}
-
-async fn wait_for_deadline(deadline: Option<Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
-        None => std::future::pending::<()>().await,
-    }
 }
 
 fn validate_close_request(request: &SessionCloseRequest) -> Result<(), Error> {

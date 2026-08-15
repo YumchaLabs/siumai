@@ -532,10 +532,6 @@ impl ProviderOptionPatch {
         Ok(Self { target, options })
     }
 
-    pub fn target(&self) -> &ProviderOptionTarget {
-        &self.target
-    }
-
     pub fn matches_model<M: Model + ?Sized>(&self, model: &M) -> bool {
         self.target.matches_model(model, model.route_id())
     }
