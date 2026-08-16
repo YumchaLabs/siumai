@@ -755,22 +755,22 @@ Final repository searches must show no active references to:
 
 ## Definition of Done
 
-- [ ] U1-U7 are implemented in dependency order with no skipped requirement.
-- [ ] Agent, ToolLoop, structured, and DurableToolLoop share one completed-step planning path.
-- [ ] Completed-step semantic state commits atomically, while consumed model attempts and provider-reported usage settle exactly once on later classification failure.
-- [ ] The durable tool journal is the only execution-transition writer; duplicate restore and raw append paths are deleted.
-- [ ] Provider-deferred state has one ledger owner with exact replay-scope identity, stable order, monotonic resolution, and mixed local/deferred progression.
-- [ ] Failed, cancelled, and unexpected-EOF streams cannot commit staged provider-deferred observations as resumable work.
-- [ ] Snapshot v8 and durable ABI v7 are implemented once; v7 fails closed; `dispatch_id` and public internal constructors/mutators are removed.
-- [ ] `RunStore` remains a storage/CAS port and does not own successor semantics.
-- [ ] Every checkpoint path enforces snapshot size before CAS; external stores document and test sensitive-state confidentiality/integrity/isolation and pre-deserialization bounds.
-- [ ] Responses WebSocket uses one private turn lifecycle and exposes no public advanced connector/socket seam.
-- [ ] `siumai-openai-compatible` owns the stateless OpenAI HTTP/SSE kernel; compatible and official portable/native language paths reuse it without fidelity loss.
-- [ ] `extension::v2` has a documented provider-author stability contract and an external-consumer compile fixture; it cannot override endpoint/auth/signing/replay/retry/timeout/transport authority.
-- [ ] Official OpenAI retains all branded options, identity, resources, background, native carriers, Realtime, WebSocket, evidence, and diagnostics ownership.
-- [ ] Architecture, migration, changelogs, rustdoc, facade exports, and examples match the new public contracts.
-- [ ] High-level runtime, external `RunStore`, official OpenAI, and direct compatible-provider adopter journeys remain covered after the breaking cleanup.
-- [ ] Obsolete helpers, aliases, imports, tests, and documentation are deleted rather than deprecated.
-- [ ] All per-unit, expanded, no-default, workspace, doctest, Clippy, metadata, formatting, packaging, and deletion gates pass serially.
-- [ ] U1-U4 land as one reviewable durable compatibility-boundary commit; any later scoped commit uses an English Conventional Commit message and excludes unrelated user/agent changes.
-- [ ] No publish, tag, push, release, PR creation, credentialed live test, or destructive external action occurs without separate authorization.
+- [x] U1-U7 are implemented in dependency order with no skipped requirement.
+- [x] Agent, ToolLoop, structured, and DurableToolLoop share one completed-step planning path.
+- [x] Completed-step semantic state commits atomically, while consumed model attempts and provider-reported usage settle exactly once on later classification failure.
+- [x] The durable tool journal is the only execution-transition writer; duplicate restore and raw append paths are deleted.
+- [x] Provider-deferred state has one ledger owner with exact replay-scope identity, stable order, monotonic resolution, and mixed local/deferred progression.
+- [x] Failed, cancelled, and unexpected-EOF streams cannot commit staged provider-deferred observations as resumable work.
+- [x] Snapshot v8 and durable ABI v7 are implemented once; v7 fails closed; `dispatch_id` and public internal constructors/mutators are removed.
+- [x] `RunStore` remains a storage/CAS port and does not own successor semantics.
+- [x] Every checkpoint path enforces snapshot size before CAS; external stores document and test sensitive-state confidentiality/integrity/isolation and pre-deserialization bounds.
+- [x] Responses WebSocket uses one private turn lifecycle and exposes no public advanced connector/socket seam.
+- [x] `siumai-openai-compatible` owns the stateless OpenAI HTTP/SSE kernel; compatible and official portable/native language paths reuse it without fidelity loss.
+- [x] `extension::v2` has a documented provider-author stability contract and an external-consumer compile fixture; it cannot override endpoint/auth/signing/replay/retry/timeout/transport authority.
+- [x] Official OpenAI retains all branded options, identity, resources, background, native carriers, Realtime, WebSocket, evidence, and diagnostics ownership.
+- [x] Architecture, migration, changelogs, rustdoc, facade exports, and examples match the new public contracts.
+- [x] High-level runtime, external `RunStore`, official OpenAI, and direct compatible-provider adopter journeys remain covered after the breaking cleanup.
+- [x] Obsolete helpers, aliases, imports, tests, and documentation are deleted rather than deprecated.
+- [x] All per-unit, expanded, no-default, workspace, doctest, Clippy, metadata, formatting, packaging, and deletion gates pass serially.
+- [x] U1-U4 land as one reviewable durable compatibility-boundary commit; any later scoped commit uses an English Conventional Commit message and excludes unrelated user/agent changes.
+- [x] No publish, tag, push, release, PR creation, credentialed live test, or destructive external action occurs without separate authorization.
