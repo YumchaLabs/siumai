@@ -12,20 +12,20 @@ use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageCallError,
     LanguageCompletionReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
-    PartialLanguageOutput, PartialLanguageOutputPart, ProviderId, StreamTerminal,
-    ToolAnnotationTarget, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
-    UsageUpdate, UsageValue,
+    OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
+    ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, ToolAnnotationTarget,
+    ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage, UsageUpdate, UsageValue,
 };
 use siumai_runtime::snapshot::ToolExecutionStatus;
 use siumai_runtime::tool::{
     ApprovalDecider, ApprovalDecision, ApprovalDecisionError, ApprovalDecisionFuture,
-    ApprovalPolicy, ApprovalPolicyFingerprint, ApprovalRequest, EffectCertainty, ToolBinding,
-    ToolConcurrency, ToolEffect, ToolExecutionError, ToolSet,
+    ApprovalPolicy, ApprovalPolicyFingerprint, ApprovalRequest, EffectCertainty, ToolArgumentError,
+    ToolBinding, ToolConcurrency, ToolEffect, ToolExecutionError, ToolSet,
 };
 use siumai_runtime::{
-    OutputDescriptor, RepairPolicy, RunBudget, RunEvent, RunReport, RunTerminal, RunTimeoutKind,
-    RunTimeouts, Runtime, StructuredOutputRunError, SuspensionReason, ToolLoop, ToolOutcomeAction,
-    ToolOutcomePolicy,
+    OutputDescriptor, RepairPolicy, RunBudget, RunEvent, RunReport, RunStopReason, RunTerminal,
+    RunTimeoutKind, RunTimeouts, Runtime, StructuredOutputRunError, SuspensionReason, ToolLoop,
+    ToolOutcomeAction, ToolOutcomePolicy,
 };
 
 struct ScriptStep {
@@ -181,6 +181,25 @@ fn provider_visible_tool_spec(name: &str) -> ToolSpec {
         "maxUses": 4
     })))
     .expect("valid provider-visible tool annotation")
+}
+
+fn provider_deferred_item() -> OpaqueProviderItem {
+    let descriptor = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("tool-loop-deferred-test").expect("valid replay domain"),
+    ));
+    OpaqueProviderItem::new(
+        ProviderProvenance::from_scope(descriptor.scope(), descriptor.model().clone())
+            .expect("valid provenance"),
+        "provider.deferred",
+        json!({ "status": "queued" }),
+    )
+    .expect("valid provider-deferred item")
 }
 
 fn local_call(id: &str, name: &str, arguments: Value) -> ToolCall {
@@ -566,6 +585,125 @@ async fn budget_exceeded_terminal_retains_the_observed_usage() {
 }
 
 #[tokio::test]
+async fn completed_step_planning_is_semantically_atomic_on_tool_budget_failure() {
+    let response = LanguageResponse::completed(
+        vec![
+            ContentPart::ToolCall(local_call("call_1", "lookup", json!({ "key": "one" }))),
+            ContentPart::ToolCall(local_call("call_2", "lookup", json!({ "key": "two" }))),
+        ],
+        LanguageCompletionReason::ToolCalls,
+        Usage::default().with_total_tokens(7_u64),
+    )
+    .expect("valid multi-tool response");
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let tools = ToolSet::from_bindings([executable_binding("lookup", move |_| {
+        let observed = Arc::clone(&observed);
+        boxed_tool_future(async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutcome::Success { value: Value::Null })
+        })
+    })])
+    .expect("unique tool");
+    let budget = RunBudget::builder()
+        .max_tool_calls(1)
+        .build()
+        .expect("valid budget");
+    let runtime = Runtime::builder().with_run_budget(budget).build();
+    let model = ScriptedModel::new([terminal_step(response)]);
+    let loop_ = ToolLoop::new(model, tools).with_runtime(runtime);
+
+    let (trace, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(&terminal, RunTerminal::BudgetExceeded { .. }));
+    assert_eq!(trace, vec!["started", "step_started", "terminal"]);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+
+    let report = terminal
+        .report()
+        .expect("budget terminal retains consumed-call accounting");
+    assert_eq!(report.messages().len(), 1);
+    assert!(report.steps().is_empty());
+    assert!(report.execution_log().events().is_empty());
+    assert!(report.provider_deferred().is_empty());
+    assert_eq!(report.budget().model_steps(), 1);
+    assert_eq!(report.budget().tool_calls(), 0);
+    assert_eq!(report.budget().known_tokens(), 7);
+    assert_eq!(report.usage().total_tokens, UsageValue::Known(7));
+}
+
+#[tokio::test]
+async fn completed_step_planning_is_semantically_atomic_on_late_argument_failure() {
+    let response = LanguageResponse::completed(
+        vec![
+            ContentPart::ToolCall(local_call(
+                "call_1",
+                "lookup",
+                json!({ "valid": true, "key": "one" }),
+            )),
+            ContentPart::ToolCall(local_call(
+                "call_2",
+                "lookup",
+                json!({ "valid": true, "key": "two" }),
+            )),
+            ContentPart::ToolCall(local_call(
+                "call_3",
+                "lookup",
+                json!({ "valid": false, "key": "three" }),
+            )),
+        ],
+        LanguageCompletionReason::ToolCalls,
+        Usage::default().with_total_tokens(11_u64),
+    )
+    .expect("valid multi-tool response");
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let binding = ToolBinding::from_fn(
+        tool_spec("lookup"),
+        "v1",
+        |arguments| {
+            arguments
+                .get("valid")
+                .and_then(Value::as_bool)
+                .filter(|valid| *valid)
+                .map(|_| ())
+                .ok_or_else(|| ToolArgumentError::new("lookup arguments are invalid"))
+        },
+        move |_| {
+            let observed = Arc::clone(&observed);
+            boxed_tool_future(async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(ToolOutcome::Success { value: Value::Null })
+            })
+        },
+    )
+    .expect("valid binding")
+    .with_approval_policy(ApprovalPolicy::NotRequired);
+    let tools = ToolSet::from_bindings([binding]).expect("unique tool");
+    let model = ScriptedModel::new([terminal_step(response)]);
+    let loop_ = ToolLoop::new(model, tools);
+
+    let (trace, terminal) = collect_terminal(&loop_, user_request()).await;
+    assert!(matches!(
+        &terminal,
+        RunTerminal::Failed { error, .. } if error.kind() == ErrorKind::InvalidInput
+    ));
+    assert_eq!(trace, vec!["started", "step_started", "terminal"]);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+
+    let report = terminal
+        .report()
+        .expect("planning failure retains consumed-call accounting");
+    assert_eq!(report.messages().len(), 1);
+    assert!(report.steps().is_empty());
+    assert!(report.execution_log().events().is_empty());
+    assert!(report.provider_deferred().is_empty());
+    assert_eq!(report.budget().model_steps(), 1);
+    assert_eq!(report.budget().tool_calls(), 0);
+    assert_eq!(report.budget().known_tokens(), 11);
+    assert_eq!(report.usage().total_tokens, UsageValue::Known(11));
+}
+
+#[tokio::test]
 async fn failed_and_cancelled_partials_never_create_steps_or_continuation_history() {
     let failed_model = ScriptedModel::new([ScriptStep::immediate(vec![
         LanguageStreamEvent::Usage(UsageUpdate::snapshot(
@@ -616,6 +754,76 @@ async fn failed_and_cancelled_partials_never_create_steps_or_continuation_histor
     assert_eq!(cancelled_report.usage().total_tokens, UsageValue::Known(5));
     assert_eq!(cancelled_report.budget().known_tokens(), 5);
     assert_eq!(cancelled_report.messages().len(), 1);
+}
+
+#[tokio::test]
+async fn unsettled_stream_deferred_observations_never_enter_resumable_report_state() {
+    let failed_model = ScriptedModel::new([ScriptStep::immediate(vec![
+        LanguageStreamEvent::ProviderDeferred {
+            id: "provider-state-1".to_string(),
+            state: provider_deferred_item(),
+        },
+        LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+            error: Error::new(ErrorKind::Provider, "provider failed"),
+            partial: None,
+        }),
+    ])]);
+    let (_, failed) = collect_terminal(
+        &ToolLoop::new(failed_model, ToolSet::default()),
+        user_request(),
+    )
+    .await;
+    assert!(matches!(failed, RunTerminal::Failed { .. }));
+    assert!(
+        failed
+            .report()
+            .expect("failed terminal retains report")
+            .provider_deferred()
+            .is_empty()
+    );
+
+    let cancelled_model = ScriptedModel::new([ScriptStep::immediate(vec![
+        LanguageStreamEvent::ProviderDeferred {
+            id: "provider-state-1".to_string(),
+            state: provider_deferred_item(),
+        },
+        LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
+            reason: "provider cancelled".to_string(),
+            partial: None,
+        }),
+    ])]);
+    let (_, cancelled) = collect_terminal(
+        &ToolLoop::new(cancelled_model, ToolSet::default()),
+        user_request(),
+    )
+    .await;
+    assert!(matches!(cancelled, RunTerminal::Cancelled { .. }));
+    assert!(
+        cancelled
+            .report()
+            .expect("cancelled terminal retains report")
+            .provider_deferred()
+            .is_empty()
+    );
+
+    let eof_model = ScriptedModel::new([ScriptStep::immediate(vec![
+        LanguageStreamEvent::ProviderDeferred {
+            id: "provider-state-1".to_string(),
+            state: provider_deferred_item(),
+        },
+    ])]);
+    let (_, eof) = collect_terminal(
+        &ToolLoop::new(eof_model, ToolSet::default()),
+        user_request(),
+    )
+    .await;
+    assert!(matches!(eof, RunTerminal::Failed { .. }));
+    assert!(
+        eof.report()
+            .expect("EOF failure retains report")
+            .provider_deferred()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -1291,6 +1499,114 @@ async fn total_timeout_after_preparation_prevents_dispatch() {
         }
     ));
     assert_eq!(executions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn mixed_immediate_and_executed_results_emit_one_completion_each() {
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&executions);
+    let tools = ToolSet::from_bindings([executable_binding("lookup", move |_| {
+        let observed = Arc::clone(&observed);
+        boxed_tool_future(async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(ToolOutcome::Success { value: json!(true) })
+        })
+    })])
+    .expect("unique tool");
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![
+            local_call("call_unknown", "unknown_tool", json!({})),
+            local_call("call_bound", "lookup", json!({})),
+        ])),
+        terminal_step(final_response("done")),
+    ]);
+    let loop_ = ToolLoop::new(model, tools).with_outcome_policy(
+        ToolOutcomePolicy::default().with_execution_failed(ToolOutcomeAction::Continue),
+    );
+    let mut stream = loop_
+        .stream(user_request(), CallOptions::default())
+        .await
+        .expect("stream establishes");
+    let mut completions = Vec::new();
+    let terminal = loop {
+        match stream.next().await {
+            Some(RunEvent::ToolCompleted {
+                ordinal, result, ..
+            }) => completions.push((ordinal, result.call_id)),
+            Some(RunEvent::Terminal(terminal)) => break terminal,
+            Some(_) => {}
+            None => panic!("run stream must emit one terminal"),
+        }
+    };
+
+    assert!(stream.next().await.is_none());
+    assert_eq!(
+        completions,
+        vec![
+            (0, "call_unknown".to_string()),
+            (1, "call_bound".to_string())
+        ]
+    );
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    let report = completed_report(&terminal);
+    assert_eq!(
+        report.steps()[0]
+            .tool_results()
+            .iter()
+            .map(|result| result.call_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call_unknown", "call_bound"]
+    );
+    assert_eq!(report.execution_log().status("call_unknown"), None);
+    assert_eq!(
+        report.execution_log().status("call_bound"),
+        Some(ToolExecutionStatus::Completed)
+    );
+}
+
+#[tokio::test]
+async fn multiple_unknown_tools_stop_at_the_first_call_without_later_outcomes() {
+    let model = ScriptedModel::new([terminal_step(tool_response(vec![
+        local_call("call_first", "unknown_first", json!({})),
+        local_call("call_second", "unknown_second", json!({})),
+    ]))]);
+    let loop_ = ToolLoop::new(model.clone(), ToolSet::default());
+    let mut stream = loop_
+        .stream(user_request(), CallOptions::default())
+        .await
+        .expect("stream establishes");
+    let mut completions = Vec::new();
+    let terminal = loop {
+        match stream.next().await {
+            Some(RunEvent::ToolCompleted { result, .. }) => {
+                completions.push(result.call_id);
+            }
+            Some(RunEvent::Terminal(terminal)) => break terminal,
+            Some(_) => {}
+            None => panic!("run stream must emit one terminal"),
+        }
+    };
+
+    assert_eq!(completions, vec!["call_first"]);
+    assert!(matches!(
+        &terminal,
+        RunTerminal::Stopped {
+            reason: RunStopReason::ToolOutcome { call_id, .. },
+            ..
+        } if call_id == "call_first"
+    ));
+    assert_eq!(
+        terminal
+            .report()
+            .expect("stopped run retains report")
+            .steps()[0]
+            .tool_results()
+            .iter()
+            .map(|result| result.call_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call_first"]
+    );
+    assert_eq!(model.stream_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

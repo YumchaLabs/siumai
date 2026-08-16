@@ -173,17 +173,31 @@ bounded sensitive diagnostics.
 Usage events state whether they are cumulative snapshots or deltas. Runtime reconciles observations
 per provider call, treats the terminal usage as the final snapshot, and charges budgets exactly once.
 
-Durable snapshot schema version and durable execution ABI are independent contracts. Snapshot v7
-serializes the private usage-settlement state explicitly and stores provider-deferred observations
-with their correlation identity, so a missing field or duplicate key is malformed data rather than
-an instruction to reset or append ambiguous state. Provider-state codec namespaces remain scoped to
-provider and protocol; the bounded correlation identifier is a separate field in the composite
-observation identity. Snapshot v6 is rejected at the version envelope before typed payload decoding.
-The durable execution ABI remains `siumai-runtime-durable-v6`: execution identity changes and
-serialized-shape changes are tracked independently. Before every durable CAS, including crash
-recovery, the runtime checkpoint port validates the loaded snapshot-to-candidate successor
-transition. A `RunStore` owns lease fencing, run identity, revisions, terminal-write rejection, and
-atomic replacement; it does not implement a second runtime state machine.
+Runtime commits a completed model step through one private planner. The planner freezes and validates
+every caller-owned tool call and the provider-deferred terminal batch before semantic state changes.
+Consumed model attempts and provider-reported usage settle exactly once, even when later semantic
+planning fails. The durable tool journal is the only writer of prepared, dispatched, completed, and
+indeterminate execution transitions; it owns sequence numbers, timestamps, attempts, recovery, and
+retry eligibility. A separate provider-deferred ledger owns exact `ProviderScope + correlation_id`
+identity, stable first-observation order, in-place updates, and monotonic resolution. Stream
+observations remain call-local until an authoritative completed terminal commits them.
+
+Durable snapshot schema version and durable execution ABI are independent contracts. Snapshot v8
+serializes the validated journal and provider-deferred ledger, removes the unused tool
+`dispatch_id`, and exposes snapshot state through read-only kinds and accessors. Snapshot v7 and
+future versions are rejected at the version envelope before typed payload decoding; the runtime does
+not guess or migrate authority-bearing state. The durable execution ABI is
+`siumai-runtime-durable-v7`.
+
+One private checkpoint writer assembles initial, ordinary, approval, provider-suspension, recovery,
+and terminal candidates. It validates the candidate and predecessor transition, measures bounded
+compact-JSON bytes, enforces `RunBudget::max_snapshot_bytes`, renews the lease, and only then calls
+`RunStore::compare_and_swap`. A `RunStore` owns lease fencing, run identity, revisions,
+terminal-write rejection, and atomic replacement; it does not implement a second runtime state
+machine. External stores must bound serialized input before deserialization and provide
+confidentiality, integrity and authenticity, tenant/run isolation, access control, and rollback or
+revision protection. Explicit snapshot serialization and provider-state payload access are
+sensitive replay interfaces, not sanitized diagnostics.
 
 When an executable item appears in both stable stream events and the terminal response, both views
 must agree on item kind, identity, ownership, tool name, and normalized JSON input. A protocol may

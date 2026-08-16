@@ -7,6 +7,7 @@
 mod approval;
 mod binding;
 mod execution;
+mod journal;
 
 pub use approval::{
     ApprovalDecider, ApprovalDecision, ApprovalDecisionError, ApprovalDecisionFuture,
@@ -27,3 +28,4 @@ pub use execution::{
     ToolExecutionRequest, ToolExecutor, ToolIdempotencyKey, ToolIdempotencyKeyError,
     ToolIdempotencyKeyProvider,
 };
+pub(crate) use journal::{ToolJournal, ToolJournalError};

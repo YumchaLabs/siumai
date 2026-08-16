@@ -11,7 +11,7 @@ use crate::RunReport;
 ///
 /// This changes for incompatible serialized-shape revisions, not for runtime
 /// execution or fingerprint interpretation changes.
-pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 7;
+pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 8;
 
 #[derive(Deserialize)]
 struct RunSnapshotEnvelope {
@@ -21,6 +21,7 @@ struct RunSnapshotEnvelope {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RunSnapshotPayloadWire {
     checkpoint: SnapshotCheckpoint,
     fingerprints: SnapshotFingerprints,

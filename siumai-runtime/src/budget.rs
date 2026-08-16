@@ -430,18 +430,6 @@ impl BudgetLedger {
         Ok(())
     }
 
-    pub fn check_snapshot_bytes(
-        &self,
-        snapshot_bytes: usize,
-        budget: &RunBudget,
-    ) -> Result<(), BudgetError> {
-        enforce(
-            BudgetKind::SnapshotBytes,
-            usize_to_u64(snapshot_bytes, BudgetKind::SnapshotBytes)?,
-            usize_to_u64(budget.max_snapshot_bytes, BudgetKind::SnapshotBytes)?,
-        )
-    }
-
     pub fn reserve_pending_approval(&mut self, budget: &RunBudget) -> Result<(), BudgetError> {
         let next = checked_increment(self.pending_approvals, BudgetKind::PendingApprovals)?;
         enforce(

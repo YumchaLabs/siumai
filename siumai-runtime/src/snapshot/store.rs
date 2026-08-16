@@ -144,6 +144,13 @@ pub type RunStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, RunStoreError>> + Send + 'a>>;
 
 /// Snapshot persistence hook with exclusive resume and optimistic updates.
+///
+/// Serialized snapshots contain sensitive replay authority. External adapters
+/// must bound encoded input before typed deserialization and provide
+/// confidentiality, integrity and authenticity, tenant/run isolation, access
+/// control, and rollback or revision protection. The runtime owns snapshot
+/// schema and successor validation; stores must not implement a second runtime
+/// state machine.
 pub trait RunStore: Send + Sync {
     fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease>;
 
@@ -203,6 +210,10 @@ pub enum RunStoreError {
     },
     #[error("a terminal run cannot be updated")]
     RunAlreadyTerminal,
+    #[error(
+        "serialized snapshot exceeds the store input bound: observed {actual} bytes, maximum {maximum}"
+    )]
+    SerializedSnapshotTooLarge { actual: usize, maximum: usize },
     #[error("run store is unavailable")]
     Unavailable,
     #[error(transparent)]

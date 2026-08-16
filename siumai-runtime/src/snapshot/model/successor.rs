@@ -2,9 +2,10 @@ use siumai_core::{LanguageRequest, Usage, UsageValue};
 use thiserror::Error;
 
 use super::{
-    CheckpointId, PendingStepSnapshot, ResumePoint, ResumePointKind, RunSnapshot, RunSnapshotError,
+    CheckpointId, PendingStepSnapshot, ResumePoint, ResumePointKind, ResumePointState, RunSnapshot,
+    RunSnapshotError, ToolExecutionStatus,
 };
-use crate::{ModelTransitionOutcome, project_history};
+use crate::{ModelTransitionOutcome, RunReport, project_history};
 
 /// Why a candidate checkpoint cannot follow the currently stored checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -85,6 +86,8 @@ pub enum RunSnapshotSuccessorError {
     ResumeStepRegression { minimum: u32, actual: u32 },
     #[error("pending step {step} did not advance before returning to model step {next_step}")]
     PendingStepDidNotComplete { step: u32, next_step: u32 },
+    #[error("pending local tool work is incomplete at the provider suspension boundary")]
+    PendingLocalWorkIncomplete,
 }
 
 impl RunSnapshot {
@@ -121,16 +124,17 @@ impl RunSnapshot {
         if !successor.report.steps().starts_with(self.report.steps()) {
             return Err(RunSnapshotSuccessorError::StepHistoryRegression);
         }
-        if !provider_deferred_keys_advance(
-            self.report.provider_deferred(),
-            successor.report.provider_deferred(),
-        ) {
+        if !self
+            .report
+            .provider_deferred_ledger()
+            .validate_successor(successor.report.provider_deferred_ledger())
+        {
             return Err(RunSnapshotSuccessorError::ProviderHistoryRegression);
         }
         if !successor
             .report
-            .execution_log()
-            .has_prefix(self.report.execution_log())
+            .tool_journal()
+            .has_prefix(self.report.tool_journal())
         {
             return Err(RunSnapshotSuccessorError::ExecutionLogRegression);
         }
@@ -142,19 +146,12 @@ impl RunSnapshot {
             successor.report.usage_is_settled(),
         )?;
         validate_deadline_successor(self.deadline_unix_ms, successor.deadline_unix_ms)?;
-        validate_resume_successor(&self.resume_point, &successor.resume_point)
+        validate_resume_successor(
+            &self.resume_point,
+            &successor.resume_point,
+            &successor.report,
+        )
     }
-}
-
-fn provider_deferred_keys_advance(
-    previous: &[crate::ProviderDeferredObservation],
-    successor: &[crate::ProviderDeferredObservation],
-) -> bool {
-    successor.len() >= previous.len()
-        && previous
-            .iter()
-            .zip(successor)
-            .all(|(previous, successor)| previous.has_same_key(successor))
 }
 
 fn validate_continuation_successor(
@@ -174,8 +171,8 @@ fn validate_continuation_successor(
         return Err(RunSnapshotSuccessorError::MultipleModelTransitions);
     }
 
-    let frozen = match previous.resume_point() {
-        ResumePoint::ReadyForModel { next_step, target } => Some((*next_step, target)),
+    let frozen = match previous.resume_point().state() {
+        ResumePointState::ReadyForModel { next_step, target } => Some((*next_step, target)),
         _ => None,
     };
     let source = previous.report.current_target();
@@ -361,62 +358,83 @@ fn validate_deadline_successor(
 fn validate_resume_successor(
     previous: &ResumePoint,
     next: &ResumePoint,
+    next_report: &RunReport,
 ) -> Result<(), RunSnapshotSuccessorError> {
-    match (previous, next) {
-        (ResumePoint::AwaitingApprovals(previous), ResumePoint::AwaitingApprovals(next))
-        | (ResumePoint::AwaitingApprovals(previous), ResumePoint::ReadyToDispatch(next))
-        | (ResumePoint::ReadyToDispatch(previous), ResumePoint::ReadyToDispatch(next)) => {
+    match (previous.state(), next.state()) {
+        (
+            ResumePointState::AwaitingApprovals(previous),
+            ResumePointState::AwaitingApprovals(next),
+        )
+        | (
+            ResumePointState::AwaitingApprovals(previous),
+            ResumePointState::ReadyToDispatch(next),
+        )
+        | (ResumePointState::ReadyToDispatch(previous), ResumePointState::ReadyToDispatch(next)) => {
             validate_pending_step_successor(previous, next)
         }
         (
-            ResumePoint::AwaitingApprovals(previous) | ResumePoint::ReadyToDispatch(previous),
-            ResumePoint::ReadyForModel { next_step, .. },
+            ResumePointState::AwaitingApprovals(previous)
+            | ResumePointState::ReadyToDispatch(previous),
+            ResumePointState::ReadyForModel { next_step, .. },
         ) => validate_pending_step_advanced(previous.index(), *next_step),
         (
-            ResumePoint::AwaitingApprovals(_) | ResumePoint::ReadyToDispatch(_),
-            ResumePoint::Terminal(_),
+            ResumePointState::AwaitingApprovals(_) | ResumePointState::ReadyToDispatch(_),
+            ResumePointState::Terminal(_),
         ) => Ok(()),
-        (ResumePoint::AwaitingProvider(previous), ResumePoint::AwaitingProvider(next)) => {
-            if previous.index() != next.index()
-                || previous.target() != next.target()
-                || previous.response() != next.response()
-            {
+        (
+            ResumePointState::AwaitingApprovals(previous)
+            | ResumePointState::ReadyToDispatch(previous),
+            ResumePointState::AwaitingProvider(next),
+        ) => {
+            if !next.matches_step(previous.index(), previous.target(), previous.response()) {
+                return Err(RunSnapshotSuccessorError::ProviderStepChanged);
+            }
+            if previous.prepared().iter().any(|prepared| {
+                next_report.execution_log().status(prepared.call().id())
+                    != Some(ToolExecutionStatus::Completed)
+            }) {
+                return Err(RunSnapshotSuccessorError::PendingLocalWorkIncomplete);
+            }
+            Ok(())
+        }
+        (
+            ResumePointState::AwaitingProvider(previous),
+            ResumePointState::AwaitingProvider(next),
+        ) => {
+            if !next.matches_step(previous.index(), previous.target(), previous.response()) {
                 return Err(RunSnapshotSuccessorError::ProviderStepChanged);
             }
             Ok(())
         }
         (
-            ResumePoint::AwaitingProvider(previous),
-            ResumePoint::AwaitingApprovals(next) | ResumePoint::ReadyToDispatch(next),
-        ) => validate_resume_step_floor(previous.index(), next.index()),
-        (ResumePoint::AwaitingProvider(previous), ResumePoint::ReadyForModel { next_step, .. }) => {
-            validate_pending_step_advanced(previous.index(), *next_step)
-        }
-        (ResumePoint::AwaitingProvider(_), ResumePoint::Terminal(_)) => Ok(()),
+            ResumePointState::AwaitingProvider(previous),
+            ResumePointState::ReadyForModel { next_step, .. },
+        ) => validate_pending_step_advanced(previous.index(), *next_step),
+        (ResumePointState::AwaitingProvider(_), ResumePointState::Terminal(_)) => Ok(()),
         (
-            ResumePoint::ReadyForModel {
+            ResumePointState::ReadyForModel {
                 next_step: previous,
                 ..
             },
-            ResumePoint::AwaitingApprovals(next) | ResumePoint::ReadyToDispatch(next),
+            ResumePointState::AwaitingApprovals(next) | ResumePointState::ReadyToDispatch(next),
         ) => validate_resume_step_floor(*previous, next.index()),
         (
-            ResumePoint::ReadyForModel {
+            ResumePointState::ReadyForModel {
                 next_step: previous,
                 ..
             },
-            ResumePoint::AwaitingProvider(next),
+            ResumePointState::AwaitingProvider(next),
         ) => validate_resume_step_floor(*previous, next.index()),
         (
-            ResumePoint::ReadyForModel {
+            ResumePointState::ReadyForModel {
                 next_step: previous,
                 ..
             },
-            ResumePoint::ReadyForModel {
+            ResumePointState::ReadyForModel {
                 next_step: next, ..
             },
         ) => validate_resume_step_floor(*previous, *next),
-        (ResumePoint::ReadyForModel { .. }, ResumePoint::Terminal(_)) => Ok(()),
+        (ResumePointState::ReadyForModel { .. }, ResumePointState::Terminal(_)) => Ok(()),
         _ => Err(RunSnapshotSuccessorError::InvalidResumeTransition {
             from: previous.kind(),
             to: next.kind(),

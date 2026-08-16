@@ -28,6 +28,9 @@ superseded by a later accepted decision or current architecture contract.
 - `0016-openai-prompt-cache-selection-remains-provider-owned.md` — OpenAI content annotations express
   one explicit wire-level cache breakpoint; cache read/write selection and mutable history windows
   remain provider-owned.
+- `0017-runtime-journal-ledger-and-snapshot-ownership.md` — Runtime commits completed steps through
+  one planner, gives tool and provider-deferred transitions one owner each, and writes sensitive
+  durable snapshots through one bounded checkpoint gate.
 
 ## Conventions
 

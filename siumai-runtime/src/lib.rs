@@ -19,6 +19,7 @@ mod engine;
 mod history;
 mod options;
 mod output;
+mod provider_deferred;
 mod run;
 mod selection;
 mod single_step;
@@ -48,10 +49,10 @@ pub use output::{
     SchemaValidationError, StructuredOutputAttemptKind, StructuredOutputError,
     StructuredOutputFailureKind, StructuredOutputRepair, StructuredOutputResult,
 };
+pub use provider_deferred::ProviderDeferredObservation;
 pub use run::{
-    IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord,
-    ProviderDeferredObservation, RunEvent, RunReport, RunStopReason, RunStream, RunTerminal,
-    RunTimeoutKind, StepRecord, SuspensionReason,
+    IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord, RunEvent, RunReport,
+    RunStopReason, RunStream, RunTerminal, RunTimeoutKind, StepRecord, SuspensionReason,
 };
 pub use selection::{
     StepModelContext, StepModelSelector, StepModelSelectorIdentity, VersionedStepModelSelector,

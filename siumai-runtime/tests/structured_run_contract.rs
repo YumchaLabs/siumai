@@ -321,10 +321,12 @@ async fn repair_is_disabled_by_default_at_the_execution_boundary() {
 }
 
 #[tokio::test]
-async fn one_attempt_reuses_the_engine_report_budget_and_usage_ledger() {
+async fn structured_repair_reuses_shared_completed_step_history_and_settlement_contract() {
+    let initial_response = text_response("not-json", 3);
+    let repaired_response = text_response(r#"{"name":"Ada","age":36}"#, 5);
     let model = ScriptedModel::new([
-        completed_step(text_response("not-json", 3)),
-        completed_step(text_response(r#"{"name":"Ada","age":36}"#, 5)),
+        completed_step(initial_response.clone()),
+        completed_step(repaired_response.clone()),
     ]);
     let runner = StructuredOutputRunner::new(
         model.clone(),
@@ -362,6 +364,11 @@ async fn one_attempt_reuses_the_engine_report_budget_and_usage_ledger() {
     assert_eq!(result.report().budget().model_steps(), 2);
     assert_eq!(result.report().budget().known_tokens(), 8);
     assert_eq!(result.report().usage().total_tokens.value(), Some(8));
+    assert_eq!(result.report().steps()[0].response(), &initial_response);
+    assert_eq!(result.report().steps()[1].response(), &repaired_response);
+    assert!(result.report().steps()[0].tool_results().is_empty());
+    assert!(result.report().steps()[1].tool_results().is_empty());
+    assert_eq!(result.report().final_response(), Some(&repaired_response));
     assert_eq!(model.stream_call_count(), 2);
     assert_eq!(model.generate_call_count(), 0);
 
@@ -370,6 +377,11 @@ async fn one_attempt_reuses_the_engine_report_budget_and_usage_ledger() {
     assert!(calls[1].request.tools.is_empty());
     assert!(calls[1].request.tool_choice.is_none());
     assert!(calls[1].request.structured_output.is_some());
+    let repaired_history = repaired_response
+        .project_assistant_history()
+        .into_message()
+        .expect("repair response projects to assistant history");
+    assert_eq!(result.report().messages().last(), Some(&repaired_history));
     assert_eq!(
         calls[1]
             .request

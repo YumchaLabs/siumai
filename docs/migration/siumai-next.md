@@ -770,15 +770,54 @@ The former Google `gcp` credential helper is also removed. Supply a short-lived 
 `GoogleVertexCredential::access_token`, or implement `GoogleVertexTokenSource` in the host so token
 refresh remains under the application's credential policy.
 
-Runtime durable snapshots now use schema version 7. Version 6 and earlier development snapshots use
-an older terminal or provider-state shape and are rejected at the version envelope before typed
-payload decoding; Siumai does not migrate them automatically. Recreate those snapshots from trusted
-application history instead of synthesizing provider provenance, usage settlement, or terminal state.
+Runtime durable snapshots now use schema version 8 and durable execution ABI
+`siumai-runtime-durable-v7`. Version 7 and earlier snapshots are rejected at the version envelope
+before typed payload decoding; Siumai does not migrate them automatically. Drain beta-era workers
+before the upgrade and recreate required runs from trusted application history rather than
+synthesizing journal events, provider provenance, deferred resolution, or terminal state.
 
-The durable execution ABI remains `siumai-runtime-durable-v6`; snapshot schema and execution ABI are
-independent contracts. Schema v7 records explicit usage settlement and keyed provider-deferred
-observations. A provider-deferred codec namespace contains only provider and protocol; its bounded
-correlation identifier is stored separately and participates in the composite observation key.
+Schema v8 records the validated tool journal and the exact provider-deferred ledger, and removes the
+unused tool `dispatch_id`. Provider-deferred identity is the complete `ProviderScope` plus the
+bounded correlation identifier. Observations update in first-seen order, resolution is monotonic,
+and failed, cancelled, or unexpectedly closed streams cannot commit staged observations as
+resumable work. `SuspensionReason::AwaitingProvider` now exposes only a pending count instead of raw
+state identifiers.
+
+Snapshot internals are now inspection-only public APIs. Replace direct enum construction and
+pattern matching with `ResumePoint::kind`, `ResumePoint` accessors, `SnapshotTerminal::kind`,
+terminal accessors, and the read-only journal/deferred views. Constructors and mutators for
+snapshots, checkpoints, pending states, execution events, execution logs, provider-state
+projections, and runtime-owned fingerprints are no longer public. Real external store adapters keep
+the public `RunStore`, lease, revision, and `StoredRun` construction seams.
+
+Every initial, ordinary, approval, provider-suspension, recovery, and terminal checkpoint now passes
+through one runtime-owned writer. The writer validates the successor and enforces
+`RunBudget::max_snapshot_bytes` before store CAS. External stores must also bound raw serialized
+input before deserialization and provide confidentiality, integrity and authenticity, tenant/run
+isolation, access control, and rollback or revision protection. Serialized snapshots and explicit
+provider-state payload accessors retain sensitive replay bytes; they are not safe diagnostics.
+
+## Gateway projections
+
+Gateway JSON is intentionally a bounded, sanitized projection rather than a provider/runtime
+inspection surface. The breaking `model.projection.loss.data` payload for a deferred provider
+correlation has changed from a raw identifier:
+
+```json
+{ "id": "deferred-correlation-id" }
+```
+
+to an aggregate marker:
+
+```json
+{ "provider_deferred": { "pending": 1 } }
+```
+
+Likewise, terminal run-report projections may expose provider-deferred state only as
+`{ "total": 2, "resolved": 1, "pending": 1 }` counts. Correlation identifiers and provider
+payloads are intentionally unavailable through ordinary gateway JSON. Access them through an
+explicit provider- or runtime-sensitive API before projection when the application has an
+appropriate trust boundary.
 
 Tool loops preserve caller-supplied model-visible tools, append trusted
 local bindings in deterministic name order, and bind snapshots and approvals to the complete
@@ -868,7 +907,7 @@ and `create_with_options` respectively.
 - Keep account, region, availability, pricing, and fallback policy in the host application.
 - Declare an explicit custom replay domain for every custom language endpoint, and separate material
   accounts, projects, workspaces, or deployments with non-secret caller scopes.
-- Recreate pre-version-6 runtime snapshots from trusted application history.
+- Recreate pre-version-8 runtime snapshots from trusted application history.
 - Replace removed provider/features with an explicitly supported slice or a generic compatible
   endpoint only when protocol compatibility is sufficient for the application.
 

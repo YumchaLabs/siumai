@@ -21,15 +21,16 @@ use siumai_runtime::approval::{
     InMemoryApprovalConsumeStore, TrustContext, TrustIdentity,
 };
 use siumai_runtime::snapshot::{
-    InMemoryRunStore, LineageId, ResumePoint, RunId, RunLease, RunStore, RunStoreError,
+    InMemoryRunStore, LineageId, ResumePointKind, RunId, RunLease, RunStore, RunStoreError,
     RunStoreFuture, SnapshotFingerprint, SnapshotRevision, StoredRun, ToolExecutionStatus,
 };
 use siumai_runtime::tool::{
     ApprovalPolicy, RecoveryPolicy, ToolBinding, ToolExecutionRequest, ToolIdempotencyKey, ToolSet,
 };
 use siumai_runtime::{
-    DurableApproval, DurableResume, DurableRunError, DurableToolLoop, IndeterminateRecoveryPolicy,
-    ModelTransitionOutcome, StepModelContext, StepModelSelectorIdentity,
+    Agent, DurableApproval, DurableResume, DurableRunError, DurableToolLoop,
+    IndeterminateRecoveryPolicy, ModelTransitionOutcome, StepModelContext,
+    StepModelSelectorIdentity, ToolLoop, ToolOutcomeAction, ToolOutcomePolicy,
     VersionedStepModelSelector,
 };
 
@@ -48,7 +49,13 @@ struct DeferredModel {
 
 struct CompletedDeferredModel {
     descriptor: ModelDescriptor,
-    turns: Mutex<VecDeque<(OpaqueProviderItem, LanguageResponse)>>,
+    turns: Mutex<VecDeque<CompletedDeferredTurn>>,
+}
+
+struct CompletedDeferredTurn {
+    state: OpaqueProviderItem,
+    response: LanguageResponse,
+    resolve: bool,
 }
 
 struct TerminalScriptedModel {
@@ -183,6 +190,19 @@ impl LanguageModel for DeferredModel {
 
 impl CompletedDeferredModel {
     fn new(turns: impl IntoIterator<Item = (OpaqueProviderItem, LanguageResponse)>) -> Arc<Self> {
+        Self::with_resolution(turns, true)
+    }
+
+    fn unresolved(
+        turns: impl IntoIterator<Item = (OpaqueProviderItem, LanguageResponse)>,
+    ) -> Arc<Self> {
+        Self::with_resolution(turns, false)
+    }
+
+    fn with_resolution(
+        turns: impl IntoIterator<Item = (OpaqueProviderItem, LanguageResponse)>,
+        resolve: bool,
+    ) -> Arc<Self> {
         Arc::new(Self {
             descriptor: ModelDescriptor::new(
                 ProviderId::new("deferred-test").expect("valid provider"),
@@ -193,7 +213,16 @@ impl CompletedDeferredModel {
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
             )),
-            turns: Mutex::new(turns.into_iter().collect()),
+            turns: Mutex::new(
+                turns
+                    .into_iter()
+                    .map(|(state, response)| CompletedDeferredTurn {
+                        state,
+                        response,
+                        resolve,
+                    })
+                    .collect(),
+            ),
         })
     }
 }
@@ -223,7 +252,7 @@ impl LanguageModel for CompletedDeferredModel {
         _request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
-        let (state, response) = self
+        let turn = self
             .turns
             .lock()
             .expect("deferred turn lock")
@@ -231,20 +260,23 @@ impl LanguageModel for CompletedDeferredModel {
             .ok_or_else(|| Error::new(ErrorKind::Internal, "missing deferred test turn"))?;
         let cancellation = options.cancellation().clone();
         Ok(established_stream(cancellation, move |_| {
-            futures::stream::iter([
-                Ok(LanguageStreamEvent::ProviderDeferred {
-                    id: "provider-state-1".to_string(),
-                    state,
-                }),
-                Ok(LanguageStreamEvent::ToolResult(ToolResult {
+            let mut events = vec![Ok(LanguageStreamEvent::ProviderDeferred {
+                id: "provider-state-1".to_string(),
+                state: turn.state,
+            })];
+            if turn.resolve {
+                events.push(Ok(LanguageStreamEvent::ToolResult(ToolResult {
                     call_id: "provider-state-1".to_string(),
                     name: "provider_task".to_string(),
                     outcome: ToolOutcome::Success { value: json!(true) },
-                })),
-                Ok(LanguageStreamEvent::Terminal(StreamTerminal::Completed {
-                    response: Box::new(response),
-                })),
-            ])
+                })));
+            }
+            events.push(Ok(LanguageStreamEvent::Terminal(
+                StreamTerminal::Completed {
+                    response: Box::new(turn.response),
+                },
+            )));
+            futures::stream::iter(events)
         }))
     }
 }
@@ -613,6 +645,72 @@ fn lineage_id(suffix: &str) -> LineageId {
     LineageId::new(format!("lineage-{suffix}")).expect("valid lineage id")
 }
 
+fn parity_model() -> Arc<ScriptedModel> {
+    ScriptedModel::new([
+        tool_response_with_usage(usage(1, 2)),
+        final_response_with_usage(usage(2, 3)),
+    ])
+}
+
+fn parity_tools(executions: Arc<AtomicUsize>) -> ToolSet {
+    ToolSet::from_bindings([not_required_binding(executions, None)]).expect("unique tool")
+}
+
+fn assert_report_parity(expected: &siumai_runtime::RunReport, actual: &siumai_runtime::RunReport) {
+    assert_eq!(actual.messages(), expected.messages());
+    assert_eq!(actual.steps(), expected.steps());
+    assert_eq!(actual.usage(), expected.usage());
+    assert_eq!(actual.budget(), expected.budget());
+    assert_eq!(actual.provider_deferred(), expected.provider_deferred());
+    assert_eq!(
+        actual.execution_log().status("call-1"),
+        expected.execution_log().status("call-1")
+    );
+}
+
+#[tokio::test]
+async fn agent_tool_loop_and_durable_share_completed_step_semantics() {
+    let agent_executions = Arc::new(AtomicUsize::new(0));
+    let agent = Agent::from_tool_loop(ToolLoop::new(
+        parity_model(),
+        parity_tools(Arc::clone(&agent_executions)),
+    ));
+    let agent_terminal = agent.run(request()).await.expect("agent completes");
+
+    let loop_executions = Arc::new(AtomicUsize::new(0));
+    let tool_loop = ToolLoop::new(parity_model(), parity_tools(Arc::clone(&loop_executions)));
+    let loop_terminal = tool_loop
+        .run(request(), CallOptions::default())
+        .await
+        .expect("tool loop completes");
+
+    let durable_executions = Arc::new(AtomicUsize::new(0));
+    let durable = durable_loop(
+        parity_model(),
+        parity_tools(Arc::clone(&durable_executions)),
+        Arc::new(InMemoryRunStore::new()),
+    );
+    let durable_run = durable
+        .start(
+            run_id("completed-step-parity"),
+            lineage_id("completed-step-parity"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("durable loop completes");
+
+    assert!(agent_terminal.is_completed());
+    assert!(loop_terminal.is_completed());
+    assert!(durable_run.is_terminal());
+    let expected = agent_terminal.report().expect("agent report");
+    assert_report_parity(expected, loop_terminal.report().expect("tool-loop report"));
+    assert_report_parity(expected, durable_run.snapshot().report());
+    assert_eq!(agent_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(loop_executions.load(Ordering::SeqCst), 1);
+    assert_eq!(durable_executions.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn completed_checkpoint_is_never_replayed() {
     let executions = Arc::new(AtomicUsize::new(0));
@@ -746,7 +844,7 @@ async fn caller_visible_annotations_are_canonical_parts_of_durable_catalog_ident
             )
             .await
             .expect("catalog run completes");
-        catalog_fingerprints.push(completed.snapshot().fingerprints().tool_catalog.clone());
+        catalog_fingerprints.push(completed.snapshot().fingerprints().tool_catalog().clone());
     }
 
     assert_eq!(catalog_fingerprints[0], catalog_fingerprints[1]);
@@ -871,8 +969,7 @@ async fn durable_selector_freezes_target_and_records_reproducible_transition() {
     let identity = completed
         .snapshot()
         .fingerprints()
-        .model_selector
-        .as_ref()
+        .model_selector()
         .expect("selector identity is persisted");
     assert_eq!(identity.version(), 7);
 }
@@ -1005,10 +1102,10 @@ async fn dispatching_unapproved_work_preserves_other_pending_approval_budget() {
         .await
         .expect("unapproved second call remains resumable");
 
-    assert!(matches!(
-        suspended.snapshot().resume_point(),
-        ResumePoint::AwaitingApprovals(_)
-    ));
+    assert_eq!(
+        suspended.snapshot().resume_point().kind(),
+        ResumePointKind::AwaitingApprovals
+    );
     assert_eq!(suspended.snapshot().pending_approvals().len(), 1);
     assert_eq!(suspended.snapshot().budget().pending_approvals(), 1);
     assert_eq!(first_executions.load(Ordering::SeqCst), 1);
@@ -1074,10 +1171,10 @@ async fn crash_matrix_preserves_dispatch_boundaries() {
             assert!(resumed.is_terminal());
             assert_eq!(executions.load(Ordering::SeqCst), 1);
         } else {
-            assert!(matches!(
-                resumed.snapshot().resume_point(),
-                ResumePoint::Terminal(_)
-            ));
+            assert_eq!(
+                resumed.snapshot().resume_point().kind(),
+                ResumePointKind::Terminal
+            );
             assert_eq!(
                 resumed.snapshot().execution_log().status("call-1"),
                 Some(ToolExecutionStatus::Indeterminate)
@@ -1085,6 +1182,87 @@ async fn crash_matrix_preserves_dispatch_boundaries() {
             assert_eq!(executions.load(Ordering::SeqCst), 1);
         }
     }
+}
+
+#[tokio::test]
+async fn durable_mixed_unknown_and_bound_call_preserves_unbound_result_across_resume() {
+    let response = LanguageResponse::completed(
+        vec![
+            ContentPart::ToolCall(
+                ToolCall::local("call-unknown", "unknown_tool", json!({}))
+                    .expect("valid unknown tool call"),
+            ),
+            ContentPart::ToolCall(tool_call()),
+        ],
+        LanguageCompletionReason::ToolCalls,
+        Usage::default(),
+    )
+    .expect("valid mixed tool response");
+    let outcome_policy =
+        ToolOutcomePolicy::default().with_execution_failed(ToolOutcomeAction::Continue);
+
+    let expected_executions = Arc::new(AtomicUsize::new(0));
+    let expected = ToolLoop::new(
+        ScriptedModel::new([response.clone(), final_response()]),
+        ToolSet::from_bindings([not_required_binding(Arc::clone(&expected_executions), None)])
+            .expect("unique tool"),
+    )
+    .with_outcome_policy(outcome_policy)
+    .run(request(), CallOptions::default())
+    .await
+    .expect("non-durable mixed run completes");
+    let expected_report = match expected {
+        siumai_runtime::RunTerminal::Completed { report } => report,
+        other => panic!("expected completed tool loop, got {other:?}"),
+    };
+
+    let executions = Arc::new(AtomicUsize::new(0));
+    let store = FailOnceStore::new(4);
+    let durable = durable_loop(
+        ScriptedModel::new([response, final_response()]),
+        ToolSet::from_bindings([not_required_binding(Arc::clone(&executions), None)])
+            .expect("unique tool"),
+        store.clone(),
+    )
+    .with_outcome_policy(outcome_policy);
+    let run = run_id("mixed-unknown-bound");
+
+    let error = durable
+        .start(
+            run.clone(),
+            lineage_id("mixed-unknown-bound"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect_err("injected post-completion checkpoint failure");
+    assert!(matches!(
+        error,
+        DurableRunError::Store(RunStoreError::Unavailable)
+    ));
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+
+    let resumed = durable
+        .resume(&run, DurableResume::default(), CallOptions::default())
+        .await
+        .expect("resume preserves completed unbound result");
+    assert!(resumed.is_terminal());
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_report_parity(&expected_report, resumed.snapshot().report());
+
+    let unbound = resumed.snapshot().report().steps()[0]
+        .tool_results()
+        .iter()
+        .find(|result| result.call_id == "call-unknown")
+        .expect("unknown local tool result is retained");
+    assert!(matches!(
+        &unbound.outcome,
+        ToolOutcome::ExecutionFailed { .. }
+    ));
+    assert_eq!(
+        resumed.snapshot().execution_log().status("call-unknown"),
+        None
+    );
 }
 
 #[tokio::test]
@@ -1259,8 +1437,14 @@ async fn verified_approval_executes_only_the_exact_frozen_binding() {
         .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
             prepared.call().arguments(),
         ))
-        .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
-        .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
+        .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog().as_str())
+        .policy_fingerprint(
+            suspended
+                .snapshot()
+                .fingerprints()
+                .approval_policy()
+                .as_str(),
+        )
         .build()
         .expect("exact trust context");
     let claims =
@@ -1339,14 +1523,83 @@ async fn provider_deferred_without_a_tool_call_is_a_durable_boundary() {
         .await
         .expect("provider-owned suspension is persisted");
 
-    assert!(matches!(
-        suspended.snapshot().resume_point(),
-        ResumePoint::AwaitingProvider(_)
-    ));
+    assert_eq!(
+        suspended.snapshot().resume_point().kind(),
+        ResumePointKind::AwaitingProvider
+    );
     assert_eq!(suspended.snapshot().report().steps().len(), 0);
     assert_eq!(suspended.snapshot().provider_state().len(), 1);
-    assert!(!suspended.snapshot().provider_state()[0].payload.is_empty());
+    assert!(
+        !suspended.snapshot().provider_state()[0]
+            .payload()
+            .is_empty()
+    );
     assert_eq!(suspended.snapshot().report().provider_deferred().len(), 1);
+}
+
+#[tokio::test]
+async fn unresolved_provider_deferred_waits_for_local_progress_before_suspending() {
+    let scope = ModelDescriptor::new(
+        ProviderId::new("deferred-test").expect("valid provider"),
+        ModelId::new("deferred-model").expect("valid model"),
+        ModelFamily::Language,
+    )
+    .with_protocol(ProtocolId::new("native-orchestration").expect("valid protocol"))
+    .with_replay_domain(ReplayDomain::custom(
+        ReplayDomainId::new("durable-deferred-test").expect("valid replay domain"),
+    ));
+    let item = OpaqueProviderItem::new(
+        ProviderProvenance::from_scope(scope.scope(), scope.model().clone())
+            .expect("valid provenance"),
+        "provider.deferred",
+        json!({"status": "queued"}),
+    )
+    .expect("valid opaque provider item");
+    let executions = Arc::new(AtomicUsize::new(0));
+    let tools = ToolSet::from_bindings([not_required_binding(Arc::clone(&executions), None)])
+        .expect("unique tool");
+    let store = Arc::new(InMemoryRunStore::new());
+    let model: Arc<dyn LanguageModel> =
+        CompletedDeferredModel::unresolved([(item, tool_response())]);
+    let loop_ = durable_loop(model, tools, store);
+
+    let suspended = loop_
+        .start(
+            run_id("provider-deferred-with-local"),
+            lineage_id("provider-deferred-with-local"),
+            request(),
+            CallOptions::default(),
+        )
+        .await
+        .expect("local progress completes before provider suspension");
+
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        suspended.snapshot().resume_point().kind(),
+        ResumePointKind::AwaitingProvider
+    );
+    assert_eq!(suspended.snapshot().provider_state().len(), 1);
+    let report = suspended.snapshot().report();
+    assert!(report.steps().is_empty());
+    assert_eq!(
+        report.execution_log().status("call-1"),
+        Some(ToolExecutionStatus::Completed)
+    );
+    assert_eq!(report.provider_deferred().len(), 1);
+    assert!(!report.provider_deferred()[0].is_resolved());
+    let tool_message = suspended
+        .snapshot()
+        .continuation()
+        .messages
+        .last()
+        .expect("completed local result is durable continuation history");
+    let [part] = tool_message.content() else {
+        panic!("expected one completed local result in continuation history");
+    };
+    assert!(matches!(
+        part.content(),
+        ContentPart::ToolResult(result) if result.call_id == "call-1"
+    ));
 }
 
 #[tokio::test]
@@ -1391,7 +1644,7 @@ async fn provider_deferred_same_namespace_persists_only_the_latest_observation()
     let states = suspended.snapshot().provider_state();
     assert_eq!(states.len(), 1);
     let retained: OpaqueProviderItem =
-        serde_json::from_slice(&states[0].payload).expect("provider state decodes");
+        serde_json::from_slice(states[0].payload()).expect("provider state decodes");
     assert_eq!(retained.data()["status"], "in_progress");
 
     let report_items = suspended.snapshot().report().provider_deferred();
@@ -1450,19 +1703,13 @@ async fn provider_deferred_distinct_keys_keep_first_seen_order() {
 
     let states = suspended.snapshot().provider_state();
     assert_eq!(states.len(), 2);
-    assert_eq!(states[0].namespace, states[1].namespace);
-    assert_eq!(
-        states[0].correlation_id.as_deref(),
-        Some("provider-state-1")
-    );
-    assert_eq!(
-        states[1].correlation_id.as_deref(),
-        Some("provider-state-2")
-    );
+    assert_eq!(states[0].namespace(), states[1].namespace());
+    assert_eq!(states[0].correlation_id(), "provider-state-1");
+    assert_eq!(states[1].correlation_id(), "provider-state-2");
     let retained = states
         .iter()
         .map(|state| {
-            serde_json::from_slice::<OpaqueProviderItem>(&state.payload)
+            serde_json::from_slice::<OpaqueProviderItem>(state.payload())
                 .expect("provider state decodes")
         })
         .collect::<Vec<_>>();
@@ -1476,7 +1723,7 @@ async fn provider_deferred_distinct_keys_keep_first_seen_order() {
 }
 
 #[tokio::test]
-async fn provider_deferred_same_key_is_updated_across_model_steps() {
+async fn resolved_provider_deferred_key_cannot_reopen_across_model_steps() {
     let scope = ModelDescriptor::new(
         ProviderId::new("deferred-test").expect("valid provider"),
         ModelId::new("deferred-model").expect("valid model"),
@@ -1516,14 +1763,24 @@ async fn provider_deferred_same_key_is_updated_across_model_steps() {
             CallOptions::default(),
         )
         .await
-        .expect("deferred observations complete across model steps");
+        .expect("resolved provider state fails closed when reopened");
 
     assert!(completed.is_terminal());
     assert_eq!(executions.load(Ordering::SeqCst), 1);
-    assert_eq!(completed.snapshot().report().steps().len(), 2);
+    assert_eq!(completed.snapshot().report().steps().len(), 1);
+    assert_eq!(
+        completed
+            .snapshot()
+            .resume_point()
+            .terminal()
+            .unwrap()
+            .kind(),
+        siumai_runtime::snapshot::SnapshotTerminalKind::Failed
+    );
     let observations = completed.snapshot().report().provider_deferred();
     assert_eq!(observations.len(), 1);
-    assert_eq!(observations[0].item().data()["status"], "in_progress");
+    assert!(observations[0].is_resolved());
+    assert_eq!(observations[0].item().data()["status"], "queued");
 }
 
 #[tokio::test]
@@ -1574,8 +1831,14 @@ async fn multiple_approvals_are_verified_against_one_checkpoint_batch() {
             .canonical_arguments_digest(siumai_runtime::tool::canonical_arguments_digest(
                 prepared.call().arguments(),
             ))
-            .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog.as_str())
-            .policy_fingerprint(suspended.snapshot().fingerprints().approval_policy.as_str())
+            .catalog_fingerprint(suspended.snapshot().fingerprints().tool_catalog().as_str())
+            .policy_fingerprint(
+                suspended
+                    .snapshot()
+                    .fingerprints()
+                    .approval_policy()
+                    .as_str(),
+            )
             .build()
             .expect("exact trust context");
         let claims = ApprovalClaims::issue(&context, u64::MAX, format!("nonce-{index}"), "key-1")
