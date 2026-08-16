@@ -11,6 +11,7 @@ mod credential;
 mod embedding;
 mod http_error;
 mod image;
+mod language_execution;
 mod mode;
 mod model;
 mod options;

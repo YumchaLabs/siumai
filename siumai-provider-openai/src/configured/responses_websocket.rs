@@ -32,8 +32,9 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinError, JoinHandle};
 use uuid::Uuid;
 
+use super::language_execution::{contextualize_terminal_error, model_error_context};
 use super::mode::OpenAiApiMode;
-use super::model::{OpenAiResponsesModel, contextualize_terminal_error, model_error_context};
+use super::model::OpenAiResponsesModel;
 use super::{effective_deadline, wait_for_deadline};
 
 /// Current provider-owned endpoint for persistent Responses sessions.

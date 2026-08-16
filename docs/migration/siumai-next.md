@@ -115,6 +115,25 @@ The former broad native support ID `responses-resources` is replaced by
 Stores, and Skills. Applications that persist or inspect support manifests should migrate those
 IDs directly.
 
+## OpenAI stateless execution ownership
+
+Official OpenAI Chat Completions and Responses now share the stateless HTTP/SSE execution kernel in
+`siumai-openai-compatible`. This is an internal ownership change for normal OpenAI users: provider
+construction, typed options, annotations, native Responses results and frames, background work,
+resources, Realtime, Responses WebSocket, and support evidence remain in
+`siumai-provider-openai`.
+
+Enabling the facade `openai` feature does not expose or activate the facade
+`openai-compatible` feature. Applications that only use official OpenAI do not need to add a
+compatible-provider feature or construct an `OpenAiCompatibleProvider`.
+
+Direct provider authors may use the semver-covered
+`siumai_openai_compatible::extension::v2` contract with an already selected transport, bounded
+prepared body, relative target, replay safety, diagnostics context, and provider-owned decoders.
+It intentionally cannot choose credentials, endpoints, retry or timeout policy, provider identity,
+support claims, or branded wire semantics. Existing `extension::v1` codec policies remain
+available; this release does not force branded compatible providers to rewrite them.
+
 ## OpenAI Responses WebSocket sessions
 
 Responses WebSocket is provider-owned and experimental. It does not add a seventh portable model

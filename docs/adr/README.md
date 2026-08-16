@@ -31,6 +31,9 @@ superseded by a later accepted decision or current architecture contract.
 - `0017-runtime-journal-ledger-and-snapshot-ownership.md` — Runtime commits completed steps through
   one planner, gives tool and provider-deferred transitions one owner each, and writes sensitive
   durable snapshots through one bounded checkpoint gate.
+- `0018-openai-configured-execution-kernel.md` — OpenAI-family providers may share one stateless,
+  lossless HTTP/SSE execution kernel while branded providers retain preparation, native decoding,
+  resources, identity, evidence, and session ownership.
 
 ## Conventions
 

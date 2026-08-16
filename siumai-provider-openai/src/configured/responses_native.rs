@@ -10,6 +10,7 @@ use siumai_core::{
     Cancellation, Error, ErrorKind, LanguageCallError, LanguageResponse, LanguageStream,
     LanguageStreamEvent, LanguageTermination, StreamTerminal,
 };
+use siumai_openai_compatible::extension::v2::SseStream;
 use siumai_protocol_openai::responses::{
     ResponseWire, ResponsesReplayStatus, ResponsesStreamEvent,
 };
@@ -174,15 +175,14 @@ impl OpenAiResponsesStreamFrame {
 /// Once established, the stream settles exactly once with either a terminal frame or an error.
 /// Dropping it cancels only the child operation owned by this stream.
 pub struct OpenAiResponsesStream {
-    inner: Pin<Box<dyn Stream<Item = Result<OpenAiResponsesStreamFrame, Error>> + Send + 'static>>,
-    cancellation: Cancellation,
+    inner: SseStream<OpenAiResponsesStreamFrame>,
 }
 
 impl fmt::Debug for OpenAiResponsesStream {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpenAiResponsesStream")
-            .field("is_cancelled", &self.cancellation.is_cancelled())
+            .field("inner", &self.inner)
             .finish_non_exhaustive()
     }
 }
@@ -191,62 +191,13 @@ impl Stream for OpenAiResponsesStream {
     type Item = Result<OpenAiResponsesStreamFrame, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.inner.as_mut().poll_next(context)
-    }
-}
-
-impl Drop for OpenAiResponsesStream {
-    fn drop(&mut self) {
-        self.cancellation.cancel();
+        Pin::new(&mut self.inner).poll_next(context)
     }
 }
 
 impl OpenAiResponsesStream {
-    pub(crate) fn established<S>(
-        cancellation: Cancellation,
-        cancellation_error: Error,
-        source: S,
-    ) -> Self
-    where
-        S: Stream<Item = Result<OpenAiResponsesStreamFrame, Error>> + Send + 'static,
-    {
-        let stream_cancellation = cancellation.child();
-        let lifecycle_cancellation = stream_cancellation.clone();
-        let inner = Box::pin(async_stream::stream! {
-            let mut source = Box::pin(source);
-            loop {
-                tokio::select! {
-                    biased;
-                    _ = lifecycle_cancellation.cancelled() => {
-                        yield Err(cancellation_error);
-                        break;
-                    }
-                    item = source.next() => {
-                        match item {
-                            Some(Ok(frame)) => {
-                                let terminal = frame.is_terminal();
-                                yield Ok(frame);
-                                if terminal {
-                                    break;
-                                }
-                            }
-                            Some(Err(error)) => {
-                                yield Err(error);
-                                break;
-                            }
-                            None => {
-                                yield Err(Error::unexpected_eof());
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        Self {
-            inner,
-            cancellation: stream_cancellation,
-        }
+    pub(crate) fn new(inner: SseStream<OpenAiResponsesStreamFrame>) -> Self {
+        Self { inner }
     }
 
     /// Consume the native stream into the standard portable language stream.
@@ -258,60 +209,12 @@ impl OpenAiResponsesStream {
             async_stream::try_stream! {
                 let mut stream = self;
                 while let Some(item) = stream.next().await {
-                    match item {
-                        Ok(frame) => {
-                            for event in frame.into_portable_events() {
-                                yield event;
-                            }
-                        }
-                        Err(error) if error.kind() == ErrorKind::Cancelled => {
-                            yield LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
-                                reason: "call cancelled".to_string(),
-                                partial: None,
-                            });
-                            return;
-                        }
-                        Err(error) => Err(error)?,
+                    let frame = item?;
+                    for event in frame.into_portable_events() {
+                        yield event;
                     }
                 }
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use futures_util::stream;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn native_stream_settles_once_on_eof_and_cancellation() {
-        let mut eof = OpenAiResponsesStream::established(
-            Cancellation::new(),
-            Error::cancelled("cancelled"),
-            stream::empty(),
-        );
-        assert_eq!(
-            eof.next().await.unwrap().unwrap_err().kind(),
-            ErrorKind::UnexpectedEof
-        );
-        assert!(eof.next().await.is_none());
-
-        let parent = Cancellation::new();
-        let native = OpenAiResponsesStream::established(
-            parent.clone(),
-            Error::cancelled("cancelled"),
-            stream::pending(),
-        );
-        let mut portable = native.into_portable();
-        parent.cancel();
-        assert!(matches!(
-            portable.next().await,
-            Some(LanguageStreamEvent::Terminal(
-                StreamTerminal::Cancelled { .. }
-            ))
-        ));
-        assert!(portable.next().await.is_none());
     }
 }

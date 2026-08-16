@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exposed typed `NotSubmitted`, `Indeterminate`, and `Settled` submission state for experimental
   Responses WebSocket turns and call errors.
 
+### Changed
+
+- Route official Chat Completions and Responses direct and SSE execution through the shared
+  stateless OpenAI-family kernel while retaining OpenAI-owned option preparation, native Responses
+  carriers, replay status, resources, Realtime, WebSocket sessions, and support evidence.
+
 ### Removed
 
 - [**breaking**] Removed the experimental Responses WebSocket `advanced` connector, socket,

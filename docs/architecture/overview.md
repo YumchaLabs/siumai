@@ -1,11 +1,13 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-14
+- Updated: 2026-08-16
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
-  `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
+  `docs/adr/0015-validation-ownership-and-forward-compatibility.md`,
+  `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
+  `docs/adr/0018-openai-configured-execution-kernel.md`
 
 ## Product shape
 
@@ -44,7 +46,7 @@ catalogs are resources rather than model families.
 | `siumai-core` | provider-neutral identities, family traits, requests, responses, usage, errors, options, and canonical stream lifecycle |
 | `siumai-transport` | HTTP/WebSocket execution, endpoint policy, authentication application, redirects, replay safety, retries, deadlines, cancellation, and resource bounds |
 | `siumai-protocol-*` | wire schemas, request/response codecs, SSE or WebSocket state machines, and protocol-owned metadata projection |
-| `siumai-openai-compatible` | one configured generic OpenAI-compatible execution engine, explicit custom-compatible escape hatches, and a bounded versioned provider-composition seam |
+| `siumai-openai-compatible` | one configured generic OpenAI-compatible engine plus a bounded, versioned, stateless OpenAI-family HTTP/SSE execution kernel for provider authors |
 | `siumai-provider-*` | provider construction, credentials, technical endpoints, API modes, typed options, model advisories, provider codecs, and native resources |
 | `siumai-registry` | immutable, network-free lookup from host-owned route IDs to configured provider registrations |
 | `siumai-runtime` | provider-neutral tool loops, structured output, approvals, budgets, and durable multi-step execution |
@@ -147,6 +149,21 @@ A branded provider owns its compatibility profile, typed options, model advice, 
 fixtures. The shared engine exposes only a versioned provider-neutral codec seam and explicit
 generic/custom construction. Provider-specific dialect and codec behavior remains in the branded
 provider package even when execution is delegated to that shared engine.
+
+The `extension::v2` execution kernel is lower-level than the configured compatible provider. A
+provider passes it an already selected `ProviderTransport`, a bounded JSON body, a relative target,
+non-credential headers, replay safety, diagnostics context, and provider-owned direct or SSE
+decoders. The kernel constructs and executes the immutable request plan, bounds non-success bodies,
+frames SSE bytes, enforces terminal ordering and unexpected-EOF behavior, and cancels its child
+operation when an established stream is dropped. It cannot select credentials, endpoints, retry or
+timeout policy, provider identity, support evidence, or wire semantics.
+
+The official OpenAI provider consumes this kernel directly for stateless Chat Completions and
+Responses calls. It does not wrap itself in `OpenAiCompatibleProvider`: official typed options,
+annotations, native Responses carriers, replay status, resources, background operations, Realtime,
+Responses WebSocket, and support evidence remain owned by `siumai-provider-openai`. This downward
+crate dependency is an implementation detail and does not activate or re-export the facade's
+`openai-compatible` feature.
 
 A caller-controlled endpoint policy never proves named-provider fidelity. The generic compatible
 profile may preserve a validated `EndpointConfig`, including an explicit private/shared-address

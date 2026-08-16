@@ -2427,6 +2427,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siumai-core",
+ "siumai-openai-compatible",
  "siumai-protocol-openai",
  "siumai-transport",
  "thiserror",

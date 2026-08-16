@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Move compatible language HTTP planning, bounded provider-error capture, SSE framing, terminal
   ordering, unexpected EOF, and child cancellation into the shared execution kernel while keeping
   provider identity, options, credentials, endpoint policy, and codec semantics outside it.
+- Validate the `extension::v2` provider-author boundary with the official OpenAI branded provider,
+  including native Responses result and stream carriers without exposing branded ownership through
+  the compatible facade feature.
 
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-openai-compatible-v0.11.0-beta.9...siumai-openai-compatible-v0.11.0-beta.10) - 2026-08-13
 
