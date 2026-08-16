@@ -28,4 +28,23 @@ pub mod extension {
             ResponsesCodecPolicy,
         };
     }
+
+    /// Stateless OpenAI-family HTTP and SSE execution contract for provider authors.
+    ///
+    /// This API is covered by semver for direct users of `siumai-openai-compatible`. It accepts
+    /// provider-prepared relative targets, JSON bodies, non-credential headers, replay proof,
+    /// warnings, sanitized diagnostics context, and provider-owned decoders. It cannot construct
+    /// providers or alter endpoint, credentials, signing, retry policy, timeout, admission, or
+    /// transport limits.
+    ///
+    /// Direct setup failures are returned by [`crate::extension::v2::execute_direct`]. SSE setup
+    /// failures are returned by [`crate::extension::v2::execute_sse`]; after establishment,
+    /// [`crate::extension::v2::SseStream`] emits decoded events or one final error and then EOF.
+    /// Dropping the stream cancels only its child operation.
+    pub mod v2 {
+        pub use crate::configured::execution::{
+            DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, SseStream,
+            SseStreamDecoder, StreamResponseContext, execute_direct, execute_sse,
+        };
+    }
 }
