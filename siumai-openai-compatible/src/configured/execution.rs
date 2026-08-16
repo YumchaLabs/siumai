@@ -7,6 +7,7 @@
 //! OpenAI error classification, SSE framing, terminal ordering, EOF, and child cancellation.
 
 use std::fmt;
+use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -14,7 +15,7 @@ use std::task::{Context, Poll};
 use futures_util::{Stream, StreamExt};
 use http::header::{ACCEPT, HeaderValue};
 use http::{Method, StatusCode};
-use serde_json::Value;
+use serde::Serialize;
 use siumai_core::{
     CallOptions, Cancellation, Error, ErrorContext, ErrorKind, PublicDiagnosticText,
     ResponseDiagnostics, SensitiveResponse, Warning,
@@ -22,8 +23,8 @@ use siumai_core::{
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
 use siumai_transport::framing::{SseDecoder, SseFrameError};
 use siumai_transport::{
-    ProviderTransport, ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget,
-    ResponseHeaders, TransportLimits, TransportResponse, TransportStreamResponse,
+    ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
+    RequestTarget, ResponseHeaders, TransportLimits, TransportResponse, TransportStreamResponse,
 };
 
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
@@ -38,6 +39,98 @@ pub struct ExecutionContext {
     request_contract_message: &'static str,
     rejected_response_message: &'static str,
     invalid_sse_message: &'static str,
+}
+
+/// JSON body serialized within the selected transport's request-byte limit.
+///
+/// Construction aborts before retaining bytes beyond `max_request_bytes`. The transport still
+/// validates the encoded body again at execution, so using a different transport with a lower
+/// limit fails before network submission.
+pub struct PreparedJsonBody {
+    body: RequestBody,
+    encoded_bytes: usize,
+}
+
+impl PreparedJsonBody {
+    pub fn new<T>(transport: &ProviderTransport, value: &T) -> Result<Self, RequestBuildError>
+    where
+        T: Serialize + ?Sized,
+    {
+        let maximum = transport.limits().max_request_bytes;
+        let mut writer = BoundedJsonWriter::new(maximum);
+        let serialized = serde_json::to_writer(&mut writer, value);
+        if writer.exceeded() {
+            return Err(RequestBuildError::BodyTooLarge { maximum });
+        }
+        serialized.map_err(|_| RequestBuildError::JsonSerialization)?;
+        let bytes = writer.into_bytes();
+        let encoded_bytes = bytes.len();
+        Ok(Self {
+            body: RequestBody::bytes_with_content_type(
+                bytes,
+                HeaderValue::from_static("application/json"),
+            ),
+            encoded_bytes,
+        })
+    }
+
+    pub fn encoded_bytes(&self) -> usize {
+        self.encoded_bytes
+    }
+
+    fn into_request_body(self) -> RequestBody {
+        self.body
+    }
+}
+
+impl fmt::Debug for PreparedJsonBody {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreparedJsonBody")
+            .field("encoded_bytes", &self.encoded_bytes)
+            .finish()
+    }
+}
+
+struct BoundedJsonWriter {
+    bytes: Vec<u8>,
+    maximum: usize,
+    exceeded: bool,
+}
+
+impl BoundedJsonWriter {
+    fn new(maximum: usize) -> Self {
+        Self {
+            bytes: Vec::with_capacity(maximum.min(8 * 1024)),
+            maximum,
+            exceeded: false,
+        }
+    }
+
+    fn exceeded(&self) -> bool {
+        self.exceeded
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl Write for BoundedJsonWriter {
+    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+        if input.len() > self.maximum.saturating_sub(self.bytes.len()) {
+            self.exceeded = true;
+            return Err(io::Error::other(
+                "JSON request exceeds the configured byte limit",
+            ));
+        }
+        self.bytes.extend_from_slice(input);
+        Ok(input.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl ExecutionContext {
@@ -86,7 +179,7 @@ impl fmt::Debug for ExecutionContext {
 pub struct PreparedCall<D> {
     target: RequestTarget,
     headers: RequestHeaders,
-    body: Value,
+    body: PreparedJsonBody,
     replay_safety: ReplaySafety,
     warnings: Vec<Warning>,
     context: ExecutionContext,
@@ -96,7 +189,7 @@ pub struct PreparedCall<D> {
 impl<D> PreparedCall<D> {
     pub fn new(
         target: RequestTarget,
-        body: Value,
+        body: PreparedJsonBody,
         replay_safety: ReplaySafety,
         decoder: D,
         context: ExecutionContext,
@@ -129,7 +222,7 @@ impl<D> fmt::Debug for PreparedCall<D> {
             .debug_struct("PreparedCall")
             .field("target", &self.target)
             .field("headers", &self.headers)
-            .field("body", &"[REDACTED]")
+            .field("body", &self.body)
             .field("replay_safety", &self.replay_safety)
             .field("warning_count", &self.warnings.len())
             .field("context", &self.context)
@@ -456,7 +549,7 @@ where
 fn request_plan(
     target: RequestTarget,
     mut headers: RequestHeaders,
-    body: Value,
+    body: PreparedJsonBody,
     replay_safety: ReplaySafety,
     stream: bool,
     context: &ExecutionContext,
@@ -469,11 +562,9 @@ fn request_plan(
     headers = headers
         .try_insert(ACCEPT, accept)
         .map_err(|source| request_contract_error(source, context))?;
-    let body =
-        RequestBody::json(&body).map_err(|source| request_contract_error(source, context))?;
     RequestPlan::new(Method::POST, target)
         .with_headers(headers)
-        .with_body(body)
+        .with_body(body.into_request_body())
         .with_replay_safety(replay_safety)
         .map_err(|source| request_contract_error(source, context))
 }
@@ -865,6 +956,11 @@ mod tests {
 
     #[test]
     fn prepared_call_debug_redacts_body_headers_warnings_and_messages() {
+        let transport = ProviderTransport::builder(
+            siumai_transport::EndpointConfig::local_explicit("http://127.0.0.1:1").unwrap(),
+        )
+        .build()
+        .unwrap();
         let headers = RequestHeaders::new()
             .try_insert(
                 http::header::HeaderName::from_static("x-provider-canary"),
@@ -873,7 +969,7 @@ mod tests {
             .unwrap();
         let call = PreparedCall::new(
             RequestTarget::new("responses").unwrap(),
-            json!({"secret": "body-secret-canary"}),
+            PreparedJsonBody::new(&transport, &json!({"secret": "body-secret-canary"})).unwrap(),
             ReplaySafety::Never,
             (),
             ExecutionContext::new(

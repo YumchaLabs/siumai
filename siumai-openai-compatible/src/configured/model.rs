@@ -16,8 +16,8 @@ use super::codec_policy::{
     ResponsesCodecPolicy,
 };
 use super::execution::{
-    DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, SseStreamDecoder,
-    StreamResponseContext, execute_direct, execute_sse,
+    DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, PreparedJsonBody,
+    SseStreamDecoder, StreamResponseContext, execute_direct, execute_sse,
 };
 use super::mode::OpenAiCompatibleApiMode;
 use super::profile::LanguageModeProfile;
@@ -204,16 +204,21 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 let encoded = self
                     .encode_chat(&prepared, raw.as_ref(), false)
                     .map_err(|error| self.contextualize(operation, error))?;
-                encoded.into_prepared(
-                    self.runtime.replay_safety.clone(),
-                    CompatibleDirectDecoder::Chat {
-                        scope: scope.clone(),
-                        model: self.model_id().clone(),
-                        dialect: prepared.dialect,
-                        codec_policy: codec_policy.clone(),
-                    },
-                    context,
-                )
+                encoded
+                    .into_prepared(
+                        &self.runtime.transport,
+                        self.runtime.replay_safety.clone(),
+                        CompatibleDirectDecoder::Chat {
+                            scope: scope.clone(),
+                            model: self.model_id().clone(),
+                            dialect: prepared.dialect,
+                            codec_policy: codec_policy.clone(),
+                        },
+                        context,
+                    )
+                    .map_err(|source| {
+                        self.contextualize(operation, request_build_error(mode, source))
+                    })?
             }
             LanguageModeProfile::Responses {
                 scope,
@@ -226,15 +231,20 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 let encoded = self
                     .encode_responses(&prepared, raw.as_ref(), false)
                     .map_err(|error| self.contextualize(operation, error))?;
-                encoded.into_prepared(
-                    self.runtime.replay_safety.clone(),
-                    CompatibleDirectDecoder::Responses {
-                        scope: scope.clone(),
-                        model: self.model_id().clone(),
-                        codec_policy: codec_policy.clone(),
-                    },
-                    context,
-                )
+                encoded
+                    .into_prepared(
+                        &self.runtime.transport,
+                        self.runtime.replay_safety.clone(),
+                        CompatibleDirectDecoder::Responses {
+                            scope: scope.clone(),
+                            model: self.model_id().clone(),
+                            codec_policy: codec_policy.clone(),
+                        },
+                        context,
+                    )
+                    .map_err(|source| {
+                        self.contextualize(operation, request_build_error(mode, source))
+                    })?
             }
         };
         execute_direct(&self.runtime.transport, call, options)
@@ -271,11 +281,16 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                     self.model_id().clone(),
                     prepared.dialect,
                 );
-                encoded.into_prepared(
-                    self.runtime.replay_safety.clone(),
-                    CompatibleSseDecoder::new(decoder),
-                    context,
-                )
+                encoded
+                    .into_prepared(
+                        &self.runtime.transport,
+                        self.runtime.replay_safety.clone(),
+                        CompatibleSseDecoder::new(decoder),
+                        context,
+                    )
+                    .map_err(|source| {
+                        self.contextualize(operation, request_build_error(mode, source))
+                    })?
             }
             LanguageModeProfile::Responses {
                 scope,
@@ -293,11 +308,16 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                     self.model_id().clone(),
                     *wire_dialect,
                 );
-                encoded.into_prepared(
-                    self.runtime.replay_safety.clone(),
-                    CompatibleSseDecoder::new(decoder),
-                    context,
-                )
+                encoded
+                    .into_prepared(
+                        &self.runtime.transport,
+                        self.runtime.replay_safety.clone(),
+                        CompatibleSseDecoder::new(decoder),
+                        context,
+                    )
+                    .map_err(|source| {
+                        self.contextualize(operation, request_build_error(mode, source))
+                    })?
             }
         };
         let cancellation = options.cancellation().clone();
@@ -316,13 +336,17 @@ struct EncodedCall {
 impl EncodedCall {
     fn into_prepared<D>(
         self,
+        transport: &siumai_transport::ProviderTransport,
         replay_safety: siumai_transport::ReplaySafety,
         decoder: D,
         context: ExecutionContext,
-    ) -> PreparedCall<D> {
-        PreparedCall::new(self.target, self.body, replay_safety, decoder, context)
-            .with_headers(self.headers)
-            .with_warnings(self.warnings)
+    ) -> Result<PreparedCall<D>, siumai_transport::RequestBuildError> {
+        let body = PreparedJsonBody::new(transport, &self.body)?;
+        Ok(
+            PreparedCall::new(self.target, body, replay_safety, decoder, context)
+                .with_headers(self.headers)
+                .with_warnings(self.warnings),
+        )
     }
 }
 

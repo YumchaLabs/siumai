@@ -43,8 +43,8 @@ pub mod extension {
     /// Dropping the stream cancels only its child operation.
     pub mod v2 {
         pub use crate::configured::execution::{
-            DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, SseStream,
-            SseStreamDecoder, StreamResponseContext, execute_direct, execute_sse,
+            DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, PreparedJsonBody,
+            SseStream, SseStreamDecoder, StreamResponseContext, execute_direct, execute_sse,
         };
     }
 }

@@ -22,6 +22,7 @@ siumai-protocol-openai = { version = "0.11.0-beta.10", path = "../siumai-protoco
 siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 http.workspace = true
 tokio.workspace = true

@@ -2144,6 +2144,7 @@ dependencies = [
  "http",
  "mockito",
  "secrecy",
+ "serde",
  "serde_json",
  "siumai-core",
  "siumai-protocol-openai",

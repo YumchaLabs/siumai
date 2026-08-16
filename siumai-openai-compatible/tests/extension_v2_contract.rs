@@ -9,11 +9,12 @@ use siumai_core::{
     WarningKind,
 };
 use siumai_openai_compatible::extension::v2::{
-    DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, SseStream, SseStreamDecoder,
-    StreamResponseContext, execute_direct, execute_sse,
+    DirectDecoder, DirectResponse, ExecutionContext, PreparedCall, PreparedJsonBody, SseStream,
+    SseStreamDecoder, StreamResponseContext, execute_direct, execute_sse,
 };
 use siumai_transport::{
-    EndpointConfig, ProviderTransport, ReplaySafety, RequestHeaders, RequestTarget, TransportLimits,
+    EndpointConfig, ProviderTransport, ReplaySafety, RequestBuildError, RequestHeaders,
+    RequestTarget, TransportLimits,
 };
 
 #[derive(Debug, PartialEq)]
@@ -159,6 +160,22 @@ fn context() -> ExecutionContext {
     )
 }
 
+fn prepared_call<D>(
+    transport: &ProviderTransport,
+    target: &str,
+    body: Value,
+    decoder: D,
+) -> PreparedCall<D> {
+    let body = PreparedJsonBody::new(transport, &body).unwrap();
+    PreparedCall::new(
+        RequestTarget::new(target).unwrap(),
+        body,
+        ReplaySafety::Never,
+        decoder,
+        context(),
+    )
+}
+
 #[tokio::test]
 async fn external_direct_decoder_preserves_native_output_and_partial_failure_carrier() {
     let mut server = mockito::Server::new_async().await;
@@ -182,12 +199,12 @@ async fn external_direct_decoder_preserves_native_output_and_partial_failure_car
             HeaderValue::from_static("enabled"),
         )
         .unwrap();
-    let call = PreparedCall::new(
-        RequestTarget::new("native").unwrap(),
+    let transport = transport(&server);
+    let call = prepared_call(
+        &transport,
+        "native",
         json!({"future_request_field": true}),
-        ReplaySafety::Never,
         NativeDirectDecoder,
-        context(),
     )
     .with_headers(headers)
     .with_warnings(vec![Warning::new(
@@ -195,7 +212,7 @@ async fn external_direct_decoder_preserves_native_output_and_partial_failure_car
         "fixture warning",
     )]);
 
-    let output = execute_direct(&transport(&server), call, CallOptions::default())
+    let output = execute_direct(&transport, call, CallOptions::default())
         .await
         .unwrap();
     assert_eq!(output.response_id, "native-1");
@@ -213,14 +230,8 @@ async fn external_direct_decoder_preserves_native_output_and_partial_failure_car
         .create_async()
         .await;
     let outcome = execute_direct(
-        &transport(&server),
-        PreparedCall::new(
-            RequestTarget::new("partial").unwrap(),
-            json!({}),
-            ReplaySafety::Never,
-            PartialFailureDecoder,
-            context(),
-        ),
+        &transport,
+        prepared_call(&transport, "partial", json!({}), PartialFailureDecoder),
         CallOptions::default(),
     )
     .await
@@ -248,21 +259,21 @@ async fn external_sse_decoder_preserves_custom_native_events_and_child_cancellat
         .await;
     let observation = Arc::new(Mutex::new(None));
     let parent = Cancellation::new();
-    let call = PreparedCall::new(
-        RequestTarget::new("native-stream").unwrap(),
+    let transport = transport(&server);
+    let call = prepared_call(
+        &transport,
+        "native-stream",
         json!({"stream": true}),
-        ReplaySafety::Never,
         NativeSseDecoder {
             observation: observation.clone(),
         },
-        context(),
     )
     .with_warnings(vec![Warning::new(
         WarningKind::IgnoredOption,
         "fixture warning",
     )]);
     let events = execute_sse(
-        &transport(&server),
+        &transport,
         call,
         CallOptions::default().with_cancellation(parent.clone()),
     )
@@ -299,16 +310,16 @@ async fn cancelled_parent_fails_stream_setup_before_network_submission() {
         .await;
     let cancellation = Cancellation::new();
     cancellation.cancel();
+    let transport = transport(&server);
     let error = execute_sse(
-        &transport(&server),
-        PreparedCall::new(
-            RequestTarget::new("cancelled-stream").unwrap(),
+        &transport,
+        prepared_call(
+            &transport,
+            "cancelled-stream",
             json!({}),
-            ReplaySafety::Never,
             NativeSseDecoder {
                 observation: Arc::new(Mutex::new(None)),
             },
-            context(),
         ),
         CallOptions::default().with_cancellation(cancellation),
     )
@@ -334,15 +345,10 @@ async fn non_success_response_is_classified_bounded_and_redacted() {
         .expect(1)
         .create_async()
         .await;
+    let transport = transport(&server);
     let error = execute_direct(
-        &transport(&server),
-        PreparedCall::new(
-            RequestTarget::new("rejected").unwrap(),
-            json!({}),
-            ReplaySafety::Never,
-            NativeDirectDecoder,
-            context(),
-        ),
+        &transport,
+        prepared_call(&transport, "rejected", json!({}), NativeDirectDecoder),
         CallOptions::default(),
     )
     .await
@@ -379,16 +385,16 @@ async fn stream_rejection_is_bounded_and_decoder_is_not_started() {
         .create_async()
         .await;
     let observation = Arc::new(Mutex::new(None));
+    let transport = transport(&server);
     let error = execute_sse(
-        &transport(&server),
-        PreparedCall::new(
-            RequestTarget::new("rejected-stream").unwrap(),
+        &transport,
+        prepared_call(
+            &transport,
+            "rejected-stream",
             json!({}),
-            ReplaySafety::Never,
             NativeSseDecoder {
                 observation: observation.clone(),
             },
-            context(),
         ),
         CallOptions::default(),
     )
@@ -419,21 +425,13 @@ async fn oversized_json_fails_before_network_submission() {
         max_request_bytes: 32,
         ..TransportLimits::default()
     };
-    let error = execute_direct(
-        &transport_with_limits(&server, limits),
-        PreparedCall::new(
-            RequestTarget::new("oversized").unwrap(),
-            json!({"input": "x".repeat(128)}),
-            ReplaySafety::Never,
-            NativeDirectDecoder,
-            context(),
-        ),
-        CallOptions::default(),
-    )
-    .await
-    .unwrap_err();
+    let transport = transport_with_limits(&server, limits);
+    let error = PreparedJsonBody::new(&transport, &json!({"input": "x".repeat(128)})).unwrap_err();
 
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(matches!(
+        error,
+        RequestBuildError::BodyTooLarge { maximum: 32 }
+    ));
     untouched.assert_async().await;
 }
 
