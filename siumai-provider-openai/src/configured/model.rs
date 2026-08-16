@@ -529,8 +529,8 @@ mod tests {
     use futures_util::StreamExt;
     use serde_json::json;
     use siumai_core::{
-        ContentPart, LanguageStreamEvent, Message, MessagePart, MessageRole, ReplayDomain,
-        ReplayDomainId, StreamTerminal, ToolSpec,
+        Cancellation, ContentPart, LanguageStreamEvent, Message, MessagePart, MessageRole,
+        ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
     };
     use siumai_protocol_openai::responses::ResponsesWireDialect;
     use siumai_transport::EndpointConfig;
@@ -1555,6 +1555,156 @@ mod tests {
                     |part| matches!(part, ContentPart::Text { text } if text == "one request")
                 )
         ));
+    }
+
+    #[tokio::test]
+    async fn responses_stream_cancellation_preempts_buffered_terminal_frames() {
+        let server = MockServer::start().await;
+        let created = json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_cancelled",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "in_progress",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let completed = json!({
+            "type": "response.completed",
+            "sequence_number": 1,
+            "response": {
+                "id": "resp_cancelled",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "completed",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let body = format!("data: {created}\n\ndata: {completed}\n\n");
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(body),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+
+        let native_cancellation = Cancellation::new();
+        let mut native = model
+            .stream_native(
+                request(),
+                CallOptions::default().with_cancellation(native_cancellation.clone()),
+            )
+            .await
+            .unwrap();
+        assert!(!native.next().await.unwrap().unwrap().is_terminal());
+        native_cancellation.cancel();
+        let error = native.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Cancelled);
+        assert_eq!(error.message(), "call cancelled");
+        assert!(native.next().await.is_none());
+
+        let portable_cancellation = Cancellation::new();
+        let mut portable = model
+            .stream(
+                request(),
+                CallOptions::default().with_cancellation(portable_cancellation.clone()),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            portable.next().await,
+            Some(LanguageStreamEvent::Started { .. })
+        ));
+        portable_cancellation.cancel();
+        assert!(matches!(
+            portable.next().await,
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled { reason, .. }))
+                if reason == "call cancelled"
+        ));
+        assert!(portable.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn responses_stream_maps_unexpected_eof_for_native_and_portable_routes() {
+        let server = MockServer::start().await;
+        let created = json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_eof",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "in_progress",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(format!("data: {created}\n\n")),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+        let native = model
+            .stream_native(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!(native.len(), 2);
+        assert!(!native[0].as_ref().unwrap().is_terminal());
+        assert_eq!(
+            native[1].as_ref().unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        let portable = model
+            .stream(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(matches!(
+            portable.first(),
+            Some(LanguageStreamEvent::Started { .. })
+        ));
+        assert!(matches!(
+            portable.last(),
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }))
+                if error.kind() == ErrorKind::UnexpectedEof
+        ));
+        assert_eq!(
+            portable
+                .iter()
+                .filter(|event| event.terminal().is_some())
+                .count(),
+            1
+        );
     }
 
     #[test]

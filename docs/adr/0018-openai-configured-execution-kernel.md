@@ -100,11 +100,12 @@ Chosen. It removes duplicate mechanics without collapsing branded preparation or
 
 ## Verification
 
-Deterministic fixtures cover official and compatible direct and SSE calls, bounded JSON preparation,
-bounded sensitive provider errors, diagnostics, fragmentation, terminal plus `[DONE]`, duplicate or
-trailing terminal data, unexpected EOF, cancellation, drop cleanup, usage-only terminal behavior,
-and official native result/frame preservation. Feature checks verify that official OpenAI does not
-activate the facade compatible-provider feature.
+Kernel fixtures cover bounded JSON preparation, bounded sensitive provider errors, diagnostics,
+fragmentation, terminal plus `[DONE]`, duplicate or trailing terminal data, per-event cancellation,
+unexpected EOF, and drop cleanup. Official-route fixtures cover Chat direct and usage-only streaming,
+Responses direct/native preservation, native-to-portable projection, buffered-frame cancellation,
+and unexpected EOF. Compatible-route fixtures cover their configured direct and SSE adapters.
+Feature checks verify that official OpenAI does not activate the facade compatible-provider feature.
 
 ## References
 

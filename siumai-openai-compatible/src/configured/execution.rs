@@ -480,7 +480,13 @@ where
     }
 
     let limits = transport.limits().clone();
-    let source = decode_sse(body, limits, decoder, context);
+    let source = decode_sse(
+        body,
+        limits,
+        decoder,
+        context,
+        operation_cancellation.clone(),
+    );
 
     Ok(SseStream {
         inner: Box::pin(source),
@@ -493,6 +499,7 @@ fn decode_sse<S, B, D>(
     limits: TransportLimits,
     mut decoder: D,
     stream_context: ExecutionContext,
+    cancellation: Cancellation,
 ) -> impl Stream<Item = Result<D::Event, Error>> + Send + 'static
 where
     S: Stream<Item = Result<B, Error>> + Send + 'static,
@@ -534,11 +541,17 @@ where
                     .finish()
                     .map_err(|source| sse_error(source, &stream_context))?;
                 for event in pending_events {
+                    if cancellation.is_cancelled() {
+                        Err(stream_cancelled_error(&stream_context))?;
+                    }
                     yield event;
                 }
                 return;
             }
             for event in pending_events {
+                if cancellation.is_cancelled() {
+                    Err(stream_cancelled_error(&stream_context))?;
+                }
                 yield event;
             }
         }
@@ -550,6 +563,9 @@ where
             .map_err(|error| contextualize(error, &stream_context))?;
         let terminal = validate_event_batch(&decoder, &events, &stream_context)?;
         for event in events {
+            if cancellation.is_cancelled() {
+                Err(stream_cancelled_error(&stream_context))?;
+            }
             yield event;
         }
         if terminal {
@@ -557,6 +573,10 @@ where
         }
         Err(Error::unexpected_eof().with_context(stream_context.error_context.clone()))?;
     }
+}
+
+fn stream_cancelled_error(context: &ExecutionContext) -> Error {
+    Error::cancelled("call cancelled").with_context(context.error_context.clone())
 }
 
 fn request_plan(
@@ -807,6 +827,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(Vec::new()),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -832,6 +853,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(Vec::new()),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -850,6 +872,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(Vec::new()),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -869,6 +892,7 @@ mod tests {
                 TransportLimits::default(),
                 TestDecoder::new(Vec::new()),
                 context(),
+                Cancellation::new(),
             )
             .collect::<Vec<_>>()
             .await;
@@ -889,6 +913,7 @@ mod tests {
                 TransportLimits::default(),
                 TestDecoder::new(Vec::new()),
                 context(),
+                Cancellation::new(),
             )
             .collect::<Vec<_>>()
             .await;
@@ -909,6 +934,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(vec![TestEvent::Terminal("finish".to_string())]),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -923,6 +949,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(vec![TestEvent::Data("finish".to_string())]),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -944,6 +971,7 @@ mod tests {
                 TestEvent::Data("extra".to_string()),
             ]),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -961,6 +989,7 @@ mod tests {
             TransportLimits::default(),
             TestDecoder::new(Vec::new()),
             context(),
+            Cancellation::new(),
         )
         .collect::<Vec<_>>()
         .await;
@@ -978,15 +1007,47 @@ mod tests {
         let body = stream::iter(vec![Ok::<_, Error>(
             b"data: payload-that-is-too-large\n\n".to_vec(),
         )]);
-        let events = decode_sse(body, limits, TestDecoder::new(Vec::new()), context())
-            .collect::<Vec<_>>()
-            .await;
+        let events = decode_sse(
+            body,
+            limits,
+            TestDecoder::new(Vec::new()),
+            context(),
+            Cancellation::new(),
+        )
+        .collect::<Vec<_>>()
+        .await;
 
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0].as_ref().unwrap_err().kind(),
             ErrorKind::ResponseLimit
         );
+    }
+
+    #[tokio::test]
+    async fn cancellation_preempts_buffered_event_from_the_same_chunk() {
+        let parent = Cancellation::new();
+        let operation = parent.child();
+        let body = stream::iter(vec![Ok::<_, Error>(
+            b"data: first\n\ndata: terminal\n\n".to_vec(),
+        )]);
+        let mut events = Box::pin(decode_sse(
+            body,
+            TransportLimits::default(),
+            TestDecoder::new(Vec::new()),
+            context(),
+            operation,
+        ));
+
+        assert_eq!(
+            events.next().await.unwrap().unwrap(),
+            TestEvent::Data("first".to_string())
+        );
+        parent.cancel();
+
+        let error = events.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Cancelled);
+        assert!(events.next().await.is_none());
     }
 
     #[test]
