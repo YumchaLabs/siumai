@@ -509,9 +509,13 @@ where
                 .map_err(|source| sse_error(source, &stream_context))?;
             let mut pending_events = Vec::new();
             let mut terminal_in_batch = false;
+            let mut terminal_source_was_done = false;
+            let mut done_after_terminal = false;
             for frame in frames {
+                let is_done = frame.data().trim() == "[DONE]";
                 if terminal_in_batch {
-                    if frame.data().trim() == "[DONE]" {
+                    if is_done && !terminal_source_was_done && !done_after_terminal {
+                        done_after_terminal = true;
                         continue;
                     }
                     Err(terminal_order_error(&stream_context))?;
@@ -519,14 +523,23 @@ where
                 let events = decoder
                     .decode(frame.data())
                     .map_err(|error| contextualize(error, &stream_context))?;
-                terminal_in_batch = validate_event_batch(&decoder, &events, &stream_context)?;
+                if validate_event_batch(&decoder, &events, &stream_context)? {
+                    terminal_in_batch = true;
+                    terminal_source_was_done = is_done;
+                }
                 pending_events.extend(events);
+            }
+            if terminal_in_batch {
+                framing
+                    .finish()
+                    .map_err(|source| sse_error(source, &stream_context))?;
+                for event in pending_events {
+                    yield event;
+                }
+                return;
             }
             for event in pending_events {
                 yield event;
-            }
-            if terminal_in_batch {
-                return;
             }
         }
         framing
@@ -752,7 +765,7 @@ mod tests {
 
         fn decode(&mut self, data: &str) -> Result<Vec<Self::Event>, Error> {
             Ok(match data {
-                "terminal" => vec![TestEvent::Terminal(data.to_string())],
+                "terminal" | "[DONE]" => vec![TestEvent::Terminal(data.to_string())],
                 "terminal-extra" => vec![
                     TestEvent::Terminal("terminal".to_string()),
                     TestEvent::Data("extra".to_string()),
@@ -825,6 +838,44 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].as_ref().unwrap_err().kind(), ErrorKind::Protocol);
+    }
+
+    #[tokio::test]
+    async fn partial_frame_after_terminal_fails_before_terminal_publication() {
+        let body = stream::iter(vec![Ok::<_, Error>(
+            b"data: terminal\n\ndata: later".to_vec(),
+        )]);
+        let events = decode_sse(
+            body,
+            TransportLimits::default(),
+            TestDecoder::new(Vec::new()),
+            context(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].as_ref().unwrap_err().kind(), ErrorKind::Protocol);
+    }
+
+    #[tokio::test]
+    async fn repeated_done_terminal_or_done_suffix_is_rejected_atomically() {
+        for body in [
+            b"data: [DONE]\n\ndata: [DONE]\n\n".as_slice(),
+            b"data: terminal\n\ndata: [DONE]\n\ndata: [DONE]\n\n".as_slice(),
+        ] {
+            let events = decode_sse(
+                stream::iter(vec![Ok::<_, Error>(body.to_vec())]),
+                TransportLimits::default(),
+                TestDecoder::new(Vec::new()),
+                context(),
+            )
+            .collect::<Vec<_>>()
+            .await;
+
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].as_ref().unwrap_err().kind(), ErrorKind::Protocol);
+        }
     }
 
     #[tokio::test]
