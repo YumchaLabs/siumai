@@ -1,9 +1,10 @@
 //! Persistent OpenAI Responses WebSocket sessions.
 
+use std::collections::BTreeSet;
 use std::error::Error as StdError;
 use std::fmt;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -90,61 +91,25 @@ pub enum OpenAiResponsesWebSocketConfigError {
     TurnTimeoutExceedsSession,
 }
 
-/// A connector request that exposes no credential value.
-pub struct OpenAiResponsesWebSocketConnectRequest {
-    lineage_id: SessionLineageId,
-    model: Arc<str>,
+struct ConnectRequest {
     transport: WebSocketTransport,
     headers: RequestHeaders,
     options: CallOptions,
 }
 
-impl OpenAiResponsesWebSocketConnectRequest {
-    pub fn lineage_id(&self) -> &SessionLineageId {
-        &self.lineage_id
-    }
-
-    pub fn model(&self) -> &str {
-        self.model.as_ref()
-    }
-
-    pub fn endpoint(&self) -> &WebSocketEndpoint {
-        self.transport.endpoint()
-    }
-
-    pub fn call_options(&self) -> &CallOptions {
-        &self.options
-    }
-}
-
-impl fmt::Debug for OpenAiResponsesWebSocketConnectRequest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("OpenAiResponsesWebSocketConnectRequest")
-            .field("lineage_id", &self.lineage_id)
-            .field("model", &self.model)
-            .field("endpoint", self.transport.endpoint())
-            .field("headers", &self.headers)
-            .field("options", &self.options)
-            .finish()
-    }
-}
-
-/// Sending half used by the deterministic connector seam.
 #[async_trait]
-pub trait OpenAiResponsesWebSocketSocketSender: Send + 'static {
+trait SocketSenderAdapter: Send + 'static {
     async fn send(&mut self, frame: WebSocketFrame) -> Result<(), Error>;
     async fn close(&mut self) -> Result<(), Error>;
 }
 
-/// Receiving half used by the deterministic connector seam.
 #[async_trait]
-pub trait OpenAiResponsesWebSocketSocketReceiver: Send + 'static {
+trait SocketReceiverAdapter: Send + 'static {
     async fn receive(&mut self) -> Result<Option<WebSocketFrame>, Error>;
 }
 
 #[async_trait]
-impl OpenAiResponsesWebSocketSocketSender for WebSocketSender {
+impl SocketSenderAdapter for WebSocketSender {
     async fn send(&mut self, frame: WebSocketFrame) -> Result<(), Error> {
         WebSocketSender::send(self, frame).await
     }
@@ -155,23 +120,22 @@ impl OpenAiResponsesWebSocketSocketSender for WebSocketSender {
 }
 
 #[async_trait]
-impl OpenAiResponsesWebSocketSocketReceiver for WebSocketReceiver {
+impl SocketReceiverAdapter for WebSocketReceiver {
     async fn receive(&mut self) -> Result<Option<WebSocketFrame>, Error> {
         WebSocketReceiver::next(self).await
     }
 }
 
-/// One established socket split into actor-owned halves.
-pub struct OpenAiResponsesWebSocketSocket {
-    sender: Box<dyn OpenAiResponsesWebSocketSocketSender>,
-    receiver: Box<dyn OpenAiResponsesWebSocketSocketReceiver>,
+struct SocketAdapter {
+    sender: Box<dyn SocketSenderAdapter>,
+    receiver: Box<dyn SocketReceiverAdapter>,
 }
 
-impl OpenAiResponsesWebSocketSocket {
-    pub fn new<S, R>(sender: S, receiver: R) -> Self
+impl SocketAdapter {
+    fn new<S, R>(sender: S, receiver: R) -> Self
     where
-        S: OpenAiResponsesWebSocketSocketSender,
-        R: OpenAiResponsesWebSocketSocketReceiver,
+        S: SocketSenderAdapter,
+        R: SocketReceiverAdapter,
     {
         Self {
             sender: Box::new(sender),
@@ -179,49 +143,36 @@ impl OpenAiResponsesWebSocketSocket {
         }
     }
 
-    fn into_parts(
-        self,
-    ) -> (
-        Box<dyn OpenAiResponsesWebSocketSocketSender>,
-        Box<dyn OpenAiResponsesWebSocketSocketReceiver>,
-    ) {
+    fn into_parts(self) -> (Box<dyn SocketSenderAdapter>, Box<dyn SocketReceiverAdapter>) {
         (self.sender, self.receiver)
     }
 }
 
-impl fmt::Debug for OpenAiResponsesWebSocketSocket {
+impl fmt::Debug for SocketAdapter {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("OpenAiResponsesWebSocketSocket")
+            .debug_struct("SocketAdapter")
             .finish_non_exhaustive()
     }
 }
 
-/// Mockable seam for opening one persistent Responses WebSocket.
 #[async_trait]
-pub trait OpenAiResponsesWebSocketConnector: Send + Sync + 'static {
-    async fn connect(
-        &self,
-        request: OpenAiResponsesWebSocketConnectRequest,
-    ) -> Result<OpenAiResponsesWebSocketSocket, Error>;
+trait SessionConnector: Send + Sync + 'static {
+    async fn connect(&self, request: ConnectRequest) -> Result<SocketAdapter, Error>;
 }
 
-/// Production connector backed by `siumai-transport` endpoint policy and bounds.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct OpenAiResponsesWebSocketTransportConnector;
+struct TransportSessionConnector;
 
 #[async_trait]
-impl OpenAiResponsesWebSocketConnector for OpenAiResponsesWebSocketTransportConnector {
-    async fn connect(
-        &self,
-        request: OpenAiResponsesWebSocketConnectRequest,
-    ) -> Result<OpenAiResponsesWebSocketSocket, Error> {
+impl SessionConnector for TransportSessionConnector {
+    async fn connect(&self, request: ConnectRequest) -> Result<SocketAdapter, Error> {
         let connection = request
             .transport
             .connect(request.headers, request.options)
             .await?;
         let (sender, receiver) = connection.split();
-        Ok(OpenAiResponsesWebSocketSocket::new(sender, receiver))
+        Ok(SocketAdapter::new(sender, receiver))
     }
 }
 
@@ -233,7 +184,7 @@ pub struct OpenAiResponsesWebSocketConfig {
     turn_timeout: Duration,
     command_queue_capacity: usize,
     turn_event_queue_capacity: usize,
-    connector: Arc<dyn OpenAiResponsesWebSocketConnector>,
+    connector: Arc<dyn SessionConnector>,
 }
 
 impl OpenAiResponsesWebSocketConfig {
@@ -251,7 +202,7 @@ impl OpenAiResponsesWebSocketConfig {
             turn_timeout: runtime.turn_timeout,
             command_queue_capacity: DEFAULT_COMMAND_QUEUE_CAPACITY,
             turn_event_queue_capacity: DEFAULT_TURN_EVENT_QUEUE_CAPACITY,
-            connector: Arc::new(OpenAiResponsesWebSocketTransportConnector),
+            connector: Arc::new(TransportSessionConnector),
         })
     }
 
@@ -278,7 +229,8 @@ impl OpenAiResponsesWebSocketConfig {
         self
     }
 
-    pub fn with_connector(mut self, connector: Arc<dyn OpenAiResponsesWebSocketConnector>) -> Self {
+    #[cfg(test)]
+    fn with_test_transport(mut self, connector: Arc<dyn SessionConnector>) -> Self {
         self.connector = connector;
         self
     }
@@ -321,9 +273,7 @@ impl OpenAiResponsesWebSocketConfig {
         let session_cancellation = options.cancellation().clone();
         let session_deadline =
             effective_deadline(options.deadline(), self.transport.session_timeout());
-        let request = OpenAiResponsesWebSocketConnectRequest {
-            lineage_id: lineage_id.clone(),
-            model: model.clone(),
+        let request = ConnectRequest {
             transport: self.transport.clone(),
             headers: RequestHeaders::new(),
             options,
@@ -342,7 +292,9 @@ impl OpenAiResponsesWebSocketConfig {
             model: self.model.clone(),
             session_cancellation: session_cancellation.clone(),
             session_deadline,
-            last_settled_response_id: None,
+            max_event_bytes: self.transport.limits().max_event_bytes,
+            max_settled_response_ids: self.transport.limits().max_events_per_stream,
+            settled_response_ids: BTreeSet::new(),
             active: None,
         };
         lifecycle.attach(tokio::spawn(actor.run()));
@@ -523,10 +475,9 @@ pub struct OpenAiResponsesWebSocketTurn {
     id: u64,
     kind: OpenAiResponsesWebSocketTurnKind,
     receiver: mpsc::Receiver<Result<OpenAiResponsesWebSocketEvent, Error>>,
-    shared: Arc<TurnShared>,
+    lifecycle: Arc<TurnLifecycle>,
     cancellation: Cancellation,
     _session: Arc<SessionHandle>,
-    settled: bool,
 }
 
 impl OpenAiResponsesWebSocketTurn {
@@ -540,7 +491,7 @@ impl OpenAiResponsesWebSocketTurn {
 
     /// Return the latest safe submission classification for this turn.
     pub fn submission_state(&self) -> OpenAiResponsesWebSocketSubmissionState {
-        self.shared.submission.state()
+        self.lifecycle.submission_state()
     }
 
     pub fn cancel(&self) {
@@ -553,29 +504,8 @@ impl Stream for OpenAiResponsesWebSocketTurn {
 
     fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Pin::new(&mut self.receiver).poll_recv(context) {
-            Poll::Ready(Some(item)) => {
-                if item
-                    .as_ref()
-                    .map_or(true, OpenAiResponsesWebSocketEvent::is_terminal)
-                {
-                    self.settled = true;
-                }
-                Poll::Ready(Some(item))
-            }
-            Poll::Ready(None) => {
-                if self.settled {
-                    return Poll::Ready(None);
-                }
-                if let Some(error) = self.shared.take_fallback_error() {
-                    self.settled = true;
-                    return Poll::Ready(Some(Err(error)));
-                }
-                self.settled = true;
-                Poll::Ready(Some(Err(self.shared.classify_error(Error::new(
-                    ErrorKind::UnexpectedEof,
-                    "OpenAI Responses WebSocket turn channel closed before settlement",
-                )))))
-            }
+            Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            Poll::Ready(None) => Poll::Ready(self.lifecycle.consumer_channel_closed().map(Err)),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -587,14 +517,14 @@ impl fmt::Debug for OpenAiResponsesWebSocketTurn {
             .debug_struct("OpenAiResponsesWebSocketTurn")
             .field("id", &self.id)
             .field("kind", &self.kind)
-            .field("settled", &self.settled)
+            .field("terminal", &self.lifecycle.has_terminal())
             .finish()
     }
 }
 
 impl Drop for OpenAiResponsesWebSocketTurn {
     fn drop(&mut self) {
-        if !self.settled {
+        if !self.lifecycle.has_terminal() {
             self.cancellation.cancel();
         }
     }
@@ -698,7 +628,7 @@ impl OpenAiResponsesWebSocketSession {
         let mut cancellation = CancelOnDrop::new();
         let caller_cancellation = options.cancellation().child();
         let deadline = effective_deadline(options.deadline(), self.inner.turn_timeout);
-        let shared = Arc::new(TurnShared::new());
+        let (turn_lifecycle, receiver) = TurnLifecycle::new(self.inner.turn_event_queue_capacity);
         let control = StartCallControl {
             turn_cancellation: cancellation.cancellation().clone(),
             caller_cancellation: caller_cancellation.clone(),
@@ -708,7 +638,11 @@ impl OpenAiResponsesWebSocketSession {
             lifecycle: self.inner.lifecycle.clone(),
         };
         if let Some(signal) = control.immediate_signal() {
-            return Err(control_error(signal, SubmissionPhase::Queue, &shared));
+            return Err(control_error(
+                signal,
+                SubmissionPhase::Queue,
+                &turn_lifecycle,
+            ));
         }
         let generate = kind == OpenAiResponsesWebSocketTurnKind::Generate;
         let scope = self
@@ -720,10 +654,7 @@ impl OpenAiResponsesWebSocketSession {
             .inner
             .model_handle
             .prepare_websocket_call(scope, request, &options, generate)
-            .map_err(|error| {
-                shared.submission.mark_not_submitted();
-                shared.classify_error(error)
-            })?;
+            .map_err(|error| turn_lifecycle.classify_error(error))?;
         let payload = serde_json::to_string(&prepared.body)
             .map_err(|source| {
                 Error::new(
@@ -732,18 +663,14 @@ impl OpenAiResponsesWebSocketSession {
                 )
                 .with_source(source)
             })
-            .map_err(|error| {
-                shared.submission.mark_not_submitted();
-                shared.classify_error(error)
-            })?;
+            .map_err(|error| turn_lifecycle.classify_error(error))?;
         let id = self.inner.next_turn_id.fetch_add(1, Ordering::Relaxed);
-        let (events, receiver) = mpsc::channel(self.inner.turn_event_queue_capacity);
         let (ack, response) = oneshot::channel();
         let command = ActorCommand::Start(StartCommand {
             kind,
             payload,
-            events,
-            shared: shared.clone(),
+            lifecycle: turn_lifecycle.clone(),
+            queue_guard: QueuedStartGuard::new(turn_lifecycle.clone()),
             cancellation: cancellation.cancellation().clone(),
             caller_cancellation,
             deadline,
@@ -752,13 +679,16 @@ impl OpenAiResponsesWebSocketSession {
         let permit = tokio::select! {
             biased;
             signal = control.wait() => {
-                return Err(control_error(signal, SubmissionPhase::Queue, &shared));
+                return Err(control_error(
+                    signal,
+                    SubmissionPhase::Queue,
+                    &turn_lifecycle,
+                ));
             }
             result = self.inner.commands.reserve() => {
                 match result {
                     Ok(permit) => permit,
                     Err(_) => {
-                        shared.submission.mark_not_submitted();
                         let error = self
                             .terminal()
                             .map(session_terminal_error)
@@ -772,6 +702,7 @@ impl OpenAiResponsesWebSocketSession {
             }
         };
         permit.send(command);
+        turn_lifecycle.mark_control_accepted();
         tokio::select! {
             biased;
             signal = control.wait() => {
@@ -788,7 +719,7 @@ impl OpenAiResponsesWebSocketSession {
                 return Err(control_error(
                     signal,
                     SubmissionPhase::Acknowledgement,
-                    &shared,
+                    &turn_lifecycle,
                 ));
             }
             result = response => match result {
@@ -800,7 +731,7 @@ impl OpenAiResponsesWebSocketSession {
                         .unwrap_or_else(actor_stopped_error);
                     return Err(with_submission_state(
                         error,
-                        shared.submission.state(),
+                        turn_lifecycle.submission_state(),
                     ));
                 }
             }
@@ -809,10 +740,9 @@ impl OpenAiResponsesWebSocketSession {
             id,
             kind,
             receiver,
-            shared,
+            lifecycle: turn_lifecycle,
             cancellation: cancellation.disarm(),
             _session: self.inner.clone(),
-            settled: false,
         })
     }
 }
@@ -910,7 +840,7 @@ enum SubmissionPhase {
 
 struct ActorLifecycle {
     terminal: Mutex<Option<SessionTerminal>>,
-    active_turn: Mutex<Option<Arc<TurnShared>>>,
+    active_turn: Mutex<Option<Arc<TurnLifecycle>>>,
     terminal_notify: Notify,
     actor_abort: Mutex<Option<AbortHandle>>,
     actor_monitor: Mutex<Option<JoinHandle<()>>>,
@@ -975,8 +905,8 @@ impl ActorLifecycle {
         }
     }
 
-    fn set_active_turn(&self, shared: Arc<TurnShared>) {
-        *lock(&self.active_turn) = Some(shared);
+    fn set_active_turn(&self, lifecycle: Arc<TurnLifecycle>) {
+        *lock(&self.active_turn) = Some(lifecycle);
     }
 
     fn clear_active_turn(&self) {
@@ -1010,9 +940,9 @@ impl ActorLifecycle {
             if self.settle_terminal(failed_terminal(
                 ErrorKind::UnexpectedEof,
                 "OpenAI Responses WebSocket actor stopped before session settlement",
-            )) && let Some(shared) = lock(&self.active_turn).take()
+            )) && let Some(turn) = lock(&self.active_turn).take()
             {
-                shared.set_fallback_error(error);
+                turn.publish_failure(error);
             }
         }
         self.actor_finished.store(true, Ordering::Release);
@@ -1052,37 +982,63 @@ enum ActorCommand {
 struct StartCommand {
     kind: OpenAiResponsesWebSocketTurnKind,
     payload: String,
-    events: mpsc::Sender<Result<OpenAiResponsesWebSocketEvent, Error>>,
-    shared: Arc<TurnShared>,
+    lifecycle: Arc<TurnLifecycle>,
+    queue_guard: QueuedStartGuard,
     cancellation: Cancellation,
     caller_cancellation: Cancellation,
     deadline: Option<Instant>,
     ack: oneshot::Sender<Result<(), Error>>,
 }
 
-struct ActiveTurn {
+struct QueuedStartGuard {
+    lifecycle: Arc<TurnLifecycle>,
+    armed: bool,
+}
+
+impl QueuedStartGuard {
+    fn new(lifecycle: Arc<TurnLifecycle>) -> Self {
+        Self {
+            lifecycle,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for QueuedStartGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.lifecycle.prove_not_submitted();
+        }
+    }
+}
+
+struct ActorTurnContext {
     kind: OpenAiResponsesWebSocketTurnKind,
     decoder: ResponsesStreamDecoder,
-    response_id: Option<String>,
     context: ErrorContext,
-    events: mpsc::Sender<Result<OpenAiResponsesWebSocketEvent, Error>>,
-    shared: Arc<TurnShared>,
+    lifecycle: Arc<TurnLifecycle>,
     cancellation: Cancellation,
     caller_cancellation: Cancellation,
     deadline: Option<Instant>,
 }
 
 struct SessionActor {
-    sender: Box<dyn OpenAiResponsesWebSocketSocketSender>,
-    receiver: Box<dyn OpenAiResponsesWebSocketSocketReceiver>,
+    sender: Box<dyn SocketSenderAdapter>,
+    receiver: Box<dyn SocketReceiverAdapter>,
     commands: mpsc::Receiver<ActorCommand>,
     lifecycle: Arc<ActorLifecycle>,
     scope: Arc<ProviderScope>,
     model: OpenAiResponsesModel,
     session_cancellation: Cancellation,
     session_deadline: Option<Instant>,
-    last_settled_response_id: Option<String>,
-    active: Option<ActiveTurn>,
+    max_event_bytes: usize,
+    max_settled_response_ids: usize,
+    settled_response_ids: BTreeSet<String>,
+    active: Option<ActorTurnContext>,
 }
 
 impl SessionActor {
@@ -1107,8 +1063,8 @@ impl SessionActor {
                 "OpenAI Responses WebSocket session was cancelled",
             )),
             _ = wait_for_deadline(self.session_deadline) => Some(expired_terminal()),
-            command = self.commands.recv() => self.handle_ready_command(command).await,
             frame = self.receiver.receive() => self.handle_ready_frame(frame).await,
+            command = self.commands.recv() => self.handle_ready_command(command).await,
         }
     }
 
@@ -1171,8 +1127,8 @@ impl SessionActor {
     ) -> Option<SessionTerminal> {
         match command {
             Some(ActorCommand::Start(command)) => {
-                command.shared.submission.mark_not_submitted();
-                let error = command.shared.classify_error(Error::new(
+                command.lifecycle.prove_not_submitted();
+                let error = command.lifecycle.classify_error(Error::new(
                     ErrorKind::InvalidInput,
                     "an OpenAI Responses WebSocket turn is already active",
                 ));
@@ -1204,18 +1160,19 @@ impl SessionActor {
         }
     }
 
-    async fn start_turn(&mut self, command: StartCommand) -> Option<SessionTerminal> {
+    async fn start_turn(&mut self, mut command: StartCommand) -> Option<SessionTerminal> {
+        command.queue_guard.disarm();
         if command.cancellation.is_cancelled() || command.caller_cancellation.is_cancelled() {
-            command.shared.submission.mark_not_submitted();
-            let error = command.shared.classify_error(Error::cancelled(
+            command.lifecycle.prove_not_submitted();
+            let error = command.lifecycle.classify_error(Error::cancelled(
                 "OpenAI Responses WebSocket turn was cancelled before submission",
             ));
             let _ = command.ack.send(Err(error));
             return None;
         }
         if self.session_cancellation.is_cancelled() {
-            command.shared.submission.mark_not_submitted();
-            let error = command.shared.classify_error(Error::cancelled(
+            command.lifecycle.prove_not_submitted();
+            let error = command.lifecycle.classify_error(Error::cancelled(
                 "OpenAI Responses WebSocket session was cancelled before submission",
             ));
             let _ = command.ack.send(Err(error));
@@ -1225,8 +1182,8 @@ impl SessionActor {
         }
         let deadline = command.deadline;
         if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
-            command.shared.submission.mark_not_submitted();
-            let error = command.shared.classify_error(Error::new(
+            command.lifecycle.prove_not_submitted();
+            let error = command.lifecycle.classify_error(Error::new(
                 ErrorKind::Timeout,
                 "OpenAI Responses WebSocket turn deadline elapsed before submission",
             ));
@@ -1237,8 +1194,8 @@ impl SessionActor {
             .session_deadline
             .is_some_and(|deadline| deadline <= Instant::now())
         {
-            command.shared.submission.mark_not_submitted();
-            let error = command.shared.classify_error(Error::new(
+            command.lifecycle.prove_not_submitted();
+            let error = command.lifecycle.classify_error(Error::new(
                 ErrorKind::Timeout,
                 "OpenAI Responses WebSocket session deadline elapsed before submission",
             ));
@@ -1255,7 +1212,8 @@ impl SessionActor {
         }
 
         let session_cancellation = self.session_cancellation.clone();
-        command.shared.submission.mark_indeterminate();
+        command.lifecycle.mark_sender_polled();
+        self.lifecycle.set_active_turn(command.lifecycle.clone());
         let submission = tokio::select! {
             biased;
             _ = session_cancellation.cancelled() => SubmissionOutcome::SessionCancelled,
@@ -1270,7 +1228,8 @@ impl SessionActor {
         let send_result = match submission {
             SubmissionOutcome::Sent(result) => result,
             SubmissionOutcome::SessionCancelled => {
-                let error = command.shared.classify_error(Error::cancelled(
+                self.lifecycle.clear_active_turn();
+                let error = command.lifecycle.classify_error(Error::cancelled(
                     "OpenAI Responses WebSocket session was cancelled during submission",
                 ));
                 let _ = command.ack.send(Err(error));
@@ -1279,7 +1238,8 @@ impl SessionActor {
                 ));
             }
             SubmissionOutcome::TurnCancelled => {
-                let error = command.shared.classify_error(Error::cancelled(
+                self.lifecycle.clear_active_turn();
+                let error = command.lifecycle.classify_error(Error::cancelled(
                     "OpenAI Responses WebSocket turn was cancelled during submission",
                 ));
                 let _ = command.ack.send(Err(error));
@@ -1288,7 +1248,8 @@ impl SessionActor {
                 ));
             }
             SubmissionOutcome::TurnTimedOut => {
-                let error = command.shared.classify_error(Error::new(
+                self.lifecycle.clear_active_turn();
+                let error = command.lifecycle.classify_error(Error::new(
                     ErrorKind::Timeout,
                     "OpenAI Responses WebSocket turn deadline elapsed during submission",
                 ));
@@ -1299,7 +1260,8 @@ impl SessionActor {
                 ));
             }
             SubmissionOutcome::SessionTimedOut => {
-                let error = command.shared.classify_error(Error::new(
+                self.lifecycle.clear_active_turn();
+                let error = command.lifecycle.classify_error(Error::new(
                     ErrorKind::Timeout,
                     "OpenAI Responses WebSocket session deadline elapsed during submission",
                 ));
@@ -1309,25 +1271,25 @@ impl SessionActor {
         };
         if let Err(error) = send_result {
             let kind = error.kind();
-            let _ = command.ack.send(Err(command.shared.classify_error(error)));
+            self.lifecycle.clear_active_turn();
+            let _ = command
+                .ack
+                .send(Err(command.lifecycle.classify_error(error)));
             return Some(failed_terminal(
                 kind,
                 "failed to send an OpenAI Responses WebSocket turn",
             ));
         }
         let context = model_error_context(&self.model, ModelOperation::Stream);
-        self.lifecycle.set_active_turn(command.shared.clone());
-        self.active = Some(ActiveTurn {
+        self.active = Some(ActorTurnContext {
             kind: command.kind,
             decoder: ResponsesStreamDecoder::new(
                 self.scope.as_ref().clone(),
                 self.model.model_id().clone(),
             )
             .with_wire_dialect(self.model.runtime.responses_wire_dialect),
-            response_id: None,
             context,
-            events: command.events,
-            shared: command.shared,
+            lifecycle: command.lifecycle,
             cancellation: command.cancellation,
             caller_cancellation: command.caller_cancellation,
             deadline,
@@ -1440,6 +1402,16 @@ impl SessionActor {
     }
 
     fn decode_active_text(&mut self, text: &str) -> Option<SessionTerminal> {
+        if text.len() > self.max_event_bytes {
+            self.fail_active(Error::new(
+                ErrorKind::ResponseLimit,
+                "OpenAI Responses WebSocket event exceeds the configured limit",
+            ));
+            return Some(failed_terminal(
+                ErrorKind::ResponseLimit,
+                "OpenAI Responses WebSocket event exceeds the configured limit",
+            ));
+        }
         let active = self.active.as_mut().expect("active text owns a turn");
         let decoded = match active.decoder.decode_native(text) {
             Ok(decoded) => decoded,
@@ -1456,20 +1428,14 @@ impl SessionActor {
             .is_terminal()
             .then(|| active.decoder.terminal_response().cloned())
             .flatten();
-        let identity = validate_active_response_identity(active, &decoded, canonical.as_ref());
-        if let Err(error) = identity {
-            self.fail_active(error);
-            return Some(failed_terminal(
-                ErrorKind::Protocol,
-                "OpenAI Responses WebSocket event violated turn identity",
-            ));
-        }
-        let active = self.active.as_mut().expect("active text owns a turn");
-        if let Some(response) = &canonical
-            && self
-                .last_settled_response_id
-                .as_deref()
-                .is_some_and(|last| last == response.id)
+        let observed_response_id = decoded
+            .native()
+            .response_resource()
+            .map(|response| response.id.clone())
+            .or_else(|| canonical.as_ref().map(|response| response.id.clone()));
+        if observed_response_id
+            .as_deref()
+            .is_some_and(|response_id| self.settled_response_ids.contains(response_id))
         {
             self.fail_active(Error::new(
                 ErrorKind::Protocol,
@@ -1480,6 +1446,30 @@ impl SessionActor {
                 "OpenAI Responses WebSocket repeated a settled response ID",
             ));
         }
+        let identity = active
+            .lifecycle
+            .validate_response_identity(&decoded, canonical.as_ref());
+        if let Err(error) = identity {
+            self.fail_active(error);
+            return Some(failed_terminal(
+                ErrorKind::Protocol,
+                "OpenAI Responses WebSocket event violated turn identity",
+            ));
+        }
+        if canonical.as_ref().is_some_and(|response| {
+            self.settled_response_ids.len() >= self.max_settled_response_ids
+                && !self.settled_response_ids.contains(response.id.as_str())
+        }) {
+            self.fail_active(Error::new(
+                ErrorKind::ResponseLimit,
+                "OpenAI Responses WebSocket response identity ledger exceeds the configured limit",
+            ));
+            return Some(failed_terminal(
+                ErrorKind::ResponseLimit,
+                "OpenAI Responses WebSocket response identity ledger exceeds the configured limit",
+            ));
+        }
+        let active = self.active.as_mut().expect("active text owns a turn");
         let session_fatal = is_session_fatal_provider_event(&decoded, canonical.as_ref());
         let terminal = decoded.is_terminal();
         let settled_response_id = canonical.as_ref().map(|response| response.id.clone());
@@ -1501,10 +1491,7 @@ impl SessionActor {
                 ));
             }
         };
-        if terminal {
-            active.shared.submission.mark_settled();
-        }
-        if let Err(failure) = emit_turn_event(active, event) {
+        if let Err(failure) = active.lifecycle.publish_event(event) {
             let terminal = match failure {
                 EmitFailure::Closed => {
                     cancelled_terminal("OpenAI Responses WebSocket turn consumer was dropped")
@@ -1513,6 +1500,10 @@ impl SessionActor {
                     ErrorKind::ResponseLimit,
                     "OpenAI Responses WebSocket turn queue was saturated",
                 ),
+                EmitFailure::AfterTerminal => failed_terminal(
+                    ErrorKind::Protocol,
+                    "OpenAI Responses WebSocket emitted an event after turn settlement",
+                ),
             };
             self.active = None;
             self.lifecycle.clear_active_turn();
@@ -1520,7 +1511,7 @@ impl SessionActor {
         }
         if terminal {
             if let Some(response_id) = settled_response_id {
-                self.last_settled_response_id = Some(response_id);
+                self.settled_response_ids.insert(response_id);
             }
             self.active = None;
             self.lifecycle.clear_active_turn();
@@ -1542,19 +1533,7 @@ impl SessionActor {
         if error.context().operation.is_none() {
             error = error.with_context(active.context.clone());
         }
-        match active
-            .events
-            .try_send(Err(active.shared.classify_error(error)))
-        {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                active.shared.set_fallback_error(Error::new(
-                    ErrorKind::ResponseLimit,
-                    "OpenAI Responses WebSocket turn queue was saturated",
-                ))
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {}
-        }
+        active.lifecycle.publish_failure(error);
     }
 
     async fn send_close(&mut self, request: &SessionCloseRequest) -> Result<(), Error> {
@@ -1590,38 +1569,6 @@ impl SessionActor {
             _ = self.sender.close() => {}
         }
     }
-}
-
-fn validate_active_response_identity(
-    active: &mut ActiveTurn,
-    decoded: &DecodedResponsesStreamFrame,
-    canonical: Option<&ResponseWire>,
-) -> Result<(), Error> {
-    if let Some(response) = decoded.native().response_resource() {
-        if active
-            .response_id
-            .as_deref()
-            .is_some_and(|existing| existing != response.id)
-        {
-            return Err(Error::new(
-                ErrorKind::Protocol,
-                "OpenAI Responses WebSocket turn changed its response ID",
-            ));
-        }
-        active
-            .response_id
-            .get_or_insert_with(|| response.id.clone());
-    }
-
-    if let Some(response) = canonical
-        && active.response_id.as_deref() != Some(response.id.as_str())
-    {
-        return Err(Error::new(
-            ErrorKind::Protocol,
-            "OpenAI Responses WebSocket terminal did not match a response created for this turn",
-        ));
-    }
-    Ok(())
 }
 
 fn generated_event(
@@ -1714,104 +1661,208 @@ fn is_session_fatal_provider_event(
         .any(|code| code == "websocket_connection_limit_reached")
 }
 
-fn emit_turn_event(
-    active: &ActiveTurn,
-    event: OpenAiResponsesWebSocketEvent,
-) -> Result<(), EmitFailure> {
-    match active.events.try_send(Ok(event)) {
-        Ok(()) => Ok(()),
-        Err(mpsc::error::TrySendError::Closed(_)) => Err(EmitFailure::Closed),
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            active.shared.set_fallback_error(Error::new(
-                ErrorKind::ResponseLimit,
-                "OpenAI Responses WebSocket turn queue was saturated",
-            ));
-            Err(EmitFailure::Saturated)
-        }
-    }
-}
-
 enum EmitFailure {
     Closed,
     Saturated,
+    AfterTerminal,
 }
 
-const SUBMISSION_QUEUED: u8 = 0;
-const SUBMISSION_NOT_SUBMITTED: u8 = 1;
-const SUBMISSION_INDETERMINATE: u8 = 2;
-const SUBMISSION_SETTLED: u8 = 3;
-
-#[derive(Default)]
-struct SubmissionTracker {
-    state: AtomicU8,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnSubmissionPhase {
+    Queued,
+    ControlAccepted,
+    SenderPolled,
+    ProvenNotSubmitted,
+    Settled,
 }
 
-impl SubmissionTracker {
-    fn mark_not_submitted(&self) {
-        self.advance_to(SUBMISSION_NOT_SUBMITTED);
-    }
-
-    fn mark_indeterminate(&self) {
-        self.advance_to(SUBMISSION_INDETERMINATE);
-    }
-
-    fn mark_settled(&self) {
-        self.advance_to(SUBMISSION_SETTLED);
-    }
-
-    fn state(&self) -> OpenAiResponsesWebSocketSubmissionState {
-        match self.state.load(Ordering::Acquire) {
-            SUBMISSION_SETTLED => OpenAiResponsesWebSocketSubmissionState::Settled,
-            SUBMISSION_INDETERMINATE => OpenAiResponsesWebSocketSubmissionState::Indeterminate,
-            SUBMISSION_QUEUED | SUBMISSION_NOT_SUBMITTED => {
+impl TurnSubmissionPhase {
+    fn public_state(self) -> OpenAiResponsesWebSocketSubmissionState {
+        match self {
+            Self::Queued | Self::ProvenNotSubmitted => {
                 OpenAiResponsesWebSocketSubmissionState::NotSubmitted
             }
-            _ => OpenAiResponsesWebSocketSubmissionState::Indeterminate,
-        }
-    }
-
-    fn advance_to(&self, target: u8) {
-        let mut current = self.state.load(Ordering::Acquire);
-        while current < target {
-            match self.state.compare_exchange_weak(
-                current,
-                target,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return,
-                Err(observed) => current = observed,
+            Self::ControlAccepted | Self::SenderPolled => {
+                OpenAiResponsesWebSocketSubmissionState::Indeterminate
             }
+            Self::Settled => OpenAiResponsesWebSocketSubmissionState::Settled,
         }
     }
 }
 
-struct TurnShared {
-    fallback_error: Mutex<Option<Error>>,
-    submission: SubmissionTracker,
+struct TurnLifecycleState {
+    submission: TurnSubmissionPhase,
+    response_id: Option<String>,
+    delivery: TurnDeliveryState,
 }
 
-impl TurnShared {
-    fn new() -> Self {
-        Self {
-            fallback_error: Mutex::new(None),
-            submission: SubmissionTracker::default(),
+enum TurnDeliveryState {
+    Open(mpsc::Sender<Result<OpenAiResponsesWebSocketEvent, Error>>),
+    Selected { fallback: Option<Error> },
+    Closed,
+}
+
+struct TurnLifecycle {
+    state: Mutex<TurnLifecycleState>,
+}
+
+impl TurnLifecycle {
+    fn new(
+        event_queue_capacity: usize,
+    ) -> (
+        Arc<Self>,
+        mpsc::Receiver<Result<OpenAiResponsesWebSocketEvent, Error>>,
+    ) {
+        let (events, receiver) = mpsc::channel(event_queue_capacity);
+        (
+            Arc::new(Self {
+                state: Mutex::new(TurnLifecycleState {
+                    submission: TurnSubmissionPhase::Queued,
+                    response_id: None,
+                    delivery: TurnDeliveryState::Open(events),
+                }),
+            }),
+            receiver,
+        )
+    }
+
+    fn submission_state(&self) -> OpenAiResponsesWebSocketSubmissionState {
+        lock(&self.state).submission.public_state()
+    }
+
+    fn mark_control_accepted(&self) {
+        let mut state = lock(&self.state);
+        if state.submission == TurnSubmissionPhase::Queued {
+            state.submission = TurnSubmissionPhase::ControlAccepted;
+        }
+    }
+
+    fn mark_sender_polled(&self) {
+        let mut state = lock(&self.state);
+        if state.submission != TurnSubmissionPhase::Settled {
+            state.submission = TurnSubmissionPhase::SenderPolled;
+        }
+    }
+
+    fn prove_not_submitted(&self) {
+        let mut state = lock(&self.state);
+        if matches!(
+            state.submission,
+            TurnSubmissionPhase::Queued | TurnSubmissionPhase::ControlAccepted
+        ) {
+            state.submission = TurnSubmissionPhase::ProvenNotSubmitted;
         }
     }
 
     fn classify_error(&self, error: Error) -> Error {
-        with_submission_state(error, self.submission.state())
+        with_submission_state(error, self.submission_state())
     }
 
-    fn set_fallback_error(&self, error: Error) {
-        let mut slot = lock(&self.fallback_error);
-        if slot.is_none() {
-            *slot = Some(self.classify_error(error));
+    fn has_terminal(&self) -> bool {
+        !matches!(lock(&self.state).delivery, TurnDeliveryState::Open(_))
+    }
+
+    fn validate_response_identity(
+        &self,
+        decoded: &DecodedResponsesStreamFrame,
+        canonical: Option<&ResponseWire>,
+    ) -> Result<(), Error> {
+        let mut state = lock(&self.state);
+        if !matches!(state.delivery, TurnDeliveryState::Open(_)) {
+            return Err(Error::new(
+                ErrorKind::Protocol,
+                "OpenAI Responses WebSocket emitted an event after turn settlement",
+            ));
         }
+        if let Some(response) = decoded.native().response_resource() {
+            if state
+                .response_id
+                .as_deref()
+                .is_some_and(|existing| existing != response.id)
+            {
+                return Err(Error::new(
+                    ErrorKind::Protocol,
+                    "OpenAI Responses WebSocket turn changed its response ID",
+                ));
+            }
+            state.response_id.get_or_insert_with(|| response.id.clone());
+        }
+        if let Some(response) = canonical
+            && state.response_id.as_deref() != Some(response.id.as_str())
+        {
+            return Err(Error::new(
+                ErrorKind::Protocol,
+                "OpenAI Responses WebSocket terminal did not match a response created for this turn",
+            ));
+        }
+        Ok(())
     }
 
-    fn take_fallback_error(&self) -> Option<Error> {
-        lock(&self.fallback_error).take()
+    fn publish_event(&self, event: OpenAiResponsesWebSocketEvent) -> Result<(), EmitFailure> {
+        let terminal = event.is_terminal();
+        let mut state = lock(&self.state);
+        let sender = match &state.delivery {
+            TurnDeliveryState::Open(sender) => sender.clone(),
+            TurnDeliveryState::Selected { .. } | TurnDeliveryState::Closed => {
+                return Err(EmitFailure::AfterTerminal);
+            }
+        };
+        if terminal {
+            state.submission = TurnSubmissionPhase::Settled;
+        }
+        let submission = state.submission.public_state();
+        let result = match sender.try_send(Ok(event)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(EmitFailure::Closed),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(EmitFailure::Saturated),
+        };
+        state.delivery = match result {
+            Ok(()) if !terminal => return Ok(()),
+            Ok(()) | Err(EmitFailure::Closed) => TurnDeliveryState::Selected { fallback: None },
+            Err(EmitFailure::Saturated) => TurnDeliveryState::Selected {
+                fallback: Some(with_submission_state(
+                    Error::new(
+                        ErrorKind::ResponseLimit,
+                        "OpenAI Responses WebSocket turn queue was saturated",
+                    ),
+                    submission,
+                )),
+            },
+            Err(EmitFailure::AfterTerminal) => unreachable!("delivery state was open"),
+        };
+        result
+    }
+
+    fn publish_failure(&self, error: Error) {
+        let mut state = lock(&self.state);
+        let sender = match &state.delivery {
+            TurnDeliveryState::Open(sender) => sender.clone(),
+            TurnDeliveryState::Selected { .. } | TurnDeliveryState::Closed => return,
+        };
+        let error = with_submission_state(error, state.submission.public_state());
+        let fallback = match sender.try_send(Err(error)) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+            Err(mpsc::error::TrySendError::Full(item)) => match item {
+                Err(error) => Some(error),
+                Ok(_) => unreachable!("failure publication always sends an error"),
+            },
+        };
+        state.delivery = TurnDeliveryState::Selected { fallback };
+    }
+
+    fn consumer_channel_closed(&self) -> Option<Error> {
+        let mut state = lock(&self.state);
+        match std::mem::replace(&mut state.delivery, TurnDeliveryState::Closed) {
+            TurnDeliveryState::Open(_) => Some(with_submission_state(
+                Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "OpenAI Responses WebSocket turn channel closed before settlement",
+                ),
+                state.submission.public_state(),
+            )),
+            TurnDeliveryState::Selected { fallback } => fallback,
+            TurnDeliveryState::Closed => None,
+        }
     }
 }
 
@@ -1847,12 +1898,16 @@ impl Drop for CancelOnDrop {
     }
 }
 
-fn control_error(signal: CallControlSignal, phase: SubmissionPhase, shared: &TurnShared) -> Error {
+fn control_error(
+    signal: CallControlSignal,
+    phase: SubmissionPhase,
+    lifecycle: &TurnLifecycle,
+) -> Error {
     match phase {
-        SubmissionPhase::Queue => shared.submission.mark_not_submitted(),
+        SubmissionPhase::Queue => lifecycle.prove_not_submitted(),
         SubmissionPhase::Acknowledgement => {
             if !matches!(&signal, CallControlSignal::SessionTerminal(_)) {
-                shared.submission.mark_indeterminate();
+                lifecycle.mark_control_accepted();
             }
         }
     }
@@ -1873,7 +1928,7 @@ fn control_error(signal: CallControlSignal, phase: SubmissionPhase, shared: &Tur
         ),
         CallControlSignal::SessionTerminal(terminal) => session_terminal_error(terminal),
     };
-    shared.classify_error(error)
+    lifecycle.classify_error(error)
 }
 
 fn with_submission_state(error: Error, state: OpenAiResponsesWebSocketSubmissionState) -> Error {
@@ -1897,11 +1952,23 @@ fn with_submission_state(error: Error, state: OpenAiResponsesWebSocketSubmission
 }
 
 async fn wait_for_actor_cleanup(lifecycle: &ActorLifecycle, timeout: Duration) {
-    let deadline = effective_deadline(None, timeout.min(MAX_ACTOR_CLEANUP_TIMEOUT));
+    let timeout = timeout.min(MAX_ACTOR_CLEANUP_TIMEOUT);
+    let hard_deadline = effective_deadline(None, timeout);
+    let abort_grace = timeout.min(Duration::from_secs(1));
+    let graceful_deadline = hard_deadline.and_then(|deadline| deadline.checked_sub(abort_grace));
+    let needs_abort = tokio::select! {
+        biased;
+        _ = lifecycle.wait_for_actor() => false,
+        _ = wait_for_deadline(graceful_deadline) => true,
+    };
+    if !needs_abort {
+        return;
+    }
+    lifecycle.abort_actor();
     tokio::select! {
         biased;
         _ = lifecycle.wait_for_actor() => {}
-        _ = wait_for_deadline(deadline) => lifecycle.abort_actor(),
+        _ = wait_for_deadline(hard_deadline) => {}
     }
 }
 
@@ -2037,11 +2104,12 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use futures_util::StreamExt;
     use serde_json::{Value, json};
     use siumai_core::{Message, MessageRole, ReplayDomain, ReplayDomainId};
-    use siumai_transport::EndpointConfig;
+    use siumai_transport::{EndpointConfig, TransportLimits};
 
     use super::*;
     use crate::configured::{OpenAiCredential, OpenAiProvider, OpenAiResponsesOptions};
@@ -2051,7 +2119,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl OpenAiResponsesWebSocketSocketSender for MockSender {
+    impl SocketSenderAdapter for MockSender {
         async fn send(&mut self, frame: WebSocketFrame) -> Result<(), Error> {
             self.outgoing
                 .send(frame)
@@ -2068,7 +2136,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl OpenAiResponsesWebSocketSocketReceiver for MockReceiver {
+    impl SocketReceiverAdapter for MockReceiver {
         async fn receive(&mut self) -> Result<Option<WebSocketFrame>, Error> {
             self.incoming.recv().await.unwrap_or(Ok(None))
         }
@@ -2079,7 +2147,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl OpenAiResponsesWebSocketSocketSender for BlockingSender {
+    impl SocketSenderAdapter for BlockingSender {
         async fn send(&mut self, _frame: WebSocketFrame) -> Result<(), Error> {
             if let Some(started) = self.started.take() {
                 let _ = started.send(());
@@ -2097,7 +2165,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl OpenAiResponsesWebSocketSocketReceiver for PanicReceiver {
+    impl SocketReceiverAdapter for PanicReceiver {
         async fn receive(&mut self) -> Result<Option<WebSocketFrame>, Error> {
             let _ = (&mut self.trigger).await;
             panic!("intentional Responses WebSocket actor panic");
@@ -2105,15 +2173,12 @@ mod tests {
     }
 
     struct SingleSocketConnector {
-        socket: Mutex<Option<OpenAiResponsesWebSocketSocket>>,
+        socket: Mutex<Option<SocketAdapter>>,
     }
 
     #[async_trait]
-    impl OpenAiResponsesWebSocketConnector for SingleSocketConnector {
-        async fn connect(
-            &self,
-            _request: OpenAiResponsesWebSocketConnectRequest,
-        ) -> Result<OpenAiResponsesWebSocketSocket, Error> {
+    impl SessionConnector for SingleSocketConnector {
+        async fn connect(&self, _request: ConnectRequest) -> Result<SocketAdapter, Error> {
             self.socket
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -2133,7 +2198,7 @@ mod tests {
         let (incoming, incoming_rx) = mpsc::unbounded_channel();
         Harness {
             connector: Arc::new(SingleSocketConnector {
-                socket: Mutex::new(Some(OpenAiResponsesWebSocketSocket::new(
+                socket: Mutex::new(Some(SocketAdapter::new(
                     MockSender {
                         outgoing: outgoing_tx,
                     },
@@ -2148,8 +2213,16 @@ mod tests {
     }
 
     fn provider(with_websocket: bool) -> Result<OpenAiProvider, super::super::OpenAiConfigError> {
+        provider_with_limits(with_websocket, TransportLimits::default())
+    }
+
+    fn provider_with_limits(
+        with_websocket: bool,
+        limits: TransportLimits,
+    ) -> Result<OpenAiProvider, super::super::OpenAiConfigError> {
         let mut builder = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_transport_limits(limits)
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("responses-ws-test").unwrap(),
             ));
@@ -2237,7 +2310,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .connect(CallOptions::default())
             .await
             .unwrap()
@@ -2254,6 +2327,29 @@ mod tests {
         }
     }
 
+    async fn complete_turn(
+        harness: &mut Harness,
+        session: &OpenAiResponsesWebSocketSession,
+        prompt: &str,
+        response_id: &str,
+    ) {
+        let mut turn = session
+            .generate(request(prompt), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+        harness
+            .incoming
+            .send(server_event(created(response_id, 0)))
+            .unwrap();
+        harness
+            .incoming
+            .send(server_event(completed(response_id, 1)))
+            .unwrap();
+        receive_terminal(&mut turn).await;
+        assert!(turn.next().await.is_none());
+    }
+
     async fn wait_for_session_terminal(
         session: &OpenAiResponsesWebSocketSession,
     ) -> SessionTerminal {
@@ -2264,6 +2360,16 @@ mod tests {
             tokio::task::yield_now().await;
         }
         panic!("session did not settle");
+    }
+
+    async fn wait_for_turn_queue_len(turn: &OpenAiResponsesWebSocketTurn, expected: usize) {
+        for _ in 0..32 {
+            if turn.receiver.len() == expected {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(turn.receiver.len(), expected, "turn queue did not fill");
     }
 
     fn outgoing_json(frame: WebSocketFrame) -> Value {
@@ -2343,7 +2449,7 @@ mod tests {
         let session = model
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .connect(CallOptions::default())
             .await
             .unwrap();
@@ -2543,7 +2649,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .connect(CallOptions::default().with_cancellation(cancellation.clone()))
             .await
             .unwrap();
@@ -2572,7 +2678,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .with_turn_timeout(Duration::from_millis(10))
             .connect(CallOptions::default())
             .await
@@ -2627,7 +2733,7 @@ mod tests {
         let (started_tx, started_rx) = oneshot::channel();
         let (_incoming, incoming_rx) = mpsc::unbounded_channel();
         let connector = Arc::new(SingleSocketConnector {
-            socket: Mutex::new(Some(OpenAiResponsesWebSocketSocket::new(
+            socket: Mutex::new(Some(SocketAdapter::new(
                 BlockingSender {
                     started: Some(started_tx),
                 },
@@ -2642,7 +2748,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(connector)
+            .with_test_transport(connector)
             .connect(CallOptions::default())
             .await
             .unwrap();
@@ -2680,7 +2786,7 @@ mod tests {
         let (started_tx, started_rx) = oneshot::channel();
         let (_incoming, incoming_rx) = mpsc::unbounded_channel();
         let connector = Arc::new(SingleSocketConnector {
-            socket: Mutex::new(Some(OpenAiResponsesWebSocketSocket::new(
+            socket: Mutex::new(Some(SocketAdapter::new(
                 BlockingSender {
                     started: Some(started_tx),
                 },
@@ -2695,7 +2801,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(connector)
+            .with_test_transport(connector)
             .connect(CallOptions::default())
             .await
             .unwrap();
@@ -2736,7 +2842,7 @@ mod tests {
         let (started_tx, started_rx) = oneshot::channel();
         let (_incoming, incoming_rx) = mpsc::unbounded_channel();
         let connector = Arc::new(SingleSocketConnector {
-            socket: Mutex::new(Some(OpenAiResponsesWebSocketSocket::new(
+            socket: Mutex::new(Some(SocketAdapter::new(
                 BlockingSender {
                     started: Some(started_tx),
                 },
@@ -2751,7 +2857,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(connector)
+            .with_test_transport(connector)
             .with_command_queue_capacity(1)
             .connect(CallOptions::default())
             .await
@@ -2872,11 +2978,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_start_drop_proves_the_turn_was_not_submitted() {
+        let (lifecycle, _events) = TurnLifecycle::new(1);
+        lifecycle.mark_control_accepted();
+        let (ack, _response) = oneshot::channel();
+        let (commands, receiver) = mpsc::channel(1);
+        let command = ActorCommand::Start(StartCommand {
+            kind: OpenAiResponsesWebSocketTurnKind::Generate,
+            payload: "{}".to_owned(),
+            lifecycle: lifecycle.clone(),
+            queue_guard: QueuedStartGuard::new(lifecycle.clone()),
+            cancellation: Cancellation::new(),
+            caller_cancellation: Cancellation::new(),
+            deadline: None,
+            ack,
+        });
+        assert!(commands.try_send(command).is_ok());
+
+        drop(receiver);
+
+        assert_eq!(
+            lifecycle.submission_state(),
+            OpenAiResponsesWebSocketSubmissionState::NotSubmitted
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_timeout_aborts_and_waits_for_actor_resources() {
+        struct DropProbe(Arc<AtomicBool>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let lifecycle = Arc::new(ActorLifecycle::new());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let probe = DropProbe(dropped.clone());
+        let actor = tokio::spawn(async move {
+            let _probe = probe;
+            std::future::pending::<()>().await;
+        });
+        lifecycle.attach(actor);
+
+        wait_for_actor_cleanup(&lifecycle, Duration::from_secs(1)).await;
+
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(lifecycle.actor_finished.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
     async fn actor_panic_emits_one_failed_terminal_then_eof() {
         let (outgoing_tx, mut outgoing) = mpsc::unbounded_channel();
         let (panic_tx, panic_rx) = oneshot::channel();
         let connector = Arc::new(SingleSocketConnector {
-            socket: Mutex::new(Some(OpenAiResponsesWebSocketSocket::new(
+            socket: Mutex::new(Some(SocketAdapter::new(
                 MockSender {
                     outgoing: outgoing_tx,
                 },
@@ -2889,7 +3046,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(connector)
+            .with_test_transport(connector)
             .connect(CallOptions::default())
             .await
             .unwrap();
@@ -2968,6 +3125,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn settled_response_identity_cannot_reopen_on_a_later_turn() {
+        let mut harness = harness();
+        let session = connect(&harness).await;
+        complete_turn(&mut harness, &session, "first", "resp_a").await;
+        complete_turn(&mut harness, &session, "second", "resp_b").await;
+
+        let mut turn = session
+            .generate(request("third"), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+        harness
+            .incoming
+            .send(server_event(created("resp_a", 0)))
+            .unwrap();
+
+        let error = turn.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Protocol);
+        assert!(turn.next().await.is_none());
+        assert!(matches!(
+            wait_for_session_terminal(&session).await,
+            SessionTerminal::Failed(SessionFailure {
+                kind: ErrorKind::Protocol,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn buffered_frame_is_rejected_before_the_next_turn_is_submitted() {
+        let mut harness = harness();
+        let session = connect(&harness).await;
+        complete_turn(&mut harness, &session, "first", "resp_a").await;
+        complete_turn(&mut harness, &session, "second", "resp_b").await;
+
+        harness
+            .incoming
+            .send(server_event(created("resp_a", 0)))
+            .unwrap();
+        let error = session
+            .generate(request("third"), CallOptions::default())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::Protocol);
+        assert_eq!(
+            OpenAiResponsesWebSocketSubmissionState::from_error(&error),
+            Some(OpenAiResponsesWebSocketSubmissionState::NotSubmitted)
+        );
+        assert!(harness.outgoing.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn oversized_event_fails_once_before_json_decode() {
+        let oversized = created("resp_oversized", 0).to_string();
+        let limits = TransportLimits {
+            max_frame_bytes: oversized.len() + 128,
+            max_event_bytes: oversized.len() - 1,
+            ..TransportLimits::default()
+        };
+        let mut harness = harness();
+        let session = provider_with_limits(true, limits)
+            .unwrap()
+            .responses("gpt-5.6")
+            .unwrap()
+            .websocket()
+            .unwrap()
+            .with_test_transport(harness.connector.clone())
+            .connect(CallOptions::default())
+            .await
+            .unwrap();
+        let lifecycle = session.inner.lifecycle.clone();
+        let mut turn = session
+            .generate(request("oversized"), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+        harness
+            .incoming
+            .send(Ok(Some(WebSocketFrame::Text(oversized))))
+            .unwrap();
+
+        let error = turn.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        assert_eq!(
+            OpenAiResponsesWebSocketSubmissionState::from_error(&error),
+            Some(OpenAiResponsesWebSocketSubmissionState::Indeterminate)
+        );
+        assert!(turn.next().await.is_none());
+        assert!(matches!(
+            wait_for_session_terminal(&session).await,
+            SessionTerminal::Failed(SessionFailure {
+                kind: ErrorKind::ResponseLimit,
+                ..
+            })
+        ));
+        tokio::time::timeout(Duration::from_secs(1), lifecycle.wait_for_actor())
+            .await
+            .expect("oversized events must release the actor");
+    }
+
+    #[tokio::test]
     async fn connection_limit_error_settles_both_turn_and_session() {
         let mut harness = harness();
         let session = connect(&harness).await;
@@ -3029,7 +3288,7 @@ mod tests {
             .unwrap()
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .with_turn_event_queue_capacity(1)
             .connect(CallOptions::default())
             .await
@@ -3043,6 +3302,7 @@ mod tests {
             .incoming
             .send(server_event(created("resp_q", 0)))
             .unwrap();
+        wait_for_turn_queue_len(&turn, 1).await;
         harness
             .incoming
             .send(server_event(json!({
@@ -3056,18 +3316,123 @@ mod tests {
                 }
             })))
             .unwrap();
+        let session_terminal = wait_for_session_terminal(&session).await;
 
         assert!(turn.next().await.unwrap().is_ok());
         let error = turn.next().await.unwrap().unwrap_err();
         assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        assert_eq!(
+            OpenAiResponsesWebSocketSubmissionState::from_error(&error),
+            Some(OpenAiResponsesWebSocketSubmissionState::Indeterminate)
+        );
         assert!(turn.next().await.is_none());
         assert!(matches!(
-            wait_for_session_terminal(&session).await,
+            session_terminal,
             SessionTerminal::Failed(SessionFailure {
                 kind: ErrorKind::ResponseLimit,
                 ..
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn saturated_terminal_queue_preserves_provider_settlement() {
+        let mut harness = harness();
+        let session = provider(true)
+            .unwrap()
+            .responses("gpt-5.6")
+            .unwrap()
+            .websocket()
+            .unwrap()
+            .with_test_transport(harness.connector.clone())
+            .with_turn_event_queue_capacity(1)
+            .connect(CallOptions::default())
+            .await
+            .unwrap();
+        let mut turn = session
+            .generate(request("saturate terminal"), CallOptions::default())
+            .await
+            .unwrap();
+        harness.outgoing.recv().await.unwrap();
+        harness
+            .incoming
+            .send(server_event(created("resp_terminal_q", 0)))
+            .unwrap();
+        wait_for_turn_queue_len(&turn, 1).await;
+        harness
+            .incoming
+            .send(server_event(completed("resp_terminal_q", 1)))
+            .unwrap();
+        let session_terminal = wait_for_session_terminal(&session).await;
+
+        assert!(turn.next().await.unwrap().is_ok());
+        let error = turn.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        assert_eq!(
+            OpenAiResponsesWebSocketSubmissionState::from_error(&error),
+            Some(OpenAiResponsesWebSocketSubmissionState::Settled)
+        );
+        assert_eq!(
+            turn.submission_state(),
+            OpenAiResponsesWebSocketSubmissionState::Settled
+        );
+        assert!(turn.next().await.is_none());
+        assert!(matches!(
+            session_terminal,
+            SessionTerminal::Failed(SessionFailure {
+                kind: ErrorKind::ResponseLimit,
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn invalid_queue_bounds_fail_before_connector_use() {
+        for capacity in [0, MAX_QUEUE_CAPACITY + 1] {
+            let command_harness = harness();
+            let error = provider(true)
+                .unwrap()
+                .responses("gpt-5.6")
+                .unwrap()
+                .websocket()
+                .unwrap()
+                .with_test_transport(command_harness.connector.clone())
+                .with_command_queue_capacity(capacity)
+                .connect(CallOptions::default())
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Configuration);
+            assert!(
+                command_harness
+                    .connector
+                    .socket
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some()
+            );
+
+            let event_harness = harness();
+            let error = provider(true)
+                .unwrap()
+                .responses("gpt-5.6")
+                .unwrap()
+                .websocket()
+                .unwrap()
+                .with_test_transport(event_harness.connector.clone())
+                .with_turn_event_queue_capacity(capacity)
+                .connect(CallOptions::default())
+                .await
+                .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Configuration);
+            assert!(
+                event_harness
+                    .connector
+                    .socket
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some()
+            );
+        }
     }
 
     #[test]
@@ -3106,7 +3471,7 @@ mod tests {
         let error = model
             .websocket()
             .unwrap()
-            .with_connector(harness.connector.clone())
+            .with_test_transport(harness.connector.clone())
             .connect(options)
             .await
             .unwrap_err();

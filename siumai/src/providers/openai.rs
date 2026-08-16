@@ -181,13 +181,5 @@ pub mod experimental {
             OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
             OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
-
-        pub mod advanced {
-            pub use siumai_provider_openai::experimental::responses_websocket::advanced::{
-                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
-                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
-                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
-            };
-        }
     }
 }

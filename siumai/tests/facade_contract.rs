@@ -1509,10 +1509,29 @@ fn facade_exposes_realtime_as_typed_provider_sessions() {
 #[test]
 fn facade_exposes_responses_websocket_as_an_experimental_native_session() {
     use siumai::providers::openai::experimental::responses_websocket::{
-        OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWebSocketSubmissionState,
+        OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame, OpenAiResponsesWarmUpOutcome,
+        OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError,
+        OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession,
+        OpenAiResponsesWebSocketSubmissionState, OpenAiResponsesWebSocketTurn,
         OpenAiResponsesWebSocketTurnKind,
     };
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+
+    fn assert_public_type<T>() {}
+
+    assert_public_type::<OpenAiResponsesWebSocketConfig>();
+    assert_public_type::<OpenAiResponsesWebSocketConfigError>();
+    assert_public_type::<OpenAiResponsesWebSocketSession>();
+    assert_public_type::<OpenAiResponsesWebSocketTurn>();
+    assert_public_type::<OpenAiResponsesWebSocketEvent>();
+    assert_public_type::<OpenAiResponsesWarmUpFrame>();
+    assert_public_type::<OpenAiResponsesWarmUpOutcome>();
+
+    let _connect = OpenAiResponsesWebSocketConfig::connect;
+    let _generate = OpenAiResponsesWebSocketSession::generate;
+    let _warm_up = OpenAiResponsesWebSocketSession::warm_up;
+    let _kind = OpenAiResponsesWebSocketTurn::kind;
+    let _submission_state = OpenAiResponsesWebSocketTurn::submission_state;
 
     let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-key"))
         .build()

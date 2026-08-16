@@ -115,6 +115,12 @@ native-only and never fabricates a portable language response. The official Open
 the provider-owned default WebSocket endpoint; a custom HTTP provider must configure its WebSocket
 endpoint explicitly and never inherits the official support claim.
 
+Each turn has one provider-private lifecycle owner for queue admission, submission certainty,
+response identity, terminal publication, fallback failure, consumer EOF, and actor-exit cleanup.
+Public turn handles expose read-only state projections; they do not own an independent settlement
+flag. Production WebSocket transport and deterministic test adapters are private implementation
+details rather than application extension points.
+
 This shape is intentionally not a new portable `SessionModel` family. Other provider sessions may
 share transport or lifecycle helpers internally while retaining their own typed commands, events,
 and settlement rules.

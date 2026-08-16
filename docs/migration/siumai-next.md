@@ -141,6 +141,17 @@ let turn = session
 // Poll `turn` as a Stream<Item = Result<OpenAiResponsesWebSocketEvent, Error>>.
 ```
 
+The former `siumai_provider_openai::experimental::responses_websocket::advanced` connector,
+socket, sender, and receiver exports and their
+`siumai::providers::openai::experimental::responses_websocket::advanced` facade mirror were
+removed. So was
+`OpenAiResponsesWebSocketConfig::with_connector`. Applications should use the high-level
+`OpenAiResponsesWebSocketConfig`, `OpenAiResponsesWebSocketSession`, and
+`OpenAiResponsesWebSocketTurn` API shown above. Production transport ownership and deterministic
+transport adapters are provider-private implementation details; there is no application-level
+replacement connector seam. This removal affects Responses WebSocket only and does not change the
+separate Realtime session API.
+
 One connection accepts one active response. After a terminal event, another generated turn may use
 the normal typed `previous_response_id` option. `warm_up` sends `generate: false` and produces only
 native warm-up frames; it never fabricates a `LanguageResponse`. Dropping or cancelling a turn

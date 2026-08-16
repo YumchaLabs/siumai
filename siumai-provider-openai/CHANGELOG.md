@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exposed typed `NotSubmitted`, `Indeterminate`, and `Settled` submission state for experimental
   Responses WebSocket turns and call errors.
 
+### Removed
+
+- [**breaking**] Removed the experimental Responses WebSocket `advanced` connector, socket,
+  sender, and receiver exports together with `OpenAiResponsesWebSocketConfig::with_connector`.
+  Applications should use the high-level config, session, and turn API; transport adapters are now
+  provider-private implementation details.
+
 ### Fixed
 
 - Responses WebSocket queue, acknowledgement, cancellation, deadline, actor-exit, and socket-close

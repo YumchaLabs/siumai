@@ -240,14 +240,5 @@ pub mod experimental {
             OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
             OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
-
-        /// Connector seams for custom transports and deterministic integration tests.
-        pub mod advanced {
-            pub use crate::configured::responses_websocket::{
-                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
-                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
-                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
-            };
-        }
     }
 }
