@@ -197,13 +197,15 @@ impl AnthropicCompatibleProviderBuilder {
                 build_transport(
                     &self.profile,
                     credential.into_auth(),
-                    required_settings(self.http_transport_settings)?,
+                    self.http_transport_settings
+                        .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
                 )?
             }
             ConfiguredTransportSource::Applied(auth) => build_transport(
                 &self.profile,
                 auth,
-                required_settings(self.http_transport_settings)?,
+                self.http_transport_settings
+                    .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
             )?,
             ConfiguredTransportSource::Prebuilt(transport) => {
                 if self.http_transport_settings.is_some() {
@@ -232,12 +234,6 @@ enum ConfiguredTransportSource {
     Credential(AnthropicCompatibleCredential),
     Applied(Arc<dyn AuthApplier>),
     Prebuilt(ProviderTransport),
-}
-
-fn required_settings(
-    settings: Option<ProviderHttpTransportSettings>,
-) -> Result<ProviderHttpTransportSettings, AnthropicCompatibleConfigError> {
-    settings.ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)
 }
 
 fn build_transport(

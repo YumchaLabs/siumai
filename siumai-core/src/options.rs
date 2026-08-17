@@ -883,6 +883,9 @@ impl CallOptions {
 
     /// Resolve a relative timeout exactly once at the current call boundary.
     pub fn resolve_deadline(self) -> Result<Self, CallOptionsError> {
+        if self.timeout.is_none() {
+            return Ok(self);
+        }
         self.resolve_deadline_at(Instant::now())
     }
 

@@ -99,9 +99,13 @@ The old-to-new migration map is intentionally alias-free:
 
 | Removed provider-builder surface | Current replacement |
 |---|---|
-| `with_limits(...)` or `with_transport_limits(...)` | `ProviderHttpTransportSettings::with_limits(...)`, then builder `with_http_transport_settings(...)` |
+| `with_limits(...)` or `with_transport_limits(...)` for stateless provider HTTP | `ProviderHttpTransportSettings::with_limits(...)`, then builder `with_http_transport_settings(...)` |
+| `OpenAiProviderBuilder::with_transport_limits(...)` for Realtime | `OpenAiProviderBuilder::with_realtime_transport_limits(...)` |
+| `OpenAiProviderBuilder::with_transport_limits(...)` for Responses WebSocket | `OpenAiProviderBuilder::with_responses_websocket_transport_limits(...)` |
 | `with_retry_policy(...)` | `ProviderHttpTransportSettings::with_retry_policy(...)` |
-| `with_connect_timeout(...)` | `ProviderHttpTransportSettings::with_connect_timeout(...)` |
+| `with_connect_timeout(...)` for stateless provider HTTP | `ProviderHttpTransportSettings::with_connect_timeout(...)` |
+| `OpenAiProviderBuilder::with_connect_timeout(...)` for Realtime | `OpenAiProviderBuilder::with_realtime_connect_timeout(...)` |
+| `OpenAiProviderBuilder::with_connect_timeout(...)` for Responses WebSocket | `OpenAiProviderBuilder::with_responses_websocket_connect_timeout(...)` |
 | `with_call_timeout(...)` | `ProviderHttpTransportSettings::with_call_timeout(...)` |
 | `with_read_timeout(...)` | `ProviderHttpTransportSettings::with_read_timeout(...)` |
 | `OpenAiProviderBuilder::with_transport_observer(...)` | `ProviderHttpTransportSettings::with_observer(...)` |

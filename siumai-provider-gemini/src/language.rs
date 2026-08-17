@@ -220,7 +220,7 @@ impl LanguageModel for GeminiLanguageModel {
         Ok(decode_sse_stream(
             cancellation,
             body,
-            self.runtime.limits.clone(),
+            self.runtime.transport.limits().clone(),
             decoder,
             headers,
             context,

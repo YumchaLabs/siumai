@@ -18,7 +18,6 @@ use siumai_core::{
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
     OfficialOrigin, ProviderHttpTransportSettings, ProviderTransport, TransportConfigError,
-    TransportLimits,
 };
 use thiserror::Error;
 
@@ -473,7 +472,6 @@ impl GeminiProviderBuilder {
                 Vec::new()
             },
         )?);
-        let limits = self.http_transport_settings.limits().clone();
         let transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
             .with_http_transport_settings(self.http_transport_settings)
@@ -489,7 +487,6 @@ impl GeminiProviderBuilder {
                 veo_scope: profile.veo_scope(),
                 generate_content_scope: profile.generate_content_scope(),
                 transport,
-                limits,
                 interactions_defaults: self.interactions_defaults,
                 embedding_defaults: self.embedding_defaults,
                 image_defaults: self.image_defaults,
@@ -539,7 +536,6 @@ pub(crate) struct ProviderRuntime {
     pub(crate) veo_scope: Arc<ProviderScope>,
     pub(crate) generate_content_scope: Arc<ProviderScope>,
     pub(crate) transport: ProviderTransport,
-    pub(crate) limits: TransportLimits,
     pub(crate) interactions_defaults: GeminiInteractionsOptions,
     pub(crate) embedding_defaults: GeminiEmbeddingOptions,
     pub(crate) image_defaults: GeminiImageOptions,
@@ -562,7 +558,7 @@ impl fmt::Debug for ProviderRuntime {
             .field("veo_scope", &self.veo_scope)
             .field("generate_content_scope", &self.generate_content_scope)
             .field("transport", &"shared")
-            .field("limits", &self.limits)
+            .field("limits", self.transport.limits())
             .field("interactions_defaults", &self.interactions_defaults)
             .field("embedding_defaults", &self.embedding_defaults)
             .field("image_defaults", &self.image_defaults)
@@ -658,7 +654,7 @@ mod tests {
     use siumai_protocol_gemini::multimodal_embedding::{
         GeminiEmbeddingContentPart, GeminiMultimodalEmbeddingRequest,
     };
-    use siumai_transport::{TransportEvent, TransportObserver};
+    use siumai_transport::{TransportEvent, TransportLimits, TransportObserver};
 
     use crate::{GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2};
 
@@ -733,7 +729,6 @@ mod tests {
             provider.runtime.transport.limits().max_response_bytes,
             72 * 1024
         );
-        assert_eq!(provider.runtime.limits.max_response_bytes, 72 * 1024);
     }
 
     #[tokio::test]
