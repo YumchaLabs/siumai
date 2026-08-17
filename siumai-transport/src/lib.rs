@@ -37,8 +37,6 @@ pub use resource::{
     ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
 pub use settings::ProviderHttpTransportSettings;
-#[doc(hidden)]
-pub use transport::HttpRouteReqwestClient;
 pub use transport::{
     AttemptLoopOutcome, ProviderTransport, ProviderTransportBuilder, ResponseHeaders,
     RetryClassifier, RetryLimit, RetryReason, TransportByteStream, TransportCallId, TransportEvent,

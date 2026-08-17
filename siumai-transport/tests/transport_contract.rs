@@ -1778,6 +1778,78 @@ async fn server_retry_after_cannot_outlive_the_deadline() {
 }
 
 #[tokio::test]
+async fn local_backoff_deadline_reports_retry_declined_before_timeout() {
+    let scenarios = [
+        (ServerAction::DropAfterRead, RetryReason::Transport),
+        (
+            ServerAction::Respond {
+                status: 503,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+            RetryReason::ServerUnavailable,
+        ),
+    ];
+
+    for (first_action, expected_reason) in scenarios {
+        let server = TestServer::spawn(vec![
+            first_action,
+            ServerAction::Respond {
+                status: 200,
+                headers: Vec::new(),
+                body: b"must-not-retry".to_vec(),
+            },
+        ])
+        .await;
+        let observer = Arc::new(RecordingObserver::default());
+        let transport = ProviderTransport::builder(server.endpoint())
+            .with_http_transport_settings(
+                ProviderHttpTransportSettings::default()
+                    .with_retry_policy(
+                        RetryPolicy::new(2)
+                            .unwrap()
+                            .with_backoff(Duration::from_secs(1), Duration::from_secs(1))
+                            .with_jitter(false),
+                    )
+                    .with_observer(observer.clone()),
+            )
+            .build()
+            .unwrap();
+        let error = transport
+            .execute(
+                RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
+                    .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+                    .unwrap(),
+                CallOptions::default()
+                    .with_deadline(std::time::Instant::now() + Duration::from_millis(100)),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+        assert_eq!(server.requests().len(), 1);
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            TransportEvent::RetryDeclined {
+                reason,
+                completed_attempts: 1,
+                delay: None,
+                limiting_authority: RetryLimit::CallDeadline,
+                ..
+            } if *reason == expected_reason
+        )));
+        assert!(matches!(
+            observer.events().last(),
+            Some(TransportEvent::AttemptLoopFinished {
+                attempts: 1,
+                outcome: AttemptLoopOutcome::TimedOut,
+                ..
+            })
+        ));
+    }
+}
+
+#[tokio::test]
 async fn api_redirect_is_returned_without_following_it() {
     let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let destination_address = destination.local_addr().unwrap();

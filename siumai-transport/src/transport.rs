@@ -515,6 +515,13 @@ impl ProviderTransport {
                             ));
                         }
                         RetryDelay::DeadlineExceeded => {
+                            self.observe_retry_declined(
+                                call_id,
+                                RetryReason::Transport,
+                                attempts,
+                                None,
+                                RetryLimit::CallDeadline,
+                            );
                             return Err(self.finish_attempt_loop_error(
                                 call_id,
                                 attempts,
@@ -626,6 +633,13 @@ impl ProviderTransport {
                     });
                 }
                 RetryDelay::DeadlineExceeded => {
+                    self.observe_retry_declined(
+                        call_id,
+                        reason,
+                        attempts,
+                        None,
+                        RetryLimit::CallDeadline,
+                    );
                     return Err(self.finish_attempt_loop_error(
                         call_id,
                         attempts,
@@ -932,17 +946,11 @@ struct GuardedDnsResolver {
     resolver: Arc<dyn ProviderResolver>,
 }
 
-/// Opaque route-aware reqwest client shared by provider HTTP and MCP.
-///
-/// This is a workspace integration seam, not a general client-injection API.
-/// It keeps proxy endpoint interpretation, credential application, DNS
-/// validation, peer validation, environment-proxy disabling, redirects, and
-/// reqwest retry policy inside `siumai-transport`.
-#[doc(hidden)]
 #[derive(Clone)]
-pub struct HttpRouteReqwestClient {
+struct HttpRouteReqwestClient {
     client: reqwest::Client,
     network_endpoint: Option<EndpointConfig>,
+    require_remote_peer: bool,
 }
 
 impl HttpRouteReqwestClient {
@@ -954,8 +962,7 @@ impl HttpRouteReqwestClient {
     /// guards the proxy endpoint instead. The caller still owns validation of
     /// the logical request destination; this adapter owns only the selected
     /// network route and peer.
-    #[doc(hidden)]
-    pub fn build(
+    fn build(
         route: &HttpTransportRoute,
         builder: reqwest::ClientBuilder,
         direct_endpoint: Option<&EndpointConfig>,
@@ -976,13 +983,7 @@ impl HttpRouteReqwestClient {
                 resolver,
             });
         }
-        if let HttpTransportRoute::TrustedConnect { proxy, credential } = route {
-            let proxy_config = reqwest::Proxy::https(proxy.url().clone())
-                .map_err(|_| TransportConfigError::ClientBuild)?;
-            let proxy_config = match credential {
-                Some(credential) => credential.apply_to(proxy_config),
-                None => proxy_config,
-            };
+        if let Some(proxy_config) = route.build_reqwest_proxy()? {
             builder = builder.proxy(proxy_config);
         }
         let client = builder
@@ -991,23 +992,20 @@ impl HttpRouteReqwestClient {
         Ok(Self {
             client,
             network_endpoint,
+            require_remote_peer: route.proxy().is_some(),
         })
     }
 
     /// Start one request without exposing the configured reqwest client.
-    #[doc(hidden)]
-    pub fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+    fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
         self.client.request(method, url)
     }
 
     /// Validate the connected network peer selected for this route.
-    #[doc(hidden)]
-    pub fn validate_response_peer(
-        &self,
-        response: &reqwest::Response,
-    ) -> Result<(), EndpointError> {
+    fn validate_response_peer(&self, response: &reqwest::Response) -> Result<(), EndpointError> {
         match (&self.network_endpoint, response.remote_addr()) {
             (Some(endpoint), Some(remote)) => endpoint.validate_remote(remote),
+            (Some(_), None) if self.require_remote_peer => Err(EndpointError::AddressNotAllowed),
             (Some(_) | None, None) | (None, Some(_)) => Ok(()),
         }
     }

@@ -6,6 +6,8 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use http::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, WWW_AUTHENTICATE};
+use reqwest::dns::{Addrs, Name, Resolve as ReqwestResolve, Resolving};
+use reqwest::redirect;
 use rmcp::model::{ClientJsonRpcMessage, JsonRpcMessage, ServerJsonRpcMessage};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::{
@@ -14,7 +16,7 @@ use rmcp::transport::streamable_http_client::{
 };
 use siumai_transport::framing::{SseDecoder, SseEvent};
 use siumai_transport::{
-    EndpointError, HttpRouteReqwestClient, HttpTransportRoute, Resolver, SystemResolver,
+    EndpointError, HttpTransportRoute, ProxyEndpoint, Resolver, SystemResolver,
     TransportConfigError, TransportLimits,
 };
 use sse_stream::Sse;
@@ -166,8 +168,31 @@ fn collect_sensitive_details(
 
 #[derive(Clone)]
 pub(crate) struct BoundedHttpClient {
-    client: HttpRouteReqwestClient,
+    client: reqwest::Client,
+    network_endpoint: Option<ProxyEndpoint>,
     max_message_bytes: usize,
+}
+
+struct McpGuardedDnsResolver {
+    endpoint: ProxyEndpoint,
+    resolver: Arc<dyn Resolver>,
+}
+
+impl ReqwestResolve for McpGuardedDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let endpoint = self.endpoint.clone();
+        let resolver = self.resolver.clone();
+        let requested_host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addresses = endpoint
+                .resolve_for_connector(&requested_host, resolver.as_ref())
+                .await
+                .map_err(|error| {
+                    Box::new(error) as Box<dyn std::error::Error + Send + Sync + 'static>
+                })?;
+            Ok(Box::new(addresses.into_iter()) as Addrs)
+        })
+    }
 }
 
 impl BoundedHttpClient {
@@ -194,10 +219,30 @@ impl BoundedHttpClient {
         builder: reqwest::ClientBuilder,
         resolver: Arc<dyn Resolver>,
     ) -> Result<Self, McpHttpClientError> {
-        let client = HttpRouteReqwestClient::build(route, builder, None, resolver)
-            .map_err(McpHttpClientError::Route)?;
+        let network_endpoint = route.proxy().cloned();
+        let mut builder = builder
+            .redirect(redirect::Policy::none())
+            .referer(false)
+            .no_proxy()
+            .retry(reqwest::retry::never());
+        if let Some(endpoint) = &network_endpoint {
+            builder = builder.dns_resolver(McpGuardedDnsResolver {
+                endpoint: endpoint.clone(),
+                resolver,
+            });
+        }
+        if let Some(proxy) = route
+            .build_reqwest_proxy()
+            .map_err(McpHttpClientError::Route)?
+        {
+            builder = builder.proxy(proxy);
+        }
+        let client = builder
+            .build()
+            .map_err(|_| McpHttpClientError::Route(TransportConfigError::ClientBuild))?;
         Ok(Self {
             client,
+            network_endpoint,
             max_message_bytes,
         })
     }
@@ -207,9 +252,14 @@ impl BoundedHttpClient {
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, McpHttpClientError> {
         let response = request.send().await.map_err(McpHttpClientError::Request)?;
-        self.client
-            .validate_response_peer(&response)
-            .map_err(McpHttpClientError::Peer)?;
+        if let Some(endpoint) = &self.network_endpoint {
+            let remote = response
+                .remote_addr()
+                .ok_or(McpHttpClientError::Peer(EndpointError::AddressNotAllowed))?;
+            endpoint
+                .validate_remote(remote)
+                .map_err(McpHttpClientError::Peer)?;
+        }
         Ok(response)
     }
 

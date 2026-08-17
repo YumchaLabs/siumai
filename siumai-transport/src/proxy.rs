@@ -1,6 +1,7 @@
 //! Explicit trusted HTTPS CONNECT routing for provider HTTP.
 
 use std::fmt;
+use std::net::SocketAddr;
 
 use url::Url;
 
@@ -87,6 +88,27 @@ impl ProxyEndpoint {
         self.endpoint.expose_base_url().scheme() == "https"
     }
 
+    /// Resolve the proxy connector host under this endpoint's network policy.
+    ///
+    /// This low-level operation exists so sibling infrastructure crates can
+    /// reuse the route's DNS authority without receiving a raw HTTP client.
+    #[doc(hidden)]
+    pub async fn resolve_for_connector(
+        &self,
+        requested_host: &str,
+        resolver: &dyn crate::Resolver,
+    ) -> Result<Vec<SocketAddr>, EndpointError> {
+        self.endpoint
+            .resolve_for_connector(requested_host, resolver)
+            .await
+    }
+
+    /// Validate the connected proxy peer under this endpoint's network policy.
+    #[doc(hidden)]
+    pub fn validate_remote(&self, remote: SocketAddr) -> Result<(), EndpointError> {
+        self.endpoint.validate_remote(remote)
+    }
+
     pub(crate) fn endpoint(&self) -> &EndpointConfig {
         &self.endpoint
     }
@@ -157,19 +179,23 @@ pub enum HttpTransportRoute {
     #[default]
     Direct,
     /// Establish an explicit CONNECT tunnel through one trusted proxy.
-    TrustedConnect {
-        proxy: Box<ProxyEndpoint>,
-        credential: Option<ProxyBasicCredential>,
-    },
+    TrustedConnect(TrustedConnectRoute),
+}
+
+#[derive(Clone)]
+#[doc(hidden)]
+pub struct TrustedConnectRoute {
+    proxy: Box<ProxyEndpoint>,
+    credential: Option<ProxyBasicCredential>,
 }
 
 impl HttpTransportRoute {
     /// Construct a trusted CONNECT route without proxy authentication.
     pub fn trusted_connect(proxy: ProxyEndpoint) -> Self {
-        Self::TrustedConnect {
+        Self::TrustedConnect(TrustedConnectRoute {
             proxy: Box::new(proxy),
             credential: None,
-        }
+        })
     }
 
     /// Attach one immutable Basic credential to a trusted CONNECT route.
@@ -179,13 +205,13 @@ impl HttpTransportRoute {
     ) -> Result<Self, TransportConfigError> {
         match self {
             Self::Direct => Err(TransportConfigError::ProxyRouteRequired),
-            Self::TrustedConnect { proxy, .. } if !proxy.uses_tls() => {
+            Self::TrustedConnect(route) if !route.proxy.uses_tls() => {
                 Err(TransportConfigError::ProxyCredentialsRequireTls)
             }
-            Self::TrustedConnect { proxy, .. } => Ok(Self::TrustedConnect {
-                proxy,
-                credential: Some(credential),
-            }),
+            Self::TrustedConnect(mut route) => {
+                route.credential = Some(credential);
+                Ok(Self::TrustedConnect(route))
+            }
         }
     }
 
@@ -193,26 +219,41 @@ impl HttpTransportRoute {
     pub fn proxy(&self) -> Option<&ProxyEndpoint> {
         match self {
             Self::Direct => None,
-            Self::TrustedConnect { proxy, .. } => Some(proxy),
+            Self::TrustedConnect(route) => Some(&route.proxy),
         }
     }
 
     /// Return whether this route carries proxy authentication.
     pub fn has_basic_auth(&self) -> bool {
-        matches!(
-            self,
-            Self::TrustedConnect {
-                credential: Some(_),
-                ..
-            }
-        )
+        matches!(self, Self::TrustedConnect(route) if route.credential.is_some())
+    }
+
+    /// Build the opaque reqwest proxy configuration for this route.
+    ///
+    /// This does not expose a client or request builder. It is a narrow
+    /// workspace integration seam for HTTP stacks that retain their own
+    /// endpoint, authentication, replay, and response-boundary ownership.
+    #[doc(hidden)]
+    pub fn build_reqwest_proxy(&self) -> Result<Option<reqwest::Proxy>, TransportConfigError> {
+        let Self::TrustedConnect(route) = self else {
+            return Ok(None);
+        };
+        if route.credential.is_some() && !route.proxy.uses_tls() {
+            return Err(TransportConfigError::ProxyCredentialsRequireTls);
+        }
+        let proxy_config = reqwest::Proxy::https(route.proxy.url().clone())
+            .map_err(|_| TransportConfigError::ClientBuild)?;
+        Ok(Some(match &route.credential {
+            Some(credential) => credential.apply_to(proxy_config),
+            None => proxy_config,
+        }))
     }
 
     pub(crate) fn validate_for_endpoint(
         &self,
         endpoint: &EndpointConfig,
     ) -> Result<(), TransportConfigError> {
-        if matches!(self, Self::TrustedConnect { .. })
+        if matches!(self, Self::TrustedConnect(_))
             && (endpoint.expose_base_url().scheme() != "https"
                 || matches!(endpoint.policy(), EndpointPolicy::LocalExplicit(_)))
         {
@@ -226,10 +267,10 @@ impl fmt::Debug for HttpTransportRoute {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Direct => formatter.write_str("Direct"),
-            Self::TrustedConnect { proxy, credential } => formatter
+            Self::TrustedConnect(route) => formatter
                 .debug_struct("TrustedConnect")
-                .field("proxy", proxy)
-                .field("credential_configured", &credential.is_some())
+                .field("proxy", &route.proxy)
+                .field("credential_configured", &route.credential.is_some())
                 .finish(),
         }
     }
@@ -308,5 +349,18 @@ mod tests {
             .with_basic_auth(ProxyBasicCredential::new("user", "secret").unwrap())
             .unwrap_err();
         assert_eq!(error, TransportConfigError::ProxyCredentialsRequireTls);
+    }
+
+    #[test]
+    fn proxy_builder_rechecks_cleartext_credentials() {
+        let route = HttpTransportRoute::TrustedConnect(TrustedConnectRoute {
+            proxy: Box::new(ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap()),
+            credential: Some(ProxyBasicCredential::new("user", "secret").unwrap()),
+        });
+
+        assert!(matches!(
+            route.build_reqwest_proxy(),
+            Err(TransportConfigError::ProxyCredentialsRequireTls)
+        ));
     }
 }
