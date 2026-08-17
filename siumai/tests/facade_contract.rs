@@ -28,6 +28,15 @@ struct FakeLanguage {
     calls: Arc<AtomicUsize>,
 }
 
+#[cfg(all(feature = "registry", feature = "runtime"))]
+#[derive(Debug)]
+struct RegistryRuntimeLanguage {
+    descriptor: ModelDescriptor,
+    generate_calls: Arc<AtomicUsize>,
+    stream_calls: Arc<AtomicUsize>,
+    observed_options: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
 #[cfg(feature = "runtime")]
 impl Model for FakeLanguage {
     fn descriptor(&self) -> &ModelDescriptor {
@@ -66,6 +75,103 @@ impl LanguageModel for FakeLanguage {
         Err(Error::new(
             ErrorKind::Unsupported,
             "streaming is not part of this facade contract fixture",
+        ))
+    }
+}
+
+#[cfg(all(feature = "registry", feature = "runtime"))]
+impl RegistryRuntimeLanguage {
+    fn observe_options(&self, options: &CallOptions) -> Result<(), Error> {
+        let selection = options.provider_options_for(self).map_err(|source| {
+            Error::new(
+                ErrorKind::Configuration,
+                "invalid Registry runtime provider options",
+            )
+            .with_source(source)
+        })?;
+        let value = selection
+            .raw_override()
+            .and_then(|options| options.value().get("value"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::Configuration,
+                    "missing Registry runtime provider option",
+                )
+            })?;
+        self.observed_options
+            .lock()
+            .expect("Registry runtime observation lock")
+            .push(value.to_string());
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "registry", feature = "runtime"))]
+impl Model for RegistryRuntimeLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[cfg(all(feature = "registry", feature = "runtime"))]
+#[async_trait]
+impl LanguageModel for RegistryRuntimeLanguage {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        self.observe_options(&options)?;
+        self.generate_calls.fetch_add(1, Ordering::SeqCst);
+        LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "Registry runtime".to_string(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "invalid Registry runtime test response",
+            )
+            .with_source(source)
+            .into()
+        })
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        self.observe_options(&options)?;
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        let cancellation = options.cancellation().clone();
+        let response = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "Registry tool loop".to_string(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .map_err(|source| {
+            Error::new(
+                ErrorKind::Protocol,
+                "invalid Registry tool-loop test response",
+            )
+            .with_source(source)
+        })?;
+        Ok(siumai::core::stream::established_stream(
+            cancellation,
+            |_| {
+                futures::stream::iter([Ok(LanguageStreamEvent::Terminal(
+                    StreamTerminal::Completed {
+                        response: Box::new(response),
+                    },
+                ))])
+            },
         ))
     }
 }
@@ -230,6 +336,90 @@ async fn runtime_facade_reexports_one_call_language_execution() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+#[cfg(all(feature = "registry", feature = "runtime"))]
+#[tokio::test]
+async fn registry_language_models_preserve_route_options_through_runtime_and_tool_loop() {
+    use serde_json::json;
+    use siumai::core::{ProviderInstanceId, ProviderScope};
+    use siumai::registry::Registry;
+    use siumai_runtime::tool::ToolSet;
+    use siumai_runtime::{RunTerminal, ToolLoop};
+
+    let generate_calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed_options = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let scope = Arc::new(ProviderScope::new(
+        ProviderId::new("registry-runtime").unwrap(),
+    ));
+    let factory_scope = scope.clone();
+    let instance_id = ProviderInstanceId::new();
+    let factory_generate_calls = generate_calls.clone();
+    let factory_stream_calls = stream_calls.clone();
+    let factory_observed_options = observed_options.clone();
+    let registration = ProviderRegistration::from_language(
+        scope,
+        Arc::new(move |model| {
+            Ok(Arc::new(RegistryRuntimeLanguage {
+                descriptor: ModelDescriptor::from_scope(
+                    factory_scope.clone(),
+                    model,
+                    ModelFamily::Language,
+                    instance_id.clone(),
+                ),
+                generate_calls: factory_generate_calls.clone(),
+                stream_calls: factory_stream_calls.clone(),
+                observed_options: factory_observed_options.clone(),
+            }) as Arc<dyn LanguageModel>)
+        }),
+    );
+    let mut builder = Registry::builder();
+    builder
+        .register_named("production", registration)
+        .unwrap()
+        .alias_named("recommended", "production")
+        .unwrap();
+    let registry = builder.build().unwrap();
+    let model = registry.language_model("recommended:language-v1").unwrap();
+    assert_eq!(model.route_id().map(RouteId::as_str), Some("production"));
+
+    let runtime_options = CallOptions::default()
+        .with_raw_provider_options_for(model.as_ref(), json!({"value": "runtime"}))
+        .unwrap();
+    let response = Runtime::default()
+        .generate(
+            model.as_ref(),
+            LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+            StepOptions::default(),
+            runtime_options,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        response.content(),
+        [ContentPart::Text { text }] if text == "Registry runtime"
+    ));
+
+    let tool_loop_options = CallOptions::default()
+        .with_raw_provider_options_for(model.as_ref(), json!({"value": "tool-loop"}))
+        .unwrap();
+    let terminal = ToolLoop::new(model, ToolSet::default())
+        .run(
+            LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+            tool_loop_options,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+    assert_eq!(generate_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stream_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *observed_options
+            .lock()
+            .expect("Registry runtime observation lock"),
+        vec!["runtime".to_string(), "tool-loop".to_string()]
+    );
+}
+
 #[cfg(feature = "registry")]
 #[tokio::test]
 async fn direct_and_registry_image_paths_share_one_family_contract() {
@@ -287,6 +477,13 @@ async fn direct_and_registry_paths_use_the_same_family_contract() {
 
     assert_eq!(direct_response, erased_response);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[cfg(feature = "registry")]
+#[test]
+fn facade_exposes_typed_registry_resolve_context() {
+    let context: Option<siumai::registry::RegistryModelContext> = None;
+    assert!(context.is_none());
 }
 
 #[cfg(all(

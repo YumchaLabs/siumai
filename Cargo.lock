@@ -2048,6 +2048,7 @@ name = "siumai"
 version = "0.11.0-beta.10"
 dependencies = [
  "async-trait",
+ "futures",
  "serde_json",
  "siumai-core",
  "siumai-openai-compatible",

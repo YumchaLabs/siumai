@@ -4,6 +4,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+### Removed
+
+- *(registry)* [**breaking**] Removed `RegistryMiddleware`, its builder/snapshot APIs, facade
+  exports, and execution-decoration tests. Registry now owns only deterministic lookup and private
+  canonical-route projection; `RegistryModelContext` remains public for typed resolve errors.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.9...v0.11.0-beta.10) - 2026-08-13
 
 ### Added

@@ -6,8 +6,9 @@ use siumai_core::{
     SpeechModel, TranscriptionModel,
 };
 
-use crate::middleware::{
-    MiddlewareStack, RegistryMiddleware, RegistryModelContext, contextualize_lookup,
+use crate::route::{
+    RegistryModelContext, contextualize_lookup, with_embedding_route, with_image_route,
+    with_language_route, with_rerank_route, with_speech_route, with_transcription_route,
 };
 use crate::{ModelReference, RegistryBuildError, RegistryResolveError};
 
@@ -16,7 +17,6 @@ use crate::{ModelReference, RegistryBuildError, RegistryResolveError};
 pub struct RegistrySnapshot {
     routes: BTreeMap<RouteId, ProviderRegistration>,
     aliases: BTreeMap<RouteId, RouteId>,
-    middleware: MiddlewareStack,
 }
 
 impl RegistrySnapshot {
@@ -27,10 +27,6 @@ impl RegistrySnapshot {
     /// Return aliases flattened to their final provider route.
     pub fn aliases(&self) -> impl ExactSizeIterator<Item = (&RouteId, &RouteId)> {
         self.aliases.iter()
-    }
-
-    pub fn middlewares(&self) -> impl ExactSizeIterator<Item = &Arc<dyn RegistryMiddleware>> {
-        self.middleware.iter()
     }
 
     pub fn registration(&self, route: &RouteId) -> Option<&ProviderRegistration> {
@@ -75,7 +71,6 @@ impl Registry {
         RegistryBuilder {
             routes: self.snapshot.routes.clone(),
             aliases: self.snapshot.aliases.clone(),
-            middleware: self.snapshot.middleware.clone(),
         }
     }
 
@@ -91,7 +86,7 @@ impl Registry {
                     context: context.clone(),
                     source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
-        self.snapshot.middleware.language(&context, model)
+        Ok(with_language_route(&context, model))
     }
 
     pub fn embedding_model(
@@ -106,7 +101,7 @@ impl Registry {
                     context: context.clone(),
                     source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
-        self.snapshot.middleware.embedding(&context, model)
+        Ok(with_embedding_route(&context, model))
     }
 
     pub fn rerank_model(
@@ -121,7 +116,7 @@ impl Registry {
                     context: context.clone(),
                     source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
-        self.snapshot.middleware.rerank(&context, model)
+        Ok(with_rerank_route(&context, model))
     }
 
     pub fn image_model(
@@ -136,7 +131,7 @@ impl Registry {
                     context: context.clone(),
                     source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
-        self.snapshot.middleware.image(&context, model)
+        Ok(with_image_route(&context, model))
     }
 
     pub fn speech_model(
@@ -151,7 +146,7 @@ impl Registry {
                     context: context.clone(),
                     source: Box::new(contextualize_lookup(error, context.route())),
                 })?;
-        self.snapshot.middleware.speech(&context, model)
+        Ok(with_speech_route(&context, model))
     }
 
     pub fn transcription_model(
@@ -165,7 +160,7 @@ impl Registry {
                 source: Box::new(contextualize_lookup(error, context.route())),
             }
         })?;
-        self.snapshot.middleware.transcription(&context, model)
+        Ok(with_transcription_route(&context, model))
     }
 
     fn resolve(
@@ -199,18 +194,11 @@ impl Registry {
 pub struct RegistryBuilder {
     routes: BTreeMap<RouteId, ProviderRegistration>,
     aliases: BTreeMap<RouteId, RouteId>,
-    middleware: MiddlewareStack,
 }
 
 impl RegistryBuilder {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Add one identity-preserving model wrapper layer.
-    pub fn middleware(&mut self, middleware: Arc<dyn RegistryMiddleware>) -> &mut Self {
-        self.middleware.push(middleware);
-        self
     }
 
     pub fn register(
@@ -291,7 +279,6 @@ impl RegistryBuilder {
         Ok(Registry::from_snapshot(Arc::new(RegistrySnapshot {
             routes: self.routes,
             aliases,
-            middleware: self.middleware,
         })))
     }
 }
@@ -449,40 +436,8 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct CountingMiddleware {
-        wraps: Arc<AtomicUsize>,
-    }
-
-    impl RegistryMiddleware for CountingMiddleware {
-        fn wrap_embedding(
-            &self,
-            context: &RegistryModelContext,
-            model: Arc<dyn EmbeddingModel>,
-        ) -> Arc<dyn EmbeddingModel> {
-            assert_eq!(context.requested_route().as_str(), "recommended");
-            assert_eq!(context.route().as_str(), "production");
-            self.wraps.fetch_add(1, Ordering::SeqCst);
-            model
-        }
-    }
-
-    #[derive(Debug)]
-    struct IdentityDriftMiddleware;
-
-    impl RegistryMiddleware for IdentityDriftMiddleware {
-        fn wrap_embedding(
-            &self,
-            _context: &RegistryModelContext,
-            model: Arc<dyn EmbeddingModel>,
-        ) -> Arc<dyn EmbeddingModel> {
-            Arc::new(FakeEmbeddingModel {
-                descriptor: ModelDescriptor::new(
-                    ProviderId::new("wrong-provider").unwrap(),
-                    model.model_id().clone(),
-                    ModelFamily::Embedding,
-                ),
-            })
-        }
+    struct FailingLanguageModel {
+        descriptor: ModelDescriptor,
     }
 
     impl Model for FailingEmbeddingModel {
@@ -516,6 +471,47 @@ mod tests {
                     },
                 ),
             )
+        }
+    }
+
+    impl Model for FailingLanguageModel {
+        fn descriptor(&self) -> &ModelDescriptor {
+            &self.descriptor
+        }
+    }
+
+    #[async_trait]
+    impl LanguageModel for FailingLanguageModel {
+        async fn generate(
+            &self,
+            _request: LanguageRequest,
+            _options: CallOptions,
+        ) -> Result<LanguageResponse, LanguageCallError> {
+            Err(Error::new(ErrorKind::Provider, "scripted language failure")
+                .with_context(ErrorContext {
+                    operation: Some(ModelOperation::Generate),
+                    provider: Some(self.provider_id().clone()),
+                    route: None,
+                    model: Some(self.model_id().clone()),
+                })
+                .into())
+        }
+
+        async fn stream(
+            &self,
+            _request: LanguageRequest,
+            _options: CallOptions,
+        ) -> Result<LanguageStream, Error> {
+            Err(Error::new(
+                ErrorKind::Transport,
+                "scripted stream establishment failure",
+            )
+            .with_context(ErrorContext {
+                operation: Some(ModelOperation::Stream),
+                provider: Some(self.provider_id().clone()),
+                route: None,
+                model: Some(self.model_id().clone()),
+            }))
         }
     }
 
@@ -611,6 +607,25 @@ mod tests {
         .unwrap()
     }
 
+    fn failing_language_registration() -> ProviderRegistration {
+        let scope = Arc::new(ProviderScope::new(ProviderId::new("failing").unwrap()));
+        let factory_scope = scope.clone();
+        let instance_id = ProviderInstanceId::new();
+        ProviderRegistration::from_language(
+            scope,
+            Arc::new(move |model| {
+                Ok(Arc::new(FailingLanguageModel {
+                    descriptor: ModelDescriptor::from_scope(
+                        factory_scope.clone(),
+                        model,
+                        ModelFamily::Language,
+                        instance_id.clone(),
+                    ),
+                }) as Arc<dyn LanguageModel>)
+            }),
+        )
+    }
+
     fn route(value: &str) -> RouteId {
         RouteId::new(value).unwrap()
     }
@@ -648,61 +663,31 @@ mod tests {
     }
 
     #[test]
-    fn resolves_all_six_stable_model_families() {
+    fn resolves_all_six_stable_model_families_with_canonical_route_context() {
         let mut builder = Registry::builder();
         builder
             .register_named("all", all_family_registration())
+            .unwrap()
+            .alias_named("recommended", "all")
             .unwrap();
         let registry = builder.build().unwrap();
 
-        assert_eq!(
-            registry
-                .language_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Language
-        );
-        assert_eq!(
-            registry
-                .embedding_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Embedding
-        );
-        assert_eq!(
-            registry
-                .rerank_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Rerank
-        );
-        assert_eq!(
-            registry
-                .image_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Image
-        );
-        assert_eq!(
-            registry
-                .speech_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Speech
-        );
-        assert_eq!(
-            registry
-                .transcription_model("all:model")
-                .unwrap()
-                .descriptor()
-                .family(),
-            ModelFamily::Transcription
-        );
+        macro_rules! assert_family_route {
+            ($method:ident, $family:ident) => {
+                for reference in ["all:model", "recommended:model"] {
+                    let model = registry.$method(reference).unwrap();
+                    assert_eq!(model.descriptor().family(), ModelFamily::$family);
+                    assert_eq!(model.route_id().map(RouteId::as_str), Some("all"));
+                }
+            };
+        }
+
+        assert_family_route!(language_model, Language);
+        assert_family_route!(embedding_model, Embedding);
+        assert_family_route!(rerank_model, Rerank);
+        assert_family_route!(image_model, Image);
+        assert_family_route!(speech_model, Speech);
+        assert_family_route!(transcription_model, Transcription);
     }
 
     #[test]
@@ -740,10 +725,76 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn construction_errors_preserve_requested_and_canonical_routes() {
+        let scope = Arc::new(ProviderScope::new(ProviderId::new("failing").unwrap()));
+        let registration = ProviderRegistration::from_language(
+            scope,
+            Arc::new(|_| {
+                Err(ModelLookupError::Construction {
+                    source: Error::new(ErrorKind::Configuration, "scripted construction failure"),
+                })
+            }),
+        );
+        let mut builder = Registry::builder();
+        builder
+            .register_named("production", registration)
+            .unwrap()
+            .alias_named("recommended", "production")
+            .unwrap();
+        let registry = builder.build().unwrap();
+
+        let error = match registry.language_model("recommended:model") {
+            Ok(_) => panic!("failing model unexpectedly resolved"),
+            Err(error) => error,
+        };
+        let RegistryResolveError::Model { context, source } = error else {
+            panic!("expected a route-aware construction error");
+        };
+        assert_eq!(context.requested_route().as_str(), "recommended");
+        assert_eq!(context.route().as_str(), "production");
+        let ModelLookupError::Construction { source } = *source else {
+            panic!("expected a construction error source");
+        };
+        assert_eq!(
+            source.context().route.as_ref().map(RouteId::as_str),
+            Some("production")
+        );
+    }
+
+    #[tokio::test]
+    async fn language_call_errors_preserve_canonical_route_context() {
+        let mut builder = Registry::builder();
+        builder
+            .register_named("production", failing_language_registration())
+            .unwrap()
+            .alias_named("recommended", "production")
+            .unwrap();
+        let registry = builder.build().unwrap();
+        let model = registry.language_model("recommended:language-v1").unwrap();
+
+        let direct = model
+            .generate(LanguageRequest::new(Vec::new()), CallOptions::default())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            direct.context().route.as_ref().map(RouteId::as_str),
+            Some("production")
+        );
+
+        let stream = model
+            .stream(LanguageRequest::new(Vec::new()), CallOptions::default())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            stream.context().route.as_ref().map(RouteId::as_str),
+            Some("production")
+        );
+    }
+
     #[tokio::test]
     async fn resolved_models_preserve_identity_limits_and_canonical_route_context() {
         let calls = Arc::new(AtomicUsize::new(0));
-        let wraps = Arc::new(AtomicUsize::new(0));
         let scope = Arc::new(ProviderScope::new(ProviderId::new("fake").unwrap()));
         let factory_scope = scope.clone();
         let instance_id = ProviderInstanceId::new();
@@ -764,9 +815,6 @@ mod tests {
         );
         let mut builder = Registry::builder();
         builder
-            .middleware(Arc::new(CountingMiddleware {
-                wraps: wraps.clone(),
-            }))
             .register(route("production"), registration)
             .unwrap()
             .alias(route("recommended"), route("production"))
@@ -788,7 +836,6 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(wraps.load(Ordering::SeqCst), 1);
         assert_eq!(
             error.context().route.as_ref().map(RouteId::as_str),
             Some("production")
@@ -801,27 +848,6 @@ mod tests {
             error.context().model.as_ref().map(ModelId::as_str),
             Some("embed-v1")
         );
-    }
-
-    #[test]
-    fn middleware_cannot_change_model_identity() {
-        let mut builder = Registry::builder();
-        builder
-            .middleware(Arc::new(IdentityDriftMiddleware))
-            .register(route("production"), all_family_registration())
-            .unwrap();
-        let registry = builder.build().unwrap();
-
-        let error = match registry.embedding_model("production:embed-v1") {
-            Ok(_) => panic!("identity-changing middleware unexpectedly resolved"),
-            Err(error) => error,
-        };
-        let RegistryResolveError::Model { context, source } = error else {
-            panic!("expected a route-aware identity error");
-        };
-        assert_eq!(context.requested_route().as_str(), "production");
-        assert_eq!(context.route().as_str(), "production");
-        assert!(matches!(*source, ModelLookupError::IdentityMismatch { .. }));
     }
 
     #[test]

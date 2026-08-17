@@ -47,6 +47,12 @@ evidence before resolution, and owns any warning or rejection. Unknown and retir
 constructible; the concrete request planner rejects only stable technical constraints that it can
 prove locally.
 
+Registry adds canonical route projection through private family wrappers and exposes
+`RegistryModelContext` for typed resolution errors. It does not expose an execution-decoration
+pipeline. A host-owned family-trait decorator must preserve the complete `ModelDescriptor` and
+delegate `route_id()` so route-bound provider options and runtime defaults continue to match the
+configured target.
+
 ## Typed provider extensions
 
 Provider-specific request behavior uses types owned by the provider package. A typed call option

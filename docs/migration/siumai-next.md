@@ -633,6 +633,16 @@ let model = registry.language_model("minimax:MiniMax-M3")?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+The speculative `RegistryMiddleware` surface was removed. Delete calls to
+`RegistryBuilder::middleware` and `RegistrySnapshot::middlewares`; Registry now performs only
+deterministic lookup and its private canonical-route projection. `RegistryModelContext` remains
+public so callers can inspect requested and canonical routes in typed resolution errors.
+
+If an application needs call decoration, implement the relevant model-family trait on an ordinary
+host-owned wrapper. Forward the inner model's complete `ModelDescriptor` and `route_id()` unchanged;
+otherwise exact-target provider options, runtime route defaults, and route-aware diagnostics cannot
+identify the configured route. Siumai does not provide or order a replacement decorator stack.
+
 Custom providers now build non-empty registrations from a first family and add only disjoint
 families:
 

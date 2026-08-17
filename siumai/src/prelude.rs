@@ -18,6 +18,5 @@ pub use crate::{Runtime, StepOptions, generate, stream};
 #[cfg(feature = "registry")]
 pub use crate::registry::{
     ModelReference, RegisterProviderError, Registry, RegistryBuildError, RegistryBuilder,
-    RegistryBuilderExt, RegistryMiddleware, RegistryModelContext, RegistryResolveError,
-    RegistrySnapshot, RouteId,
+    RegistryBuilderExt, RegistryModelContext, RegistryResolveError, RegistrySnapshot, RouteId,
 };
