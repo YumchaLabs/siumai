@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,8 +11,9 @@ use http::{Method, StatusCode};
 use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
 use siumai_transport::{
     AttemptLoopOutcome, AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision,
-    EndpointConfig, EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
-    ProviderHttpTransportSettings, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
+    EndpointConfig, EndpointError, EndpointPolicy, HttpTransportRoute, IdempotencyHeader,
+    MultipartBody, MultipartPart, ProviderHttpTransportSettings, ProviderTransport,
+    ProxyBasicCredential, ProxyEndpoint, ReplaySafety, RequestBody, RequestBuildError,
     RequestHeaders, RequestPlan, RequestTarget, Resolver, ResourceDownloadOptions,
     ResourceDownloader, ResourceUrl, RetryClassifier, RetryLimit, RetryPolicy, RetryReason,
     TransportConfigError, TransportEvent, TransportLimits, TransportObserver, WebSocketEndpoint,
@@ -22,6 +24,7 @@ use tokio::net::{TcpListener, TcpStream};
 #[derive(Clone)]
 enum ServerAction {
     DropAfterRead,
+    HoldAfterRead,
     Respond {
         status: u16,
         headers: Vec<(String, String)>,
@@ -110,6 +113,10 @@ async fn handle_connection(
     requests.lock().unwrap().push(request);
     match action {
         ServerAction::DropAfterRead => {}
+        ServerAction::HoldAfterRead => {
+            let mut byte = [0_u8; 1];
+            while stream.read(&mut byte).await.unwrap_or(0) != 0 {}
+        }
         ServerAction::Respond {
             status,
             headers,
@@ -293,6 +300,333 @@ fn provider_http_settings_preserve_direct_defaults_and_validate_before_build() {
             name: "call_timeout"
         }
     );
+}
+
+#[test]
+fn trusted_connect_route_rejects_unsafe_proxy_shapes_and_credentials() {
+    assert_eq!(
+        ProxyEndpoint::new(
+            "https://proxy.example.test/tenant",
+            EndpointPolicy::PublicCustom,
+        )
+        .unwrap_err(),
+        EndpointError::ProxyOriginMustBeRoot
+    );
+    assert_eq!(
+        ProxyEndpoint::new("http://proxy.example.test", EndpointPolicy::PublicCustom,).unwrap_err(),
+        EndpointError::SchemeNotAllowed
+    );
+    for candidate in [
+        "https://proxy.example.test?tenant=secret",
+        "https://proxy.example.test#fragment",
+        "https://user:secret@proxy.example.test",
+    ] {
+        assert!(ProxyEndpoint::https(candidate).is_err());
+    }
+
+    let local_proxy = ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap();
+    let credential = ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap();
+    assert_eq!(
+        HttpTransportRoute::trusted_connect(local_proxy)
+            .with_basic_auth(credential)
+            .unwrap_err(),
+        TransportConfigError::ProxyCredentialsRequireTls
+    );
+    assert!(ProxyBasicCredential::new("", "proxy-secret").is_err());
+    assert!(ProxyBasicCredential::new("proxy-user", "").is_err());
+    assert!(ProxyBasicCredential::new("proxy-user\n", "proxy-secret").is_err());
+    assert!(ProxyBasicCredential::new("proxy:user", "proxy-secret").is_err());
+    assert!(ProxyBasicCredential::new("proxy-user", "proxy-secret\0").is_err());
+    assert!(ProxyBasicCredential::new("u".repeat(257), "proxy-secret").is_err());
+    assert!(ProxyBasicCredential::new("proxy-user", "p".repeat(257)).is_err());
+    let debug = format!(
+        "{:?}",
+        ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap()
+    );
+    assert!(!debug.contains("proxy-user"));
+    assert!(!debug.contains("proxy-secret"));
+
+    let secure_route = HttpTransportRoute::trusted_connect(
+        ProxyEndpoint::https("https://proxy.example.test").unwrap(),
+    )
+    .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
+    .unwrap();
+    let secure_debug = format!("{secure_route:?}");
+    assert!(!secure_debug.contains("proxy.example.test"));
+    assert!(!secure_debug.contains("proxy-user"));
+    assert!(!secure_debug.contains("proxy-secret"));
+    ProviderTransport::builder(
+        EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+    )
+    .with_http_transport_settings(
+        ProviderHttpTransportSettings::default()
+            .with_route(secure_route)
+            .unwrap(),
+    )
+    .build()
+    .unwrap();
+
+    let route = HttpTransportRoute::trusted_connect(
+        ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap(),
+    );
+    let settings = ProviderHttpTransportSettings::default()
+        .with_route(route)
+        .unwrap();
+    for provider in [
+        EndpointConfig::local_explicit("http://127.0.0.1:8080/v1").unwrap(),
+        EndpointConfig::local_explicit("https://127.0.0.1:8443/v1").unwrap(),
+    ] {
+        assert_eq!(
+            ProviderTransport::builder(provider)
+                .with_http_transport_settings(settings.clone())
+                .build()
+                .unwrap_err(),
+            TransportConfigError::ProxyDestinationMustBePublicHttps
+        );
+    }
+}
+
+#[tokio::test]
+async fn trusted_connect_route_resolves_and_validates_the_proxy_peer() {
+    let proxy = TestServer::spawn(vec![ServerAction::DropAfterRead]).await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let resolver = FixedResolver {
+        address: proxy.address,
+        calls: calls.clone(),
+    };
+    let provider = EndpointConfig::public_custom("https://provider.example.test/v1").unwrap();
+    let proxy_endpoint = ProxyEndpoint::local_explicit(format!(
+        "http://proxy.example.test:{}",
+        proxy.address.port()
+    ))
+    .unwrap();
+    let settings = ProviderHttpTransportSettings::default()
+        .with_route(HttpTransportRoute::trusted_connect(proxy_endpoint))
+        .unwrap();
+    let transport = ProviderTransport::builder(provider)
+        .with_resolver(Arc::new(resolver))
+        .with_auth(Arc::new(SecretAuth))
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap();
+    let error = transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        &[("proxy.example.test".to_owned(), 0)]
+    );
+    let requests = proxy.requests();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]
+            .head
+            .starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n")
+    );
+    assert!(requests[0].header("authorization").is_none());
+    assert!(!requests[0].head.contains("canary-header-secret"));
+    assert!(!requests[0].head.contains("canary-query-secret"));
+    for surface in [format!("{error:?}"), error.to_string()] {
+        assert!(!surface.contains("proxy.example.test"));
+        assert!(!surface.contains("provider.example.test"));
+        assert!(!surface.contains("canary-header-secret"));
+        assert!(!surface.contains("canary-query-secret"));
+    }
+}
+
+#[tokio::test]
+async fn proxy_connect_failure_cancellation_and_deadline_use_one_attempt() {
+    let failed_proxy = TestServer::spawn(vec![ServerAction::Respond {
+        status: 407,
+        headers: Vec::new(),
+        body: Vec::new(),
+    }])
+    .await;
+    let failed_transport = ProviderTransport::builder(
+        EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+    )
+    .with_resolver(Arc::new(FixedResolver {
+        address: failed_proxy.address,
+        calls: Arc::new(Mutex::new(Vec::new())),
+    }))
+    .with_http_transport_settings(
+        ProviderHttpTransportSettings::default()
+            .with_route(HttpTransportRoute::trusted_connect(
+                ProxyEndpoint::local_explicit(format!(
+                    "http://proxy.example.test:{}",
+                    failed_proxy.address.port()
+                ))
+                .unwrap(),
+            ))
+            .unwrap(),
+    )
+    .build()
+    .unwrap();
+    let error = failed_transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(failed_proxy.requests().len(), 1);
+
+    let holding_proxy = TestServer::spawn(vec![ServerAction::HoldAfterRead]).await;
+    let timed_transport = ProviderTransport::builder(
+        EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+    )
+    .with_resolver(Arc::new(FixedResolver {
+        address: holding_proxy.address,
+        calls: Arc::new(Mutex::new(Vec::new())),
+    }))
+    .with_http_transport_settings(
+        ProviderHttpTransportSettings::default()
+            .with_route(HttpTransportRoute::trusted_connect(
+                ProxyEndpoint::local_explicit(format!(
+                    "http://proxy.example.test:{}",
+                    holding_proxy.address.port()
+                ))
+                .unwrap(),
+            ))
+            .unwrap(),
+    )
+    .build()
+    .unwrap();
+    let error = timed_transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+            CallOptions::default()
+                .with_deadline(std::time::Instant::now() + Duration::from_millis(50)),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Timeout);
+    assert_eq!(holding_proxy.requests().len(), 1);
+
+    let cancelling_proxy = TestServer::spawn(vec![ServerAction::HoldAfterRead]).await;
+    let cancelling_transport = ProviderTransport::builder(
+        EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+    )
+    .with_resolver(Arc::new(FixedResolver {
+        address: cancelling_proxy.address,
+        calls: Arc::new(Mutex::new(Vec::new())),
+    }))
+    .with_http_transport_settings(
+        ProviderHttpTransportSettings::default()
+            .with_route(HttpTransportRoute::trusted_connect(
+                ProxyEndpoint::local_explicit(format!(
+                    "http://proxy.example.test:{}",
+                    cancelling_proxy.address.port()
+                ))
+                .unwrap(),
+            ))
+            .unwrap(),
+    )
+    .build()
+    .unwrap();
+    let cancellation = Cancellation::new();
+    let pending = {
+        let cancellation = cancellation.clone();
+        tokio::spawn(async move {
+            cancelling_transport
+                .execute(
+                    RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+                    CallOptions::default().with_cancellation(cancellation),
+                )
+                .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while cancelling_proxy.requests().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the proxy must receive CONNECT before cancellation");
+    cancellation.cancel();
+    let error = pending.await.unwrap().unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Cancelled);
+    assert_eq!(cancelling_proxy.requests().len(), 1);
+}
+
+#[test]
+fn direct_mode_ignores_common_proxy_environment_variables() {
+    const HELPER_ENV: &str = "SIUMAI_DIRECT_PROXY_ENV_HELPER";
+    if std::env::var_os(HELPER_ENV).is_some() {
+        return;
+    }
+
+    let proxy = "http://127.0.0.1:9";
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "direct_mode_proxy_environment_helper",
+            "--nocapture",
+        ])
+        .env(HELPER_ENV, "1")
+        .env("HTTP_PROXY", proxy)
+        .env("HTTPS_PROXY", proxy)
+        .env("ALL_PROXY", proxy)
+        .env("http_proxy", proxy)
+        .env("https_proxy", proxy)
+        .env("all_proxy", proxy)
+        .env("NO_PROXY", "")
+        .env("no_proxy", "")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "child output:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn direct_mode_proxy_environment_helper() {
+    if std::env::var_os("SIUMAI_DIRECT_PROXY_ENV_HELPER").is_none() {
+        return;
+    }
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let server = TestServer::spawn(vec![ServerAction::Respond {
+                status: 200,
+                headers: Vec::new(),
+                body: b"direct".to_vec(),
+            }])
+            .await;
+            let resolver = FixedResolver {
+                address: server.address,
+                calls: Arc::new(Mutex::new(Vec::new())),
+            };
+            let endpoint = EndpointConfig::new(
+                format!("http://provider.example.test:{}/v1", server.address.port()),
+                EndpointPolicy::LocalExplicit(siumai_transport::LocalNetworkGrant::Loopback),
+            )
+            .unwrap();
+            let transport = ProviderTransport::builder(endpoint)
+                .with_resolver(Arc::new(resolver))
+                .build()
+                .unwrap();
+            let response = transport
+                .execute(
+                    RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+                    CallOptions::default(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.body(), &bytes::Bytes::from_static(b"direct"));
+        });
 }
 
 #[tokio::test]

@@ -22,8 +22,11 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{EndpointConfig, Resolver as ProviderResolver, SystemResolver};
-use crate::settings::{ProviderHttpRoute, ProviderHttpTransportSettings};
-use crate::{ReplaySafety, RequestBuildError, RequestPlan, TransportConfigError, TransportLimits};
+use crate::settings::ProviderHttpTransportSettings;
+use crate::{
+    HttpTransportRoute, ReplaySafety, RequestBuildError, RequestPlan, TransportConfigError,
+    TransportLimits,
+};
 
 const ERROR_BODY_CAPTURE_BYTES: usize = 64 * 1024;
 
@@ -217,28 +220,35 @@ impl ProviderTransportBuilder {
     /// Validate static settings without performing DNS, I/O, or credential work.
     pub fn build(self) -> Result<ProviderTransport, TransportConfigError> {
         self.http_transport_settings.validate()?;
+        self.http_transport_settings
+            .route()
+            .validate_for_endpoint(&self.endpoint)?;
         let limits = self.http_transport_settings.limits();
         let admission_capacity = limits
             .max_in_flight_requests
             .checked_add(limits.max_queued_requests)
             .ok_or(TransportConfigError::CapacityOverflow)?;
         let maximum_in_flight = limits.max_in_flight_requests;
-        let client = match self.http_transport_settings.route() {
-            ProviderHttpRoute::Direct => build_guarded_client(
-                &self.endpoint,
-                self.resolver,
-                self.http_transport_settings.connect_timeout(),
-                self.http_transport_settings.read_timeout(),
-                limits,
-            ),
-        }
-        .map_err(|_| TransportConfigError::ClientBuild)?;
+        let network_endpoint = self
+            .http_transport_settings
+            .route()
+            .proxy()
+            .map_or_else(|| self.endpoint.clone(), |proxy| proxy.endpoint().clone());
+        let client = build_routed_guarded_client(
+            &network_endpoint,
+            self.resolver,
+            self.http_transport_settings.connect_timeout(),
+            self.http_transport_settings.read_timeout(),
+            limits,
+            self.http_transport_settings.route(),
+        )?;
         Ok(ProviderTransport {
             inner: Arc::new(TransportInner {
                 endpoint: self.endpoint,
                 auth: self.auth,
                 retry_classifier: self.retry_classifier,
                 http_transport_settings: self.http_transport_settings,
+                network_endpoint,
                 client,
                 admission: Arc::new(Semaphore::new(admission_capacity)),
                 in_flight: Arc::new(Semaphore::new(maximum_in_flight)),
@@ -537,7 +547,7 @@ impl ProviderTransport {
             };
 
             if let Some(remote) = response.remote_addr()
-                && self.inner.endpoint.validate_remote(remote).is_err()
+                && self.inner.network_endpoint.validate_remote(remote).is_err()
             {
                 return Err(self.finish_attempt_loop_error(
                     call_id,
@@ -918,6 +928,7 @@ struct TransportInner {
     auth: Arc<dyn AuthApplier>,
     retry_classifier: Arc<dyn RetryClassifier>,
     http_transport_settings: ProviderHttpTransportSettings,
+    network_endpoint: EndpointConfig,
     client: reqwest::Client,
     admission: Arc<Semaphore>,
     in_flight: Arc<Semaphore>,
@@ -952,6 +963,54 @@ pub(crate) fn build_guarded_client(
     read_timeout: Duration,
     limits: &TransportLimits,
 ) -> Result<reqwest::Client, reqwest::Error> {
+    guarded_client_builder(endpoint, resolver, connect_timeout, read_timeout, limits).build()
+}
+
+fn build_routed_guarded_client(
+    network_endpoint: &EndpointConfig,
+    resolver: Arc<dyn ProviderResolver>,
+    connect_timeout: Duration,
+    read_timeout: Duration,
+    limits: &TransportLimits,
+    route: &HttpTransportRoute,
+) -> Result<reqwest::Client, TransportConfigError> {
+    let builder = guarded_client_builder(
+        network_endpoint,
+        resolver,
+        connect_timeout,
+        read_timeout,
+        limits,
+    );
+    apply_http_transport_route(builder, route)?
+        .build()
+        .map_err(|_| TransportConfigError::ClientBuild)
+}
+
+fn apply_http_transport_route(
+    builder: reqwest::ClientBuilder,
+    route: &HttpTransportRoute,
+) -> Result<reqwest::ClientBuilder, TransportConfigError> {
+    match route {
+        HttpTransportRoute::Direct => Ok(builder),
+        HttpTransportRoute::TrustedConnect { proxy, credential } => {
+            let proxy_config = reqwest::Proxy::https(proxy.url().clone())
+                .map_err(|_| TransportConfigError::ClientBuild)?;
+            let proxy_config = match credential {
+                Some(credential) => credential.apply_to(proxy_config),
+                None => proxy_config,
+            };
+            Ok(builder.proxy(proxy_config))
+        }
+    }
+}
+
+fn guarded_client_builder(
+    network_endpoint: &EndpointConfig,
+    resolver: Arc<dyn ProviderResolver>,
+    connect_timeout: Duration,
+    read_timeout: Duration,
+    limits: &TransportLimits,
+) -> reqwest::ClientBuilder {
     let maximum_header_bytes = limits
         .max_header_count
         .saturating_mul(limits.max_header_value_bytes)
@@ -961,17 +1020,16 @@ pub(crate) fn build_guarded_client(
         .referer(false)
         .no_proxy()
         .retry(reqwest::retry::never())
-        .dns_resolver(GuardedDnsResolver {
-            endpoint: endpoint.clone(),
-            resolver,
-        })
         .connect_timeout(connect_timeout)
         .read_timeout(read_timeout)
         .http2_max_header_list_size(maximum_header_bytes)
         .pool_max_idle_per_host(limits.max_connections)
         .tcp_nodelay(true)
         .user_agent(concat!("siumai-transport/", env!("CARGO_PKG_VERSION")))
-        .build()
+        .dns_resolver(GuardedDnsResolver {
+            endpoint: network_endpoint.clone(),
+            resolver,
+        })
 }
 
 struct PendingResponse {
@@ -1522,5 +1580,375 @@ mod call_control_tests {
             .unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::Cancelled);
+    }
+}
+
+#[cfg(test)]
+mod trusted_connect_tls_tests {
+    use super::*;
+    use std::net::SocketAddr;
+
+    use async_trait::async_trait;
+    use base64::Engine as _;
+    use http::header::AUTHORIZATION;
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::rustls::ServerConfig;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    use crate::{
+        CredentialPatch, EndpointError, HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint,
+        Resolver,
+    };
+
+    // Offline `.example.test` certificate fixtures; these are not credentials.
+    const TEST_CA_DER: &str = "MIIBpzCCAU2gAwIBAgIUbTYlr1376Yr/+ZGcs/7LTVRAn9owCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCExHzAdBgNVBAMMFlNpdW1haSBPZmZsaW5lIFRlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATS9UwJf41omyTuG43+oHO6FXHq3G1Msddvu66IHfd3+PDaPqSiY8XDX+Ey5d3EAgKWxzILQUfOPT0QCt9RacK6o2MwYTAdBgNVHQ4EFgQUEpo8dhQlLwIWZeaCSQlAUGUGuu0wHwYDVR0jBBgwFoAUEpo8dhQlLwIWZeaCSQlAUGUGuu0wDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwIDSAAwRQIhAO8iTQUm3hTksiBftChN8ziP91dYm3pH5iYJyqa4e5pOAiBbPFSbx5UM0wSdVkmEYs7+B2Dw7gZBCoB1OwphmBlrLg==";
+    const PROXY_CERT_DER: &str = "MIIB1zCCAXygAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGYwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMB0xGzAZBgNVBAMMEnByb3h5LmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJOBb+14giMbsCKDztTFG65FCL39GGl9sIl8C/I8AkR5aqjzEB1U9XtFjTHUeabjyodO5JTv3ZB/MhF+EQV6K/WjgZUwgZIwHQYDVR0RBBYwFIIScHJveHkuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBRFpAwYyf389PxKkdIFuETkW59wIzAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEArYfyumOCRVrLAJosZ9O0ecknTdbOe3aCRbcthT7s58sCIQDuq995l+HAm+PoJsx0DhVeKpjPDDkJLuxT8/eOXLEMcg==";
+    const PROXY_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgYlViovjr5cdWq8MDvDUlYGhAPFNKp5+ExoX0wpYHyCqhRANCAASTgW/teIIjG7Aig87UxRuuRQi9/RhpfbCJfAvyPAJEeWqo8xAdVPV7RY0x1Hmm48qHTuSU792QfzIRfhEFeiv1";
+    const PROVIDER_CERT_DER: &str = "MIIB3TCCAYKgAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGcwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCAxHjAcBgNVBAMMFXByb3ZpZGVyLmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNrtKG7bQ83W+iw+kj39Wuwp5mE01ezAJbR+9NZeCTvg2YYMSmXnXwDniIviSyJwK3dh8MfSbUIx2GEs81eobQWjgZgwgZUwIAYDVR0RBBkwF4IVcHJvdmlkZXIuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBQ2L3md9NSIZIaY4RUoxlP0eziwaTAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEAiU7zCZp7WT9f1w2OJ6z84Cj4Lo3yASg0RbqGucZTzrkCIQC9Q+REa8I+UT2EVXZl5JobOhaFxYvDrZmyKGZxBEdtiQ==";
+    const PROVIDER_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgw91aPqnWKZ/kNPOkZC8uPc/RncGLJZDegIMETxlFlTihRANCAATa7Shu20PN1vosPpI9/VrsKeZhNNXswCW0fvTWXgk74NmGDEpl518A54iL4ksicCt3YfDH0m1CMdhhLPNXqG0F";
+
+    struct FixtureResolver(SocketAddr);
+
+    #[async_trait]
+    impl Resolver for FixtureResolver {
+        async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>, EndpointError> {
+            Ok(vec![self.0])
+        }
+    }
+
+    struct ProviderBearerAuth;
+
+    #[async_trait]
+    impl AuthApplier for ProviderBearerAuth {
+        async fn apply(
+            &self,
+            _context: AuthContext<'_>,
+            _refresh: AuthRefresh,
+        ) -> Result<CredentialPatch, Error> {
+            CredentialPatch::new()
+                .try_insert(
+                    AUTHORIZATION,
+                    HeaderValue::from_static("Bearer provider-secret"),
+                )
+                .and_then(|patch| patch.try_insert_query("key", "provider-query-secret"))
+                .map_err(|_| {
+                    Error::new(
+                        ErrorKind::Authentication,
+                        "provider credential construction failed",
+                    )
+                })
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_nested_tls_and_credential_phases() {
+        let (proxy_address, server) = spawn_nested_tls_proxy(b"ok").await;
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "https://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let route = HttpTransportRoute::trusted_connect(proxy.clone())
+            .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
+            .unwrap();
+        let transport = test_transport(
+            proxy,
+            proxy_address,
+            route,
+            TransportLimits::default(),
+            Arc::new(ProviderBearerAuth),
+        );
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            transport.execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response.body(), &Bytes::from_static(b"ok"));
+
+        let (connect, provider_request) = server.await.unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+        assert_eq!(
+            header(&connect, "proxy-authorization"),
+            Some("Basic cHJveHktdXNlcjpwcm94eS1zZWNyZXQ=")
+        );
+        assert!(header(&connect, "authorization").is_none());
+        assert!(!connect.contains("provider-query-secret"));
+
+        assert!(
+            provider_request.starts_with("GET /v1/models?key=provider-query-secret HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            header(&provider_request, "authorization"),
+            Some("Bearer provider-secret")
+        );
+        assert!(header(&provider_request, "proxy-authorization").is_none());
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_provider_response_bounds() {
+        let (proxy_address, server) = spawn_nested_tls_proxy(b"provider-response-secret").await;
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "https://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let route = HttpTransportRoute::trusted_connect(proxy.clone());
+        let transport = test_transport(
+            proxy,
+            proxy_address,
+            route,
+            TransportLimits {
+                max_response_bytes: 4,
+                ..TransportLimits::default()
+            },
+            Arc::new(NoAuth),
+        );
+        let error = transport
+            .execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        for surface in [format!("{error:?}"), error.to_string()] {
+            assert!(!surface.contains("provider-response-secret"));
+            assert!(!surface.contains("provider.example.test"));
+            assert!(!surface.contains("proxy.example.test"));
+        }
+
+        let (connect, provider_request) = server.await.unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+        assert!(provider_request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_the_shared_admission_bound() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let (connect_sender, connect_receiver) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let connect = read_http_head(&mut socket).await;
+            let _ = connect_sender.send(connect);
+            let mut byte = [0_u8; 1];
+            while socket.read(&mut byte).await.unwrap_or(0) != 0 {}
+        });
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "http://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let limits = TransportLimits {
+            max_connections: 1,
+            max_in_flight_requests: 1,
+            max_queued_requests: 1,
+            ..TransportLimits::default()
+        };
+        let transport = ProviderTransport::builder(
+            EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+        )
+        .with_resolver(Arc::new(FixtureResolver(proxy_address)))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_limits(limits)
+                .unwrap()
+                .with_route(HttpTransportRoute::trusted_connect(proxy))
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+
+        let first_cancellation = Cancellation::new();
+        let first = {
+            let transport = transport.clone();
+            let cancellation = first_cancellation.clone();
+            tokio::spawn(async move {
+                transport
+                    .execute(
+                        RequestPlan::new(Method::GET, crate::RequestTarget::new("first").unwrap()),
+                        CallOptions::default().with_cancellation(cancellation),
+                    )
+                    .await
+            })
+        };
+        let connect = tokio::time::timeout(Duration::from_secs(1), connect_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+
+        let second_cancellation = Cancellation::new();
+        let second = {
+            let transport = transport.clone();
+            let cancellation = second_cancellation.clone();
+            tokio::spawn(async move {
+                transport
+                    .execute(
+                        RequestPlan::new(Method::GET, crate::RequestTarget::new("second").unwrap()),
+                        CallOptions::default().with_cancellation(cancellation),
+                    )
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while transport.inner.admission.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the queued call must consume the only queue permit");
+
+        let error = transport
+            .execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("third").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(error.message(), "transport request queue is full");
+        for surface in [format!("{error:?}"), error.to_string()] {
+            assert!(!surface.contains("provider.example.test"));
+            assert!(!surface.contains("proxy.example.test"));
+        }
+
+        second_cancellation.cancel();
+        assert_eq!(
+            second.await.unwrap().unwrap_err().kind(),
+            ErrorKind::Cancelled
+        );
+        first_cancellation.cancel();
+        assert_eq!(
+            first.await.unwrap().unwrap_err().kind(),
+            ErrorKind::Cancelled
+        );
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    async fn spawn_nested_tls_proxy(
+        provider_body: &'static [u8],
+    ) -> (SocketAddr, tokio::task::JoinHandle<(String, String)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let proxy_acceptor = tls_acceptor(PROXY_CERT_DER, PROXY_KEY_DER);
+        let provider_acceptor = tls_acceptor(PROVIDER_CERT_DER, PROVIDER_KEY_DER);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut proxy_tls = proxy_acceptor.accept(socket).await.unwrap();
+            let connect = read_http_head(&mut proxy_tls).await;
+            proxy_tls
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .unwrap();
+
+            let mut provider_tls = provider_acceptor.accept(proxy_tls).await.unwrap();
+            let provider_request = read_http_head(&mut provider_tls).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                provider_body.len()
+            );
+            provider_tls.write_all(response.as_bytes()).await.unwrap();
+            provider_tls.write_all(provider_body).await.unwrap();
+            (connect, provider_request)
+        });
+        (proxy_address, server)
+    }
+
+    fn test_transport(
+        proxy: ProxyEndpoint,
+        proxy_address: SocketAddr,
+        route: HttpTransportRoute,
+        limits: TransportLimits,
+        auth: Arc<dyn AuthApplier>,
+    ) -> ProviderTransport {
+        let network_endpoint = proxy.endpoint().clone();
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits.clone())
+            .unwrap()
+            .with_route(route)
+            .unwrap();
+        let builder = guarded_client_builder(
+            &network_endpoint,
+            Arc::new(FixtureResolver(proxy_address)),
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+            &limits,
+        )
+        .tls_certs_only([reqwest::Certificate::from_der(&decode(TEST_CA_DER)).unwrap()]);
+        let client = apply_http_transport_route(builder, settings.route())
+            .unwrap()
+            .build()
+            .unwrap();
+        ProviderTransport {
+            inner: Arc::new(TransportInner {
+                endpoint: EndpointConfig::public_custom("https://provider.example.test/v1")
+                    .unwrap(),
+                auth,
+                retry_classifier: Arc::new(NoAdditionalRetryClassifier),
+                http_transport_settings: settings,
+                network_endpoint,
+                client,
+                admission: Arc::new(Semaphore::new(
+                    limits.max_in_flight_requests + limits.max_queued_requests,
+                )),
+                in_flight: Arc::new(Semaphore::new(limits.max_in_flight_requests)),
+            }),
+        }
+    }
+
+    fn tls_acceptor(certificate: &str, private_key: &str) -> TlsAcceptor {
+        let certificate = CertificateDer::from(decode(certificate));
+        let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(decode(private_key)));
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], private_key)
+            .unwrap();
+        TlsAcceptor::from(Arc::new(config))
+    }
+
+    fn decode(value: &str) -> Vec<u8> {
+        base64::engine::general_purpose::STANDARD
+            .decode(value)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(value))
+            .unwrap()
+    }
+
+    async fn read_http_head<S>(stream: &mut S) -> String
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let mut bytes = Vec::new();
+        loop {
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                return String::from_utf8(bytes[..end + 4].to_vec()).unwrap();
+            }
+            assert!(
+                bytes.len() <= 16 * 1024,
+                "fixture HTTP head exceeded its bound"
+            );
+            let mut chunk = [0_u8; 1024];
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0, "fixture connection ended before the HTTP head");
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    fn header<'a>(head: &'a str, expected: &str) -> Option<&'a str> {
+        head.lines().skip(1).find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case(expected).then(|| value.trim())
+        })
     }
 }

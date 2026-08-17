@@ -35,3 +35,6 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 uuid.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tokio-rustls = { version = "0.26", default-features = false }

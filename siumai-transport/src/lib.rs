@@ -10,6 +10,7 @@ mod endpoint;
 mod error;
 pub mod framing;
 mod limits;
+mod proxy;
 mod replay;
 mod request;
 mod resource;
@@ -26,6 +27,7 @@ pub use endpoint::{
 };
 pub use error::{EndpointError, RequestBuildError, TransportConfigError};
 pub use limits::TransportLimits;
+pub use proxy::{HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint};
 pub use replay::{IdempotencyHeader, ReplaySafety, RetryPolicy, TransportRetryPolicyError};
 pub use request::{
     MultipartBody, MultipartPart, RequestBody, RequestHeaders, RequestPlan, RequestTarget,

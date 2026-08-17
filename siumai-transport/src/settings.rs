@@ -4,17 +4,13 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::proxy::HttpTransportRoute;
 use crate::transport::TransportObserver;
 use crate::{RetryPolicy, TransportConfigError, TransportLimits};
 
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderHttpRoute {
-    Direct,
-}
 
 #[derive(Debug, Default)]
 struct NoopObserver;
@@ -28,6 +24,9 @@ impl TransportObserver for NoopObserver {
 /// This value configures only [`crate::ProviderTransport`]. Provider WebSocket,
 /// Realtime, media-session, external-download, and MCP transports retain their
 /// own lifecycle-specific settings and never inherit this value implicitly.
+/// [`HttpTransportRoute::Direct`](crate::HttpTransportRoute::Direct) remains the
+/// default; callers may instead select one explicitly validated trusted CONNECT
+/// route for HTTPS provider origins.
 /// Endpoint policy, authentication, DNS resolution, retry classification, and
 /// per-request replay proof also remain explicit transport-builder inputs.
 #[derive(Clone)]
@@ -39,7 +38,7 @@ pub struct ProviderHttpTransportSettings {
     read_timeout: Duration,
     observer: Arc<dyn TransportObserver>,
     observer_configured: bool,
-    route: ProviderHttpRoute,
+    route: HttpTransportRoute,
 }
 
 impl ProviderHttpTransportSettings {
@@ -91,6 +90,15 @@ impl ProviderHttpTransportSettings {
         self
     }
 
+    /// Select the direct or explicit trusted CONNECT route for provider HTTP.
+    pub fn with_route(mut self, route: HttpTransportRoute) -> Result<Self, TransportConfigError> {
+        if route.has_basic_auth() && route.proxy().is_some_and(|proxy| !proxy.uses_tls()) {
+            return Err(TransportConfigError::ProxyCredentialsRequireTls);
+        }
+        self.route = route;
+        Ok(self)
+    }
+
     pub fn limits(&self) -> &TransportLimits {
         &self.limits
     }
@@ -115,8 +123,8 @@ impl ProviderHttpTransportSettings {
         self.observer.as_ref()
     }
 
-    pub(crate) fn route(&self) -> ProviderHttpRoute {
-        self.route
+    pub fn route(&self) -> &HttpTransportRoute {
+        &self.route
     }
 
     pub(crate) fn validate(&self) -> Result<(), TransportConfigError> {
@@ -127,6 +135,10 @@ impl ProviderHttpTransportSettings {
             ("read_timeout", self.read_timeout),
         ] {
             validate_timeout(name, timeout)?;
+        }
+        if self.route.has_basic_auth() && self.route.proxy().is_some_and(|proxy| !proxy.uses_tls())
+        {
+            return Err(TransportConfigError::ProxyCredentialsRequireTls);
         }
         Ok(())
     }
@@ -142,7 +154,7 @@ impl Default for ProviderHttpTransportSettings {
             read_timeout: DEFAULT_READ_TIMEOUT,
             observer: Arc::new(NoopObserver),
             observer_configured: false,
-            route: ProviderHttpRoute::Direct,
+            route: HttpTransportRoute::Direct,
         }
     }
 }

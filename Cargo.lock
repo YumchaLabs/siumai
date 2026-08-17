@@ -2544,6 +2544,7 @@ dependencies = [
  "siumai-core",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "url",
  "uuid",

@@ -30,6 +30,10 @@ pub enum EndpointError {
     InvalidOfficialOrigin,
     #[error("endpoint does not match its provider-owned official origin")]
     OfficialOriginMismatch,
+    #[error("proxy endpoint must contain only its origin")]
+    ProxyOriginMustBeRoot,
+    #[error("official provider endpoint policy cannot be used for a proxy")]
+    ProxyPolicyNotAllowed,
 }
 
 /// Invalid transport settings.
@@ -48,6 +52,20 @@ pub enum TransportConfigError {
     CapacityOverflow,
     #[error("transport admission capacity exceeds its hard maximum of {maximum}")]
     AdmissionCapacityTooLarge { maximum: usize },
+    #[error("a proxy route requires an explicit proxy endpoint")]
+    ProxyRouteRequired,
+    #[error("proxy credentials require an HTTPS proxy endpoint")]
+    ProxyCredentialsRequireTls,
+    #[error("trusted CONNECT routes require a public HTTPS provider endpoint")]
+    ProxyDestinationMustBePublicHttps,
+    #[error("proxy credential field `{field}` must not be empty")]
+    ProxyCredentialEmpty { field: &'static str },
+    #[error("proxy credential field `{field}` contains a control character")]
+    ProxyCredentialControl { field: &'static str },
+    #[error("proxy credential field `{field}` is invalid for Basic authentication")]
+    ProxyCredentialInvalid { field: &'static str },
+    #[error("proxy credential field `{field}` exceeds {maximum} bytes")]
+    ProxyCredentialTooLarge { field: &'static str, maximum: usize },
     #[error("transport timeout `{name}` must be greater than zero")]
     ZeroTimeout { name: &'static str },
     #[error("transport timeout `{name}` is too large for this platform")]

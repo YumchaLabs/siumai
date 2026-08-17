@@ -375,12 +375,12 @@ async fn family_helper_resolves_relative_timeout_at_invocation() {
 
 #[cfg(feature = "transport")]
 #[test]
-fn facade_exposes_direct_transport_configuration() {
+fn facade_exposes_curated_transport_configuration() {
     use siumai::transport::{
-        AttemptLoopOutcome, EndpointConfig, EndpointError, EndpointPolicy, LocalNetworkGrant,
-        OfficialOrigin, ProviderHttpTransportSettings, RetryLimit, RetryPolicy, RetryReason,
-        TransportCallId, TransportConfigError, TransportEvent, TransportLimits, TransportObserver,
-        TransportRetryPolicyError,
+        AttemptLoopOutcome, EndpointConfig, EndpointError, EndpointPolicy, HttpTransportRoute,
+        LocalNetworkGrant, OfficialOrigin, ProviderHttpTransportSettings, ProxyBasicCredential,
+        ProxyEndpoint, RetryLimit, RetryPolicy, RetryReason, TransportCallId, TransportConfigError,
+        TransportEvent, TransportLimits, TransportObserver, TransportRetryPolicyError,
     };
 
     struct FacadeObserver;
@@ -415,6 +415,10 @@ fn facade_exposes_direct_transport_configuration() {
     let retry_policy = RetryPolicy::new(4)
         .unwrap()
         .with_max_server_delay(Duration::from_secs(5));
+    let proxy = ProxyEndpoint::https("https://proxy.example.com").unwrap();
+    let route = HttpTransportRoute::trusted_connect(proxy)
+        .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
+        .unwrap();
     let settings = ProviderHttpTransportSettings::default()
         .with_limits(limits.clone())
         .unwrap()
@@ -425,9 +429,15 @@ fn facade_exposes_direct_transport_configuration() {
         .unwrap()
         .with_read_timeout(Duration::from_secs(10))
         .unwrap()
-        .with_observer(Arc::new(FacadeObserver));
+        .with_observer(Arc::new(FacadeObserver))
+        .with_route(route)
+        .unwrap();
     assert_eq!(settings.limits(), &limits);
     assert_eq!(settings.retry_policy().max_attempts(), 4);
+    assert!(settings.route().has_basic_auth());
+    let debug = format!("{settings:?}");
+    assert!(!debug.contains("proxy-user"));
+    assert!(!debug.contains("proxy-secret"));
 
     let invalid_settings: Result<ProviderHttpTransportSettings, TransportConfigError> =
         ProviderHttpTransportSettings::default().with_call_timeout(Duration::ZERO);
