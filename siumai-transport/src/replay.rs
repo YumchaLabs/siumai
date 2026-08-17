@@ -58,6 +58,7 @@ pub struct RetryPolicy {
     max_attempts: u8,
     initial_backoff: Duration,
     max_backoff: Duration,
+    max_server_delay: Duration,
     jitter: bool,
 }
 
@@ -70,6 +71,7 @@ impl RetryPolicy {
             max_attempts,
             initial_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(8),
+            max_server_delay: Duration::from_secs(60),
             jitter: true,
         })
     }
@@ -86,6 +88,11 @@ impl RetryPolicy {
         self.max_backoff
     }
 
+    /// Largest standard `Retry-After` delay this policy will honor.
+    pub fn max_server_delay(self) -> Duration {
+        self.max_server_delay
+    }
+
     pub fn uses_jitter(self) -> bool {
         self.jitter
     }
@@ -93,6 +100,12 @@ impl RetryPolicy {
     pub fn with_backoff(mut self, initial: Duration, maximum: Duration) -> Self {
         self.initial_backoff = initial.min(maximum);
         self.max_backoff = maximum;
+        self
+    }
+
+    /// Set the independent ceiling for standard server retry advice.
+    pub fn with_max_server_delay(mut self, maximum: Duration) -> Self {
+        self.max_server_delay = maximum;
         self
     }
 
@@ -200,5 +213,16 @@ mod tests {
             .with_backoff(Duration::from_millis(100), Duration::from_millis(250));
         assert_eq!(policy.backoff_for(1), Duration::from_millis(100));
         assert_eq!(policy.backoff_for(4), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn server_retry_advice_has_an_independent_ceiling() {
+        let policy = RetryPolicy::new(3)
+            .unwrap()
+            .with_backoff(Duration::from_millis(10), Duration::from_millis(20))
+            .with_max_server_delay(Duration::from_secs(2));
+
+        assert_eq!(policy.max_backoff(), Duration::from_millis(20));
+        assert_eq!(policy.max_server_delay(), Duration::from_secs(2));
     }
 }

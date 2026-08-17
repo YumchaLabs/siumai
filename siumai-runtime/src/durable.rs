@@ -424,6 +424,7 @@ impl DurableToolLoop {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<DurableRun, DurableRunError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let mut lease = self.acquire(&run_id).await?;
         let result = self
             .start_with_lease(&mut lease, run_id, lineage_id, request, options)
@@ -488,6 +489,7 @@ impl DurableToolLoop {
         resume: DurableResume,
         options: CallOptions,
     ) -> Result<DurableRun, DurableRunError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let mut lease = self.acquire(run_id).await?;
         let result = self
             .resume_with_lease(&mut lease, run_id, resume, options)

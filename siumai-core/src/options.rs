@@ -2,13 +2,15 @@
 
 use std::fmt;
 use std::io::{self, Write};
-use std::time::Instant;
+use std::num::NonZeroU8;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
+use crate::error::{Error, ErrorKind};
 use crate::model::{Model, ModelFamily};
 use crate::provider::{ApiModeId, ProviderId, ProviderInstanceId, ProviderScope, RouteId};
 
@@ -62,8 +64,36 @@ pub enum RetryIntent {
     /// Apply the configured provider policy only when replay safety is proven.
     #[default]
     ProviderPolicy,
-    /// Do not retry this logical call.
-    Never,
+    /// Apply at most this many total attempts without expanding replay authority.
+    AtMost(NonZeroU8),
+}
+
+impl RetryIntent {
+    /// Optional caller-owned ceiling on total attempts for one provider HTTP call.
+    pub const fn maximum_attempts(self) -> Option<u8> {
+        match self {
+            Self::ProviderPolicy => None,
+            Self::AtMost(maximum) => Some(maximum.get()),
+        }
+    }
+}
+
+/// Invalid request-scoped timing or retry intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum CallOptionsError {
+    #[error("call timeout must be greater than zero")]
+    ZeroTimeout,
+    #[error("call timeout is too large for this platform")]
+    TimeoutTooLarge,
+    #[error("caller attempt cap must allow at least one total attempt")]
+    ZeroAttempts,
+}
+
+impl From<CallOptionsError> for Error {
+    fn from(source: CallOptionsError) -> Self {
+        Self::new(ErrorKind::InvalidInput, "invalid call options").with_source(source)
+    }
 }
 
 /// Provider option validation failure.
@@ -549,6 +579,7 @@ impl ProviderOptionPatch {
 #[derive(Clone, Default)]
 pub struct CallOptions {
     deadline: Option<Instant>,
+    timeout: Option<Duration>,
     cancellation: Cancellation,
     retry: RetryIntent,
     selected_route_context: Option<RouteId>,
@@ -560,6 +591,7 @@ impl fmt::Debug for CallOptions {
         formatter
             .debug_struct("CallOptions")
             .field("deadline", &self.deadline)
+            .field("timeout", &self.timeout)
             .field("cancellation", &self.cancellation)
             .field("retry", &self.retry)
             .field("selected_route_context", &self.selected_route_context)
@@ -586,6 +618,11 @@ impl fmt::Debug for CallOptions {
 impl CallOptions {
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline
+    }
+
+    /// Unresolved timeout that starts at the outer logical call boundary.
+    pub fn timeout(&self) -> Option<Duration> {
+        self.timeout
     }
 
     pub fn cancellation(&self) -> &Cancellation {
@@ -830,13 +867,56 @@ impl CallOptions {
         self
     }
 
+    /// Set a relative timeout that starts when [`Self::resolve_deadline`] runs.
+    ///
+    /// Siumai-owned wrappers call the resolution helper at their outer logical
+    /// call boundary. Third-party model implementations should do the same
+    /// before starting work. Resolution is idempotent: it clears the relative
+    /// timeout and keeps the earliest absolute deadline.
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, CallOptionsError> {
+        if timeout.is_zero() {
+            return Err(CallOptionsError::ZeroTimeout);
+        }
+        self.timeout = Some(timeout);
+        Ok(self)
+    }
+
+    /// Resolve a relative timeout exactly once at the current call boundary.
+    pub fn resolve_deadline(self) -> Result<Self, CallOptionsError> {
+        self.resolve_deadline_at(Instant::now())
+    }
+
+    fn resolve_deadline_at(mut self, now: Instant) -> Result<Self, CallOptionsError> {
+        let Some(timeout) = self.timeout.take() else {
+            return Ok(self);
+        };
+        let relative_deadline = now
+            .checked_add(timeout)
+            .ok_or(CallOptionsError::TimeoutTooLarge)?;
+        self.deadline = Some(self.deadline.map_or(relative_deadline, |deadline| {
+            deadline.min(relative_deadline)
+        }));
+        Ok(self)
+    }
+
     pub fn with_cancellation(mut self, cancellation: Cancellation) -> Self {
         self.cancellation = cancellation;
         self
     }
 
+    /// Cap total attempts for each logical provider HTTP call.
+    ///
+    /// This can only narrow provider retry policy. Transport replay proof
+    /// remains authoritative and may reduce the effective budget to one.
+    pub fn with_max_attempts(mut self, maximum: u8) -> Result<Self, CallOptionsError> {
+        let maximum = NonZeroU8::new(maximum).ok_or(CallOptionsError::ZeroAttempts)?;
+        self.retry = RetryIntent::AtMost(maximum);
+        Ok(self)
+    }
+
+    /// Convenience for [`Self::with_max_attempts`] with a one-attempt cap.
     pub fn without_retry(mut self) -> Self {
-        self.retry = RetryIntent::Never;
+        self.retry = RetryIntent::AtMost(NonZeroU8::MIN);
         self
     }
 
@@ -1068,6 +1148,8 @@ fn reject_protected_value(value: &Value, path: &str) -> Result<(), ProviderOptio
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::Serialize;
     use serde_json::{Map, Value, json};
 
@@ -1075,6 +1157,66 @@ mod tests {
     use crate::provider::{ModelId, ProviderScope, RouteId};
 
     use super::*;
+
+    #[test]
+    fn relative_timeout_resolves_once_and_uses_the_earliest_deadline() {
+        let started = Instant::now();
+        let absolute = started + Duration::from_millis(100);
+        let relative_wins = CallOptions::default()
+            .with_timeout(Duration::from_millis(50))
+            .unwrap()
+            .with_deadline(absolute)
+            .resolve_deadline_at(started)
+            .unwrap();
+
+        assert_eq!(
+            relative_wins.deadline(),
+            Some(started + Duration::from_millis(50))
+        );
+        assert_eq!(relative_wins.timeout(), None);
+
+        let resolved_again = relative_wins
+            .clone()
+            .resolve_deadline_at(started + Duration::from_millis(25))
+            .unwrap();
+        assert_eq!(resolved_again.deadline(), relative_wins.deadline());
+
+        let absolute_wins = CallOptions::default()
+            .with_timeout(Duration::from_millis(200))
+            .unwrap()
+            .with_deadline(absolute)
+            .resolve_deadline_at(started)
+            .unwrap();
+        assert_eq!(absolute_wins.deadline(), Some(absolute));
+    }
+
+    #[test]
+    fn invalid_call_intent_is_rejected_before_execution() {
+        assert!(matches!(
+            CallOptions::default().with_timeout(Duration::ZERO),
+            Err(CallOptionsError::ZeroTimeout)
+        ));
+        assert!(matches!(
+            CallOptions::default()
+                .with_timeout(Duration::MAX)
+                .unwrap()
+                .resolve_deadline_at(Instant::now()),
+            Err(CallOptionsError::TimeoutTooLarge)
+        ));
+        assert!(matches!(
+            CallOptions::default().with_max_attempts(0),
+            Err(CallOptionsError::ZeroAttempts)
+        ));
+    }
+
+    #[test]
+    fn one_attempt_convenience_uses_the_caller_cap_model() {
+        let capped = CallOptions::default().with_max_attempts(2).unwrap();
+        assert_eq!(capped.retry().maximum_attempts(), Some(2));
+
+        let one_attempt = CallOptions::default().without_retry();
+        assert_eq!(one_attempt.retry().maximum_attempts(), Some(1));
+    }
 
     struct FakeModel {
         descriptor: ModelDescriptor,

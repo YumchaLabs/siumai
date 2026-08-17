@@ -315,7 +315,9 @@ fn flatten_aliases(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
 
     use async_trait::async_trait;
     use siumai_core::{
@@ -335,9 +337,46 @@ mod tests {
         runtime: Arc<usize>,
     }
 
+    #[derive(Debug)]
+    struct DeadlineLanguageModel {
+        descriptor: ModelDescriptor,
+        observed: Arc<Mutex<Vec<CallOptions>>>,
+    }
+
     impl Model for FakeLanguageModel {
         fn descriptor(&self) -> &ModelDescriptor {
             &self.descriptor
+        }
+    }
+
+    impl Model for DeadlineLanguageModel {
+        fn descriptor(&self) -> &ModelDescriptor {
+            &self.descriptor
+        }
+    }
+
+    #[async_trait]
+    impl LanguageModel for DeadlineLanguageModel {
+        async fn generate(
+            &self,
+            _request: LanguageRequest,
+            options: CallOptions,
+        ) -> Result<LanguageResponse, LanguageCallError> {
+            self.observed.lock().unwrap().push(options);
+            Ok(LanguageResponse::completed(
+                Vec::new(),
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            )
+            .unwrap())
+        }
+
+        async fn stream(
+            &self,
+            _request: LanguageRequest,
+            _options: CallOptions,
+        ) -> Result<LanguageStream, Error> {
+            unreachable!("deadline contract uses generate")
         }
     }
 
@@ -628,6 +667,67 @@ mod tests {
 
     fn route(value: &str) -> RouteId {
         RouteId::new(value).unwrap()
+    }
+
+    #[tokio::test]
+    async fn route_wrapper_resolves_relative_timeout_once_at_invocation() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let scope = Arc::new(ProviderScope::new(ProviderId::new("deadline").unwrap()));
+        let factory_scope = scope.clone();
+        let factory_observed = observed.clone();
+        let instance_id = ProviderInstanceId::new();
+        let registration = ProviderRegistration::from_language(
+            scope,
+            Arc::new(move |model| {
+                Ok(Arc::new(DeadlineLanguageModel {
+                    descriptor: ModelDescriptor::from_scope(
+                        factory_scope.clone(),
+                        model,
+                        ModelFamily::Language,
+                        instance_id.clone(),
+                    ),
+                    observed: factory_observed.clone(),
+                }) as Arc<dyn LanguageModel>)
+            }),
+        );
+        let mut builder = Registry::builder();
+        builder.register_named("production", registration).unwrap();
+        let model = builder
+            .build()
+            .unwrap()
+            .language_model("production:model")
+            .unwrap();
+        let options = CallOptions::default()
+            .with_timeout(Duration::from_secs(1))
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let invoked_at = Instant::now();
+
+        model
+            .generate(LanguageRequest::new(Vec::new()), options)
+            .await
+            .unwrap();
+
+        {
+            let observed_calls = observed.lock().unwrap();
+            let options = observed_calls.first().expect("one delegated call");
+            assert_eq!(options.timeout(), None);
+            assert!(options.deadline().unwrap() >= invoked_at + Duration::from_millis(925));
+        }
+
+        let error = model
+            .generate(
+                LanguageRequest::new(Vec::new()),
+                CallOptions::default().with_timeout(Duration::MAX).unwrap(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(
+            error.context().route.as_ref().map(RouteId::as_str),
+            Some("production")
+        );
+        assert_eq!(observed.lock().unwrap().len(), 1);
     }
 
     #[test]

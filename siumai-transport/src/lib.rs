@@ -34,9 +34,9 @@ pub use resource::{
     ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
 pub use transport::{
-    ProviderTransport, ProviderTransportBuilder, ResponseHeaders, RetryClassifier, RetryReason,
-    TransportByteStream, TransportEvent, TransportObserver, TransportResponse,
-    TransportStreamResponse,
+    AttemptLoopOutcome, ProviderTransport, ProviderTransportBuilder, ResponseHeaders,
+    RetryClassifier, RetryLimit, RetryReason, TransportByteStream, TransportEvent,
+    TransportObserver, TransportResponse, TransportStreamResponse,
 };
 pub use websocket::{
     WebSocketConnection, WebSocketEndpoint, WebSocketReceiver, WebSocketSender, WebSocketTransport,

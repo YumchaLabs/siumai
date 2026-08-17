@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -40,6 +40,7 @@ struct ScriptedModel {
     descriptor: ModelDescriptor,
     responses: Mutex<VecDeque<LanguageResponse>>,
     requests: Mutex<Vec<LanguageRequest>>,
+    call_options: Mutex<Vec<CallOptions>>,
 }
 
 struct DeferredModel {
@@ -299,11 +300,16 @@ impl ScriptedModel {
             ),
             responses: Mutex::new(responses.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
+            call_options: Mutex::new(Vec::new()),
         })
     }
 
     fn requests(&self) -> Vec<LanguageRequest> {
         self.requests.lock().expect("request lock").clone()
+    }
+
+    fn call_options(&self) -> Vec<CallOptions> {
+        self.call_options.lock().expect("options lock").clone()
     }
 }
 
@@ -333,6 +339,10 @@ impl LanguageModel for ScriptedModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         self.requests.lock().expect("request lock").push(request);
+        self.call_options
+            .lock()
+            .expect("options lock")
+            .push(options.clone());
         let response = self
             .responses
             .lock()
@@ -666,6 +676,55 @@ fn assert_report_parity(expected: &siumai_runtime::RunReport, actual: &siumai_ru
         actual.execution_log().status("call-1"),
         expected.execution_log().status("call-1")
     );
+}
+
+fn current_unix_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_millis()
+        .try_into()
+        .expect("test timestamp fits u64")
+}
+
+#[tokio::test]
+async fn durable_start_resolves_relative_timeout_before_snapshotting_the_deadline() {
+    let model = ScriptedModel::new([final_response()]);
+    let loop_ = durable_loop(
+        model.clone(),
+        ToolSet::default(),
+        Arc::new(InMemoryRunStore::new()),
+    );
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let invoked_at = Instant::now();
+    let invoked_unix_ms = current_unix_millis();
+
+    let run = loop_
+        .start(
+            run_id("relative-deadline"),
+            lineage_id("relative-deadline"),
+            request(),
+            options,
+        )
+        .await
+        .expect("durable run completes");
+
+    let stored_deadline = run
+        .snapshot()
+        .deadline_unix_ms()
+        .expect("snapshot stores one deadline");
+    assert!(stored_deadline >= invoked_unix_ms + 925);
+    assert!(stored_deadline <= invoked_unix_ms + 1_200);
+    let calls = model.call_options();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].timeout(), None);
+    assert_eq!(calls[0].retry().maximum_attempts(), Some(2));
+    assert!(calls[0].deadline().unwrap() >= invoked_at + Duration::from_millis(925));
 }
 
 #[tokio::test]

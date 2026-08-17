@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use siumai::prelude::*;
@@ -19,6 +20,13 @@ use siumai::core::ProviderRegistration;
 struct FakeEmbedding {
     descriptor: ModelDescriptor,
     calls: Arc<AtomicUsize>,
+}
+
+#[derive(Debug)]
+struct DeadlineEmbedding {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+    observed: Arc<std::sync::Mutex<Vec<CallOptions>>>,
 }
 
 #[cfg(feature = "runtime")]
@@ -182,6 +190,31 @@ impl Model for FakeEmbedding {
     }
 }
 
+impl Model for DeadlineEmbedding {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[async_trait]
+impl EmbeddingModel for DeadlineEmbedding {
+    async fn embed(
+        &self,
+        request: EmbeddingRequest,
+        options: CallOptions,
+    ) -> Result<EmbeddingResponse, Error> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.observed.lock().unwrap().push(options);
+        Ok(EmbeddingResponse {
+            embeddings: request.inputs().iter().map(|_| vec![1.0]).collect(),
+            metadata: ResponseMetadata::default(),
+            usage: Usage::default(),
+            warnings: Vec::new(),
+            provider: BTreeMap::new(),
+        })
+    }
+}
+
 #[async_trait]
 impl EmbeddingModel for FakeEmbedding {
     fn limits(&self) -> EmbeddingLimits {
@@ -295,6 +328,48 @@ async fn direct_family_helper_preserves_one_call_per_batch() {
     let response = embedding::embed(&model, request).await.unwrap();
 
     assert_eq!(response.embeddings.len(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn family_helper_resolves_relative_timeout_at_invocation() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let model = DeadlineEmbedding {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            ModelId::new("deadline-v1").unwrap(),
+            ModelFamily::Embedding,
+        ),
+        calls: calls.clone(),
+        observed: observed.clone(),
+    };
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let invoked_at = Instant::now();
+
+    embedding::embed_with_options(&model, EmbeddingRequest::single("hello").unwrap(), options)
+        .await
+        .unwrap();
+
+    {
+        let observed = observed.lock().unwrap();
+        let received = observed.first().expect("one call option observation");
+        assert_eq!(received.timeout(), None);
+        assert!(received.deadline().unwrap() >= invoked_at + Duration::from_millis(925));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    let error = embedding::embed_with_options(
+        &model,
+        EmbeddingRequest::single("hello").unwrap(),
+        CallOptions::default().with_timeout(Duration::MAX).unwrap(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind(), siumai::ErrorKind::InvalidInput);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 

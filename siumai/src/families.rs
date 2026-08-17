@@ -1,5 +1,11 @@
 //! Direct helpers for the six stable model families.
 
+use crate::{CallOptions, Error};
+
+fn resolve_options(options: CallOptions) -> Result<CallOptions, Error> {
+    options.resolve_deadline().map_err(Error::from)
+}
+
 pub mod language {
     use crate::{
         CallOptions, Error, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
@@ -24,7 +30,9 @@ pub mod language {
     where
         M: LanguageModel + ?Sized,
     {
-        model.generate(request, options).await
+        model
+            .generate(request, super::resolve_options(options)?)
+            .await
     }
 
     pub async fn stream<M>(model: &M, request: LanguageRequest) -> Result<LanguageStream, Error>
@@ -42,7 +50,9 @@ pub mod language {
     where
         M: LanguageModel + ?Sized,
     {
-        model.stream(request, options).await
+        model
+            .stream(request, super::resolve_options(options)?)
+            .await
     }
 }
 
@@ -64,7 +74,7 @@ pub mod embedding {
     where
         M: EmbeddingModel + ?Sized,
     {
-        model.embed(request, options).await
+        model.embed(request, super::resolve_options(options)?).await
     }
 }
 
@@ -86,7 +96,9 @@ pub mod rerank {
     where
         M: RerankModel + ?Sized,
     {
-        model.rerank(request, options).await
+        model
+            .rerank(request, super::resolve_options(options)?)
+            .await
     }
 }
 
@@ -108,7 +120,9 @@ pub mod image {
     where
         M: ImageModel + ?Sized,
     {
-        model.generate_image(request, options).await
+        model
+            .generate_image(request, super::resolve_options(options)?)
+            .await
     }
 }
 
@@ -130,7 +144,9 @@ pub mod speech {
     where
         M: SpeechModel + ?Sized,
     {
-        model.synthesize(request, options).await
+        model
+            .synthesize(request, super::resolve_options(options)?)
+            .await
     }
 }
 
@@ -157,6 +173,8 @@ pub mod transcription {
     where
         M: TranscriptionModel + ?Sized,
     {
-        model.transcribe(request, options).await
+        model
+            .transcribe(request, super::resolve_options(options)?)
+            .await
     }
 }

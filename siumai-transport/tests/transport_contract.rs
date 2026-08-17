@@ -9,12 +9,12 @@ use http::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use http::{Method, StatusCode};
 use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
 use siumai_transport::{
-    AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision, EndpointConfig,
-    EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
+    AttemptLoopOutcome, AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision,
+    EndpointConfig, EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
     ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
     RequestTarget, Resolver, ResourceDownloadOptions, ResourceDownloader, ResourceUrl,
-    RetryClassifier, RetryPolicy, RetryReason, TransportEvent, TransportLimits, TransportObserver,
-    WebSocketEndpoint,
+    RetryClassifier, RetryLimit, RetryPolicy, RetryReason, TransportEvent, TransportLimits,
+    TransportObserver, WebSocketEndpoint,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -198,6 +198,10 @@ impl RecordingObserver {
             .iter()
             .filter(|event| matches!(event, TransportEvent::AttemptStarted { .. }))
             .count()
+    }
+
+    fn events(&self) -> Vec<TransportEvent> {
+        self.0.lock().unwrap().clone()
     }
 }
 
@@ -557,6 +561,57 @@ async fn unauthorized_rate_limit_and_server_error_share_one_budget() {
     );
 }
 
+#[tokio::test]
+async fn caller_attempt_cap_also_bounds_authentication_refresh() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 401,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 500,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"must-not-reach".to_vec(),
+        },
+    ])
+    .await;
+    let auth = Arc::new(RefreshingAuth::default());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_auth(auth.clone())
+        .with_retry_policy(retry_policy(5))
+        .build()
+        .unwrap();
+
+    let response = transport
+        .execute(
+            json_post(ReplaySafety::IdempotencyKey(
+                IdempotencyHeader::new(HeaderName::from_static("idempotency-key")).unwrap(),
+            )),
+            CallOptions::default().with_max_attempts(2).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.attempts(), 2);
+    assert_eq!(server.requests().len(), 2);
+    assert_eq!(
+        *auth.0.lock().unwrap(),
+        vec![
+            AuthRefresh::Current,
+            AuthRefresh::AfterUnauthorized {
+                rejected_revision: CredentialRevision::new(1),
+            },
+        ]
+    );
+}
+
 #[derive(Debug)]
 struct OverloadClassifier;
 
@@ -602,7 +657,101 @@ async fn provider_classifier_extends_statuses_without_owning_the_retry_budget() 
 }
 
 #[tokio::test]
-async fn server_retry_after_is_not_capped_and_cannot_outlive_the_deadline() {
+async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() {
+    let safe_server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 500,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 500,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"must-not-reach".to_vec(),
+        },
+    ])
+    .await;
+    let safe_observer = Arc::new(RecordingObserver::default());
+    let safe_transport = ProviderTransport::builder(safe_server.endpoint())
+        .with_retry_policy(retry_policy(5))
+        .with_observer(safe_observer.clone())
+        .build()
+        .unwrap();
+    let safe_response = safe_transport
+        .execute(
+            json_post(ReplaySafety::SemanticallyIdempotent),
+            CallOptions::default().with_max_attempts(2).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(safe_response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(safe_response.attempts(), 2);
+    assert_eq!(safe_server.requests().len(), 2);
+    assert!(safe_observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::AttemptBudgetResolved {
+            provider_maximum_attempts: 5,
+            caller_maximum_attempts: Some(2),
+            effective_maximum_attempts: 2,
+            limiting_authority: RetryLimit::CallerCap,
+        }
+    )));
+    assert!(safe_observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::AttemptLoopFinished {
+            attempts: 2,
+            outcome: AttemptLoopOutcome::ResponseReturned { status },
+        } if *status == StatusCode::INTERNAL_SERVER_ERROR
+    )));
+
+    let unsafe_server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 500,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"must-not-replay".to_vec(),
+        },
+    ])
+    .await;
+    let unsafe_observer = Arc::new(RecordingObserver::default());
+    let unsafe_transport = ProviderTransport::builder(unsafe_server.endpoint())
+        .with_retry_policy(retry_policy(5))
+        .with_observer(unsafe_observer.clone())
+        .build()
+        .unwrap();
+    let unsafe_response = unsafe_transport
+        .execute(
+            json_post(ReplaySafety::Never),
+            CallOptions::default().with_max_attempts(2).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(unsafe_response.attempts(), 1);
+    assert_eq!(unsafe_server.requests().len(), 1);
+    assert!(unsafe_observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::AttemptBudgetResolved {
+            provider_maximum_attempts: 5,
+            caller_maximum_attempts: Some(2),
+            effective_maximum_attempts: 1,
+            limiting_authority: RetryLimit::ReplaySafety,
+        }
+    )));
+}
+
+#[tokio::test]
+async fn server_retry_after_beyond_the_policy_is_declined_without_sleeping() {
     let server = TestServer::spawn(vec![
         ServerAction::Respond {
             status: 429,
@@ -616,11 +765,59 @@ async fn server_retry_after_is_not_capped_and_cannot_outlive_the_deadline() {
         },
     ])
     .await;
+    let observer = Arc::new(RecordingObserver::default());
     let transport = ProviderTransport::builder(server.endpoint())
-        .with_retry_policy(retry_policy(2))
+        .with_retry_policy(retry_policy(2).with_max_server_delay(Duration::from_millis(50)))
+        .with_observer(observer.clone())
         .build()
         .unwrap();
-    let error = transport
+    let started = std::time::Instant::now();
+    let response = transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
+                .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+                .unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(started.elapsed() < Duration::from_millis(500));
+    assert_eq!(server.requests().len(), 1);
+    assert!(observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::RetryDeclined {
+            reason: RetryReason::RateLimited,
+            completed_attempts: 1,
+            delay: Some(delay),
+            limiting_authority: RetryLimit::ServerDelayPolicy,
+        } if *delay == Duration::from_secs(1)
+    )));
+}
+
+#[tokio::test]
+async fn server_retry_after_cannot_outlive_the_deadline() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 429,
+            headers: vec![("Retry-After".to_owned(), "1".to_owned())],
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"must-not-retry".to_vec(),
+        },
+    ])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_retry_policy(retry_policy(2))
+        .with_observer(observer.clone())
+        .build()
+        .unwrap();
+    let response = transport
         .execute(
             RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
                 .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
@@ -629,10 +826,19 @@ async fn server_retry_after_is_not_capped_and_cannot_outlive_the_deadline() {
                 .with_deadline(std::time::Instant::now() + Duration::from_millis(100)),
         )
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(error.kind(), ErrorKind::Timeout);
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(server.requests().len(), 1);
+    assert!(observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::RetryDeclined {
+            reason: RetryReason::RateLimited,
+            completed_attempts: 1,
+            delay: Some(delay),
+            limiting_authority: RetryLimit::CallDeadline,
+        } if *delay == Duration::from_secs(1)
+    )));
 }
 
 #[tokio::test]
@@ -952,6 +1158,15 @@ async fn cancellation_interrupts_backoff_before_another_attempt() {
     let error = call.await.unwrap().unwrap_err();
     assert_eq!(error.kind(), ErrorKind::Cancelled);
     assert_eq!(observer.attempts(), 1);
+    assert!(observer.events().iter().any(|event| matches!(
+        event,
+        TransportEvent::AttemptLoopFinished {
+            attempts: 1,
+            outcome: AttemptLoopOutcome::Failed {
+                kind: ErrorKind::Cancelled
+            },
+        }
+    )));
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
@@ -73,8 +74,12 @@ impl LanguageModel for FakeLanguage {
     async fn generate(
         &self,
         _request: LanguageRequest,
-        _options: CallOptions,
+        options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let _options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(LanguageCallError::from)?;
         Ok(language_response(self.model_id().as_str()))
     }
 
@@ -315,6 +320,10 @@ where
 #[tokio::test]
 async fn external_models_are_object_safe_callable_and_task_safe() {
     let call_options = CallOptions::default()
+        .with_timeout(Duration::from_secs(30))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap()
         .with_provider_options(&CustomOptions { strict: true })
         .unwrap();
 

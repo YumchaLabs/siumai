@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -51,6 +52,7 @@ struct ScriptedModel {
     route: Option<RouteId>,
     calls: Arc<AtomicUsize>,
     observed: Arc<std::sync::Mutex<Vec<String>>>,
+    observed_calls: Arc<std::sync::Mutex<Vec<CallOptions>>>,
 }
 
 impl Model for ScriptedModel {
@@ -71,6 +73,7 @@ impl LanguageModel for ScriptedModel {
         call: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.observed_calls.lock().unwrap().push(call.clone());
         let selection = call
             .provider_options_for(self)
             .map_err(provider_options_error)?;
@@ -101,9 +104,10 @@ impl LanguageModel for ScriptedModel {
     async fn stream(
         &self,
         _request: LanguageRequest,
-        _options: CallOptions,
+        options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.observed_calls.lock().unwrap().push(options.clone());
         let response = LanguageResponse::completed(
             Vec::new(),
             LanguageCompletionReason::Stop,
@@ -149,6 +153,7 @@ fn model_for(provider: &str) -> ScriptedModel {
         route: Some(RouteId::new("production").unwrap()),
         calls: Arc::new(AtomicUsize::new(0)),
         observed: Arc::new(std::sync::Mutex::new(Vec::new())),
+        observed_calls: Arc::new(std::sync::Mutex::new(Vec::new())),
     }
 }
 
@@ -176,6 +181,41 @@ async fn plain_generate_performs_one_call_and_never_executes_returned_tools() {
 
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(matches!(response.content(), [ContentPart::ToolCall(_)]));
+}
+
+#[tokio::test]
+async fn runtime_entry_resolves_relative_timeout_and_preserves_attempt_cap() {
+    let model = model();
+    let observed = model.observed_calls.clone();
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let invoked_at = Instant::now();
+
+    generate(&model, request(), options).await.unwrap();
+
+    {
+        let observed = observed.lock().unwrap();
+        let options = observed.first().expect("one runtime call");
+        assert_eq!(options.timeout(), None);
+        assert!(options.deadline().unwrap() >= invoked_at + Duration::from_millis(925));
+        assert_eq!(options.retry().maximum_attempts(), Some(2));
+    }
+
+    let error = Runtime::default()
+        .generate(
+            &model,
+            request(),
+            StepOptions::default(),
+            CallOptions::default().with_timeout(Duration::MAX).unwrap(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), siumai_core::ErrorKind::InvalidInput);
+    assert_eq!(model.calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

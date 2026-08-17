@@ -52,10 +52,10 @@ pub use model::{
     TranscriptionRequest, TranscriptionResponse,
 };
 pub use options::{
-    CallOptions, Cancellation, MAX_PROVIDER_OPTION_ENTRIES, MAX_PROVIDER_OPTION_TARGETS,
-    MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionError,
-    ProviderOptionPatch, ProviderOptionSelection, ProviderOptionTarget, ProviderOptions,
-    RetryIntent, TypedProviderOptions,
+    CallOptions, CallOptionsError, Cancellation, MAX_PROVIDER_OPTION_ENTRIES,
+    MAX_PROVIDER_OPTION_TARGETS, MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement,
+    ProviderOptionError, ProviderOptionPatch, ProviderOptionSelection, ProviderOptionTarget,
+    ProviderOptions, RetryIntent, TypedProviderOptions,
 };
 pub use profile::{
     ApiStability, CatalogError, GenericSupportClaim, ModelCatalog, ModelLifecycle, ModelProfile,

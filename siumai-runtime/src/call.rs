@@ -17,6 +17,7 @@ pub async fn generate<M>(
 where
     M: LanguageModel + ?Sized,
 {
+    let options = options.resolve_deadline().map_err(Error::from)?;
     Runtime::default()
         .generate(model, request, StepOptions::default(), options)
         .await
@@ -33,6 +34,7 @@ pub async fn stream<M>(
 where
     M: LanguageModel + ?Sized,
 {
+    let options = options.resolve_deadline().map_err(Error::from)?;
     Runtime::default()
         .stream(model, request, StepOptions::default(), options)
         .await

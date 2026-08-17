@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use siumai_core::{
-    ApiModeId, CallOptions, LanguageCallError, LanguageModel, LanguageRequest, LanguageResponse,
-    LanguageStream, Model, ModelId, PlatformId, ProtocolId, ProviderId, ProviderOptionError,
-    ProviderOptionPatch, ProviderScope, ReplayDomain, RouteId, TypedProviderOptions,
+    ApiModeId, CallOptions, Error, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelId, PlatformId, ProtocolId, ProviderId,
+    ProviderOptionError, ProviderOptionPatch, ProviderScope, ReplayDomain, RouteId,
+    TypedProviderOptions,
 };
 use thiserror::Error;
 
@@ -238,6 +239,7 @@ impl Runtime {
     where
         M: LanguageModel + ?Sized,
     {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         crate::single_step::SingleStep::new(self, model, &step)
             .generate(request, options)
             .await
@@ -253,6 +255,7 @@ impl Runtime {
     where
         M: LanguageModel + ?Sized,
     {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         crate::single_step::SingleStep::new(self, model, &step)
             .stream(request, options)
             .await

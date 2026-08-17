@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -67,6 +67,7 @@ struct ScriptedModel {
     descriptor: ModelDescriptor,
     scripts: Mutex<VecDeque<ScriptStep>>,
     requests: Mutex<Vec<LanguageRequest>>,
+    call_options: Mutex<Vec<CallOptions>>,
     generate_calls: AtomicUsize,
     stream_calls: AtomicUsize,
 }
@@ -81,6 +82,7 @@ impl ScriptedModel {
             ),
             scripts: Mutex::new(scripts.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
+            call_options: Mutex::new(Vec::new()),
             generate_calls: AtomicUsize::new(0),
             stream_calls: AtomicUsize::new(0),
         })
@@ -88,6 +90,10 @@ impl ScriptedModel {
 
     fn requests(&self) -> Vec<LanguageRequest> {
         self.requests.lock().expect("request lock").clone()
+    }
+
+    fn call_options(&self) -> Vec<CallOptions> {
+        self.call_options.lock().expect("options lock").clone()
     }
 }
 
@@ -115,6 +121,10 @@ impl LanguageModel for ScriptedModel {
     ) -> Result<LanguageStream, Error> {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         self.requests.lock().expect("request lock").push(request);
+        self.call_options
+            .lock()
+            .expect("options lock")
+            .push(options.clone());
         let script = self
             .scripts
             .lock()
@@ -552,6 +562,48 @@ async fn known_usage_is_aggregated_without_losing_the_first_step() {
         completed_report(&terminal).usage().total_tokens,
         UsageValue::Known(8)
     );
+}
+
+#[tokio::test]
+async fn relative_timeout_and_attempt_cap_are_shared_across_model_steps() {
+    let model = ScriptedModel::new([
+        terminal_step(tool_response(vec![local_call(
+            "call_1",
+            "lookup",
+            json!({}),
+        )])),
+        terminal_step(final_response("done")),
+    ]);
+    let tools = ToolSet::from_bindings([executable_binding("lookup", |_| {
+        boxed_tool_future(async {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            Ok(ToolOutcome::Success { value: Value::Null })
+        })
+    })])
+    .unwrap();
+    let loop_ = ToolLoop::new(model.clone(), tools);
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let invoked_at = Instant::now();
+
+    let terminal = loop_.run(user_request(), options).await.unwrap();
+    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+
+    let calls = model.call_options();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|options| options.timeout().is_none()));
+    assert!(
+        calls
+            .iter()
+            .all(|options| options.retry().maximum_attempts() == Some(2))
+    );
+    let deadline = calls[0].deadline().expect("first step deadline");
+    assert!(deadline >= invoked_at + Duration::from_millis(925));
+    assert_eq!(calls[1].deadline(), Some(deadline));
 }
 
 #[tokio::test]

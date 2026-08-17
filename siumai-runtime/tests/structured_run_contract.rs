@@ -37,6 +37,8 @@ enum ScriptStep {
 struct ObservedCall {
     request: LanguageRequest,
     deadline: Option<Instant>,
+    timeout: Option<Duration>,
+    maximum_attempts: Option<u8>,
     cancelled_on_entry: bool,
 }
 
@@ -106,6 +108,8 @@ impl LanguageModel for ScriptedModel {
         self.calls.lock().expect("call lock").push(ObservedCall {
             request,
             deadline: options.deadline(),
+            timeout: options.timeout(),
+            maximum_attempts: options.retry().maximum_attempts(),
             cancelled_on_entry: options.cancellation().is_cancelled(),
         });
 
@@ -592,6 +596,38 @@ async fn repair_inherits_the_caller_deadline() {
     assert_eq!(calls.len(), 2);
     assert!(calls.iter().all(|call| call.deadline == Some(deadline)));
     assert!(calls.iter().all(|call| !call.cancelled_on_entry));
+}
+
+#[tokio::test]
+async fn structured_repair_resolves_relative_timeout_once_before_both_steps() {
+    let model = ScriptedModel::new([
+        completed_step(text_response("not-json", 1)),
+        completed_step(text_response(r#"{"name":"Ada","age":36}"#, 1)),
+    ]);
+    let runner = StructuredOutputRunner::new(
+        model.clone(),
+        descriptor().with_repair_policy(RepairPolicy::OneAttempt),
+    );
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let invoked_at = Instant::now();
+
+    runner
+        .generate(request(), options)
+        .await
+        .expect("repair succeeds");
+
+    let calls = model.calls();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|call| call.timeout.is_none()));
+    assert!(calls.iter().all(|call| call.maximum_attempts == Some(2)));
+    let deadline = calls[0].deadline.expect("initial deadline");
+    assert!(deadline >= invoked_at + Duration::from_millis(925));
+    assert_eq!(calls[1].deadline, Some(deadline));
 }
 
 #[tokio::test]

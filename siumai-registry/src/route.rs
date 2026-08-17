@@ -60,6 +60,13 @@ pub(crate) fn contextualize_lookup(error: ModelLookupError, route: &RouteId) -> 
     }
 }
 
+fn resolve_options(options: CallOptions, route: &RouteId) -> Result<CallOptions, Error> {
+    options
+        .resolve_deadline()
+        .map_err(Error::from)
+        .map_err(|error| error.with_route(route.clone()))
+}
+
 pub(crate) fn with_language_route(
     context: &RegistryModelContext,
     model: Arc<dyn LanguageModel>,
@@ -130,6 +137,7 @@ impl LanguageModel for RouteLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = resolve_options(options, &self.route)?;
         self.inner
             .generate(
                 request,
@@ -144,6 +152,7 @@ impl LanguageModel for RouteLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = resolve_options(options, &self.route)?;
         self.inner
             .stream(
                 request,
@@ -189,6 +198,7 @@ macro_rules! route_model_wrapper {
                 request: $request,
                 options: CallOptions,
             ) -> Result<$response, Error> {
+                let options = resolve_options(options, &self.route)?;
                 self.inner
                     .$method(
                         request,

@@ -16,7 +16,7 @@ use reqwest::dns::{Addrs, Name, Resolve as ReqwestResolve, Resolving};
 use reqwest::redirect;
 use siumai_core::{
     CallOptions, Cancellation, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics,
-    RetryIntent, SensitiveResponse,
+    SensitiveResponse,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -41,10 +41,35 @@ pub enum RetryReason {
     ServerUnavailable,
 }
 
+/// Structural authority that limits whether another attempt may occur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RetryLimit {
+    ReplaySafety,
+    ProviderPolicy,
+    CallerCap,
+    ServerDelayPolicy,
+    CallDeadline,
+}
+
+/// Payload-free result of the transport-owned attempt loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AttemptLoopOutcome {
+    ResponseReturned { status: StatusCode },
+    Failed { kind: ErrorKind },
+}
+
 /// Read-only, payload-free transport observation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransportEvent {
+    AttemptBudgetResolved {
+        provider_maximum_attempts: u8,
+        caller_maximum_attempts: Option<u8>,
+        effective_maximum_attempts: u8,
+        limiting_authority: RetryLimit,
+    },
     AttemptStarted {
         method: Method,
         attempt: u8,
@@ -58,6 +83,16 @@ pub enum TransportEvent {
         reason: RetryReason,
         completed_attempts: u8,
         delay: Duration,
+    },
+    RetryDeclined {
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Option<Duration>,
+        limiting_authority: RetryLimit,
+    },
+    AttemptLoopFinished {
+        attempts: u8,
+        outcome: AttemptLoopOutcome,
     },
     Completed {
         status: StatusCode,
@@ -340,17 +375,40 @@ impl ProviderTransport {
             deadline: effective_deadline(options.deadline(), self.inner.call_timeout),
             cancellation: options.cancellation().child(),
         };
-        let permits = self.acquire(&controls).await?;
+        let provider_maximum_attempts = self.inner.retry_policy.max_attempts();
+        let caller_maximum_attempts = options.retry().maximum_attempts();
+        let (maximum_attempts, budget_limit) = if !plan.replay_safety().permits_replay() {
+            (1, RetryLimit::ReplaySafety)
+        } else {
+            match caller_maximum_attempts {
+                Some(maximum) if maximum < provider_maximum_attempts => {
+                    (maximum, RetryLimit::CallerCap)
+                }
+                _ => (provider_maximum_attempts, RetryLimit::ProviderPolicy),
+            }
+        };
+        self.inner
+            .observer
+            .observe(&TransportEvent::AttemptBudgetResolved {
+                provider_maximum_attempts,
+                caller_maximum_attempts,
+                effective_maximum_attempts: maximum_attempts,
+                limiting_authority: budget_limit,
+            });
+        let permits = self
+            .acquire(&controls)
+            .await
+            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
         let prepared = plan
             .prepare(&self.inner.limits)
-            .map_err(request_build_error)?;
+            .map_err(request_build_error)
+            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
         let url = self
             .inner
             .endpoint
             .request_url(plan.target())
-            .map_err(endpoint_runtime_error)?;
-        let retry_allowed =
-            options.retry() != RetryIntent::Never && plan.replay_safety().permits_replay();
+            .map_err(endpoint_runtime_error)
+            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
         let idempotency = match plan.replay_safety() {
             ReplaySafety::IdempotencyKey(header) => Some((
                 header.name().clone(),
@@ -358,11 +416,6 @@ impl ProviderTransport {
                     .expect("UUIDs are valid header values"),
             )),
             ReplaySafety::Never | ReplaySafety::SemanticallyIdempotent => None,
-        };
-        let maximum_attempts = if retry_allowed {
-            self.inner.retry_policy.max_attempts()
-        } else {
-            1
         };
         let mut attempts = 0_u8;
         let mut refresh = AuthRefresh::Current;
@@ -391,11 +444,46 @@ impl ProviderTransport {
             let (response, credential_revision) = match attempt {
                 Ok(response) => response,
                 Err(failure) => {
-                    if attempts >= maximum_attempts || !failure.is_retryable() {
-                        return Err(failure.into_error());
+                    let retryable = failure.is_retryable();
+                    if attempts >= maximum_attempts || !retryable {
+                        if retryable {
+                            self.observe_retry_declined(
+                                RetryReason::Transport,
+                                attempts,
+                                None,
+                                budget_limit,
+                            );
+                        }
+                        let error = failure.into_error();
+                        return Err(self.finish_attempt_loop_error(attempts, error));
                     }
-                    self.backoff(RetryReason::Transport, attempts, None, &controls)
-                        .await?;
+                    let delay = match self.retry_delay(attempts, None, &controls) {
+                        RetryDelay::Schedule(delay) => delay,
+                        RetryDelay::Decline { .. } => {
+                            return Err(self.finish_attempt_loop_error(
+                                attempts,
+                                Error::new(
+                                    ErrorKind::Internal,
+                                    "local retry delay was declined unexpectedly",
+                                ),
+                            ));
+                        }
+                        RetryDelay::DeadlineExceeded => {
+                            return Err(self.finish_attempt_loop_error(
+                                attempts,
+                                Error::new(
+                                    ErrorKind::Timeout,
+                                    "provider retry delay exceeds the call deadline",
+                                ),
+                            ));
+                        }
+                    };
+                    if let Err(error) = self
+                        .wait_before_retry(RetryReason::Transport, attempts, delay, &controls)
+                        .await
+                    {
+                        return Err(self.finish_attempt_loop_error(attempts, error));
+                    }
                     refresh = AuthRefresh::Current;
                     continue;
                 }
@@ -404,14 +492,19 @@ impl ProviderTransport {
             if let Some(remote) = response.remote_addr()
                 && self.inner.endpoint.validate_remote(remote).is_err()
             {
-                return Err(Error::new(
-                    ErrorKind::Transport,
-                    "connected peer does not match the validated endpoint",
+                return Err(self.finish_attempt_loop_error(
+                    attempts,
+                    Error::new(
+                        ErrorKind::Transport,
+                        "connected peer does not match the validated endpoint",
+                    ),
                 ));
             }
-            ResponseHeaders::validate(response.headers(), &self.inner.limits).map_err(|error| {
-                response_limit_error(response.status(), response.headers(), Vec::new(), error)
-            })?;
+            if let Err(error) = ResponseHeaders::validate(response.headers(), &self.inner.limits) {
+                let error =
+                    response_limit_error(response.status(), response.headers(), Vec::new(), error);
+                return Err(self.finish_attempt_loop_error(attempts, error));
+            }
             self.inner
                 .observer
                 .observe(&TransportEvent::ResponseReceived {
@@ -428,10 +521,17 @@ impl ProviderTransport {
                 && self.inner.auth.supports_refresh()
                 && !refreshed_once
                 && credential_revision.is_some();
-            let should_retry = attempts < maximum_attempts
-                && retry_reason.is_some()
-                && (response.status() != StatusCode::UNAUTHORIZED || can_refresh);
-            if !should_retry {
+            let Some(reason) = retry_reason else {
+                self.finish_attempt_loop_response(attempts, response.status());
+                return Ok(PendingResponse {
+                    response,
+                    attempts,
+                    controls,
+                    permits,
+                });
+            };
+            if response.status() == StatusCode::UNAUTHORIZED && !can_refresh {
+                self.finish_attempt_loop_response(attempts, response.status());
                 return Ok(PendingResponse {
                     response,
                     attempts,
@@ -439,12 +539,49 @@ impl ProviderTransport {
                     permits,
                 });
             }
-
-            let reason = retry_reason.expect("retry reason was checked");
             let retry_after = retry_after(response.headers());
+            if attempts >= maximum_attempts {
+                self.observe_retry_declined(reason, attempts, retry_after, budget_limit);
+                self.finish_attempt_loop_response(attempts, response.status());
+                return Ok(PendingResponse {
+                    response,
+                    attempts,
+                    controls,
+                    permits,
+                });
+            }
+            let delay = match self.retry_delay(attempts, retry_after, &controls) {
+                RetryDelay::Schedule(delay) => delay,
+                RetryDelay::Decline {
+                    delay,
+                    limiting_authority,
+                } => {
+                    self.observe_retry_declined(reason, attempts, Some(delay), limiting_authority);
+                    self.finish_attempt_loop_response(attempts, response.status());
+                    return Ok(PendingResponse {
+                        response,
+                        attempts,
+                        controls,
+                        permits,
+                    });
+                }
+                RetryDelay::DeadlineExceeded => {
+                    return Err(self.finish_attempt_loop_error(
+                        attempts,
+                        Error::new(
+                            ErrorKind::Timeout,
+                            "provider retry delay exceeds the call deadline",
+                        ),
+                    ));
+                }
+            };
             drop(response);
-            self.backoff(reason, attempts, retry_after, &controls)
-                .await?;
+            if let Err(error) = self
+                .wait_before_retry(reason, attempts, delay, &controls)
+                .await
+            {
+                return Err(self.finish_attempt_loop_error(attempts, error));
+            }
             if can_refresh {
                 refreshed_once = true;
                 refresh = AuthRefresh::AfterUnauthorized {
@@ -554,13 +691,12 @@ impl ProviderTransport {
         })
     }
 
-    async fn backoff(
+    fn retry_delay(
         &self,
-        reason: RetryReason,
         completed_attempts: u8,
         retry_after: Option<Duration>,
         controls: &CallControls,
-    ) -> Result<(), Error> {
+    ) -> RetryDelay {
         let delay = if let Some(retry_after) = retry_after {
             retry_after
         } else {
@@ -572,15 +708,44 @@ impl ProviderTransport {
                 Duration::from_millis(rand::random_range(0..=upper_millis))
             }
         };
-        if let Some(deadline) = controls.deadline {
-            let retry_at = Instant::now().checked_add(delay);
-            if retry_at.is_none_or(|retry_at| retry_at >= deadline) {
-                return Err(Error::new(
-                    ErrorKind::Timeout,
-                    "provider retry delay exceeds the call deadline",
-                ));
-            }
+        if retry_after.is_some() && delay > self.inner.retry_policy.max_server_delay() {
+            return RetryDelay::Decline {
+                delay,
+                limiting_authority: RetryLimit::ServerDelayPolicy,
+            };
         }
+        let retry_at = Instant::now().checked_add(delay);
+        if let Some(deadline) = controls.deadline {
+            if retry_at.is_none_or(|retry_at| retry_at >= deadline) {
+                return if retry_after.is_some() {
+                    RetryDelay::Decline {
+                        delay,
+                        limiting_authority: RetryLimit::CallDeadline,
+                    }
+                } else {
+                    RetryDelay::DeadlineExceeded
+                };
+            }
+        } else if retry_at.is_none() {
+            return if retry_after.is_some() {
+                RetryDelay::Decline {
+                    delay,
+                    limiting_authority: RetryLimit::ServerDelayPolicy,
+                }
+            } else {
+                RetryDelay::DeadlineExceeded
+            };
+        }
+        RetryDelay::Schedule(delay)
+    }
+
+    async fn wait_before_retry(
+        &self,
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Duration,
+        controls: &CallControls,
+    ) -> Result<(), Error> {
         self.inner
             .observer
             .observe(&TransportEvent::RetryScheduled {
@@ -598,6 +763,49 @@ impl ProviderTransport {
         }
         Ok(())
     }
+
+    fn observe_retry_declined(
+        &self,
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Option<Duration>,
+        limiting_authority: RetryLimit,
+    ) {
+        self.inner.observer.observe(&TransportEvent::RetryDeclined {
+            reason,
+            completed_attempts,
+            delay,
+            limiting_authority,
+        });
+    }
+
+    fn finish_attempt_loop_response(&self, attempts: u8, status: StatusCode) {
+        self.inner
+            .observer
+            .observe(&TransportEvent::AttemptLoopFinished {
+                attempts,
+                outcome: AttemptLoopOutcome::ResponseReturned { status },
+            });
+    }
+
+    fn finish_attempt_loop_error(&self, attempts: u8, error: Error) -> Error {
+        self.inner
+            .observer
+            .observe(&TransportEvent::AttemptLoopFinished {
+                attempts,
+                outcome: AttemptLoopOutcome::Failed { kind: error.kind() },
+            });
+        error
+    }
+}
+
+enum RetryDelay {
+    Schedule(Duration),
+    Decline {
+        delay: Duration,
+        limiting_authority: RetryLimit,
+    },
+    DeadlineExceeded,
 }
 
 impl fmt::Debug for ProviderTransport {

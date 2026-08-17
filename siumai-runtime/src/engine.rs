@@ -218,6 +218,7 @@ impl StepEngine {
         step: u32,
         establishment_failure_as_terminal: bool,
     ) -> Result<Self, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let visible_tools = prepare_visible_tool_catalog(
             VisibleToolCatalogSource::Caller(std::mem::take(&mut request.tools)),
             &tools,
@@ -308,6 +309,10 @@ impl StepEngine {
         projection_policy: ProjectionPolicy,
         seed: EngineResumeSeed,
     ) -> Result<Self, EngineResumeError> {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(EngineResumeError::from)?;
         let EngineResumeSeed {
             mut continuation,
             visible_tools,
