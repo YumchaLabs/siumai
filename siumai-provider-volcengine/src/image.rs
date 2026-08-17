@@ -397,6 +397,7 @@ impl ArkImages {
         request: ArkImageRequest,
         options: CallOptions,
     ) -> Result<ArkImageResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         request.validate()?;
         execute_json(
             &self.runtime,
@@ -509,6 +510,7 @@ impl ImageModel for ArkImageModel {
         request: ImageRequest,
         call: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

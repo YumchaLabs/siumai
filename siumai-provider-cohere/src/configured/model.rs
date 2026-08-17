@@ -90,6 +90,7 @@ impl EmbeddingModel for CohereEmbeddingModel {
         request: EmbeddingRequest,
         options: CallOptions,
     ) -> Result<EmbeddingResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -200,6 +201,7 @@ impl RerankModel for CohereRerankModel {
         request: RerankRequest,
         options: CallOptions,
     ) -> Result<RerankResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

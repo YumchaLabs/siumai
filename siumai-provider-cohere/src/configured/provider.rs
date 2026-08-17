@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use secrecy::SecretString;
 use siumai_core::{
@@ -12,8 +11,8 @@ use siumai_core::{
     VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, ReplaySafety, TransportConfigError,
 };
 use thiserror::Error;
 
@@ -162,11 +161,7 @@ pub struct CohereProviderBuilder {
     api_key: SecretString,
     endpoint: Option<EndpointConfig>,
     provider_selected_endpoint: bool,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
 }
 
 impl CohereProviderBuilder {
@@ -175,11 +170,7 @@ impl CohereProviderBuilder {
             api_key: SecretString::from(api_key.into()),
             endpoint: None,
             provider_selected_endpoint: true,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
         }
     }
 
@@ -190,28 +181,9 @@ impl CohereProviderBuilder {
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -240,20 +212,10 @@ impl CohereProviderBuilder {
             },
         )?);
         let scope = profile.scope();
-        let mut transport = ProviderTransport::builder(endpoint)
+        let transport = ProviderTransport::builder(endpoint)
             .with_auth(Arc::new(CohereBearerAuth::new(self.api_key)))
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        let transport = transport.build()?;
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
         let runtime = Arc::new(CohereRuntime {
             scope: scope.clone(),
             instance_id: ProviderInstanceId::new(),
@@ -276,11 +238,7 @@ impl fmt::Debug for CohereProviderBuilder {
             .debug_struct("CohereProviderBuilder")
             .field("api_key", &"[REDACTED]")
             .field("has_custom_endpoint", &self.endpoint.is_some())
-            .field("limits", &self.limits)
-            .field("retry_policy", &self.retry_policy)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("call_timeout", &self.call_timeout)
-            .field("read_timeout", &self.read_timeout)
+            .field("http_transport_settings", &self.http_transport_settings)
             .finish()
     }
 }
@@ -362,6 +320,30 @@ fn transcription_support_claim() -> Result<VerifiedNativeSupportClaim, CohereCon
 mod tests {
     use super::*;
     use siumai_core::ModelFamily;
+    use siumai_transport::TransportLimits;
+
+    #[test]
+    fn builder_accepts_one_http_transport_settings_snapshot() {
+        let limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .expect("valid settings");
+        let provider = CohereProvider::builder("test-key")
+            .with_endpoint(
+                EndpointConfig::local_explicit("http://127.0.0.1:9/v2").expect("local endpoint"),
+            )
+            .with_http_transport_settings(settings)
+            .build()
+            .expect("provider");
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+    }
 
     #[test]
     fn default_registration_exposes_both_native_families() {

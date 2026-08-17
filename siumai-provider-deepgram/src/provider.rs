@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::{Map, Value};
 use siumai_core::{
@@ -9,8 +8,8 @@ use siumai_core::{
     ProviderScope, SpeechModelProvider, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error;
 
@@ -129,10 +128,7 @@ pub struct DeepgramProviderBuilder {
     credential: DeepgramCredential,
     endpoint: Option<EndpointConfig>,
     provider_selected_endpoint: bool,
-    limits: TransportLimits,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     default_options: DeepgramTranscriptionOptions,
 }
 
@@ -142,10 +138,7 @@ impl DeepgramProviderBuilder {
             credential,
             endpoint: None,
             provider_selected_endpoint: true,
-            limits: TransportLimits::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             default_options: DeepgramTranscriptionOptions::new(),
         }
     }
@@ -157,23 +150,9 @@ impl DeepgramProviderBuilder {
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -203,19 +182,10 @@ impl DeepgramProviderBuilder {
             DeepgramProfile::custom()?
         };
 
-        let mut transport = ProviderTransport::builder(endpoint)
+        let transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
-            .with_limits(self.limits);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        let transport = transport.build()?;
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
         let instance_id = ProviderInstanceId::new();
         let runtime = Arc::new(ProviderRuntime {
             scope: profile.scope(),
@@ -265,10 +235,7 @@ impl fmt::Debug for DeepgramProviderBuilder {
                 "provider_selected_endpoint",
                 &self.provider_selected_endpoint,
             )
-            .field("limits", &self.limits)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("call_timeout", &self.call_timeout)
-            .field("read_timeout", &self.read_timeout)
+            .field("http_transport_settings", &self.http_transport_settings)
             .field("default_options", &self.default_options)
             .finish()
     }
@@ -370,8 +337,37 @@ pub enum DeepgramConfigError {
 #[cfg(test)]
 mod tests {
     use siumai_core::{ApiStability, CallOptions, Model, ModelFamily, VerifiedFidelity};
+    use siumai_transport::TransportLimits;
 
     use super::*;
+
+    #[test]
+    fn builder_applies_http_settings_to_both_native_families() {
+        let limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .expect("valid settings");
+        let provider = DeepgramProvider::builder(DeepgramCredential::api_key("test-key"))
+            .with_http_transport_settings(settings)
+            .build()
+            .expect("provider");
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+        assert_eq!(
+            provider
+                .speech_runtime
+                .transport
+                .limits()
+                .max_response_bytes,
+            96 * 1024
+        );
+    }
 
     #[test]
     fn build_is_static_and_models_share_one_runtime() {

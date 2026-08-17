@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -16,11 +15,13 @@ use siumai_core::{
     ReplayDomain, ReplayDomainId, TypedProviderOptions,
 };
 use siumai_openai_compatible::{
-    DynamicCredentialSource, OpenAiCompatibleApiMode, OpenAiCompatibleConfigError,
-    OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel, OpenAiCompatibleProvider,
+    CredentialSourceError, DynamicCredentialSource, OpenAiCompatibleApiMode,
+    OpenAiCompatibleConfigError, OpenAiCompatibleCredential, OpenAiCompatibleLanguageModel,
+    OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, RetryPolicy, TransportLimits,
+    AuthApplier, EndpointConfig, EndpointError, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -264,11 +265,7 @@ pub struct DeepSeekProviderBuilder {
     messages_endpoint: Result<EndpointConfig, EndpointError>,
     provider_selected_messages_endpoint: bool,
     messages_replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     chat_defaults: DeepSeekChatOptions,
     responses_defaults: DeepSeekResponsesOptions,
 }
@@ -286,11 +283,7 @@ impl DeepSeekProviderBuilder {
             messages_endpoint: official_messages_endpoint(),
             provider_selected_messages_endpoint: true,
             messages_replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             chat_defaults: DeepSeekChatOptions::default(),
             responses_defaults: DeepSeekResponsesOptions::default(),
         }
@@ -368,28 +361,9 @@ impl DeepSeekProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -447,21 +421,18 @@ impl DeepSeekProviderBuilder {
         }
         let DeepSeekCredential { openai, messages } = self.credential;
         let instance_id = ProviderInstanceId::new();
-        let beta_credential = openai.clone();
+        openai.validate_static()?;
+        let auth = openai.into_auth();
+        let mut transports = Vec::new();
+        let transport = shared_openai_transport(
+            &mut transports,
+            endpoint.clone(),
+            auth.clone(),
+            &self.http_transport_settings,
+        )?;
         let profile = profile(endpoint, replay_domain, verified_endpoint)?;
-        let mut builder = OpenAiCompatibleProvider::builder(profile, openai)
-            .with_provider_instance(instance_id.clone())
-            .with_limits(self.limits.clone())
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            builder = builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            builder = builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            builder = builder.with_read_timeout(timeout);
-        }
+        let mut builder = OpenAiCompatibleProvider::builder_with_transport(profile, transport)
+            .with_provider_instance(instance_id.clone());
         for (name, value) in option_map(&self.chat_defaults)? {
             builder =
                 builder.with_default_option(OpenAiCompatibleApiMode::ChatCompletions, name, value);
@@ -470,20 +441,16 @@ impl DeepSeekProviderBuilder {
             builder = builder.with_default_option(OpenAiCompatibleApiMode::Responses, name, value);
         }
         let language = builder.build()?;
+        let beta_transport = shared_openai_transport(
+            &mut transports,
+            beta_endpoint.clone(),
+            auth,
+            &self.http_transport_settings,
+        )?;
         let beta_profile = beta_profile(beta_endpoint, beta_replay_domain, verified_beta_endpoint)?;
-        let mut beta_builder = OpenAiCompatibleProvider::builder(beta_profile, beta_credential)
-            .with_provider_instance(instance_id.clone())
-            .with_limits(self.limits.clone())
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            beta_builder = beta_builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            beta_builder = beta_builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            beta_builder = beta_builder.with_read_timeout(timeout);
-        }
+        let mut beta_builder =
+            OpenAiCompatibleProvider::builder_with_transport(beta_profile, beta_transport)
+                .with_provider_instance(instance_id.clone());
         for (name, value) in option_map(&self.chat_defaults)? {
             beta_builder = beta_builder.with_default_option(
                 OpenAiCompatibleApiMode::ChatCompletions,
@@ -499,19 +466,9 @@ impl DeepSeekProviderBuilder {
                     messages_replay_domain,
                     verified_messages_endpoint,
                 )?;
-                let mut builder = AnthropicCompatibleProvider::builder(profile, credential)
+                let builder = AnthropicCompatibleProvider::builder(profile, credential)
                     .with_provider_instance(instance_id.clone())
-                    .with_limits(self.limits)
-                    .with_retry_policy(self.retry_policy);
-                if let Some(timeout) = self.connect_timeout {
-                    builder = builder.with_connect_timeout(timeout);
-                }
-                if let Some(timeout) = self.call_timeout {
-                    builder = builder.with_call_timeout(timeout);
-                }
-                if let Some(timeout) = self.read_timeout {
-                    builder = builder.with_read_timeout(timeout);
-                }
+                    .with_http_transport_settings(self.http_transport_settings.clone());
                 Ok::<_, DeepSeekConfigError>(builder.build()?)
             })
             .transpose()?;
@@ -588,6 +545,7 @@ impl LanguageModel for DeepSeekLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             DeepSeekLanguageModelInner::OpenAi(model) => model.generate(request, options).await,
             DeepSeekLanguageModelInner::Messages(model) => model.generate(request, options).await,
@@ -599,6 +557,7 @@ impl LanguageModel for DeepSeekLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             DeepSeekLanguageModelInner::OpenAi(model) => model.stream(request, options).await,
             DeepSeekLanguageModelInner::Messages(model) => model.stream(request, options).await,
@@ -628,6 +587,26 @@ fn official_messages_endpoint() -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(MESSAGES_BASE_URL, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn shared_openai_transport(
+    transports: &mut Vec<ProviderTransport>,
+    endpoint: EndpointConfig,
+    auth: Arc<dyn AuthApplier>,
+    settings: &ProviderHttpTransportSettings,
+) -> Result<ProviderTransport, TransportConfigError> {
+    if let Some(transport) = transports.iter().find(|transport| {
+        transport.endpoint().expose_base_url() == endpoint.expose_base_url()
+            && transport.endpoint().policy() == endpoint.policy()
+    }) {
+        return Ok(transport.clone());
+    }
+    let transport = ProviderTransport::builder(endpoint)
+        .with_auth(auth)
+        .with_http_transport_settings(settings.clone())
+        .build()?;
+    transports.push(transport.clone());
+    Ok(transport)
+}
+
 fn messages_unavailable() -> ModelLookupError {
     ModelLookupError::Construction {
         source: Error::new(
@@ -655,6 +634,10 @@ pub enum DeepSeekConfigError {
     Profile(#[from] DeepSeekProfileError),
     #[error("invalid DeepSeek credential or compatible runtime: {0}")]
     Compatible(#[from] OpenAiCompatibleConfigError),
+    #[error("invalid DeepSeek credential: {0}")]
+    Credential(#[from] CredentialSourceError),
+    #[error("invalid DeepSeek transport settings: {0}")]
+    Transport(#[from] TransportConfigError),
     #[error("invalid DeepSeek Anthropic-compatible Messages runtime: {0}")]
     MessagesCompatible(#[from] AnthropicCompatibleConfigError),
     #[error("invalid DeepSeek default options: {0}")]
@@ -706,6 +689,14 @@ mod tests {
         let debug = format!("{:?}", DeepSeekCredential::api_key("canary-secret"));
         assert!(!debug.contains("canary-secret"));
         assert!(debug.contains("REDACTED"));
+    }
+
+    #[test]
+    fn builder_accepts_one_http_transport_settings_snapshot() {
+        DeepSeekProvider::builder(DeepSeekCredential::api_key("test-key"))
+            .with_http_transport_settings(ProviderHttpTransportSettings::default())
+            .build()
+            .expect("provider");
     }
 
     #[test]

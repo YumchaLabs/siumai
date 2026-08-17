@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -27,8 +26,8 @@ use siumai_openai_compatible::{
     OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -278,11 +277,7 @@ pub struct XaiProviderBuilder {
     endpoint: Result<EndpointConfig, EndpointError>,
     provider_selected_endpoint: bool,
     replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     chat_defaults: XaiChatOptions,
     responses_defaults: XaiResponsesOptions,
 }
@@ -294,11 +289,7 @@ impl XaiProviderBuilder {
             endpoint: official_endpoint(),
             provider_selected_endpoint: true,
             replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             chat_defaults: XaiChatOptions::default(),
             responses_defaults: XaiResponsesOptions::default(),
         }
@@ -336,28 +327,9 @@ impl XaiProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -386,21 +358,15 @@ impl XaiProviderBuilder {
         let auth = self.credential.0.into_auth();
         let instance_id = ProviderInstanceId::new();
         let language_profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
-        let mut builder =
-            OpenAiCompatibleProvider::builder_with_auth(language_profile, auth.clone())
-                .with_provider_instance(instance_id.clone())
-                .with_limits(self.limits.clone())
-                .with_retry_policy(self.retry_policy);
-
-        if let Some(timeout) = self.connect_timeout {
-            builder = builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            builder = builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            builder = builder.with_read_timeout(timeout);
-        }
+        let media_transport = ProviderTransport::builder(endpoint.clone())
+            .with_auth(auth)
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
+        let mut builder = OpenAiCompatibleProvider::builder_with_transport(
+            language_profile,
+            media_transport.clone(),
+        )
+        .with_provider_instance(instance_id.clone());
         for (name, value) in option_map(&self.chat_defaults)? {
             builder =
                 builder.with_default_option(OpenAiCompatibleApiMode::ChatCompletions, name, value);
@@ -408,21 +374,6 @@ impl XaiProviderBuilder {
         for (name, value) in option_map(&self.responses_defaults)? {
             builder = builder.with_default_option(OpenAiCompatibleApiMode::Responses, name, value);
         }
-
-        let mut media_transport = ProviderTransport::builder(endpoint.clone())
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            media_transport = media_transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            media_transport = media_transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            media_transport = media_transport.with_read_timeout(timeout);
-        }
-
         let image_scope = Arc::new(media_scope(
             &endpoint,
             replay_domain.clone(),
@@ -482,7 +433,6 @@ impl XaiProviderBuilder {
         let language_chat_registration = language.chat_completions_registration().ok_or(
             XaiConfigError::MissingLanguageRegistration(XaiLanguageApi::ChatCompletions),
         )?;
-        let media_transport = media_transport.build()?;
         let image = Arc::new(XaiImageRuntime::new(
             instance_id.clone(),
             image_scope,
@@ -575,6 +525,7 @@ impl LanguageModel for XaiLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.0.generate(request, options).await
     }
 
@@ -583,6 +534,7 @@ impl LanguageModel for XaiLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.0.stream(request, options).await
     }
 }
@@ -790,6 +742,35 @@ pub enum XaiConfigError {
 mod tests {
     use super::*;
     use siumai_core::ModelFamily;
+    use siumai_transport::TransportLimits;
+
+    #[test]
+    fn builder_applies_http_settings_to_all_native_media_branches() {
+        let limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .expect("valid settings");
+        let provider = XaiProvider::builder(XaiCredential::api_key("test-key"))
+            .with_http_transport_settings(settings)
+            .build()
+            .expect("provider");
+
+        assert_eq!(
+            provider.image.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+        assert_eq!(
+            provider.speech.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+        assert_eq!(
+            provider.transcription.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+    }
 
     #[test]
     fn model_construction_is_synchronous_and_future_model_safe() {

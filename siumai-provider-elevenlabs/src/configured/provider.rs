@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use siumai_core::{
     InvalidId, Model, ModelId, ModelLookupError, ProfileError, Provider, ProviderInstanceId,
@@ -9,7 +8,7 @@ use siumai_core::{
     TranscriptionModel, TranscriptionModelProvider, TypedProviderOptions,
 };
 use siumai_transport::{
-    EndpointError, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
+    EndpointError, ProviderHttpTransportSettings, ProviderTransport, TransportConfigError,
 };
 use thiserror::Error;
 
@@ -122,11 +121,7 @@ impl fmt::Debug for ElevenLabsProvider {
 pub struct ElevenLabsProviderBuilder {
     profile: ElevenLabsProfile,
     credential: ElevenLabsCredential,
-    transport_limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     default_voice: String,
     default_options: ElevenLabsSpeechOptions,
     default_transcription_options: ElevenLabsTranscriptionOptions,
@@ -138,11 +133,7 @@ impl ElevenLabsProviderBuilder {
         Self {
             profile,
             credential,
-            transport_limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             default_voice: models::DEFAULT_VOICE.to_string(),
             default_options: ElevenLabsSpeechOptions::default(),
             default_transcription_options: ElevenLabsTranscriptionOptions::default(),
@@ -150,28 +141,9 @@ impl ElevenLabsProviderBuilder {
         }
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.transport_limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -216,20 +188,10 @@ impl ElevenLabsProviderBuilder {
             return Err(ElevenLabsConfigError::ZeroSpeechLimit);
         }
 
-        let mut transport = ProviderTransport::builder(self.profile.endpoint().clone())
+        let transport = ProviderTransport::builder(self.profile.endpoint().clone())
             .with_auth(self.credential.into_auth())
-            .with_limits(self.transport_limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        let transport = transport.build()?;
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
         let instance_id = ProviderInstanceId::new();
         let runtime = Arc::new(ProviderRuntime {
             scope: self.profile.scope_arc(),
@@ -431,6 +393,37 @@ pub enum ElevenLabsConfigError {
 mod tests {
     use super::*;
     use siumai_core::{Model, ModelFamily, ProviderId};
+    use siumai_transport::TransportLimits;
+
+    #[test]
+    fn builder_applies_http_settings_to_speech_and_transcription() {
+        let profile = ElevenLabsProfile::local_explicit("http://127.0.0.1:9876").unwrap();
+        let limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .expect("valid settings");
+        let provider =
+            ElevenLabsProvider::builder(profile, ElevenLabsCredential::api_key("test-key"))
+                .with_http_transport_settings(settings)
+                .build()
+                .expect("provider");
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+        assert_eq!(
+            provider
+                .transcription_runtime
+                .transport
+                .limits()
+                .max_response_bytes,
+            96 * 1024
+        );
+    }
 
     #[test]
     fn builder_rejects_static_configuration_and_registration_matches_direct_model() {

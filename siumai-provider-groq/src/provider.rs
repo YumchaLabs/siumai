@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -27,8 +26,8 @@ use siumai_openai_compatible::{
     OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -296,11 +295,7 @@ pub struct GroqProviderBuilder {
     endpoint: Result<EndpointConfig, EndpointError>,
     provider_selected_endpoint: bool,
     replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     chat_defaults: GroqLanguageOptions,
     responses_defaults: GroqResponsesOptions,
     transcription_defaults: GroqTranscriptionOptions,
@@ -313,11 +308,7 @@ impl GroqProviderBuilder {
             endpoint: official_endpoint(),
             provider_selected_endpoint: true,
             replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             chat_defaults: GroqLanguageOptions::default(),
             responses_defaults: GroqResponsesOptions::default(),
             transcription_defaults: GroqTranscriptionOptions::default(),
@@ -350,28 +341,9 @@ impl GroqProviderBuilder {
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -406,19 +378,13 @@ impl GroqProviderBuilder {
         let auth = self.credential.inner.into_auth();
         let instance_id = ProviderInstanceId::new();
         let profile = profile(endpoint.clone(), replay_domain.clone(), verified_endpoint)?;
-        let mut language = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
-            .with_provider_instance(instance_id.clone())
-            .with_limits(self.limits.clone())
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            language = language.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            language = language.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            language = language.with_read_timeout(timeout);
-        }
+        let media_transport = ProviderTransport::builder(endpoint.clone())
+            .with_auth(auth)
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
+        let mut language =
+            OpenAiCompatibleProvider::builder_with_transport(profile, media_transport.clone())
+                .with_provider_instance(instance_id.clone());
         for (name, value) in option_map(&self.chat_defaults)? {
             language =
                 language.with_default_option(OpenAiCompatibleApiMode::ChatCompletions, name, value);
@@ -426,20 +392,6 @@ impl GroqProviderBuilder {
         for (name, value) in option_map(&self.responses_defaults)? {
             language =
                 language.with_default_option(OpenAiCompatibleApiMode::Responses, name, value);
-        }
-
-        let mut media_transport = ProviderTransport::builder(endpoint.clone())
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            media_transport = media_transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            media_transport = media_transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            media_transport = media_transport.with_read_timeout(timeout);
         }
         let transcription_scope = Arc::new(transcription_scope(
             &endpoint,
@@ -454,7 +406,6 @@ impl GroqProviderBuilder {
         let chat_registration = language
             .chat_completions_registration()
             .ok_or(GroqConfigError::MissingChatCompletionsMode)?;
-        let media_transport = media_transport.build()?;
         let transcription = Arc::new(GroqTranscriptionRuntime::new(
             instance_id.clone(),
             transcription_scope,
@@ -524,11 +475,7 @@ impl fmt::Debug for GroqProviderBuilder {
                 &self.provider_selected_endpoint,
             )
             .field("replay_domain", &self.replay_domain)
-            .field("limits", &self.limits)
-            .field("retry_policy", &self.retry_policy)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("call_timeout", &self.call_timeout)
-            .field("read_timeout", &self.read_timeout)
+            .field("http_transport_settings", &self.http_transport_settings)
             .field("chat_defaults", &self.chat_defaults)
             .field("responses_defaults", &self.responses_defaults)
             .field("transcription_defaults", &self.transcription_defaults)
@@ -553,6 +500,7 @@ impl LanguageModel for GroqLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.0.generate(request, options).await
     }
 
@@ -561,6 +509,7 @@ impl LanguageModel for GroqLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.0.stream(request, options).await
     }
 }
@@ -873,9 +822,82 @@ pub enum GroqConfigError {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::ModelFamily;
+    use std::time::Duration;
+
+    use siumai_core::{
+        CallOptions, ErrorKind, LanguageModel, LanguageRequest, Message, ModelFamily, SpeechModel,
+        SpeechRequest, TranscriptionModel, TranscriptionRequest,
+    };
+    use siumai_transport::TransportLimits;
 
     use super::*;
+
+    #[test]
+    fn builder_applies_http_settings_to_compatible_and_native_branches() {
+        let limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .expect("valid settings");
+        let provider = GroqProvider::builder(GroqCredential::api_key("test-key"))
+            .with_http_transport_settings(settings)
+            .build()
+            .expect("provider");
+
+        assert_eq!(
+            provider.transcription.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+        assert_eq!(
+            provider.speech.transport.limits().max_response_bytes,
+            96 * 1024
+        );
+    }
+
+    #[tokio::test]
+    async fn language_speech_and_transcription_resolve_relative_deadlines_at_entry() {
+        let provider = GroqProvider::builder(GroqCredential::api_key("test-key"))
+            .build()
+            .expect("provider");
+        let options = CallOptions::default()
+            .with_timeout(Duration::MAX)
+            .expect("relative timeout is validated at invocation");
+
+        let language_error = provider
+            .language("future-language")
+            .unwrap()
+            .generate(
+                LanguageRequest::new(vec![Message::user("hello")]),
+                options.clone(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(language_error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(language_error.message(), "invalid call options");
+
+        let speech_error = provider
+            .speech("future-speech")
+            .unwrap()
+            .synthesize(SpeechRequest::new("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(speech_error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(speech_error.message(), "invalid call options");
+
+        let transcription_error = provider
+            .transcription("future-transcription")
+            .unwrap()
+            .transcribe(
+                TranscriptionRequest::new(vec![1_u8], "audio/wav").unwrap(),
+                options,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(transcription_error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(transcription_error.message(), "invalid call options");
+    }
 
     #[test]
     fn configured_provider_native_models_share_one_instance_capability() {

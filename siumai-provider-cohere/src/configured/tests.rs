@@ -1,11 +1,14 @@
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use siumai_core::{
     ApiStability, CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail,
     ErrorKind, Model, ModelFamily, ModelId, RerankCandidate, RerankModel, RerankRequest,
     ResourceKind, UsageValue, VerifiedFidelity,
 };
-use siumai_transport::{EndpointConfig, RetryPolicy};
+use siumai_transport::{
+    EndpointConfig, ProviderHttpTransportSettings, RetryPolicy, TransportEvent, TransportObserver,
+};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -14,6 +17,17 @@ use crate::provider_options::{
 };
 
 use super::{CohereProvider, CohereTranscriptionRequest};
+
+#[derive(Default)]
+struct RecordingObserver {
+    events: Mutex<Vec<TransportEvent>>,
+}
+
+impl TransportObserver for RecordingObserver {
+    fn observe(&self, event: &TransportEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+}
 
 fn test_provider(server: &MockServer) -> CohereProvider {
     test_provider_with_retry(server, RetryPolicy::default())
@@ -24,7 +38,9 @@ fn test_provider_with_retry(server: &MockServer, retry_policy: RetryPolicy) -> C
         .expect("loopback Cohere endpoint");
     CohereProvider::builder("test-api-key")
         .with_endpoint(endpoint)
-        .with_retry_policy(retry_policy)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy),
+        )
         .build()
         .expect("configured Cohere provider")
 }
@@ -140,6 +156,89 @@ fn canonical_requests_reject_empty_embedding_and_rerank_inputs() {
     assert!(EmbeddingRequest::single("   ").is_err());
     assert!(RerankRequest::new("query", Vec::new()).is_err());
     assert!(RerankRequest::new("   ", candidates()).is_err());
+}
+
+#[tokio::test]
+async fn embedding_and_rerank_resolve_relative_deadlines_before_planning() {
+    let provider = CohereProvider::builder("test-api-key")
+        .with_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/v2").expect("local endpoint"),
+        )
+        .build()
+        .expect("provider");
+    let options = CallOptions::default()
+        .with_timeout(Duration::MAX)
+        .expect("relative timeout is validated at invocation");
+
+    let embedding_error = provider
+        .embedding("future-embedding")
+        .unwrap()
+        .embed(EmbeddingRequest::single("hello").unwrap(), options.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(embedding_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(embedding_error.message(), "invalid call options");
+
+    let rerank_error = provider
+        .reranker("future-reranker")
+        .unwrap()
+        .rerank(
+            RerankRequest::new("weather", candidates()).unwrap(),
+            options,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(rerank_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(rerank_error.message(), "invalid call options");
+}
+
+#[tokio::test]
+async fn native_provider_http_settings_install_the_attempt_observer() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": {"float": [[0.1]]},
+            "meta": {"billed_units": {"input_tokens": 1}}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let endpoint = EndpointConfig::local_explicit(format!("{}/v2", server.uri())).unwrap();
+    let provider = CohereProvider::builder("test-api-key")
+        .with_endpoint(endpoint)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+
+    provider
+        .embedding("future-embedding")
+        .unwrap()
+        .embed(
+            EmbeddingRequest::single("hello").unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    let events = observer.events.lock().unwrap();
+    assert!(matches!(
+        events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { .. },
+            TransportEvent::ResponseHeadReceived { .. },
+            TransportEvent::AttemptLoopFinished { .. }
+        ]
+    ));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.call_id() == events[0].call_id())
+    );
 }
 
 #[test]

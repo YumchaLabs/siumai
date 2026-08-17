@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::{
@@ -10,9 +12,23 @@ use siumai_provider_deepseek::{
     DeepSeekAssistantPrefix, DeepSeekChatOptions, DeepSeekConfigError, DeepSeekCredential,
     DeepSeekLanguageApi, DeepSeekProvider, DeepSeekReasoningEffort, DeepSeekResponsesOptions,
 };
-use siumai_transport::{EndpointConfig, OfficialOrigin};
+use siumai_transport::{
+    EndpointConfig, OfficialOrigin, ProviderHttpTransportSettings, TransportEvent,
+    TransportObserver,
+};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+#[derive(Default)]
+struct RecordingObserver {
+    events: Mutex<Vec<TransportEvent>>,
+}
+
+impl TransportObserver for RecordingObserver {
+    fn observe(&self, event: &TransportEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+}
 
 fn test_replay_domain() -> ReplayDomain {
     ReplayDomain::custom(ReplayDomainId::new("test-endpoint").expect("replay domain"))
@@ -282,6 +298,60 @@ async fn messages_direct_uses_x_api_key_and_preserves_open_model_id() {
     let body: Value = serde_json::from_slice(&requests[0].body).expect("request body");
     assert_eq!(body["model"], json!("private-deepseek-alias"));
     assert_eq!(body["max_tokens"], json!(128));
+}
+
+#[tokio::test]
+async fn branded_compatible_branch_installs_the_shared_attempt_observer() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-observed",
+            "object": "chat.completion",
+            "created": 1_787_000_000_i64,
+            "model": "future-deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let provider = DeepSeekProvider::builder(DeepSeekCredential::api_key("test-key"))
+        .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+        .with_replay_domain(test_replay_domain())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+
+    provider
+        .chat_completions("future-deepseek-chat")
+        .unwrap()
+        .generate(request("hello"), CallOptions::default())
+        .await
+        .unwrap();
+
+    let events = observer.events.lock().unwrap();
+    assert!(matches!(
+        events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { .. },
+            TransportEvent::ResponseHeadReceived { .. },
+            TransportEvent::AttemptLoopFinished { .. }
+        ]
+    ));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.call_id() == events[0].call_id())
+    );
 }
 
 #[tokio::test]

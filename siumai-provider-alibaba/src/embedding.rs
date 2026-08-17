@@ -268,6 +268,7 @@ impl EmbeddingModel for AlibabaEmbeddingModel {
         request: EmbeddingRequest,
         options: CallOptions,
     ) -> Result<EmbeddingResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

@@ -153,6 +153,7 @@ impl CohereTranscriptions {
         request: CohereTranscriptionRequest,
         options: CallOptions,
     ) -> Result<TranscriptionResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         request
             .validate()
             .map_err(|error| self.contextualize(error))?;
