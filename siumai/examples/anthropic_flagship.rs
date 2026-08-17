@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use siumai::core::MessagePart;
 use siumai::families::language;
 use siumai::providers::anthropic::annotations::{
@@ -7,6 +9,7 @@ use siumai::providers::anthropic::models::CLAUDE_SONNET_5;
 use siumai::providers::anthropic::options::AnthropicMessagesOptions;
 use siumai::providers::anthropic::resources::AnthropicSkillListQuery;
 use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
+use siumai::transport::ProviderHttpTransportSettings;
 use siumai::{CallOptions, LanguageRequest, Message, MessageRole, ReplayDomainId};
 
 #[tokio::main]
@@ -18,8 +21,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let caller_scope =
         std::env::var("ANTHROPIC_CALLER_SCOPE").unwrap_or_else(|_| "flagship-example".to_string());
+    let http_settings =
+        ProviderHttpTransportSettings::default().with_call_timeout(Duration::from_secs(120))?;
     let provider = AnthropicProvider::builder(AnthropicCredential::api_key(api_key))
         .with_caller_scope(ReplayDomainId::new(caller_scope)?)
+        .with_http_transport_settings(http_settings)
         .build()?;
     let model = provider.language(CLAUDE_SONNET_5)?;
     let user_message = if let Ok(file_id) = std::env::var("ANTHROPIC_FILE_ID") {

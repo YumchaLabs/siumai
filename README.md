@@ -68,6 +68,29 @@ Each row is a `claimed slice complete` inventory for this release, not a `provid
 complete` claim. Surfaces outside a row's exact scope are `intentionally deferred` and remain
 available for future provider-owned additions without widening the portable core.
 
+## Direct HTTP transport settings
+
+Provider features automatically enable the facade's narrow `siumai::transport` namespace. The
+standalone `transport` feature exposes only provider HTTP configuration and payload-free attempt
+observation; authenticated execution, request plans, raw responses, resource downloaders, and
+socket primitives remain in their owning crates.
+
+```rust
+use std::time::Duration;
+use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
+
+let settings = ProviderHttpTransportSettings::default()
+    .with_retry_policy(RetryPolicy::new(2).unwrap())
+    .with_call_timeout(Duration::from_secs(120))
+    .unwrap();
+
+assert_eq!(settings.retry_policy().max_attempts(), 2);
+```
+
+The same cloneable settings value can be reused across configured providers. Its observer events
+contain structural attempt and retry state only—never URLs, headers, credentials, payloads, or
+provider identity.
+
 ## Flagship OpenAI and Anthropic journeys
 
 The facade ships two compile-checked, offline-by-default examples:

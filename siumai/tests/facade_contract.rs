@@ -373,6 +373,115 @@ async fn family_helper_resolves_relative_timeout_at_invocation() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+#[cfg(feature = "transport")]
+#[test]
+fn facade_exposes_direct_transport_configuration() {
+    use siumai::transport::{
+        AttemptLoopOutcome, EndpointConfig, EndpointError, EndpointPolicy, LocalNetworkGrant,
+        OfficialOrigin, ProviderHttpTransportSettings, RetryLimit, RetryPolicy, RetryReason,
+        TransportCallId, TransportConfigError, TransportEvent, TransportLimits, TransportObserver,
+        TransportRetryPolicyError,
+    };
+
+    struct FacadeObserver;
+
+    impl TransportObserver for FacadeObserver {
+        fn observe(&self, event: &TransportEvent) {
+            let _: TransportCallId = event.call_id();
+        }
+    }
+
+    let endpoint = EndpointConfig::new(
+        "http://127.0.0.1:43191/v1",
+        EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback),
+    )
+    .unwrap();
+    assert!(matches!(
+        endpoint.policy(),
+        EndpointPolicy::LocalExplicit(LocalNetworkGrant::Loopback)
+    ));
+
+    let official_origin = OfficialOrigin::new("https://api.example.com").unwrap();
+    EndpointConfig::official("https://api.example.com", official_origin).unwrap();
+    let invalid_endpoint: Result<EndpointConfig, EndpointError> =
+        EndpointConfig::public_custom("http://api.example.com");
+    assert!(invalid_endpoint.is_err());
+
+    let limits = TransportLimits {
+        max_connections: 8,
+        max_in_flight_requests: 4,
+        ..TransportLimits::default()
+    };
+    let retry_policy = RetryPolicy::new(4)
+        .unwrap()
+        .with_max_server_delay(Duration::from_secs(5));
+    let settings = ProviderHttpTransportSettings::default()
+        .with_limits(limits.clone())
+        .unwrap()
+        .with_retry_policy(retry_policy)
+        .with_connect_timeout(Duration::from_secs(2))
+        .unwrap()
+        .with_call_timeout(Duration::from_secs(30))
+        .unwrap()
+        .with_read_timeout(Duration::from_secs(10))
+        .unwrap()
+        .with_observer(Arc::new(FacadeObserver));
+    assert_eq!(settings.limits(), &limits);
+    assert_eq!(settings.retry_policy().max_attempts(), 4);
+
+    let invalid_settings: Result<ProviderHttpTransportSettings, TransportConfigError> =
+        ProviderHttpTransportSettings::default().with_call_timeout(Duration::ZERO);
+    assert!(matches!(
+        invalid_settings,
+        Err(TransportConfigError::ZeroTimeout {
+            name: "call_timeout"
+        })
+    ));
+    let invalid_retry: Result<RetryPolicy, TransportRetryPolicyError> = RetryPolicy::new(0);
+    assert_eq!(invalid_retry, Err(TransportRetryPolicyError::ZeroAttempts));
+
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_secs(3))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap();
+    let retry_intent: RetryIntent = options.retry();
+    assert_eq!(retry_intent.maximum_attempts(), Some(2));
+    assert_eq!(options.timeout(), Some(Duration::from_secs(3)));
+    let invalid_options: Result<CallOptions, siumai::CallOptionsError> =
+        CallOptions::default().with_max_attempts(0);
+    assert!(matches!(
+        invalid_options,
+        Err(siumai::CallOptionsError::ZeroAttempts)
+    ));
+
+    let _ = RetryReason::Transport;
+    let _ = RetryLimit::CallerCap;
+    let _ = AttemptLoopOutcome::Cancelled;
+}
+
+#[cfg(all(feature = "openai", feature = "anthropic"))]
+#[test]
+fn facade_reuses_http_settings_across_flagship_providers() {
+    use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
+    use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+    use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
+
+    let settings =
+        ProviderHttpTransportSettings::default().with_retry_policy(RetryPolicy::new(2).unwrap());
+    let openai = OpenAiProvider::builder(OpenAiCredential::api_key("test-openai-key"))
+        .with_http_transport_settings(settings.clone())
+        .build()
+        .unwrap();
+    let anthropic = AnthropicProvider::builder(AnthropicCredential::api_key("test-anthropic-key"))
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap();
+
+    assert_eq!(openai.provider_id().as_str(), "openai");
+    assert_eq!(anthropic.provider_id().as_str(), "anthropic");
+}
+
 #[cfg(all(feature = "runtime", feature = "json-schema"))]
 #[test]
 fn facade_keeps_json_schema_validation_in_the_runtime_namespace() {
@@ -389,6 +498,34 @@ fn facade_keeps_json_schema_validation_in_the_runtime_namespace() {
 
     assert!(validator.is_valid(&json!({"answer": "ok"})));
     assert!(!validator.is_valid(&json!({"answer": 42})));
+}
+
+#[cfg(feature = "runtime")]
+#[test]
+fn facade_exposes_runtime_budget_configuration() {
+    use siumai::runtime::{BudgetError, BudgetKind, RunBudget, RunBudgetBuilder, RunTimeouts};
+
+    let timeouts = RunTimeouts::new(
+        Duration::from_secs(120),
+        Duration::from_secs(30),
+        Duration::from_secs(10),
+        Duration::from_secs(15),
+        Duration::from_secs(20),
+    )
+    .unwrap();
+    let budget_result: Result<RunBudget, BudgetError> = RunBudgetBuilder::default()
+        .max_model_steps(4)
+        .max_tool_calls(8)
+        .timeouts(timeouts)
+        .build();
+    let budget = budget_result.unwrap();
+    let runtime = Runtime::builder().with_run_budget(budget.clone()).build();
+
+    let _: siumai::RunBudget = budget.clone();
+    let _: siumai::RunBudgetBuilder = siumai::RunBudget::builder();
+    let _: siumai::RunTimeouts = timeouts;
+    let _: BudgetKind = BudgetKind::ModelSteps;
+    assert_eq!(runtime.run_budget(), &budget);
 }
 
 #[cfg(feature = "runtime")]
@@ -417,8 +554,6 @@ async fn registry_language_models_preserve_route_options_through_runtime_and_too
     use serde_json::json;
     use siumai::core::{ProviderInstanceId, ProviderScope};
     use siumai::registry::Registry;
-    use siumai_runtime::tool::ToolSet;
-    use siumai_runtime::{RunTerminal, ToolLoop};
 
     let generate_calls = Arc::new(AtomicUsize::new(0));
     let stream_calls = Arc::new(AtomicUsize::new(0));
@@ -477,14 +612,15 @@ async fn registry_language_models_preserve_route_options_through_runtime_and_too
     let tool_loop_options = CallOptions::default()
         .with_raw_provider_options_for(model.as_ref(), json!({"value": "tool-loop"}))
         .unwrap();
-    let terminal = ToolLoop::new(model, ToolSet::default())
+    let terminal = Runtime::default()
+        .tool_loop(model, Default::default())
         .run(
             LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
             tool_loop_options,
         )
         .await
         .unwrap();
-    assert!(matches!(terminal, RunTerminal::Completed { .. }));
+    assert!(terminal.is_completed());
     assert_eq!(generate_calls.load(Ordering::SeqCst), 1);
     assert_eq!(stream_calls.load(Ordering::SeqCst), 1);
     assert_eq!(
@@ -688,7 +824,7 @@ fn facade_exposes_openai_portable_families_and_provider_owned_resources() {
     use siumai::providers::openai::resources::vector_stores::OpenAiVectorStoreCreateRequest;
     use siumai::providers::openai::responses::{OpenAiContextManagement, OpenAiResponsesOptions};
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
-    use siumai_transport::EndpointConfig;
+    use siumai::transport::EndpointConfig;
 
     let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
         .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
@@ -1611,7 +1747,7 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     use siumai::core::{ReplayDomain, ReplayDomainId};
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai::registry::{Registry, RegistryBuilderExt};
-    use siumai_transport::{
+    use siumai::transport::{
         EndpointConfig, ProviderHttpTransportSettings, TransportEvent, TransportObserver,
     };
     use wiremock::matchers::{method, path};

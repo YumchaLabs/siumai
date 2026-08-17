@@ -18,12 +18,14 @@ pub mod providers;
 pub mod registry;
 #[cfg(feature = "runtime")]
 pub mod runtime;
+#[cfg(feature = "transport")]
+pub mod transport;
 
 pub use siumai_core as core;
 pub use siumai_core::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
-    CallOptions, Cancellation, Citation, ContentPart, EmbeddingLimits, EmbeddingModel,
-    EmbeddingModelProvider, EmbeddingRequest, EmbeddingResponse, Error, ErrorKind,
+    CallOptions, CallOptionsError, Cancellation, Citation, ContentPart, EmbeddingLimits,
+    EmbeddingModel, EmbeddingModelProvider, EmbeddingRequest, EmbeddingResponse, Error, ErrorKind,
     GenerationConfig, GenerationConfigError, ImageArtifact, ImageLimits, ImageModel,
     ImageModelProvider, ImageRequest, ImageResponse, ImageSize, InvalidId, InvalidToolCall,
     InvalidToolInput, InvalidToolSpec, LanguageCallError, LanguageCompletionReason,
@@ -36,14 +38,15 @@ pub use siumai_core::{
     ProviderId, ProviderOptionError, ProviderOptions, ProviderProvenanceError, ReplayAudience,
     ReplayDomain, ReplayDomainId, RerankCandidate, RerankLimits, RerankModel, RerankModelProvider,
     RerankRequest, RerankResponse, RerankResult, ResponseDiagnostics, ResponseMetadata,
-    SpeechLimits, SpeechModel, SpeechModelProvider, SpeechRequest, SpeechResponse, StreamTerminal,
-    StructuredOutputSpec, ToolCall, ToolCallParts, ToolChoice, ToolInput, ToolOutcome, ToolResult,
-    ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
+    RetryIntent, SpeechLimits, SpeechModel, SpeechModelProvider, SpeechRequest, SpeechResponse,
+    StreamTerminal, StructuredOutputSpec, ToolCall, ToolCallParts, ToolChoice, ToolInput,
+    ToolOutcome, ToolResult, ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
     TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
     Usage, UsageUpdate, UsageUpdateKind, UsageValue, Warning, WarningKind,
 };
 
 #[cfg(feature = "runtime")]
 pub use runtime::{
-    ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions, generate, stream,
+    BudgetError, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime, RuntimeBuilder,
+    RuntimeConfigError, StepOptions, generate, stream,
 };

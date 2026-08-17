@@ -7,13 +7,13 @@ pub use crate::{
     LanguageIncompleteReason, LanguageModel, LanguageRequest, LanguageResponse, LanguageStream,
     LanguageStreamEvent, LanguageTermination, Message, MessagePart, MessageRole, Model,
     ModelDescriptor, ModelFamily, ModelId, PartialLanguageOutput, Provider, ProviderId,
-    RerankCandidate, RerankModel, RerankRequest, RerankResponse, SpeechModel, SpeechRequest,
-    SpeechResponse, StreamTerminal, ToolChoice, ToolSpec, TranscriptionModel, TranscriptionRequest,
-    TranscriptionResponse, Usage, UsageUpdate, UsageUpdateKind,
+    RerankCandidate, RerankModel, RerankRequest, RerankResponse, RetryIntent, SpeechModel,
+    SpeechRequest, SpeechResponse, StreamTerminal, ToolChoice, ToolSpec, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse, Usage, UsageUpdate, UsageUpdateKind,
 };
 
 #[cfg(feature = "runtime")]
-pub use crate::{Runtime, StepOptions, generate, stream};
+pub use crate::{RunBudget, RunTimeouts, Runtime, StepOptions, generate, stream};
 
 #[cfg(feature = "registry")]
 pub use crate::registry::{

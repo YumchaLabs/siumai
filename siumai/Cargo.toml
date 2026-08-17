@@ -33,6 +33,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
+siumai-transport = { workspace = true, default-features = false, optional = true }
 siumai-runtime = { workspace = true, default-features = false, optional = true }
 siumai-registry = { workspace = true, default-features = false, optional = true }
 
@@ -56,25 +57,26 @@ siumai-provider-elevenlabs = { version = "0.11.0-beta.10", path = "../siumai-pro
 default = ["registry", "runtime"]
 registry = ["dep:siumai-registry"]
 runtime = ["dep:siumai-runtime"]
+transport = ["dep:siumai-transport"]
 json-schema = ["runtime", "siumai-runtime/json-schema"]
 
-openai = ["dep:siumai-provider-openai"]
-alibaba = ["dep:siumai-provider-alibaba"]
-moonshotai = ["dep:siumai-provider-moonshotai"]
-volcengine = ["dep:siumai-provider-volcengine"]
+openai = ["dep:siumai-provider-openai", "transport"]
+alibaba = ["dep:siumai-provider-alibaba", "transport"]
+moonshotai = ["dep:siumai-provider-moonshotai", "transport"]
+volcengine = ["dep:siumai-provider-volcengine", "transport"]
 openai-realtime = ["openai", "siumai-provider-openai/openai-realtime"]
 openai-responses-websocket = ["openai", "siumai-provider-openai/openai-responses-websocket"]
-openai-compatible = ["dep:siumai-openai-compatible"]
-anthropic = ["dep:siumai-provider-anthropic"]
-google = ["dep:siumai-provider-gemini"]
-google-vertex-anthropic = ["dep:siumai-provider-google-vertex"]
-groq = ["dep:siumai-provider-groq"]
-xai = ["dep:siumai-provider-xai"]
-minimax = ["dep:siumai-provider-minimax"]
-deepseek = ["dep:siumai-provider-deepseek"]
-cohere = ["dep:siumai-provider-cohere"]
-deepgram = ["dep:siumai-provider-deepgram"]
-elevenlabs = ["dep:siumai-provider-elevenlabs"]
+openai-compatible = ["dep:siumai-openai-compatible", "transport"]
+anthropic = ["dep:siumai-provider-anthropic", "transport"]
+google = ["dep:siumai-provider-gemini", "transport"]
+google-vertex-anthropic = ["dep:siumai-provider-google-vertex", "transport"]
+groq = ["dep:siumai-provider-groq", "transport"]
+xai = ["dep:siumai-provider-xai", "transport"]
+minimax = ["dep:siumai-provider-minimax", "transport"]
+deepseek = ["dep:siumai-provider-deepseek", "transport"]
+cohere = ["dep:siumai-provider-cohere", "transport"]
+deepgram = ["dep:siumai-provider-deepgram", "transport"]
+elevenlabs = ["dep:siumai-provider-elevenlabs", "transport"]
 
 all-providers = [
     "openai",
@@ -112,6 +114,5 @@ async-trait.workspace = true
 futures.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-siumai-transport = { workspace = true, default-features = false }
 siumai-protocol-openai = { workspace = true, default-features = false }
 wiremock.workspace = true

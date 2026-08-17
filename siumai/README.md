@@ -12,6 +12,28 @@ the application uses:
 siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai"] }
 ```
 
+Every provider feature activates the narrow `siumai::transport` configuration namespace. Enable
+`transport` by itself when an assembly crate only needs to construct shared provider HTTP settings.
+The namespace intentionally excludes authenticated execution, request plans, raw responses, and
+socket primitives.
+
+```rust,no_run
+use std::time::Duration;
+use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
+
+let http_settings = ProviderHttpTransportSettings::default()
+    .with_retry_policy(RetryPolicy::new(2)?)
+    .with_call_timeout(Duration::from_secs(120))?;
+let _provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key"))
+    .with_http_transport_settings(http_settings)
+    .build()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Transport observers receive only bounded structural attempt events. They cannot inspect URLs,
+headers, credentials, bodies, prompts, outputs, or provider identity.
+
 Portable requests use the same core types regardless of provider:
 
 ```rust

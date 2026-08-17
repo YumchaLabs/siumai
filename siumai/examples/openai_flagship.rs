@@ -1,9 +1,12 @@
+use std::time::Duration;
+
 use siumai::families::language;
 use siumai::providers::openai::models::GPT_5_6;
 use siumai::providers::openai::responses::{
     OpenAiReasoning, OpenAiReasoningEffort, OpenAiResponsesOptions,
 };
 use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+use siumai::transport::ProviderHttpTransportSettings;
 use siumai::{CallOptions, LanguageRequest, Message};
 
 #[tokio::main]
@@ -13,7 +16,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     };
 
-    let provider = OpenAiProvider::builder(OpenAiCredential::api_key(api_key)).build()?;
+    let http_settings =
+        ProviderHttpTransportSettings::default().with_call_timeout(Duration::from_secs(120))?;
+    let provider = OpenAiProvider::builder(OpenAiCredential::api_key(api_key))
+        .with_http_transport_settings(http_settings)
+        .build()?;
     let model = provider.responses(GPT_5_6)?;
     let provider_options = OpenAiResponsesOptions::default()
         .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::High));
