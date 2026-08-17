@@ -60,6 +60,81 @@ provider but does not enable Realtime:
 siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai-responses-websocket"] }
 ```
 
+## Direct HTTP settings, call deadlines, and retry caps
+
+Every configured provider and both compatibility engines now accept one transport-owned stateless
+HTTP settings value. Facade provider features enable the curated `siumai::transport` namespace, so
+facade applications do not need a direct `siumai-transport` dependency:
+
+```rust,ignore
+use std::time::Duration;
+use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
+
+let settings = ProviderHttpTransportSettings::default()
+    .with_retry_policy(RetryPolicy::new(2)?)
+    .with_connect_timeout(Duration::from_secs(10))?
+    .with_call_timeout(Duration::from_secs(120))?
+    .with_read_timeout(Duration::from_secs(30))?;
+
+let provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key"))
+    .with_http_transport_settings(settings)
+    .build()?;
+```
+
+The old-to-new migration map is intentionally alias-free:
+
+| Removed provider-builder surface | Current replacement |
+|---|---|
+| `with_limits(...)` or `with_transport_limits(...)` | `ProviderHttpTransportSettings::with_limits(...)`, then builder `with_http_transport_settings(...)` |
+| `with_retry_policy(...)` | `ProviderHttpTransportSettings::with_retry_policy(...)` |
+| `with_connect_timeout(...)` | `ProviderHttpTransportSettings::with_connect_timeout(...)` |
+| `with_call_timeout(...)` | `ProviderHttpTransportSettings::with_call_timeout(...)` |
+| `with_read_timeout(...)` | `ProviderHttpTransportSettings::with_read_timeout(...)` |
+| `OpenAiProviderBuilder::with_transport_observer(...)` | `ProviderHttpTransportSettings::with_observer(...)` |
+| Constructing `Instant::now() + duration` for relative call intent | `siumai::CallOptions::with_timeout(duration)`; keep `with_deadline(...)` for a true absolute deadline |
+| `without_retry()` when the caller needs a cap greater than one | `siumai::CallOptions::with_max_attempts(n)`; `without_retry()` remains the one-attempt shorthand |
+| Direct `siumai_transport` imports in a facade-only application | `siumai::transport::{ProviderHttpTransportSettings, RetryPolicy, TransportLimits, TransportObserver, ...}` |
+
+Endpoint policy, credentials/signing, retry classification, and operation replay proof remain
+separate authorities. Provider options and request bodies cannot override them. A custom endpoint
+continues to describe a reverse gateway destination and its credential/replay audience; it is not a
+forward proxy.
+
+Call-level timing and retry intent now live on `CallOptions`:
+
+```rust,ignore
+use std::time::Duration;
+use siumai::CallOptions;
+
+let options = CallOptions::default()
+    .with_timeout(Duration::from_secs(30))?
+    .with_max_attempts(2)?;
+```
+
+The relative timeout starts when the outer family call or runtime run accepts the options, resolves
+once to an absolute deadline, and does not restart during validation, queueing, backoff, streaming
+establishment, runtime steps, or structured-output repair. If `with_deadline(...)` is also present,
+the earlier deadline wins. `with_max_attempts(...)` caps total attempts for each logical provider
+HTTP call; it cannot make `ReplaySafety::Never` replayable. `without_retry()` remains the
+one-attempt convenience.
+
+Transport observers report structural attempt-loop data only. They end at buffered response return
+or stream establishment and never receive URLs, endpoint queries, headers, credentials, response
+bodies, prompts, tool payloads, provider errors, or provider identity. Applications that need
+provider/route/account attribution should wrap the observer when configuring each provider.
+
+The settings value does not configure OpenAI Realtime or Responses WebSocket sessions, Alibaba
+video materialization downloads, provider-returned external resources, media jobs, or MCP. Keep
+using their independently named lifecycle controls. In particular, OpenAI retains dedicated
+Realtime and Responses WebSocket limits/connect/session/I/O/turn settings, while Alibaba retains
+`with_video_download_limits`, `with_video_download_connect_timeout`,
+`with_video_download_timeout`, and `with_video_download_read_timeout`.
+
+This milestone supports Direct networking only. Environment proxy discovery remains disabled.
+Explicit forward proxy/CONNECT support and an MCP HTTP route adapter are deferred to a separate
+milestone; no proxy types or partial proxy support claim are available in this release.
+
 ## OpenAI Responses module path
 
 The temporary `siumai_protocol_openai::responses_next` module was renamed to
@@ -940,6 +1015,12 @@ and `create_with_options` respectively.
   Responses turns; configure a WebSocket endpoint explicitly for custom HTTP providers.
 - Acquire files, image, video, music, and speech APIs from `MinimaxProvider`.
 - Add Registry only for explicit local routing, and register each non-default API mode separately.
+- Replace provider-level HTTP limits/retry/timeout/observer setters with one
+  `ProviderHttpTransportSettings` value and `with_http_transport_settings(...)`.
+- Resolve caller timing with `CallOptions::with_timeout` and narrow retries with
+  `CallOptions::with_max_attempts`; do not treat either as replay permission.
+- Keep Realtime, Responses WebSocket, external-download, media-job, and MCP controls independent
+  from stateless provider HTTP settings.
 - Move model lifecycle, allowlist, availability, compliance, and fallback decisions out of removed
   `ModelPolicy`/`Registry::evaluate` execution paths and into explicit host policy.
 - Replace provider-wide `scope()` or `platform()` queries with `provider_id()` or an exact model or

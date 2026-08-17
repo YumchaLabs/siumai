@@ -680,7 +680,7 @@ async fn observer_wrappers_add_host_attribution_without_expanding_transport_even
 }
 
 #[tokio::test]
-async fn transport_event_debug_contains_no_request_response_or_credential_payload() {
+async fn transport_events_redact_credentials_endpoint_query_response_prompt_and_tool_payloads() {
     let server = TestServer::spawn(vec![ServerAction::Respond {
         status: 200,
         headers: vec![(
@@ -700,7 +700,7 @@ async fn transport_event_debug_contains_no_request_response_or_credential_payloa
         .unwrap();
     let plan = RequestPlan::new(
         Method::POST,
-        RequestTarget::new("canary-request-target").unwrap(),
+        RequestTarget::new("canary-request-target?hint=canary-endpoint-query").unwrap(),
     )
     .with_headers(
         RequestHeaders::new()
@@ -710,7 +710,13 @@ async fn transport_event_debug_contains_no_request_response_or_credential_payloa
             )
             .unwrap(),
     )
-    .with_body(RequestBody::bytes("canary-request-body"));
+    .with_body(
+        RequestBody::json(&serde_json::json!({
+            "prompt": "canary-prompt-payload",
+            "tool": { "input": "canary-tool-payload" }
+        }))
+        .unwrap(),
+    );
     transport
         .execute(plan, CallOptions::default())
         .await
@@ -719,9 +725,11 @@ async fn transport_event_debug_contains_no_request_response_or_credential_payloa
     let debug = format!("{:?}", observer.events());
     for sentinel in [
         "canary-request-target",
+        "canary-endpoint-query",
         "x-canary-request-header",
         "canary-request-header-value",
-        "canary-request-body",
+        "canary-prompt-payload",
+        "canary-tool-payload",
         "x-canary-response-header",
         "canary-response-header-value",
         "canary-response-body",
@@ -1669,7 +1677,8 @@ impl AuthApplier for SecretAuth {
 }
 
 #[tokio::test]
-async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
+async fn default_error_surfaces_redact_credentials_endpoint_query_response_prompt_and_tool_payloads()
+ {
     let server = TestServer::spawn(vec![ServerAction::Respond {
         status: 200,
         headers: vec![(
@@ -1694,7 +1703,17 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
         .unwrap();
     let error = transport
         .execute(
-            RequestPlan::new(Method::GET, RequestTarget::new("secret").unwrap()),
+            RequestPlan::new(
+                Method::POST,
+                RequestTarget::new("secret?hint=canary-endpoint-query").unwrap(),
+            )
+            .with_body(
+                RequestBody::json(&serde_json::json!({
+                    "prompt": "canary-prompt-payload",
+                    "tool": { "input": "canary-tool-payload" }
+                }))
+                .unwrap(),
+            ),
             CallOptions::default(),
         )
         .await
@@ -1706,8 +1725,11 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
     ] {
         assert!(!surface.contains("canary-header-secret"));
         assert!(!surface.contains("canary-query-secret"));
+        assert!(!surface.contains("canary-endpoint-query"));
         assert!(!surface.contains("canary-response-header"));
         assert!(!surface.contains("canary-response-body"));
+        assert!(!surface.contains("canary-prompt-payload"));
+        assert!(!surface.contains("canary-tool-payload"));
     }
     assert!(error.sensitive_response().unwrap().expose().1.len() <= 4);
 }

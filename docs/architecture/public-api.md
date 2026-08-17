@@ -1,7 +1,7 @@
 # Public API and Extension Policy
 
 - Status: Current repository contract
-- Updated: 2026-08-11
+- Updated: 2026-08-17
 
 ## Public entry points
 
@@ -11,9 +11,10 @@ Applications may depend directly on an owning crate or use the `siumai` facade:
   typed options, metadata, and native resources;
 - `siumai::providers::*` contains curated provider namespaces rather than blanket crate mirrors;
 - `siumai::prelude::*` exports the provider-neutral family contracts used by application code;
-- `siumai::registry` and `siumai::runtime` are optional facade integrations;
-- protocol codecs, transports, MCP, and server adapters remain available from their owning
-  packages instead of being relayed through broad facade namespaces.
+- `siumai::registry`, `siumai::runtime`, and the curated `siumai::transport` configuration
+  namespace are optional facade integrations;
+- transport execution, protocol codecs, MCP, and server adapters remain available from their
+  owning packages instead of being relayed through broad facade namespaces.
 
 The facade does not expose a universal client or provider capability downcasts. Direct and routed
 models implement the same family traits, so an application can choose provider fidelity, local
@@ -21,9 +22,12 @@ routing, or both without maintaining two execution APIs.
 
 ## Provider construction
 
-Provider builders configure credentials, endpoint policy, retry and transport limits, and
-provider-wide typed defaults. They do not select an application route, discover models, or perform
-network I/O during construction.
+Provider builders configure credentials, endpoint policy, one
+`ProviderHttpTransportSettings` snapshot, and provider-wide typed defaults. They do not select an
+application route, discover models, or perform network I/O during construction. Every configured
+provider and compatibility engine accepts stateless HTTP infrastructure through
+`with_http_transport_settings(...)`; the former duplicated limits/retry/connect/call/read/observer
+setters are not compatibility aliases.
 
 Provider methods construct lightweight family models synchronously from open model IDs. When a
 provider supports multiple language protocols, the provider exposes named constructors such as
@@ -52,6 +56,33 @@ Registry adds canonical route projection through private family wrappers and exp
 pipeline. A host-owned family-trait decorator must preserve the complete `ModelDescriptor` and
 delegate `route_id()` so route-bound provider options and runtime defaults continue to match the
 configured target.
+
+## Direct transport and call controls
+
+`ProviderHttpTransportSettings` is owned by `siumai-transport` and is reachable through
+`siumai::transport` when the facade `transport` feature is enabled. The curated namespace contains
+endpoint policy, limits, retry/settings, observer/event, and configuration-error values. It does
+not expose `ProviderTransport`, authentication appliers, request plans, raw responses, resource
+downloaders, or socket types.
+
+The settings value applies only to provider-owned stateless HTTP APIs. Endpoint/authentication,
+provider retry classification, and per-request replay proof remain separate authorities. Provider
+options and request bodies cannot override those authorities. Provider WebSocket/Realtime sessions,
+media jobs, external downloads, and MCP retain their own lifecycle-specific controls.
+
+`CallOptions::with_timeout` starts at the outer logical invocation and resolves once to an absolute
+deadline; an existing earlier deadline wins. `with_max_attempts` caps total attempts for one
+provider HTTP call but cannot promote `ReplaySafety::Never` or expand provider retry policy.
+`without_retry()` remains the one-attempt convenience.
+
+Transport observers receive only structural attempt-loop data and an opaque correlation token.
+Observation ends at bounded response return or byte-stream establishment, not response-body or
+protocol completion. Provider/route/account attribution is supplied by a host-authored observer
+wrapper and never enters transport events.
+
+This release exposes Direct networking only. A custom endpoint is a reverse-gateway destination,
+not a forward proxy. Explicit CONNECT routing and an MCP HTTP route adapter are deferred; there is
+no environment proxy discovery, raw client/custom-fetch hook, or partial proxy support claim.
 
 ## Typed provider extensions
 
@@ -146,9 +177,10 @@ exist.
 
 ## Features
 
-Facade provider features activate only the selected optional provider dependency. Provider package
-features represent real compile-time behavior, such as an optional protocol or message capability;
-empty relay features are removed.
+Facade provider features activate the selected optional provider dependency plus the narrow
+`transport` configuration feature. They do not activate unrelated providers, runtime, Registry,
+MCP, Realtime, or Responses WebSocket code. Provider package features represent real compile-time
+behavior, such as an optional protocol or message capability; empty relay features are removed.
 
 Applications that need the full implemented provider-owned surface should depend on the provider
 crate directly. A facade feature must not activate unrelated providers, protocols, or job/session

@@ -91,6 +91,9 @@ The same cloneable settings value can be reused across configured providers. Its
 contain structural attempt and retry state only—never URLs, headers, credentials, payloads, or
 provider identity.
 
+This release uses Direct networking only. A custom provider endpoint is a reverse gateway, not a
+forward proxy; explicit CONNECT routing and the matching MCP HTTP route adapter remain deferred.
+
 ## Flagship OpenAI and Anthropic journeys
 
 The facade ships two compile-checked, offline-by-default examples:

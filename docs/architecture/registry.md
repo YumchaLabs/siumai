@@ -62,7 +62,8 @@ Applications that need model-call decoration can implement the relevant family t
 ordinary host-owned wrapper. Such a wrapper must delegate the complete `ModelDescriptor` unchanged
 and forward `route_id()` so exact-target provider options, runtime route defaults, and error
 attribution continue to select the configured route. Registry does not install or order those
-wrappers.
+wrappers. The removed execution-decoration surface was not replaced with a middleware framework,
+fallback/cache engine, transport hook, raw client/custom-fetch seam, or OpenTelemetry integration.
 
 ## Non-goals
 
@@ -77,6 +78,7 @@ Registry does not:
 - evaluate model lifecycle, allowlist, or product-capability policy;
 - choose between API modes within one family binding;
 - provide execution decorators, hooks, or wrapper stacks;
+- own retry, fallback, cache, telemetry-installation, or raw network customization policy;
 - expose a universal provider factory or generic client.
 
 Those concerns belong to configured providers or the host control plane. Applications that need

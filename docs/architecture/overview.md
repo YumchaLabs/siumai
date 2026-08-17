@@ -1,7 +1,7 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-16
+- Updated: 2026-08-17
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
@@ -52,7 +52,7 @@ catalogs are resources rather than model families.
 | `siumai-runtime` | provider-neutral tool loops, structured output, approvals, budgets, and durable multi-step execution |
 | `siumai-mcp` | MCP client/server integration and MCP-specific lifecycle/security policy |
 | `siumai-server` | server and gateway adapters over runtime, core, and protocol contracts |
-| `siumai` | curated facade, feature aggregation, prelude, Registry adapters, and primary ergonomic entry points |
+| `siumai` | curated facade, feature aggregation, prelude, Direct transport configuration, Registry adapters, and primary ergonomic entry points |
 
 Dependency direction flows from facade and integrations toward provider/runtime/registry, then into
 core, protocol, and transport owners. Provider crates do not depend on the facade or Registry, and
@@ -67,8 +67,10 @@ working integrations, remain canonical-only, and make loss and resource bounds e
 ## Configured providers and model handles
 
 A configured provider owns long-lived shared runtime state: credentials, endpoint policy,
-transport, retry policy, concurrency limits, protocol profiles, and provider resources. Provider
-construction is synchronous and model-independent.
+transport, one stateless HTTP settings snapshot, protocol profiles, and provider resources.
+Provider construction is synchronous and model-independent. Branches share a `ProviderTransport`
+only when endpoint, credential audience, auth/signing owner, settings, and network mechanism are
+identical; a difference in any dimension requires a separate transport.
 
 The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, API mode, and
 provider-native replay domain belong to an exact executable `ProviderScope` carried by model
@@ -93,6 +95,26 @@ project a combined registration to one family before assigning a route. Alternat
 the same family remain separate registrations so the host chooses them explicitly.
 Provider-owned profiles and support manifests describe dated evidence; Registry does not treat that
 metadata as an execution allowlist and exposes no generic policy-evaluation callback.
+
+## Direct transport ergonomics
+
+`siumai-transport` owns `ProviderHttpTransportSettings`, and facade-only applications reach its
+curated configuration and observation types through `siumai::transport`. Every configured provider
+and both compatibility engines consume the same value through `with_http_transport_settings(...)`.
+Endpoint, credentials/signing, retry classification, and operation replay proof remain outside the
+value and cannot be overridden by provider options.
+
+Relative `CallOptions` timeouts resolve once when the outer public family call or runtime run begins
+and then propagate as one absolute deadline. Caller attempt caps only narrow provider retry policy;
+replay safety remains authoritative. A payload-free observer reports attempt budgeting, starts,
+response heads, retry scheduling or decline, and one final buffered-response-returned,
+stream-established, failed, cancelled, or timed-out outcome. Host wrappers provide attribution.
+
+The current network route is Direct: environment/system proxies, redirects, referer forwarding,
+and reqwest retry remain disabled. A custom endpoint is a reverse gateway, not a forward proxy.
+Explicit CONNECT routing and MCP route reuse belong to the separate proxy milestone. WebSocket,
+Realtime, provider-returned downloads, jobs, sessions, and MCP do not silently inherit provider
+stateless HTTP settings.
 
 ## Provider plane and host control plane
 

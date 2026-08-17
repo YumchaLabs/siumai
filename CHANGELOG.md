@@ -4,11 +4,33 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+### Added
+
+- *(core/transport/facade)* Added invocation-relative `CallOptions` timeouts, caller attempt caps,
+  the transport-owned `ProviderHttpTransportSettings`, and the curated `siumai::transport`
+  configuration/attempt-observation namespace. Relative timeouts resolve once at the outer call
+  boundary, while attempt caps can only narrow provider policy and replay proof.
+
+### Changed
+
+- *(providers)* [**breaking**] All configured providers and compatibility engines now accept
+  stateless HTTP limits, retry policy, connect/call/read timeouts, and payload-free observation
+  through `with_http_transport_settings(...)`. Provider WebSocket/Realtime sessions and Alibaba
+  video downloads retain independent lifecycle-specific controls.
+- *(transport)* Retry observation now reports one correlated structural attempt loop and finishes
+  at buffered response return or stream establishment. Server `Retry-After` advice has a ceiling
+  independent of local backoff. Direct networking still disables environment proxy discovery;
+  explicit CONNECT and MCP route support remain deferred.
+
 ### Removed
 
 - *(registry)* [**breaking**] Removed `RegistryMiddleware`, its builder/snapshot APIs, facade
   exports, and execution-decoration tests. Registry now owns only deterministic lookup and private
   canonical-route projection; `RegistryModelContext` remains public for typed resolve errors.
+- *(providers)* [**breaking**] Removed duplicated provider-level HTTP
+  `with_limits`/`with_transport_limits`, retry, connect/call/read timeout, and OpenAI-only observer
+  setters. No compatibility aliases, middleware replacement, raw client/custom-fetch hook,
+  fallback/cache engine, or OpenTelemetry integration were added.
 
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.9...v0.11.0-beta.10) - 2026-08-13
 

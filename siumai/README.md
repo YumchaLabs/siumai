@@ -34,6 +34,9 @@ let _provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key")
 Transport observers receive only bounded structural attempt events. They cannot inspect URLs,
 headers, credentials, bodies, prompts, outputs, or provider identity.
 
+The current transport route is Direct. Custom endpoints remain reverse gateways; explicit forward
+proxy/CONNECT routing and an MCP HTTP route adapter are deferred rather than partially exposed.
+
 Portable requests use the same core types regardless of provider:
 
 ```rust
