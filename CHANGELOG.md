@@ -10,6 +10,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   the transport-owned `ProviderHttpTransportSettings`, and the curated `siumai::transport`
   configuration/attempt-observation namespace. Relative timeouts resolve once at the outer call
   boundary, while attempt caps can only narrow provider policy and replay proof.
+- *(transport/MCP/facade)* Added explicit trusted CONNECT routing for public HTTPS provider and streamable HTTP MCP origins through `HttpTransportRoute`, `ProxyEndpoint`, and optional bounded `ProxyBasicCredential`. Provider settings use `ProviderHttpTransportSettings::with_route(...)`, MCP uses `McpClientConfig::with_http_transport_route(...)`, Direct remains the default, and proxy/origin credentials stay in separate phases. Facade users construct provider routes through `siumai::transport`.
 
 ### Changed
 
@@ -17,10 +18,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   stateless HTTP limits, retry policy, connect/call/read timeouts, and payload-free observation
   through `with_http_transport_settings(...)`. Provider WebSocket/Realtime sessions and Alibaba
   video downloads retain independent lifecycle-specific controls.
-- *(transport)* Retry observation now reports one correlated structural attempt loop and finishes
-  at buffered response return or stream establishment. Server `Retry-After` advice has a ceiling
-  independent of local backoff. Direct networking still disables environment proxy discovery;
-  explicit CONNECT and MCP route support remain deferred.
+- *(transport)* Retry observation now reports one correlated structural attempt loop and finishes at buffered response return or stream establishment. Server `Retry-After` advice has a ceiling independent of local backoff. Direct networking still disables environment proxy discovery; trusted CONNECT validates the proxy endpoint/peer and explicitly delegates destination DNS/peer selection without weakening inner TLS, credential audience, replay, deadline, or bounds enforcement.
 
 ### Removed
 

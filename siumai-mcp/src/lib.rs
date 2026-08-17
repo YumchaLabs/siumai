@@ -5,6 +5,7 @@
 //! into Siumai's explicit [`siumai_runtime::tool::ToolBinding`] contract.
 //! Remote annotations never grant execution permissions.
 
+#![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 
 mod catalog;

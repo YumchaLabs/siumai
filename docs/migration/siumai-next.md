@@ -60,7 +60,7 @@ provider but does not enable Realtime:
 siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai-responses-websocket"] }
 ```
 
-## Direct HTTP settings, call deadlines, and retry caps
+## Provider HTTP settings, trusted CONNECT routes, call deadlines, and retry caps
 
 Every configured provider and both compatibility engines now accept one transport-owned stateless
 HTTP settings value. Facade provider features enable the curated `siumai::transport` namespace, so
@@ -82,6 +82,19 @@ let provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key"))
     .build()?;
 ```
 
+To use an explicit forward proxy, construct the route separately and apply it to the same
+settings value. This example only validates configuration; it does not discover a proxy or make a
+network request:
+
+```rust,ignore
+use siumai::transport::{HttpTransportRoute, ProviderHttpTransportSettings, ProxyEndpoint};
+
+let proxy = ProxyEndpoint::https("https://proxy.example.com")?;
+let route = HttpTransportRoute::trusted_connect(proxy);
+let settings = ProviderHttpTransportSettings::default().with_route(route)?;
+// Pass `settings` to a provider builder with `with_http_transport_settings(settings)`.
+```
+
 The old-to-new migration map is intentionally alias-free:
 
 | Removed provider-builder surface | Current replacement |
@@ -92,6 +105,8 @@ The old-to-new migration map is intentionally alias-free:
 | `with_call_timeout(...)` | `ProviderHttpTransportSettings::with_call_timeout(...)` |
 | `with_read_timeout(...)` | `ProviderHttpTransportSettings::with_read_timeout(...)` |
 | `OpenAiProviderBuilder::with_transport_observer(...)` | `ProviderHttpTransportSettings::with_observer(...)` |
+| Provider builder proxy/client or environment configuration | `ProviderHttpTransportSettings::with_route(HttpTransportRoute::trusted_connect(...))`; there is no raw client, custom-fetch, or environment-proxy replacement |
+| Proxy URL userinfo or opaque `Proxy-Authorization` header | `ProxyEndpoint` plus optional bounded `ProxyBasicCredential` for HTTPS proxy negotiation only |
 | Constructing `Instant::now() + duration` for relative call intent | `siumai::CallOptions::with_timeout(duration)`; keep `with_deadline(...)` for a true absolute deadline |
 | `without_retry()` when the caller needs a cap greater than one | `siumai::CallOptions::with_max_attempts(n)`; `without_retry()` remains the one-attempt shorthand |
 | Direct `siumai_transport` imports in a facade-only application | `siumai::transport::{ProviderHttpTransportSettings, RetryPolicy, TransportLimits, TransportObserver, ...}` |
@@ -100,6 +115,13 @@ Endpoint policy, credentials/signing, retry classification, and operation replay
 separate authorities. Provider options and request bodies cannot override them. A custom endpoint
 continues to describe a reverse gateway destination and its credential/replay audience; it is not a
 forward proxy.
+
+Direct mode remains the default and validates provider DNS/peer addresses locally. Trusted CONNECT
+mode validates the selected proxy endpoint/peer and transfers destination DNS/peer selection to
+that proxy while retaining the logical provider URL, inner TLS hostname/certificate, provider
+credential audience, redirect policy, replay proof, deadlines, and resource bounds. An optional
+`ProxyBasicCredential` is sent only during CONNECT; provider authentication is sent only inside the
+tunnel. The credential is immutable, so rotate it by rebuilding the configured provider.
 
 Call-level timing and retry intent now live on `CallOptions`:
 
@@ -131,9 +153,28 @@ Realtime and Responses WebSocket limits/connect/session/I/O/turn settings, while
 `with_video_download_limits`, `with_video_download_connect_timeout`,
 `with_video_download_timeout`, and `with_video_download_read_timeout`.
 
-This milestone supports Direct networking only. Environment proxy discovery remains disabled.
-Explicit forward proxy/CONNECT support and an MCP HTTP route adapter are deferred to a separate
-milestone; no proxy types or partial proxy support claim are available in this release.
+Streamable HTTP MCP uses the same route type without importing provider settings or provider
+authentication:
+
+```rust,ignore
+use siumai_mcp::{HttpTransportRoute, McpClientConfig, ProxyEndpoint};
+
+let route = HttpTransportRoute::trusted_connect(ProxyEndpoint::https(
+    "https://proxy.example.com",
+)?);
+let config = McpClientConfig::default().with_http_transport_route(route);
+// Pass `config` to `McpClient::from_http` when the host is ready to connect.
+```
+
+MCP retains its own endpoint policy, bearer authentication, message bounds, session lifecycle,
+and never-replay semantics. POST, GET/SSE, and DELETE/session-close requests use the selected
+route. Stdio MCP is unchanged. Environment proxy discovery remains disabled.
+
+The supported route is deliberately bounded to explicit CONNECT for HTTPS destinations. SOCKS,
+PAC, named proxy-product certification, opaque or bearer/Negotiate/NTLM/Kerberos proxy
+authentication, URL-userinfo credentials, raw client/custom-fetch injection, custom proxy CA or
+mTLS configuration, WebSocket/Realtime proxying, provider-returned external-download proxying,
+and arbitrary-URL routing remain unsupported.
 
 ## OpenAI Responses module path
 

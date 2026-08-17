@@ -18,6 +18,8 @@ The namespace intentionally excludes authenticated execution, request plans, raw
 socket primitives.
 
 ```rust,no_run
+# #[cfg(feature = "openai")]
+# fn build_openai_provider() -> Result<(), Box<dyn std::error::Error>> {
 use std::time::Duration;
 use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
 use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
@@ -29,13 +31,32 @@ let _provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key")
     .with_http_transport_settings(http_settings)
     .build()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
+# }
+```
+
+Select a trusted forward proxy explicitly; constructing the route performs no environment lookup
+or network I/O:
+
+```rust
+use siumai::transport::{HttpTransportRoute, ProviderHttpTransportSettings, ProxyEndpoint};
+
+let route = HttpTransportRoute::trusted_connect(
+    ProxyEndpoint::https("https://proxy.example.com")?,
+);
+let settings = ProviderHttpTransportSettings::default().with_route(route)?;
+
+assert!(settings.route().proxy().is_some());
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Transport observers receive only bounded structural attempt events. They cannot inspect URLs,
 headers, credentials, bodies, prompts, outputs, or provider identity.
 
-The current transport route is Direct. Custom endpoints remain reverse gateways; explicit forward
-proxy/CONNECT routing and an MCP HTTP route adapter are deferred rather than partially exposed.
+Direct remains the default and ignores environment/system proxy configuration. A custom endpoint
+is a reverse gateway, not a forward proxy. The alternative is one explicit trusted CONNECT route
+for public HTTPS provider origins. Proxy Basic authentication and provider authentication remain
+separate, redacted audiences; rotate an immutable proxy credential by rebuilding the provider.
+WebSocket, Realtime, and provider-returned external-download routes remain Direct-only.
 
 Portable requests use the same core types regardless of provider:
 
@@ -55,15 +76,17 @@ annotations, native resources, and experimental session APIs behind their owning
 Enable `registry` for deterministic lookup over caller-configured providers and `runtime` for
 provider-neutral multi-step execution.
 
-The packaged facade includes two compile-checked flagship examples:
+The packaged facade includes three compile-checked examples:
 
 - `examples/openai_flagship.rs` combines an exact-target Responses option, the portable language
   family, and the provider-owned Conversations lifecycle;
 - `examples/anthropic_flagship.rs` combines Messages options, scope-bound Files-in-Messages,
-  assistant-history replay, and a provider-owned Skills metadata list.
+  assistant-history replay, and a provider-owned Skills metadata list;
+- `examples/trusted_connect_route.rs` constructs a trusted route through curated facade APIs and
+  proves how a provider builder consumes the resulting settings without credentials or I/O.
 
-Both examples are offline by default and perform network calls only after their provider credential
-environment variable is set.
+The flagship examples are offline by default and perform network calls only after their provider
+credential environment variable is set. The trusted-route example performs no network I/O.
 
 See the [repository README](https://github.com/YumchaLabs/siumai#readme),
 [migration guide](https://github.com/YumchaLabs/siumai/blob/main/docs/migration/siumai-next.md), and

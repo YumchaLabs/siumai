@@ -52,7 +52,7 @@ catalogs are resources rather than model families.
 | `siumai-runtime` | provider-neutral tool loops, structured output, approvals, budgets, and durable multi-step execution |
 | `siumai-mcp` | MCP client/server integration and MCP-specific lifecycle/security policy |
 | `siumai-server` | server and gateway adapters over runtime, core, and protocol contracts |
-| `siumai` | curated facade, feature aggregation, prelude, Direct transport configuration, Registry adapters, and primary ergonomic entry points |
+| `siumai` | curated facade, feature aggregation, prelude, provider HTTP transport configuration, Registry adapters, and primary ergonomic entry points |
 
 Dependency direction flows from facade and integrations toward provider/runtime/registry, then into
 core, protocol, and transport owners. Provider crates do not depend on the facade or Registry, and
@@ -96,7 +96,7 @@ the same family remain separate registrations so the host chooses them explicitl
 Provider-owned profiles and support manifests describe dated evidence; Registry does not treat that
 metadata as an execution allowlist and exposes no generic policy-evaluation callback.
 
-## Direct transport ergonomics
+## HTTP transport ergonomics
 
 `siumai-transport` owns `ProviderHttpTransportSettings`, and facade-only applications reach its
 curated configuration and observation types through `siumai::transport`. Every configured provider
@@ -110,11 +110,29 @@ replay safety remains authoritative. A payload-free observer reports attempt bud
 response heads, retry scheduling or decline, and one final buffered-response-returned,
 stream-established, failed, cancelled, or timed-out outcome. Host wrappers provide attribution.
 
-The current network route is Direct: environment/system proxies, redirects, referer forwarding,
+The default network route is Direct: environment/system proxies, redirects, referer forwarding,
 and reqwest retry remain disabled. A custom endpoint is a reverse gateway, not a forward proxy.
-Explicit CONNECT routing and MCP route reuse belong to the separate proxy milestone. WebSocket,
-Realtime, provider-returned downloads, jobs, sessions, and MCP do not silently inherit provider
-stateless HTTP settings.
+The alternative is one explicit trusted CONNECT route from the curated `siumai::transport`
+namespace. It tunnels only public HTTPS provider origins through a separately validated proxy and
+does not expose a raw client, custom fetch, request interceptor, or environment-discovery hook.
+
+Direct mode validates provider DNS and peer addresses locally. Trusted CONNECT mode validates the
+proxy endpoint and peer, then explicitly trusts that proxy for destination DNS/peer selection while
+retaining the logical provider URL, inner TLS hostname/certificate, provider credential audience,
+replay proof, deadlines, and bounds. Optional `ProxyBasicCredential` authentication belongs only to
+the proxy negotiation phase; provider authentication is applied only inside the tunnel. Proxy
+credentials are immutable snapshots and rotate by rebuilding the configured provider.
+
+Streamable HTTP MCP reuses only `HttpTransportRoute` through its own `McpClientConfig`; its endpoint
+policy, bearer authentication, bounds, lifecycle, and never-replay semantics remain MCP-owned.
+Provider WebSocket/Realtime sessions, provider-returned downloads, jobs, media sessions, and stdio
+MCP do not inherit provider HTTP settings or routes and remain Direct-only outside the CONNECT
+surface.
+
+Environment proxy discovery, SOCKS/PAC, named proxy-product certification, opaque proxy
+authentication, URL-userinfo credentials, raw client/custom-fetch injection, custom proxy CA or
+mTLS configuration, WebSocket/Realtime proxying, provider-returned external-download proxying, and
+arbitrary-URL proxy routing remain intentionally unsupported.
 
 ## Provider plane and host control plane
 

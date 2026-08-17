@@ -109,6 +109,11 @@ name = "anthropic_flagship"
 path = "examples/anthropic_flagship.rs"
 required-features = ["anthropic"]
 
+[[example]]
+name = "trusted_connect_route"
+path = "examples/trusted_connect_route.rs"
+required-features = ["openai"]
+
 [dev-dependencies]
 async-trait.workspace = true
 futures.workspace = true

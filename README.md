@@ -68,7 +68,7 @@ Each row is a `claimed slice complete` inventory for this release, not a `provid
 complete` claim. Surfaces outside a row's exact scope are `intentionally deferred` and remain
 available for future provider-owned additions without widening the portable core.
 
-## Direct HTTP transport settings
+## Provider HTTP transport settings and trusted CONNECT
 
 Provider features automatically enable the facade's narrow `siumai::transport` namespace. The
 standalone `transport` feature exposes only provider HTTP configuration and payload-free attempt
@@ -87,28 +87,51 @@ let settings = ProviderHttpTransportSettings::default()
 assert_eq!(settings.retry_policy().max_attempts(), 2);
 ```
 
+The default route is Direct. Select a trusted forward proxy explicitly without consulting process
+proxy variables:
+
+```rust
+use siumai::transport::{HttpTransportRoute, ProviderHttpTransportSettings, ProxyEndpoint};
+
+let route = HttpTransportRoute::trusted_connect(
+    ProxyEndpoint::https("https://proxy.example.com").unwrap(),
+);
+let settings = ProviderHttpTransportSettings::default()
+    .with_route(route)
+    .unwrap();
+
+assert!(settings.route().proxy().is_some());
+```
+
 The same cloneable settings value can be reused across configured providers. Its observer events
 contain structural attempt and retry state only—never URLs, headers, credentials, payloads, or
 provider identity.
 
-This release uses Direct networking only. A custom provider endpoint is a reverse gateway, not a
-forward proxy; explicit CONNECT routing and the matching MCP HTTP route adapter remain deferred.
+Direct validates provider DNS and peers locally. Trusted CONNECT validates the proxy endpoint and
+peer, then trusts that proxy for destination DNS/peer selection while preserving the logical
+provider URL, inner TLS, credential audience, replay proof, deadlines, and bounds. Proxy Basic
+authentication is separate from provider authentication and rotates by rebuilding the configured
+provider. Streamable HTTP MCP reuses only the route type through `McpClientConfig`; WebSocket,
+Realtime, and provider-returned external downloads remain Direct-only.
 
-## Flagship OpenAI and Anthropic journeys
+## Compile-checked facade journeys
 
-The facade ships two compile-checked, offline-by-default examples:
+The facade ships three compile-checked examples:
 
 - [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines an exact-target typed
   Responses option, the portable language family, and a provider-owned Conversations read;
 - [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
   options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
-  Skills metadata list.
+  Skills metadata list;
+- [`trusted_connect_route.rs`](siumai/examples/trusted_connect_route.rs) constructs the trusted
+  route and compiles a provider settings handoff without credentials or network I/O.
 
 Compile them independently with only their documented provider feature:
 
 ```text
 cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
 cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
+cargo check -p siumai --example trusted_connect_route --no-default-features --features openai -j 1
 ```
 
 OpenAI Responses WebSocket is intentionally provider-owned rather than a portable family. Enable

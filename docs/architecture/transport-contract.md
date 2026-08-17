@@ -7,23 +7,25 @@
 ## Purpose
 
 Provider transports are a security and lifecycle boundary, not a collection of
-HTTP helpers. Siumai has one Direct execution path for authenticated provider calls and a separate
-structurally unauthenticated path for provider-returned resources.
+HTTP helpers. Authenticated provider HTTP calls use one closed route choice: Direct networking or
+an explicit trusted CONNECT tunnel. Provider-returned resources use a separate structurally
+unauthenticated, Direct-only path.
 
 Protocol crates still own request/response codecs, provider error envelopes, and
 stateful stream decoders. Provider crates own credentials, signing, operation
 replay declarations, stable request validation, and typed options. Mutable model
 lifecycle or capability advice is not transport or request-execution authority.
 
-## Direct HTTP Settings
+## Provider HTTP Settings And Routes
 
 `siumai-transport` owns the cloneable `ProviderHttpTransportSettings` value. Facade users reach the
 same type as `siumai::transport::ProviderHttpTransportSettings`; the facade's `transport` feature
 owns that curated namespace, and every facade provider feature activates it.
 
 The value configures provider-owned stateless HTTP limits, provider retry policy, connect/call/read
-timeouts, and one synchronous payload-free attempt observer. Every configured provider and both
-compatibility engines accept it through `with_http_transport_settings(...)`.
+timeouts, one synchronous payload-free attempt observer, and one `HttpTransportRoute`. Every
+configured provider and both compatibility engines accept it through
+`with_http_transport_settings(...)`.
 
 The following authorities deliberately remain separate inputs and cannot be overridden through
 provider options or request bodies:
@@ -35,13 +37,15 @@ provider options or request bodies:
 - the relative request target, headers, and rebuildable body.
 
 A composite provider may clone one `ProviderTransport` only across branches with the same exact
-endpoint, credential audience and auth/signing owner, settings, and network mechanism. Different
-technical identities use different transports even when they share one provider name.
+endpoint, credential audience and auth/signing owner, settings including route, and network
+mechanism. Different technical identities use different transports even when they share one
+provider name.
 
-Milestone A exposes Direct networking only. A custom endpoint remains a caller-selected reverse
-gateway destination with its own endpoint and replay audience; it is not a forward proxy. Explicit
-forward proxy/CONNECT routing and the corresponding MCP HTTP route adapter are deferred to
-Milestone B. No partial proxy type or proxy support claim is part of the Direct contract.
+`HttpTransportRoute::Direct` remains the default. A custom endpoint remains a caller-selected
+reverse-gateway destination with its own endpoint and replay audience; it is not a forward proxy.
+`HttpTransportRoute::trusted_connect(ProxyEndpoint)` instead selects one separately validated
+forward proxy for a public HTTPS provider origin. A public proxy must use HTTPS. An explicitly
+granted local proxy may use HTTP or HTTPS, but a cleartext proxy cannot carry Basic credentials.
 
 ## Authenticated API Calls
 
@@ -69,8 +73,9 @@ The client explicitly disables:
 - reqwest's protocol-level retry policy.
 
 This keeps the library's attempt budget authoritative. Direct mode does not discover or honor
-environment/system proxy variables. A future trusted-proxy mode must be modeled as an explicit
-transfer of destination DNS/peer enforcement to that proxy; it must not weaken the Direct client.
+environment/system proxy variables. Trusted CONNECT mode configures exactly one explicit proxy;
+it does not consult the environment or turn the proxy into a second retry, redirect, or request
+interception layer.
 
 ## Replay
 
@@ -128,6 +133,20 @@ filtered in reqwest's actual connector resolver, so a preflight/connection
 rebinding gap cannot bypass policy. Literal IPs are checked at construction, and a
 reported connected peer is checked again after the handshake.
 
+Direct mode resolves and validates the provider endpoint and connected peer locally. Trusted
+CONNECT mode transfers destination DNS resolution and destination peer selection to the trusted
+proxy: Siumai instead resolves and validates the proxy endpoint and its connected peer. The
+logical provider URL, exact credential audience, CONNECT authority, inner TLS hostname and
+certificate verification, redirect policy, replay proof, deadlines, and resource bounds remain
+authoritative inside Siumai.
+
+Proxy and provider authentication are separate phases. Siumai applies an optional bounded
+`ProxyBasicCredential` only while negotiating CONNECT with the proxy audience. Provider
+authentication is applied only to the tunneled request after inner TLS succeeds, and a provider
+authorization value is never copied into the CONNECT request. The Basic credential is an immutable
+configuration snapshot; rotate it by rebuilding the configured provider rather than by installing
+a callback or global credential store.
+
 WebSocket endpoints use the same address policy while preserving `ws`/`wss` as a
 distinct credential audience. `WebSocketTransport` owns resolution, direct TCP
 connection to a validated address, peer verification, TLS/SNI, authentication,
@@ -179,8 +198,8 @@ typed API operation; suffix matching and query-key forwarding are forbidden.
 `ProviderHttpTransportSettings` never propagates implicitly into this downloader, provider
 WebSocket/Realtime sessions, media sessions, jobs, or MCP. OpenAI Realtime and Responses WebSocket
 retain their dedicated limits and connect/session/I/O/turn timeouts. Alibaba video materialization
-retains dedicated direct-download limits and connect/download/read timeouts. These controls remain
-independent because their lifecycle and trust boundary differ from stateless provider HTTP.
+retains dedicated Direct-only download limits and connect/download/read timeouts. These controls
+remain independent because their lifecycle and trust boundary differ from stateless provider HTTP.
 
 ## Limits And Cancellation
 
@@ -203,9 +222,17 @@ bodies, prompts, and tool input/output never appear in ordinary `Debug`, `Displa
 errors, or observer events. Raw bodies, headers, signed URLs, and underlying errors require explicit
 sensitive access and are captured only within fixed limits.
 
-MCP applies the same ownership rules at its integration boundary. Streamable HTTP
-disables automatic redirects, proxy discovery, client retries, and rmcp session
-reinitialization. JSON responses and error bodies are byte-bounded before decoding;
+MCP applies the same ownership rules at its integration boundary. Streamable HTTP defaults to
+Direct and may reuse `HttpTransportRoute` through
+`McpClientConfig::with_http_transport_route(...)`. MCP owns its endpoint policy, origin bearer
+authentication, message limits, session lifecycle, and never-replay behavior; it does not accept
+`ProviderHttpTransportSettings`, `ProviderTransport`, provider credentials, or provider retry
+policy. POST, GET/SSE, and DELETE/session-close requests use the same selected route. Proxy Basic
+authentication is sent only during CONNECT, while MCP-origin authentication remains inside the
+tunnel. Rotating proxy credentials requires rebuilding the configured MCP client.
+
+Streamable HTTP disables automatic redirects, environment proxy discovery, client retries, and
+rmcp session reinitialization. JSON responses and error bodies are byte-bounded before decoding;
 SSE and stdio messages are incrementally bounded before protocol materialization.
 Backend errors cross the public API through static operation phases, with their
 original source available only through the explicit sensitive accessor. Progress
@@ -216,8 +243,11 @@ MCP call, and rmcp's high-level tool helper does not expose its request handle;
 therefore cancellation after dispatch is recorded as indeterminate rather than
 being treated as proof that replay is safe.
 
-Milestone A does not add an MCP proxy route. Streamable HTTP MCP remains Direct until the separately
-reviewed Milestone B route adapter lands.
+The CONNECT claim is deliberately bounded. Siumai does not provide environment/system proxy
+discovery, SOCKS, PAC, proxy-selection callbacks, named proxy-product certification, opaque or
+bearer/Negotiate/NTLM/Kerberos proxy authentication, URL-userinfo credentials, raw
+client/custom-fetch injection, custom proxy CA or mTLS configuration, WebSocket or Realtime proxy
+routing, provider-returned external-download proxying, or a general route for arbitrary URLs.
 
 ## Framing Boundary
 
@@ -232,6 +262,8 @@ finish path above this layer.
 This crate is the target transport contract for provider implementations. Provider packages use the
 shared HTTP settings and transports or a narrowly documented provider-owned transport when a
 protocol cannot fit the shared contract. New code must not reintroduce duplicated provider HTTP
-setters, environment proxy discovery, raw client/fetch hooks, outer retries, or detached stream
-readers that bypass endpoint, credential-audience, cancellation, replay, observation, or
-resource-bound rules.
+setters, environment proxy discovery, raw client/fetch hooks, merged proxy/provider
+authentication, outer retries, or detached stream readers that bypass endpoint,
+credential-audience, cancellation, replay, observation, or resource-bound rules. The public claim
+is bounded HTTPS-destination CONNECT behavior backed by deterministic fixtures, not certification
+for a named enterprise proxy product or deployment.

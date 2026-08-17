@@ -57,7 +57,7 @@ pipeline. A host-owned family-trait decorator must preserve the complete `ModelD
 delegate `route_id()` so route-bound provider options and runtime defaults continue to match the
 configured target.
 
-## Direct transport and call controls
+## Provider HTTP transport and call controls
 
 `ProviderHttpTransportSettings` is owned by `siumai-transport` and is reachable through
 `siumai::transport` when the facade `transport` feature is enabled. The curated namespace contains
@@ -68,7 +68,8 @@ downloaders, or socket types.
 The settings value applies only to provider-owned stateless HTTP APIs. Endpoint/authentication,
 provider retry classification, and per-request replay proof remain separate authorities. Provider
 options and request bodies cannot override those authorities. Provider WebSocket/Realtime sessions,
-media jobs, external downloads, and MCP retain their own lifecycle-specific controls.
+media jobs, and external downloads retain their own lifecycle-specific Direct controls. MCP owns a
+separate configuration that may reuse only the route value.
 
 `CallOptions::with_timeout` starts at the outer logical invocation and resolves once to an absolute
 deadline; an existing earlier deadline wins. `with_max_attempts` caps total attempts for one
@@ -80,9 +81,33 @@ Observation ends at bounded response return or byte-stream establishment, not re
 protocol completion. Provider/route/account attribution is supplied by a host-authored observer
 wrapper and never enters transport events.
 
-This release exposes Direct networking only. A custom endpoint is a reverse-gateway destination,
-not a forward proxy. Explicit CONNECT routing and an MCP HTTP route adapter are deferred; there is
-no environment proxy discovery, raw client/custom-fetch hook, or partial proxy support claim.
+`HttpTransportRoute::Direct` is the default and remains independent of environment/system proxy
+configuration. A custom endpoint is a reverse-gateway destination, not a forward proxy. Callers
+select one explicit forward proxy with
+`HttpTransportRoute::trusted_connect(ProxyEndpoint)` and apply it through
+`ProviderHttpTransportSettings::with_route(...)`. The destination must be a public HTTPS origin.
+Public proxy origins must also use HTTPS; explicitly granted local HTTP proxies are allowed only
+without authentication.
+
+`ProxyBasicCredential` is bounded, header-safe, redacted, and bound only to the proxy audience.
+Provider authentication remains bound to the provider audience and is applied only inside the
+CONNECT tunnel after destination TLS verification. Credentials are immutable configuration
+snapshots: rotate proxy Basic credentials by rebuilding the configured provider rather than by
+mutating a live client or registering a refresh callback.
+
+Direct mode resolves and validates the provider endpoint and peer. Trusted CONNECT mode resolves
+and validates the proxy endpoint and peer, transferring destination DNS/peer selection to that
+trusted proxy while preserving the logical provider URL, inner TLS hostname/certificate,
+credential audience, redirects, replay proof, deadlines, and bounds.
+
+Streamable HTTP MCP exposes the same route types from `siumai-mcp` and accepts the route through
+`McpClientConfig::with_http_transport_route(...)`. It does not import provider settings,
+credentials, authentication, retry policy, or execution transport. Stdio MCP is unaffected.
+
+This surface does not include environment discovery, SOCKS or PAC, named proxy-product
+certification, opaque or bearer/Negotiate/NTLM/Kerberos proxy authentication, URL-userinfo
+credentials, raw client/custom-fetch injection, custom proxy CA or mTLS configuration, WebSocket,
+Realtime, provider-returned external downloads, or arbitrary-URL proxy routing.
 
 ## Typed provider extensions
 
