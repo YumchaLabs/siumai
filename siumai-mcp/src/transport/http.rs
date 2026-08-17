@@ -12,8 +12,11 @@ use rmcp::transport::streamable_http_client::{
     AuthRequiredError, InsufficientScopeError, SseError, StreamableHttpClient,
     StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
-use siumai_transport::TransportLimits;
 use siumai_transport::framing::{SseDecoder, SseEvent};
+use siumai_transport::{
+    EndpointError, HttpRouteReqwestClient, HttpTransportRoute, Resolver, SystemResolver,
+    TransportConfigError, TransportLimits,
+};
 use sse_stream::Sse;
 
 use crate::error::McpSensitiveDetails;
@@ -26,6 +29,8 @@ const HEADER_LAST_EVENT_ID: &str = "last-event-id";
 /// HTTP failure retained behind the explicit MCP sensitive-source boundary.
 pub(crate) enum McpHttpClientError {
     Request(reqwest::Error),
+    Route(TransportConfigError),
+    Peer(EndpointError),
     MessageTooLarge {
         maximum: usize,
     },
@@ -40,6 +45,14 @@ impl fmt::Debug for McpHttpClientError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Request(_) => formatter.write_str("McpHttpClientError::Request([REDACTED])"),
+            Self::Route(error) => formatter
+                .debug_tuple("McpHttpClientError::Route")
+                .field(error)
+                .finish(),
+            Self::Peer(error) => formatter
+                .debug_tuple("McpHttpClientError::Peer")
+                .field(error)
+                .finish(),
             Self::MessageTooLarge { maximum } => formatter
                 .debug_struct("McpHttpClientError::MessageTooLarge")
                 .field("maximum", maximum)
@@ -58,6 +71,8 @@ impl fmt::Display for McpHttpClientError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Request(_) => formatter.write_str("MCP HTTP request failed"),
+            Self::Route(_) => formatter.write_str("MCP HTTP route configuration failed"),
+            Self::Peer(_) => formatter.write_str("MCP HTTP peer validation failed"),
             Self::MessageTooLarge { maximum } => {
                 write!(formatter, "MCP HTTP message exceeded {maximum} bytes")
             }
@@ -72,6 +87,8 @@ impl std::error::Error for McpHttpClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Request(error) => Some(error),
+            Self::Route(error) => Some(error),
+            Self::Peer(error) => Some(error),
             Self::MessageTooLarge { .. } | Self::HttpStatus { .. } => None,
         }
     }
@@ -98,6 +115,7 @@ fn collect_sensitive_details(
                     details.endpoint = error.url().map(|url| Arc::from(url.as_str()));
                 }
             }
+            McpHttpClientError::Route(_) | McpHttpClientError::Peer(_) => {}
             McpHttpClientError::MessageTooLarge { .. } => {}
             McpHttpClientError::HttpStatus { endpoint, body, .. } => {
                 details.endpoint.get_or_insert_with(|| endpoint.clone());
@@ -148,23 +166,51 @@ fn collect_sensitive_details(
 
 #[derive(Clone)]
 pub(crate) struct BoundedHttpClient {
-    client: reqwest::Client,
+    client: HttpRouteReqwestClient,
     max_message_bytes: usize,
 }
 
 impl BoundedHttpClient {
+    #[cfg(test)]
     fn new(max_message_bytes: usize) -> Result<Self, McpHttpClientError> {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .referer(false)
-            .no_proxy()
-            .retry(reqwest::retry::never())
-            .build()
-            .map_err(McpHttpClientError::Request)?;
+        Self::with_route(max_message_bytes, &HttpTransportRoute::Direct)
+    }
+
+    fn with_route(
+        max_message_bytes: usize,
+        route: &HttpTransportRoute,
+    ) -> Result<Self, McpHttpClientError> {
+        Self::with_builder(
+            max_message_bytes,
+            route,
+            reqwest::Client::builder(),
+            Arc::new(SystemResolver),
+        )
+    }
+
+    fn with_builder(
+        max_message_bytes: usize,
+        route: &HttpTransportRoute,
+        builder: reqwest::ClientBuilder,
+        resolver: Arc<dyn Resolver>,
+    ) -> Result<Self, McpHttpClientError> {
+        let client = HttpRouteReqwestClient::build(route, builder, None, resolver)
+            .map_err(McpHttpClientError::Route)?;
         Ok(Self {
             client,
             max_message_bytes,
         })
+    }
+
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, McpHttpClientError> {
+        let response = request.send().await.map_err(McpHttpClientError::Request)?;
+        self.client
+            .validate_response_peer(&response)
+            .map_err(McpHttpClientError::Peer)?;
+        Ok(response)
     }
 
     fn request(
@@ -279,7 +325,7 @@ impl StreamableHttpClient for BoundedHttpClient {
                 },
             ));
         }
-        let response = self
+        let request = self
             .request(
                 reqwest::Method::POST,
                 uri.as_ref(),
@@ -290,10 +336,10 @@ impl StreamableHttpClient for BoundedHttpClient {
             )
             .header(ACCEPT, [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "))
             .header(CONTENT_TYPE, JSON_MIME_TYPE)
-            .body(encoded)
-            .send()
+            .body(encoded);
+        let response = self
+            .send(request)
             .await
-            .map_err(McpHttpClientError::Request)
             .map_err(StreamableHttpError::Client)?;
 
         if let Some(error) = authentication_error(&response)? {
@@ -362,18 +408,17 @@ impl StreamableHttpClient for BoundedHttpClient {
         auth_token: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<(), StreamableHttpError<Self::Error>> {
+        let request = self.request(
+            reqwest::Method::DELETE,
+            uri.as_ref(),
+            Some(session_id.as_ref()),
+            auth_token.as_deref(),
+            None,
+            custom_headers,
+        );
         let response = self
-            .request(
-                reqwest::Method::DELETE,
-                uri.as_ref(),
-                Some(session_id.as_ref()),
-                auth_token.as_deref(),
-                None,
-                custom_headers,
-            )
-            .send()
+            .send(request)
             .await
-            .map_err(McpHttpClientError::Request)
             .map_err(StreamableHttpError::Client)?;
         if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
             return Ok(());
@@ -419,7 +464,7 @@ impl StreamableHttpClient for BoundedHttpClient {
         custom_headers: HashMap<HeaderName, HeaderValue>,
         max_sse_event_size: usize,
     ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
-        let response = self
+        let request = self
             .request(
                 reqwest::Method::GET,
                 uri.as_ref(),
@@ -428,10 +473,10 @@ impl StreamableHttpClient for BoundedHttpClient {
                 last_event_id.as_deref(),
                 custom_headers,
             )
-            .header(ACCEPT, [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "))
-            .send()
+            .header(ACCEPT, [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "));
+        let response = self
+            .send(request)
             .await
-            .map_err(McpHttpClientError::Request)
             .map_err(StreamableHttpError::Client)?;
         if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
             return Err(StreamableHttpError::ServerDoesNotSupportSse);
@@ -567,8 +612,9 @@ fn to_sse(event: SseEvent) -> Sse {
 pub(crate) fn http_transport(
     uri: &str,
     max_message_bytes: usize,
+    route: &HttpTransportRoute,
 ) -> Result<StreamableHttpClientTransport<BoundedHttpClient>, McpHttpClientError> {
-    let client = BoundedHttpClient::new(max_message_bytes)?;
+    let client = BoundedHttpClient::with_route(max_message_bytes, route)?;
     Ok(StreamableHttpClientTransport::with_client(
         client,
         http_transport_config(uri, max_message_bytes),
@@ -585,19 +631,150 @@ fn http_transport_config(
 }
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
+    use std::process::Command;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use async_trait::async_trait;
+    use base64::Engine as _;
     use rmcp::model::{CallToolRequestParams, ClientRequest, PingRequest, RequestId};
     use rmcp::service::ServiceExt;
+    use siumai_transport::{ProxyBasicCredential, ProxyEndpoint};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::rustls::ServerConfig;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    const DIRECT_PROXY_ENV_HELPER: &str = "SIUMAI_MCP_DIRECT_PROXY_ENV_HELPER";
+
+    // Offline `.example.test` certificate fixtures; these are not credentials.
+    const TEST_CA_DER: &str = "MIIBpzCCAU2gAwIBAgIUbTYlr1376Yr/+ZGcs/7LTVRAn9owCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCExHzAdBgNVBAMMFlNpdW1haSBPZmZsaW5lIFRlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATS9UwJf41omyTuG43+oHO6FXHq3G1Msddvu66IHfd3+PDaPqSiY8XDX+Ey5d3EAgKWxzILQUfOPT0QCt9RacK6o2MwYTAdBgNVHQ4EFgQUEpo8dhQlLwIWZeaCSQlAUGUGuu0wHwYDVR0jBBgwFoAUEpo8dhQlLwIWZeaCSQlAUGUGuu0wDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwIDSAAwRQIhAO8iTQUm3hTksiBftChN8ziP91dYm3pH5iYJyqa4e5pOAiBbPFSbx5UM0wSdVkmEYs7+B2Dw7gZBCoB1OwphmBlrLg==";
+    const PROXY_CERT_DER: &str = "MIIB1zCCAXygAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGYwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMB0xGzAZBgNVBAMMEnByb3h5LmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJOBb+14giMbsCKDztTFG65FCL39GGl9sIl8C/I8AkR5aqjzEB1U9XtFjTHUeabjyodO5JTv3ZB/MhF+EQV6K/WjgZUwgZIwHQYDVR0RBBYwFIIScHJveHkuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBRFpAwYyf389PxKkdIFuETkW59wIzAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEArYfyumOCRVrLAJosZ9O0ecknTdbOe3aCRbcthT7s58sCIQDuq995l+HAm+PoJsx0DhVeKpjPDDkJLuxT8/eOXLEMcg==";
+    const PROXY_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgYlViovjr5cdWq8MDvDUlYGhAPFNKp5+ExoX0wpYHyCqhRANCAASTgW/teIIjG7Aig87UxRuuRQi9/RhpfbCJfAvyPAJEeWqo8xAdVPV7RY0x1Hmm48qHTuSU792QfzIRfhEFeiv1";
+    const ORIGIN_CERT_DER: &str = "MIIB3TCCAYKgAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGcwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCAxHjAcBgNVBAMMFXByb3ZpZGVyLmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNrtKG7bQ83W+iw+kj39Wuwp5mE01ezAJbR+9NZeCTvg2YYMSmXnXwDniIviSyJwK3dh8MfSbUIx2GEs81eobQWjgZgwgZUwIAYDVR0RBBkwF4IVcHJvdmlkZXIuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBQ2L3md9NSIZIaY4RUoxlP0eziwaTAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEAiU7zCZp7WT9f1w2OJ6z84Cj4Lo3yASg0RbqGucZTzrkCIQC9Q+REa8I+UT2EVXZl5JobOhaFxYvDrZmyKGZxBEdtiQ==";
+    const ORIGIN_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgw91aPqnWKZ/kNPOkZC8uPc/RncGLJZDegIMETxlFlTihRANCAATa7Shu20PN1vosPpI9/VrsKeZhNNXswCW0fvTWXgk74NmGDEpl518A54iL4ksicCt3YfDH0m1CMdhhLPNXqG0F";
+
+    struct FixtureResolver(SocketAddr);
+
+    #[async_trait]
+    impl Resolver for FixtureResolver {
+        async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>, EndpointError> {
+            Ok(vec![self.0])
+        }
+    }
 
     fn ping() -> ClientJsonRpcMessage {
         ClientJsonRpcMessage::request(
             ClientRequest::PingRequest(PingRequest::default()),
             RequestId::Number(1),
         )
+    }
+
+    fn routed_client(
+        maximum: usize,
+        route: &HttpTransportRoute,
+        proxy_address: SocketAddr,
+    ) -> BoundedHttpClient {
+        let certificate = reqwest::Certificate::from_der(&decode(TEST_CA_DER)).unwrap();
+        BoundedHttpClient::with_builder(
+            maximum,
+            route,
+            reqwest::Client::builder()
+                .tls_certs_only([certificate])
+                .connect_timeout(std::time::Duration::from_secs(2))
+                .read_timeout(std::time::Duration::from_secs(2)),
+            Arc::new(FixtureResolver(proxy_address)),
+        )
+        .unwrap()
+    }
+
+    async fn spawn_nested_tls_proxy(
+        responses: Vec<Vec<u8>>,
+    ) -> (SocketAddr, tokio::task::JoinHandle<Vec<(String, String)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let proxy_acceptor = tls_acceptor(PROXY_CERT_DER, PROXY_KEY_DER);
+        let origin_acceptor = tls_acceptor(ORIGIN_CERT_DER, ORIGIN_KEY_DER);
+        let server = tokio::spawn(async move {
+            let mut exchanges = Vec::with_capacity(responses.len());
+            for response in responses {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut proxy_tls = proxy_acceptor.accept(socket).await.unwrap();
+                let connect = read_http_head(&mut proxy_tls).await;
+                proxy_tls
+                    .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                    .await
+                    .unwrap();
+                let mut origin_tls = origin_acceptor.accept(proxy_tls).await.unwrap();
+                let origin_request = read_http_head(&mut origin_tls).await;
+                origin_tls.write_all(&response).await.unwrap();
+                exchanges.push((connect, origin_request));
+            }
+            exchanges
+        });
+        (address, server)
+    }
+
+    async fn spawn_plain_proxy(
+        response: Option<Vec<u8>>,
+    ) -> (SocketAddr, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let connect = read_http_head(&mut socket).await;
+            if let Some(response) = response {
+                socket.write_all(&response).await.unwrap();
+            }
+            connect
+        });
+        (address, server)
+    }
+
+    fn tls_acceptor(certificate: &str, private_key: &str) -> TlsAcceptor {
+        let certificate = CertificateDer::from(decode(certificate));
+        let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(decode(private_key)));
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], private_key)
+            .unwrap();
+        TlsAcceptor::from(Arc::new(config))
+    }
+
+    fn decode(value: &str) -> Vec<u8> {
+        base64::engine::general_purpose::STANDARD
+            .decode(value)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(value))
+            .unwrap()
+    }
+
+    async fn read_http_head<S>(stream: &mut S) -> String
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
+        let mut bytes = Vec::new();
+        loop {
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                return String::from_utf8(bytes[..end + 4].to_vec()).unwrap();
+            }
+            assert!(
+                bytes.len() <= 16 * 1024,
+                "fixture HTTP head exceeded its bound"
+            );
+            let mut chunk = [0_u8; 1024];
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0, "fixture connection ended before the HTTP head");
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    fn header<'a>(head: &'a str, expected: &str) -> Option<&'a str> {
+        head.lines().skip(1).find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case(expected).then(|| value.trim())
+        })
     }
 
     async fn serve_once(response: Vec<u8>) -> Arc<str> {
@@ -661,6 +838,273 @@ mod tests {
         }
         response.extend_from_slice(b"0\r\n\r\n");
         response
+    }
+
+    #[test]
+    fn direct_mcp_ignores_common_proxy_environment_variables() {
+        if std::env::var_os(DIRECT_PROXY_ENV_HELPER).is_some() {
+            return;
+        }
+        let proxy = "http://127.0.0.1:9";
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "transport::http::tests::direct_mcp_proxy_environment_helper",
+                "--nocapture",
+            ])
+            .env(DIRECT_PROXY_ENV_HELPER, "1")
+            .env("HTTP_PROXY", proxy)
+            .env("HTTPS_PROXY", proxy)
+            .env("ALL_PROXY", proxy)
+            .env("http_proxy", proxy)
+            .env("https_proxy", proxy)
+            .env("all_proxy", proxy)
+            .env("NO_PROXY", "")
+            .env("no_proxy", "")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child output:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn direct_mcp_proxy_environment_helper() {
+        if std::env::var_os(DIRECT_PROXY_ENV_HELPER).is_none() {
+            return;
+        }
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let uri = serve_once(fixed_response(202, JSON_MIME_TYPE, b"")).await;
+                let response = BoundedHttpClient::new(1024)
+                    .unwrap()
+                    .post_message(uri, ping(), None, None, HashMap::new())
+                    .await
+                    .unwrap();
+                assert!(matches!(response, StreamableHttpPostResponse::Accepted));
+            });
+    }
+
+    #[tokio::test]
+    async fn trusted_route_applies_to_post_get_and_delete_with_separate_credentials() {
+        let responses = vec![
+            fixed_response(202, JSON_MIME_TYPE, b""),
+            fixed_response(200, EVENT_STREAM_MIME_TYPE, b"data: route-ok\n\n"),
+            fixed_response(204, JSON_MIME_TYPE, b""),
+        ];
+        let (proxy_address, server) = spawn_nested_tls_proxy(responses).await;
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "https://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let route = HttpTransportRoute::trusted_connect(proxy)
+            .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
+            .unwrap();
+        let client = routed_client(1024, &route, proxy_address);
+        let uri: Arc<str> =
+            Arc::from("https://provider.example.test/mcp?token=origin-query-secret".to_string());
+        let bearer = Some("mcp-bearer-secret".to_string());
+
+        let response = client
+            .post_message(uri.clone(), ping(), None, bearer.clone(), HashMap::new())
+            .await
+            .unwrap();
+        assert!(matches!(response, StreamableHttpPostResponse::Accepted));
+
+        let mut stream = client
+            .get_stream(
+                uri.clone(),
+                Some(Arc::from("session-1")),
+                Some("event-1".to_string()),
+                bearer.clone(),
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            stream.next().await.unwrap().unwrap().data.as_deref(),
+            Some("route-ok")
+        );
+
+        client
+            .delete_session(uri, Arc::from("session-1"), bearer, HashMap::new())
+            .await
+            .unwrap();
+
+        let exchanges = server.await.unwrap();
+        assert_eq!(exchanges.len(), 3);
+        let methods = ["POST", "GET", "DELETE"];
+        for ((connect, origin), method) in exchanges.iter().zip(methods) {
+            assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+            assert_eq!(
+                header(connect, "proxy-authorization"),
+                Some("Basic cHJveHktdXNlcjpwcm94eS1zZWNyZXQ=")
+            );
+            assert!(header(connect, "authorization").is_none());
+            assert!(!connect.contains("origin-query-secret"));
+            assert!(!connect.contains("mcp-bearer-secret"));
+
+            assert!(origin.starts_with(&format!(
+                "{method} /mcp?token=origin-query-secret HTTP/1.1\r\n"
+            )));
+            assert_eq!(
+                header(origin, "authorization"),
+                Some("Bearer mcp-bearer-secret")
+            );
+            assert!(header(origin, "proxy-authorization").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_route_preserves_message_bounds() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "value": "x".repeat(128) }
+        }))
+        .unwrap();
+        let oversized_sse = format!(
+            "data: {}\ndata: {}\ndata: {}\n\n",
+            "event-secret-a".repeat(2),
+            "event-secret-b".repeat(2),
+            "event-secret-c".repeat(2),
+        );
+        let (proxy_address, server) = spawn_nested_tls_proxy(vec![
+            fixed_response(200, JSON_MIME_TYPE, &body),
+            fixed_response(200, EVENT_STREAM_MIME_TYPE, oversized_sse.as_bytes()),
+        ])
+        .await;
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::local_explicit(format!(
+                "https://proxy.example.test:{}",
+                proxy_address.port()
+            ))
+            .unwrap(),
+        );
+        let client = routed_client(64, &route, proxy_address);
+        let error = client
+            .post_message(
+                Arc::from("https://provider.example.test/mcp"),
+                ping(),
+                None,
+                None,
+                HashMap::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            StreamableHttpError::Client(McpHttpClientError::MessageTooLarge { maximum: 64 })
+        ));
+
+        let response = client
+            .post_message(
+                Arc::from("https://provider.example.test/mcp"),
+                ping(),
+                None,
+                None,
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let StreamableHttpPostResponse::Sse(mut stream, _) = response else {
+            panic!("expected an SSE response");
+        };
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert!(error.to_string().contains("event limit"));
+        assert!(!format!("{error:?} | {error}").contains("event-secret"));
+        assert_eq!(server.await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn trusted_route_rejects_a_disallowed_proxy_peer_before_connect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::https(format!(
+                "https://proxy.example.test:{}",
+                proxy_address.port()
+            ))
+            .unwrap(),
+        );
+        let client = BoundedHttpClient::with_builder(
+            1024,
+            &route,
+            reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(1)),
+            Arc::new(FixtureResolver(proxy_address)),
+        )
+        .unwrap();
+        let error = client
+            .post_message(
+                Arc::from("https://provider.example.test/mcp"),
+                ping(),
+                None,
+                None,
+                HashMap::new(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            StreamableHttpError::Client(McpHttpClientError::Request(_))
+        ));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn proxy_connect_failures_are_sanitized_and_never_replayed() {
+        for response in [
+            Some(b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()),
+            None,
+        ] {
+            let (proxy_address, server) = spawn_plain_proxy(response).await;
+            let route = HttpTransportRoute::trusted_connect(
+                ProxyEndpoint::local_explicit(format!(
+                    "http://proxy.example.test:{}",
+                    proxy_address.port()
+                ))
+                .unwrap(),
+            );
+            let client = BoundedHttpClient::with_builder(
+                1024,
+                &route,
+                reqwest::Client::builder()
+                    .connect_timeout(std::time::Duration::from_secs(1))
+                    .read_timeout(std::time::Duration::from_secs(1)),
+                Arc::new(FixtureResolver(proxy_address)),
+            )
+            .unwrap();
+            let error = client
+                .post_message(
+                    Arc::from("https://provider.example.test/mcp?token=query-secret"),
+                    ping(),
+                    None,
+                    Some("mcp-secret".to_string()),
+                    HashMap::new(),
+                )
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                error,
+                StreamableHttpError::Client(McpHttpClientError::Request(_))
+            ));
+            let diagnostics = format!("{error:?} | {error}");
+            assert!(!diagnostics.contains("query-secret"));
+            assert!(!diagnostics.contains("mcp-secret"));
+            let connect = server.await.unwrap();
+            assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+        }
     }
 
     #[derive(Clone)]

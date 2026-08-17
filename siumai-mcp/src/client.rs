@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::Value;
 use siumai_core::{Error, ErrorKind, ToolOutcome};
 use siumai_runtime::tool::{EffectCertainty, ToolExecutionError};
+use siumai_transport::{EndpointConfig, HttpTransportRoute};
 use tokio::sync::{Mutex, broadcast};
 
 use crate::catalog::{McpCatalogFingerprint, McpToolCatalog};
@@ -275,15 +276,20 @@ impl McpClient {
     /// Connect to a streamable HTTP MCP endpoint after applying endpoint policy.
     pub async fn from_http(url: &str, config: McpClientConfig) -> Result<Self, McpError> {
         validate_http_endpoint(url, config.endpoint_policy())?;
+        validate_http_route(url, config.http_transport_route())?;
         let state = Arc::new(SessionState::default());
         state.configure(&config);
         let handler = McpClientHandler {
             state: state.clone(),
         };
-        let transport =
-            http_transport(url, config.limits().max_message_bytes()).map_err(|error| {
-                McpError::Connect(backend_error("MCP HTTP client construction failed", error))
-            })?;
+        let transport = http_transport(
+            url,
+            config.limits().max_message_bytes(),
+            config.http_transport_route(),
+        )
+        .map_err(|error| {
+            McpError::Connect(backend_error("MCP HTTP client construction failed", error))
+        })?;
         let service = handler.serve(transport).await.map_err(|error| {
             McpError::Connect(backend_error("MCP service initialization failed", error))
         })?;
@@ -535,6 +541,15 @@ fn validate_http_endpoint(endpoint: &str, policy: McpHttpEndpointPolicy) -> Resu
         }
         _ => Err(McpError::EndpointNotAllowed),
     }
+}
+
+fn validate_http_route(endpoint: &str, route: &HttpTransportRoute) -> Result<(), McpError> {
+    if route.proxy().is_none() {
+        return Ok(());
+    }
+    EndpointConfig::public_custom(endpoint)
+        .map(|_| ())
+        .map_err(|_| McpError::EndpointNotAllowed)
 }
 
 #[cfg(test)]
@@ -905,6 +920,35 @@ mod tests {
                 McpHttpEndpointPolicy::HttpsOnly,
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn trusted_http_route_requires_a_public_https_mcp_origin() {
+        let route = HttpTransportRoute::trusted_connect(
+            siumai_transport::ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap(),
+        );
+
+        assert!(
+            validate_http_route("https://example.com/mcp", &route).is_ok(),
+            "a public HTTPS MCP origin remains valid through CONNECT"
+        );
+        assert!(
+            validate_http_endpoint(
+                "http://127.0.0.1:3000/mcp",
+                McpHttpEndpointPolicy::AllowHttpLoopback,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_http_route("http://127.0.0.1:3000/mcp", &route).is_err(),
+            "CONNECT must reject a plain local MCP origin before network I/O"
+        );
+        assert!(validate_http_route("https://127.0.0.1/mcp", &route).is_err());
+        assert!(validate_http_route("https://localhost/mcp", &route).is_err());
+        assert!(
+            validate_http_route("http://127.0.0.1:3000/mcp", &HttpTransportRoute::Direct,).is_ok(),
+            "Direct keeps the existing MCP endpoint-policy behavior"
         );
     }
 

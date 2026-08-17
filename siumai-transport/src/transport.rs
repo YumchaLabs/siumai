@@ -24,8 +24,8 @@ use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credenti
 use crate::endpoint::{EndpointConfig, Resolver as ProviderResolver, SystemResolver};
 use crate::settings::ProviderHttpTransportSettings;
 use crate::{
-    HttpTransportRoute, ReplaySafety, RequestBuildError, RequestPlan, TransportConfigError,
-    TransportLimits,
+    EndpointError, HttpTransportRoute, ReplaySafety, RequestBuildError, RequestPlan,
+    TransportConfigError, TransportLimits,
 };
 
 const ERROR_BODY_CAPTURE_BYTES: usize = 64 * 1024;
@@ -229,18 +229,15 @@ impl ProviderTransportBuilder {
             .checked_add(limits.max_queued_requests)
             .ok_or(TransportConfigError::CapacityOverflow)?;
         let maximum_in_flight = limits.max_in_flight_requests;
-        let network_endpoint = self
-            .http_transport_settings
-            .route()
-            .proxy()
-            .map_or_else(|| self.endpoint.clone(), |proxy| proxy.endpoint().clone());
-        let client = build_routed_guarded_client(
-            &network_endpoint,
-            self.resolver,
-            self.http_transport_settings.connect_timeout(),
-            self.http_transport_settings.read_timeout(),
-            limits,
+        let client = HttpRouteReqwestClient::build(
             self.http_transport_settings.route(),
+            guarded_client_builder(
+                self.http_transport_settings.connect_timeout(),
+                self.http_transport_settings.read_timeout(),
+                limits,
+            ),
+            Some(&self.endpoint),
+            self.resolver,
         )?;
         Ok(ProviderTransport {
             inner: Arc::new(TransportInner {
@@ -248,7 +245,6 @@ impl ProviderTransportBuilder {
                 auth: self.auth,
                 retry_classifier: self.retry_classifier,
                 http_transport_settings: self.http_transport_settings,
-                network_endpoint,
                 client,
                 admission: Arc::new(Semaphore::new(admission_capacity)),
                 in_flight: Arc::new(Semaphore::new(maximum_in_flight)),
@@ -546,9 +542,7 @@ impl ProviderTransport {
                 }
             };
 
-            if let Some(remote) = response.remote_addr()
-                && self.inner.network_endpoint.validate_remote(remote).is_err()
-            {
+            if self.inner.client.validate_response_peer(&response).is_err() {
                 return Err(self.finish_attempt_loop_error(
                     call_id,
                     attempts,
@@ -928,8 +922,7 @@ struct TransportInner {
     auth: Arc<dyn AuthApplier>,
     retry_classifier: Arc<dyn RetryClassifier>,
     http_transport_settings: ProviderHttpTransportSettings,
-    network_endpoint: EndpointConfig,
-    client: reqwest::Client,
+    client: HttpRouteReqwestClient,
     admission: Arc<Semaphore>,
     in_flight: Arc<Semaphore>,
 }
@@ -937,6 +930,87 @@ struct TransportInner {
 struct GuardedDnsResolver {
     endpoint: EndpointConfig,
     resolver: Arc<dyn ProviderResolver>,
+}
+
+/// Opaque route-aware reqwest client shared by provider HTTP and MCP.
+///
+/// This is a workspace integration seam, not a general client-injection API.
+/// It keeps proxy endpoint interpretation, credential application, DNS
+/// validation, peer validation, environment-proxy disabling, redirects, and
+/// reqwest retry policy inside `siumai-transport`.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct HttpRouteReqwestClient {
+    client: reqwest::Client,
+    network_endpoint: Option<EndpointConfig>,
+}
+
+impl HttpRouteReqwestClient {
+    /// Build one route-aware client from caller-owned lifecycle settings.
+    ///
+    /// `direct_endpoint` is supplied by provider transport so Direct keeps its
+    /// existing DNS and peer guard. MCP passes `None` so Direct keeps its
+    /// existing origin-resolution behavior; a trusted CONNECT route always
+    /// guards the proxy endpoint instead. The caller still owns validation of
+    /// the logical request destination; this adapter owns only the selected
+    /// network route and peer.
+    #[doc(hidden)]
+    pub fn build(
+        route: &HttpTransportRoute,
+        builder: reqwest::ClientBuilder,
+        direct_endpoint: Option<&EndpointConfig>,
+        resolver: Arc<dyn ProviderResolver>,
+    ) -> Result<Self, TransportConfigError> {
+        let network_endpoint = route
+            .proxy()
+            .map(|proxy| proxy.endpoint().clone())
+            .or_else(|| direct_endpoint.cloned());
+        let mut builder = builder
+            .redirect(redirect::Policy::none())
+            .referer(false)
+            .no_proxy()
+            .retry(reqwest::retry::never());
+        if let Some(endpoint) = &network_endpoint {
+            builder = builder.dns_resolver(GuardedDnsResolver {
+                endpoint: endpoint.clone(),
+                resolver,
+            });
+        }
+        if let HttpTransportRoute::TrustedConnect { proxy, credential } = route {
+            let proxy_config = reqwest::Proxy::https(proxy.url().clone())
+                .map_err(|_| TransportConfigError::ClientBuild)?;
+            let proxy_config = match credential {
+                Some(credential) => credential.apply_to(proxy_config),
+                None => proxy_config,
+            };
+            builder = builder.proxy(proxy_config);
+        }
+        let client = builder
+            .build()
+            .map_err(|_| TransportConfigError::ClientBuild)?;
+        Ok(Self {
+            client,
+            network_endpoint,
+        })
+    }
+
+    /// Start one request without exposing the configured reqwest client.
+    #[doc(hidden)]
+    pub fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+        self.client.request(method, url)
+    }
+
+    /// Validate the connected network peer selected for this route.
+    #[doc(hidden)]
+    pub fn validate_response_peer(
+        &self,
+        response: &reqwest::Response,
+    ) -> Result<(), EndpointError> {
+        match (&self.network_endpoint, response.remote_addr()) {
+            (Some(endpoint), Some(remote)) => endpoint.validate_remote(remote),
+            (Some(_) | None, None) | (None, Some(_)) => Ok(()),
+        }
+    }
 }
 
 impl ReqwestResolve for GuardedDnsResolver {
@@ -963,50 +1037,15 @@ pub(crate) fn build_guarded_client(
     read_timeout: Duration,
     limits: &TransportLimits,
 ) -> Result<reqwest::Client, reqwest::Error> {
-    guarded_client_builder(endpoint, resolver, connect_timeout, read_timeout, limits).build()
-}
-
-fn build_routed_guarded_client(
-    network_endpoint: &EndpointConfig,
-    resolver: Arc<dyn ProviderResolver>,
-    connect_timeout: Duration,
-    read_timeout: Duration,
-    limits: &TransportLimits,
-    route: &HttpTransportRoute,
-) -> Result<reqwest::Client, TransportConfigError> {
-    let builder = guarded_client_builder(
-        network_endpoint,
-        resolver,
-        connect_timeout,
-        read_timeout,
-        limits,
-    );
-    apply_http_transport_route(builder, route)?
+    guarded_client_builder(connect_timeout, read_timeout, limits)
+        .dns_resolver(GuardedDnsResolver {
+            endpoint: endpoint.clone(),
+            resolver,
+        })
         .build()
-        .map_err(|_| TransportConfigError::ClientBuild)
-}
-
-fn apply_http_transport_route(
-    builder: reqwest::ClientBuilder,
-    route: &HttpTransportRoute,
-) -> Result<reqwest::ClientBuilder, TransportConfigError> {
-    match route {
-        HttpTransportRoute::Direct => Ok(builder),
-        HttpTransportRoute::TrustedConnect { proxy, credential } => {
-            let proxy_config = reqwest::Proxy::https(proxy.url().clone())
-                .map_err(|_| TransportConfigError::ClientBuild)?;
-            let proxy_config = match credential {
-                Some(credential) => credential.apply_to(proxy_config),
-                None => proxy_config,
-            };
-            Ok(builder.proxy(proxy_config))
-        }
-    }
 }
 
 fn guarded_client_builder(
-    network_endpoint: &EndpointConfig,
-    resolver: Arc<dyn ProviderResolver>,
     connect_timeout: Duration,
     read_timeout: Duration,
     limits: &TransportLimits,
@@ -1026,10 +1065,6 @@ fn guarded_client_builder(
         .pool_max_idle_per_host(limits.max_connections)
         .tcp_nodelay(true)
         .user_agent(concat!("siumai-transport/", env!("CARGO_PKG_VERSION")))
-        .dns_resolver(GuardedDnsResolver {
-            endpoint: network_endpoint.clone(),
-            resolver,
-        })
 }
 
 struct PendingResponse {
@@ -1651,11 +1686,10 @@ mod trusted_connect_tls_tests {
             proxy_address.port()
         ))
         .unwrap();
-        let route = HttpTransportRoute::trusted_connect(proxy.clone())
+        let route = HttpTransportRoute::trusted_connect(proxy)
             .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
             .unwrap();
         let transport = test_transport(
-            proxy,
             proxy_address,
             route,
             TransportLimits::default(),
@@ -1700,9 +1734,8 @@ mod trusted_connect_tls_tests {
             proxy_address.port()
         ))
         .unwrap();
-        let route = HttpTransportRoute::trusted_connect(proxy.clone());
+        let route = HttpTransportRoute::trusted_connect(proxy);
         let transport = test_transport(
-            proxy,
             proxy_address,
             route,
             TransportLimits {
@@ -1867,30 +1900,26 @@ mod trusted_connect_tls_tests {
     }
 
     fn test_transport(
-        proxy: ProxyEndpoint,
         proxy_address: SocketAddr,
         route: HttpTransportRoute,
         limits: TransportLimits,
         auth: Arc<dyn AuthApplier>,
     ) -> ProviderTransport {
-        let network_endpoint = proxy.endpoint().clone();
         let settings = ProviderHttpTransportSettings::default()
             .with_limits(limits.clone())
             .unwrap()
             .with_route(route)
             .unwrap();
-        let builder = guarded_client_builder(
-            &network_endpoint,
+        let builder =
+            guarded_client_builder(Duration::from_secs(2), Duration::from_secs(2), &limits)
+                .tls_certs_only([reqwest::Certificate::from_der(&decode(TEST_CA_DER)).unwrap()]);
+        let client = HttpRouteReqwestClient::build(
+            settings.route(),
+            builder,
+            Some(&EndpointConfig::public_custom("https://provider.example.test/v1").unwrap()),
             Arc::new(FixtureResolver(proxy_address)),
-            Duration::from_secs(2),
-            Duration::from_secs(2),
-            &limits,
         )
-        .tls_certs_only([reqwest::Certificate::from_der(&decode(TEST_CA_DER)).unwrap()]);
-        let client = apply_http_transport_route(builder, settings.route())
-            .unwrap()
-            .build()
-            .unwrap();
+        .unwrap();
         ProviderTransport {
             inner: Arc::new(TransportInner {
                 endpoint: EndpointConfig::public_custom("https://provider.example.test/v1")
@@ -1898,7 +1927,6 @@ mod trusted_connect_tls_tests {
                 auth,
                 retry_classifier: Arc::new(NoAdditionalRetryClassifier),
                 http_transport_settings: settings,
-                network_endpoint,
                 client,
                 admission: Arc::new(Semaphore::new(
                     limits.max_in_flight_requests + limits.max_queued_requests,

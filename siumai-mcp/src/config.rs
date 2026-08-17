@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use siumai_runtime::tool::{ApprovalPolicy, RecoveryPolicy, ToolConcurrency, ToolEffect};
+use siumai_transport::HttpTransportRoute;
 
 use crate::McpError;
 
@@ -184,6 +185,7 @@ pub struct McpClientConfig {
     namespace: Option<String>,
     limits: McpLimits,
     endpoint_policy: McpHttpEndpointPolicy,
+    http_transport_route: HttpTransportRoute,
     default_tool_policy: McpToolPolicy,
     tool_policies: BTreeMap<String, McpToolPolicy>,
 }
@@ -210,6 +212,16 @@ impl McpClientConfig {
 
     pub fn with_http_endpoint_policy(mut self, policy: McpHttpEndpointPolicy) -> Self {
         self.endpoint_policy = policy;
+        self
+    }
+
+    /// Select Direct or one explicit trusted CONNECT route for Streamable HTTP MCP.
+    ///
+    /// This changes network reachability only. MCP endpoint policy, bearer
+    /// authentication, message limits, session lifecycle, and replay behavior
+    /// remain owned by this crate. Stdio sessions ignore this value.
+    pub fn with_http_transport_route(mut self, route: HttpTransportRoute) -> Self {
+        self.http_transport_route = route;
         self
     }
 
@@ -243,10 +255,59 @@ impl McpClientConfig {
         self.endpoint_policy
     }
 
+    pub(crate) fn http_transport_route(&self) -> &HttpTransportRoute {
+        &self.http_transport_route
+    }
+
     pub(crate) fn tool_policy(&self, remote_name: &str) -> McpToolPolicy {
         self.tool_policies
             .get(remote_name)
             .copied()
             .unwrap_or(self.default_tool_policy)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use siumai_transport::{HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint};
+
+    use super::*;
+
+    #[test]
+    fn http_route_defaults_to_direct_and_can_be_replaced_explicitly() {
+        let config = McpClientConfig::default();
+        assert!(matches!(
+            config.http_transport_route(),
+            HttpTransportRoute::Direct
+        ));
+
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap(),
+        );
+        let config = config.with_http_transport_route(route);
+        assert!(config.http_transport_route().proxy().is_some());
+    }
+
+    #[test]
+    fn http_route_debug_redacts_proxy_endpoint_and_credentials() {
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::https("https://proxy-config-canary.example.test").unwrap(),
+        )
+        .with_basic_auth(
+            ProxyBasicCredential::new("proxy-user-canary", "proxy-secret-canary").unwrap(),
+        )
+        .unwrap();
+        let diagnostics = format!(
+            "{:?}",
+            McpClientConfig::default().with_http_transport_route(route)
+        );
+
+        for secret in [
+            "proxy-config-canary",
+            "proxy-user-canary",
+            "proxy-secret-canary",
+        ] {
+            assert!(!diagnostics.contains(secret));
+        }
     }
 }

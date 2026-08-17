@@ -17,3 +17,4 @@ pub use catalog::{McpCatalogFingerprint, McpToolCatalog, McpToolDefinition};
 pub use client::{McpClient, McpProgress};
 pub use config::{McpClientConfig, McpHttpEndpointPolicy, McpLimits, McpToolPolicy};
 pub use error::McpError;
+pub use siumai_transport::{HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint};

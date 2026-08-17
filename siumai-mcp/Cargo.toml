@@ -36,4 +36,6 @@ tokio-util.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 tokio-test.workspace = true
+tokio-rustls = { version = "0.26", default-features = false }
