@@ -22,14 +22,32 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{EndpointConfig, Resolver as ProviderResolver, SystemResolver};
-use crate::{
-    ReplaySafety, RequestBuildError, RequestPlan, RetryPolicy, TransportConfigError,
-    TransportLimits,
-};
+use crate::settings::{ProviderHttpRoute, ProviderHttpTransportSettings};
+use crate::{ReplaySafety, RequestBuildError, RequestPlan, TransportConfigError, TransportLimits};
 
 const ERROR_BODY_CAPTURE_BYTES: usize = 64 * 1024;
-const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// Opaque correlation token for one provider HTTP transport execution.
+///
+/// The token carries no provider, model, account, route, URL, or payload
+/// identity. It remains stable across retries within one execution.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TransportCallId(uuid::Uuid);
+
+impl TransportCallId {
+    fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+}
+
+impl fmt::Debug for TransportCallId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("TransportCallId")
+            .field(&self.0)
+            .finish()
+    }
+}
 
 /// Sanitized reason for consuming another attempt from the logical-call budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,54 +71,86 @@ pub enum RetryLimit {
 }
 
 /// Payload-free result of the transport-owned attempt loop.
+///
+/// A buffered call ends when its response is ready to return. A streaming call
+/// ends when its byte stream is established; later body or protocol events are
+/// intentionally outside this observation boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AttemptLoopOutcome {
     ResponseReturned { status: StatusCode },
+    StreamEstablished { status: StatusCode },
     Failed { kind: ErrorKind },
+    Cancelled,
+    TimedOut,
 }
 
 /// Read-only, payload-free transport observation.
+///
+/// Events expose only bounded structural retry and lifecycle data. They never
+/// contain URLs, headers, credentials, bodies, prompts, provider error bodies,
+/// or provider/model/account identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransportEvent {
     AttemptBudgetResolved {
+        call_id: TransportCallId,
         provider_maximum_attempts: u8,
         caller_maximum_attempts: Option<u8>,
         effective_maximum_attempts: u8,
         limiting_authority: RetryLimit,
     },
     AttemptStarted {
+        call_id: TransportCallId,
         method: Method,
         attempt: u8,
         maximum_attempts: u8,
     },
-    ResponseReceived {
+    ResponseHeadReceived {
+        call_id: TransportCallId,
         status: StatusCode,
         attempt: u8,
+        retry_reason: Option<RetryReason>,
+        server_retry_after: Option<Duration>,
     },
     RetryScheduled {
+        call_id: TransportCallId,
         reason: RetryReason,
         completed_attempts: u8,
         delay: Duration,
     },
     RetryDeclined {
+        call_id: TransportCallId,
         reason: RetryReason,
         completed_attempts: u8,
         delay: Option<Duration>,
         limiting_authority: RetryLimit,
     },
     AttemptLoopFinished {
+        call_id: TransportCallId,
         attempts: u8,
         outcome: AttemptLoopOutcome,
     },
-    Completed {
-        status: StatusCode,
-        attempts: u8,
-    },
+}
+
+impl TransportEvent {
+    /// Return the payload-free correlation token for this execution.
+    pub fn call_id(&self) -> TransportCallId {
+        match self {
+            Self::AttemptBudgetResolved { call_id, .. }
+            | Self::AttemptStarted { call_id, .. }
+            | Self::ResponseHeadReceived { call_id, .. }
+            | Self::RetryScheduled { call_id, .. }
+            | Self::RetryDeclined { call_id, .. }
+            | Self::AttemptLoopFinished { call_id, .. } => *call_id,
+        }
+    }
 }
 
 /// Observer that cannot inspect or mutate URLs, headers, or bodies.
+///
+/// Observation runs synchronously on the transport execution task. Implementors
+/// should perform bounded work and hand off any blocking export asynchronously.
 pub trait TransportObserver: Send + Sync {
     fn observe(&self, event: &TransportEvent);
 }
@@ -120,25 +170,13 @@ impl RetryClassifier for NoAdditionalRetryClassifier {
     }
 }
 
-#[derive(Debug, Default)]
-struct NoopObserver;
-
-impl TransportObserver for NoopObserver {
-    fn observe(&self, _event: &TransportEvent) {}
-}
-
 /// Builder for one provider-runtime-level transport.
 pub struct ProviderTransportBuilder {
     endpoint: EndpointConfig,
     resolver: Arc<dyn ProviderResolver>,
     auth: Arc<dyn AuthApplier>,
-    observer: Arc<dyn TransportObserver>,
     retry_classifier: Arc<dyn RetryClassifier>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Duration,
-    call_timeout: Duration,
-    read_timeout: Duration,
+    http_transport_settings: ProviderHttpTransportSettings,
 }
 
 impl ProviderTransportBuilder {
@@ -147,13 +185,8 @@ impl ProviderTransportBuilder {
             endpoint,
             resolver: Arc::new(SystemResolver),
             auth: Arc::new(NoAuth),
-            observer: Arc::new(NoopObserver),
             retry_classifier: Arc::new(NoAdditionalRetryClassifier),
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: Duration::from_secs(10),
-            call_timeout: DEFAULT_CALL_TIMEOUT,
-            read_timeout: DEFAULT_READ_TIMEOUT,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
         }
     }
 
@@ -167,81 +200,48 @@ impl ProviderTransportBuilder {
         self
     }
 
-    pub fn with_observer(mut self, observer: Arc<dyn TransportObserver>) -> Self {
-        self.observer = observer;
-        self
-    }
-
     pub fn with_retry_classifier(mut self, classifier: Arc<dyn RetryClassifier>) -> Self {
         self.retry_classifier = classifier;
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = timeout;
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = timeout;
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = timeout;
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    ///
+    /// Endpoint, authentication, DNS resolution, provider retry
+    /// classification, and per-request replay proof remain separate inputs.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
     /// Validate static settings without performing DNS, I/O, or credential work.
     pub fn build(self) -> Result<ProviderTransport, TransportConfigError> {
-        self.limits.validate()?;
-        for (name, timeout) in [
-            ("connect_timeout", self.connect_timeout),
-            ("call_timeout", self.call_timeout),
-            ("read_timeout", self.read_timeout),
-        ] {
-            if timeout.is_zero() {
-                return Err(TransportConfigError::ZeroTimeout { name });
-            }
-            if Instant::now().checked_add(timeout).is_none() {
-                return Err(TransportConfigError::TimeoutTooLarge { name });
-            }
-        }
-        let admission_capacity = self
-            .limits
+        self.http_transport_settings.validate()?;
+        let limits = self.http_transport_settings.limits();
+        let admission_capacity = limits
             .max_in_flight_requests
-            .checked_add(self.limits.max_queued_requests)
+            .checked_add(limits.max_queued_requests)
             .ok_or(TransportConfigError::CapacityOverflow)?;
-        let client = build_guarded_client(
-            &self.endpoint,
-            self.resolver,
-            self.connect_timeout,
-            self.read_timeout,
-            &self.limits,
-        )
+        let maximum_in_flight = limits.max_in_flight_requests;
+        let client = match self.http_transport_settings.route() {
+            ProviderHttpRoute::Direct => build_guarded_client(
+                &self.endpoint,
+                self.resolver,
+                self.http_transport_settings.connect_timeout(),
+                self.http_transport_settings.read_timeout(),
+                limits,
+            ),
+        }
         .map_err(|_| TransportConfigError::ClientBuild)?;
         Ok(ProviderTransport {
             inner: Arc::new(TransportInner {
                 endpoint: self.endpoint,
                 auth: self.auth,
-                observer: self.observer,
                 retry_classifier: self.retry_classifier,
-                limits: self.limits.clone(),
-                retry_policy: self.retry_policy,
-                call_timeout: self.call_timeout,
+                http_transport_settings: self.http_transport_settings,
                 client,
                 admission: Arc::new(Semaphore::new(admission_capacity)),
-                in_flight: Arc::new(Semaphore::new(self.limits.max_in_flight_requests)),
+                in_flight: Arc::new(Semaphore::new(maximum_in_flight)),
             }),
         })
     }
@@ -263,7 +263,7 @@ impl ProviderTransport {
     }
 
     pub fn limits(&self) -> &TransportLimits {
-        &self.inner.limits
+        self.inner.http_transport_settings.limits()
     }
 
     /// Execute and buffer one response within the configured decompressed-byte limit.
@@ -272,55 +272,73 @@ impl ProviderTransport {
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<TransportResponse, Error> {
-        let pending = self.begin(plan, options).await?;
+        let call_id = TransportCallId::new();
+        let pending = self.begin(call_id, plan, options).await?;
         let PendingResponse {
             response,
             attempts,
             controls,
             permits: _permits,
         } = pending;
-        let status = response.status();
-        let headers = ResponseHeaders::checked(response.headers().clone(), &self.inner.limits)
-            .map_err(|error| response_limit_error(status, response.headers(), Vec::new(), error))?;
-        if let Some(length) = response.content_length()
-            && length > self.inner.limits.max_response_bytes as u64
-        {
-            return Err(response_limit_error(
-                status,
-                response.headers(),
-                Vec::new(),
-                "response Content-Length exceeds the configured limit",
-            ));
-        }
-
-        let mut body = BytesMut::new();
-        let mut stream = response.bytes_stream();
-        loop {
-            let next =
-                run_controlled(stream.next(), &controls.cancellation, controls.deadline).await?;
-            let Some(chunk) = next else {
-                break;
-            };
-            let chunk = chunk.map_err(transport_source_error)?;
-            if body.len().saturating_add(chunk.len()) > self.inner.limits.max_response_bytes {
+        let result = async {
+            let limits = self.inner.http_transport_settings.limits();
+            let status = response.status();
+            let headers =
+                ResponseHeaders::checked(response.headers().clone(), limits).map_err(|error| {
+                    response_limit_error(status, response.headers(), Vec::new(), error)
+                })?;
+            if let Some(length) = response.content_length()
+                && length > limits.max_response_bytes as u64
+            {
                 return Err(response_limit_error(
                     status,
-                    headers.expose(),
-                    bounded_body_prefix(&body, Some(&chunk), self.inner.limits.max_response_bytes),
-                    "response body exceeds the configured limit",
+                    response.headers(),
+                    Vec::new(),
+                    "response Content-Length exceeds the configured limit",
                 ));
             }
-            body.extend_from_slice(&chunk);
+
+            let mut body = BytesMut::new();
+            let mut stream = response.bytes_stream();
+            loop {
+                let next = run_controlled(stream.next(), &controls.cancellation, controls.deadline)
+                    .await?;
+                let Some(chunk) = next else {
+                    break;
+                };
+                let chunk = chunk.map_err(transport_source_error)?;
+                if body.len().saturating_add(chunk.len()) > limits.max_response_bytes {
+                    return Err(response_limit_error(
+                        status,
+                        headers.expose(),
+                        bounded_body_prefix(&body, Some(&chunk), limits.max_response_bytes),
+                        "response body exceeds the configured limit",
+                    ));
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(TransportResponse {
+                status,
+                headers,
+                body: body.freeze(),
+                attempts,
+            })
         }
-        self.inner
-            .observer
-            .observe(&TransportEvent::Completed { status, attempts });
-        Ok(TransportResponse {
-            status,
-            headers,
-            body: body.freeze(),
-            attempts,
-        })
+        .await;
+
+        match result {
+            Ok(response) => {
+                self.finish_attempt_loop(
+                    call_id,
+                    attempts,
+                    AttemptLoopOutcome::ResponseReturned {
+                        status: response.status(),
+                    },
+                );
+                Ok(response)
+            }
+            Err(error) => Err(self.finish_attempt_loop_error(call_id, attempts, error)),
+        }
     }
 
     /// Establish a response byte stream. Once returned, no transport replay occurs.
@@ -329,53 +347,75 @@ impl ProviderTransport {
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<TransportStreamResponse, Error> {
-        let pending = self.begin(plan, options).await?;
-        let status = pending.response.status();
-        let headers =
-            ResponseHeaders::checked(pending.response.headers().clone(), &self.inner.limits)
+        let call_id = TransportCallId::new();
+        let pending = self.begin(call_id, plan, options).await?;
+        let attempts = pending.attempts;
+        let result = (|| {
+            let limits = self.inner.http_transport_settings.limits();
+            let status = pending.response.status();
+            let headers = ResponseHeaders::checked(pending.response.headers().clone(), limits)
                 .map_err(|error| {
                     response_limit_error(status, pending.response.headers(), Vec::new(), error)
                 })?;
-        if let Some(length) = pending.response.content_length()
-            && length > self.inner.limits.max_response_bytes as u64
-        {
-            return Err(response_limit_error(
+            if let Some(length) = pending.response.content_length()
+                && length > limits.max_response_bytes as u64
+            {
+                return Err(response_limit_error(
+                    status,
+                    pending.response.headers(),
+                    Vec::new(),
+                    "response Content-Length exceeds the configured limit",
+                ));
+            }
+            let body = TransportByteStream::new(
+                pending.response.bytes_stream(),
+                pending.controls,
+                pending.permits,
+                limits.max_response_bytes,
                 status,
-                pending.response.headers(),
-                Vec::new(),
-                "response Content-Length exceeds the configured limit",
-            ));
+                headers.clone(),
+            );
+            Ok(TransportStreamResponse {
+                status,
+                headers,
+                body,
+                attempts,
+            })
+        })();
+
+        match result {
+            Ok(response) => {
+                self.finish_attempt_loop(
+                    call_id,
+                    attempts,
+                    AttemptLoopOutcome::StreamEstablished {
+                        status: response.status(),
+                    },
+                );
+                Ok(response)
+            }
+            Err(error) => Err(self.finish_attempt_loop_error(call_id, attempts, error)),
         }
-        self.inner.observer.observe(&TransportEvent::Completed {
-            status,
-            attempts: pending.attempts,
-        });
-        let body = TransportByteStream::new(
-            pending.response.bytes_stream(),
-            pending.controls,
-            pending.permits,
-            self.inner.limits.max_response_bytes,
-            status,
-            headers.clone(),
-        );
-        Ok(TransportStreamResponse {
-            status,
-            headers,
-            body,
-            attempts: pending.attempts,
-        })
     }
 
     async fn begin(
         &self,
+        call_id: TransportCallId,
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<PendingResponse, Error> {
         let controls = CallControls {
-            deadline: effective_deadline(options.deadline(), self.inner.call_timeout),
+            deadline: effective_deadline(
+                options.deadline(),
+                self.inner.http_transport_settings.call_timeout(),
+            ),
             cancellation: options.cancellation().child(),
         };
-        let provider_maximum_attempts = self.inner.retry_policy.max_attempts();
+        let provider_maximum_attempts = self
+            .inner
+            .http_transport_settings
+            .retry_policy()
+            .max_attempts();
         let caller_maximum_attempts = options.retry().maximum_attempts();
         let (maximum_attempts, budget_limit) = if !plan.replay_safety().permits_replay() {
             (1, RetryLimit::ReplaySafety)
@@ -387,28 +427,27 @@ impl ProviderTransport {
                 _ => (provider_maximum_attempts, RetryLimit::ProviderPolicy),
             }
         };
-        self.inner
-            .observer
-            .observe(&TransportEvent::AttemptBudgetResolved {
-                provider_maximum_attempts,
-                caller_maximum_attempts,
-                effective_maximum_attempts: maximum_attempts,
-                limiting_authority: budget_limit,
-            });
+        self.observe(TransportEvent::AttemptBudgetResolved {
+            call_id,
+            provider_maximum_attempts,
+            caller_maximum_attempts,
+            effective_maximum_attempts: maximum_attempts,
+            limiting_authority: budget_limit,
+        });
         let permits = self
             .acquire(&controls)
             .await
-            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let prepared = plan
-            .prepare(&self.inner.limits)
+            .prepare(self.inner.http_transport_settings.limits())
             .map_err(request_build_error)
-            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let url = self
             .inner
             .endpoint
             .request_url(plan.target())
             .map_err(endpoint_runtime_error)
-            .map_err(|error| self.finish_attempt_loop_error(0, error))?;
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let idempotency = match plan.replay_safety() {
             ReplaySafety::IdempotencyKey(header) => Some((
                 header.name().clone(),
@@ -423,13 +462,12 @@ impl ProviderTransport {
 
         loop {
             attempts = attempts.saturating_add(1);
-            self.inner
-                .observer
-                .observe(&TransportEvent::AttemptStarted {
-                    method: plan.method().clone(),
-                    attempt: attempts,
-                    maximum_attempts,
-                });
+            self.observe(TransportEvent::AttemptStarted {
+                call_id,
+                method: plan.method().clone(),
+                attempt: attempts,
+                maximum_attempts,
+            });
             let attempt = self
                 .send_attempt(AttemptRequest {
                     plan: &plan,
@@ -448,6 +486,7 @@ impl ProviderTransport {
                     if attempts >= maximum_attempts || !retryable {
                         if retryable {
                             self.observe_retry_declined(
+                                call_id,
                                 RetryReason::Transport,
                                 attempts,
                                 None,
@@ -455,12 +494,13 @@ impl ProviderTransport {
                             );
                         }
                         let error = failure.into_error();
-                        return Err(self.finish_attempt_loop_error(attempts, error));
+                        return Err(self.finish_attempt_loop_error(call_id, attempts, error));
                     }
                     let delay = match self.retry_delay(attempts, None, &controls) {
                         RetryDelay::Schedule(delay) => delay,
                         RetryDelay::Decline { .. } => {
                             return Err(self.finish_attempt_loop_error(
+                                call_id,
                                 attempts,
                                 Error::new(
                                     ErrorKind::Internal,
@@ -470,6 +510,7 @@ impl ProviderTransport {
                         }
                         RetryDelay::DeadlineExceeded => {
                             return Err(self.finish_attempt_loop_error(
+                                call_id,
                                 attempts,
                                 Error::new(
                                     ErrorKind::Timeout,
@@ -479,10 +520,16 @@ impl ProviderTransport {
                         }
                     };
                     if let Err(error) = self
-                        .wait_before_retry(RetryReason::Transport, attempts, delay, &controls)
+                        .wait_before_retry(
+                            call_id,
+                            RetryReason::Transport,
+                            attempts,
+                            delay,
+                            &controls,
+                        )
                         .await
                     {
-                        return Err(self.finish_attempt_loop_error(attempts, error));
+                        return Err(self.finish_attempt_loop_error(call_id, attempts, error));
                     }
                     refresh = AuthRefresh::Current;
                     continue;
@@ -493,6 +540,7 @@ impl ProviderTransport {
                 && self.inner.endpoint.validate_remote(remote).is_err()
             {
                 return Err(self.finish_attempt_loop_error(
+                    call_id,
                     attempts,
                     Error::new(
                         ErrorKind::Transport,
@@ -500,29 +548,37 @@ impl ProviderTransport {
                     ),
                 ));
             }
-            if let Err(error) = ResponseHeaders::validate(response.headers(), &self.inner.limits) {
+            if let Err(error) = ResponseHeaders::validate(
+                response.headers(),
+                self.inner.http_transport_settings.limits(),
+            ) {
                 let error =
                     response_limit_error(response.status(), response.headers(), Vec::new(), error);
-                return Err(self.finish_attempt_loop_error(attempts, error));
+                return Err(self.finish_attempt_loop_error(call_id, attempts, error));
             }
-            self.inner
-                .observer
-                .observe(&TransportEvent::ResponseReceived {
-                    status: response.status(),
-                    attempt: attempts,
-                });
-
+            let can_refresh = response.status() == StatusCode::UNAUTHORIZED
+                && self.inner.auth.supports_refresh()
+                && !refreshed_once
+                && credential_revision.is_some();
             let retry_reason = standard_retry_reason(response.status()).or_else(|| {
                 self.inner
                     .retry_classifier
                     .classify_status(response.status())
             });
-            let can_refresh = response.status() == StatusCode::UNAUTHORIZED
-                && self.inner.auth.supports_refresh()
-                && !refreshed_once
-                && credential_revision.is_some();
+            let retry_reason = match retry_reason {
+                Some(RetryReason::Unauthorized) if !can_refresh => None,
+                reason => reason,
+            };
+            let server_retry_after = retry_reason.and_then(|_| retry_after(response.headers()));
+            self.observe(TransportEvent::ResponseHeadReceived {
+                call_id,
+                status: response.status(),
+                attempt: attempts,
+                retry_reason,
+                server_retry_after,
+            });
+
             let Some(reason) = retry_reason else {
-                self.finish_attempt_loop_response(attempts, response.status());
                 return Ok(PendingResponse {
                     response,
                     attempts,
@@ -530,19 +586,14 @@ impl ProviderTransport {
                     permits,
                 });
             };
-            if response.status() == StatusCode::UNAUTHORIZED && !can_refresh {
-                self.finish_attempt_loop_response(attempts, response.status());
-                return Ok(PendingResponse {
-                    response,
-                    attempts,
-                    controls,
-                    permits,
-                });
-            }
-            let retry_after = retry_after(response.headers());
             if attempts >= maximum_attempts {
-                self.observe_retry_declined(reason, attempts, retry_after, budget_limit);
-                self.finish_attempt_loop_response(attempts, response.status());
+                self.observe_retry_declined(
+                    call_id,
+                    reason,
+                    attempts,
+                    server_retry_after,
+                    budget_limit,
+                );
                 return Ok(PendingResponse {
                     response,
                     attempts,
@@ -550,14 +601,19 @@ impl ProviderTransport {
                     permits,
                 });
             }
-            let delay = match self.retry_delay(attempts, retry_after, &controls) {
+            let delay = match self.retry_delay(attempts, server_retry_after, &controls) {
                 RetryDelay::Schedule(delay) => delay,
                 RetryDelay::Decline {
                     delay,
                     limiting_authority,
                 } => {
-                    self.observe_retry_declined(reason, attempts, Some(delay), limiting_authority);
-                    self.finish_attempt_loop_response(attempts, response.status());
+                    self.observe_retry_declined(
+                        call_id,
+                        reason,
+                        attempts,
+                        Some(delay),
+                        limiting_authority,
+                    );
                     return Ok(PendingResponse {
                         response,
                         attempts,
@@ -567,6 +623,7 @@ impl ProviderTransport {
                 }
                 RetryDelay::DeadlineExceeded => {
                     return Err(self.finish_attempt_loop_error(
+                        call_id,
                         attempts,
                         Error::new(
                             ErrorKind::Timeout,
@@ -577,16 +634,24 @@ impl ProviderTransport {
             };
             drop(response);
             if let Err(error) = self
-                .wait_before_retry(reason, attempts, delay, &controls)
+                .wait_before_retry(call_id, reason, attempts, delay, &controls)
                 .await
             {
-                return Err(self.finish_attempt_loop_error(attempts, error));
+                return Err(self.finish_attempt_loop_error(call_id, attempts, error));
             }
             if can_refresh {
-                refreshed_once = true;
-                refresh = AuthRefresh::AfterUnauthorized {
-                    rejected_revision: credential_revision.expect("refresh requires a revision"),
+                let Some(rejected_revision) = credential_revision else {
+                    return Err(self.finish_attempt_loop_error(
+                        call_id,
+                        attempts,
+                        Error::new(
+                            ErrorKind::Internal,
+                            "credential refresh revision was unavailable",
+                        ),
+                    ));
                 };
+                refreshed_once = true;
+                refresh = AuthRefresh::AfterUnauthorized { rejected_revision };
             } else {
                 refresh = AuthRefresh::Current;
             }
@@ -640,10 +705,11 @@ impl ProviderTransport {
             }
             headers.insert(name.clone(), value.clone());
         }
-        if headers.len() > self.inner.limits.max_header_count
+        let limits = self.inner.http_transport_settings.limits();
+        if headers.len() > limits.max_header_count
             || headers
                 .values()
-                .any(|value| value.as_bytes().len() > self.inner.limits.max_header_value_bytes)
+                .any(|value| value.as_bytes().len() > limits.max_header_value_bytes)
         {
             return Err(AttemptFailure::Fatal(request_build_error(
                 RequestBuildError::TooManyHeaders,
@@ -700,15 +766,23 @@ impl ProviderTransport {
         let delay = if let Some(retry_after) = retry_after {
             retry_after
         } else {
-            let upper = self.inner.retry_policy.backoff_for(completed_attempts);
-            if upper.is_zero() || !self.inner.retry_policy.uses_jitter() {
+            let retry_policy = self.inner.http_transport_settings.retry_policy();
+            let upper = retry_policy.backoff_for(completed_attempts);
+            if upper.is_zero() || !retry_policy.uses_jitter() {
                 upper
             } else {
                 let upper_millis = upper.as_millis().min(u128::from(u64::MAX)) as u64;
                 Duration::from_millis(rand::random_range(0..=upper_millis))
             }
         };
-        if retry_after.is_some() && delay > self.inner.retry_policy.max_server_delay() {
+        if retry_after.is_some()
+            && delay
+                > self
+                    .inner
+                    .http_transport_settings
+                    .retry_policy()
+                    .max_server_delay()
+        {
             return RetryDelay::Decline {
                 delay,
                 limiting_authority: RetryLimit::ServerDelayPolicy,
@@ -741,18 +815,18 @@ impl ProviderTransport {
 
     async fn wait_before_retry(
         &self,
+        call_id: TransportCallId,
         reason: RetryReason,
         completed_attempts: u8,
         delay: Duration,
         controls: &CallControls,
     ) -> Result<(), Error> {
-        self.inner
-            .observer
-            .observe(&TransportEvent::RetryScheduled {
-                reason,
-                completed_attempts,
-                delay,
-            });
+        self.observe(TransportEvent::RetryScheduled {
+            call_id,
+            reason,
+            completed_attempts,
+            delay,
+        });
         if !delay.is_zero() {
             run_controlled(
                 tokio::time::sleep(delay),
@@ -766,12 +840,14 @@ impl ProviderTransport {
 
     fn observe_retry_declined(
         &self,
+        call_id: TransportCallId,
         reason: RetryReason,
         completed_attempts: u8,
         delay: Option<Duration>,
         limiting_authority: RetryLimit,
     ) {
-        self.inner.observer.observe(&TransportEvent::RetryDeclined {
+        self.observe(TransportEvent::RetryDeclined {
+            call_id,
             reason,
             completed_attempts,
             delay,
@@ -779,22 +855,38 @@ impl ProviderTransport {
         });
     }
 
-    fn finish_attempt_loop_response(&self, attempts: u8, status: StatusCode) {
+    fn observe(&self, event: TransportEvent) {
         self.inner
-            .observer
-            .observe(&TransportEvent::AttemptLoopFinished {
-                attempts,
-                outcome: AttemptLoopOutcome::ResponseReturned { status },
-            });
+            .http_transport_settings
+            .observer()
+            .observe(&event);
     }
 
-    fn finish_attempt_loop_error(&self, attempts: u8, error: Error) -> Error {
-        self.inner
-            .observer
-            .observe(&TransportEvent::AttemptLoopFinished {
-                attempts,
-                outcome: AttemptLoopOutcome::Failed { kind: error.kind() },
-            });
+    fn finish_attempt_loop(
+        &self,
+        call_id: TransportCallId,
+        attempts: u8,
+        outcome: AttemptLoopOutcome,
+    ) {
+        self.observe(TransportEvent::AttemptLoopFinished {
+            call_id,
+            attempts,
+            outcome,
+        });
+    }
+
+    fn finish_attempt_loop_error(
+        &self,
+        call_id: TransportCallId,
+        attempts: u8,
+        error: Error,
+    ) -> Error {
+        let outcome = match error.kind() {
+            ErrorKind::Cancelled => AttemptLoopOutcome::Cancelled,
+            ErrorKind::Timeout => AttemptLoopOutcome::TimedOut,
+            kind => AttemptLoopOutcome::Failed { kind },
+        };
+        self.finish_attempt_loop(call_id, attempts, outcome);
         error
     }
 }
@@ -813,8 +905,10 @@ impl fmt::Debug for ProviderTransport {
         formatter
             .debug_struct("ProviderTransport")
             .field("endpoint", &self.inner.endpoint)
-            .field("limits", &self.inner.limits)
-            .field("retry_policy", &self.inner.retry_policy)
+            .field(
+                "http_transport_settings",
+                &self.inner.http_transport_settings,
+            )
             .finish()
     }
 }
@@ -822,11 +916,8 @@ impl fmt::Debug for ProviderTransport {
 struct TransportInner {
     endpoint: EndpointConfig,
     auth: Arc<dyn AuthApplier>,
-    observer: Arc<dyn TransportObserver>,
     retry_classifier: Arc<dyn RetryClassifier>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    call_timeout: Duration,
+    http_transport_settings: ProviderHttpTransportSettings,
     client: reqwest::Client,
     admission: Arc<Semaphore>,
     in_flight: Arc<Semaphore>,

@@ -13,6 +13,7 @@ mod limits;
 mod replay;
 mod request;
 mod resource;
+mod settings;
 mod transport;
 mod websocket;
 
@@ -33,9 +34,10 @@ pub use resource::{
     DownloadedResource, ResourceDownloadOptions, ResourceDownloader, ResourceDownloaderBuilder,
     ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
+pub use settings::ProviderHttpTransportSettings;
 pub use transport::{
     AttemptLoopOutcome, ProviderTransport, ProviderTransportBuilder, ResponseHeaders,
-    RetryClassifier, RetryLimit, RetryReason, TransportByteStream, TransportEvent,
+    RetryClassifier, RetryLimit, RetryReason, TransportByteStream, TransportCallId, TransportEvent,
     TransportObserver, TransportResponse, TransportStreamResponse,
 };
 pub use websocket::{

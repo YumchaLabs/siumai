@@ -11,10 +11,10 @@ use siumai_core::{CallOptions, Cancellation, Error, ErrorKind};
 use siumai_transport::{
     AttemptLoopOutcome, AuthApplier, AuthContext, AuthRefresh, CredentialPatch, CredentialRevision,
     EndpointConfig, EndpointError, EndpointPolicy, IdempotencyHeader, MultipartBody, MultipartPart,
-    ProviderTransport, ReplaySafety, RequestBody, RequestBuildError, RequestHeaders, RequestPlan,
-    RequestTarget, Resolver, ResourceDownloadOptions, ResourceDownloader, ResourceUrl,
-    RetryClassifier, RetryLimit, RetryPolicy, RetryReason, TransportEvent, TransportLimits,
-    TransportObserver, WebSocketEndpoint,
+    ProviderHttpTransportSettings, ProviderTransport, ReplaySafety, RequestBody, RequestBuildError,
+    RequestHeaders, RequestPlan, RequestTarget, Resolver, ResourceDownloadOptions,
+    ResourceDownloader, ResourceUrl, RetryClassifier, RetryLimit, RetryPolicy, RetryReason,
+    TransportConfigError, TransportEvent, TransportLimits, TransportObserver, WebSocketEndpoint,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -211,6 +211,24 @@ impl TransportObserver for RecordingObserver {
     }
 }
 
+#[derive(Default)]
+struct ScopedEventSink(Mutex<Vec<(&'static str, TransportEvent)>>);
+
+struct ScopedObserver {
+    scope: &'static str,
+    sink: Arc<ScopedEventSink>,
+}
+
+impl TransportObserver for ScopedObserver {
+    fn observe(&self, event: &TransportEvent) {
+        self.sink
+            .0
+            .lock()
+            .unwrap()
+            .push((self.scope, event.clone()));
+    }
+}
+
 fn retry_policy(maximum_attempts: u8) -> RetryPolicy {
     RetryPolicy::new(maximum_attempts)
         .unwrap()
@@ -219,8 +237,11 @@ fn retry_policy(maximum_attempts: u8) -> RetryPolicy {
 
 fn transport(endpoint: EndpointConfig, observer: Arc<dyn TransportObserver>) -> ProviderTransport {
     ProviderTransport::builder(endpoint)
-        .with_retry_policy(retry_policy(3))
-        .with_observer(observer)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(retry_policy(3))
+                .with_observer(observer),
+        )
         .build()
         .unwrap()
 }
@@ -230,6 +251,554 @@ fn json_post(replay: ReplaySafety) -> RequestPlan {
         .with_body(RequestBody::json(&serde_json::json!({ "input": "hello" })).unwrap())
         .with_replay_safety(replay)
         .unwrap()
+}
+
+#[test]
+fn provider_http_settings_preserve_direct_defaults_and_validate_before_build() {
+    let defaults = ProviderHttpTransportSettings::default();
+    assert_eq!(defaults.limits(), &TransportLimits::default());
+    assert_eq!(defaults.retry_policy(), RetryPolicy::default());
+    assert_eq!(defaults.connect_timeout(), Duration::from_secs(10));
+    assert_eq!(defaults.call_timeout(), Duration::from_secs(15 * 60));
+    assert_eq!(defaults.read_timeout(), Duration::from_secs(5 * 60));
+    let debug = format!("{defaults:?}");
+    assert!(debug.contains("Direct"));
+    assert!(debug.contains("observer_configured: false"));
+
+    let zero_limit = defaults
+        .clone()
+        .with_limits(TransportLimits {
+            max_request_bytes: 0,
+            ..TransportLimits::default()
+        })
+        .unwrap_err();
+    assert_eq!(
+        zero_limit,
+        TransportConfigError::ZeroLimit {
+            name: "max_request_bytes"
+        }
+    );
+    assert_eq!(
+        defaults
+            .clone()
+            .with_connect_timeout(Duration::ZERO)
+            .unwrap_err(),
+        TransportConfigError::ZeroTimeout {
+            name: "connect_timeout"
+        }
+    );
+    assert_eq!(
+        defaults.with_call_timeout(Duration::MAX).unwrap_err(),
+        TransportConfigError::TimeoutTooLarge {
+            name: "call_timeout"
+        }
+    );
+}
+
+#[tokio::test]
+async fn buffered_and_streaming_calls_have_precise_attempt_loop_boundaries() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"buffered".to_vec(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"streamed".to_vec(),
+        },
+    ])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let settings = ProviderHttpTransportSettings::default().with_observer(observer.clone());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap();
+    let plan = RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap());
+
+    transport
+        .execute(plan.clone(), CallOptions::default())
+        .await
+        .unwrap();
+    let buffered_events = observer.events();
+    assert_eq!(buffered_events.len(), 4);
+    let buffered_call_id = buffered_events[0].call_id();
+    assert!(
+        buffered_events
+            .iter()
+            .all(|event| event.call_id() == buffered_call_id)
+    );
+    assert!(matches!(
+        buffered_events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { attempt: 1, .. },
+            TransportEvent::ResponseHeadReceived {
+                status: StatusCode::OK,
+                attempt: 1,
+                retry_reason: None,
+                server_retry_after: None,
+                ..
+            },
+            TransportEvent::AttemptLoopFinished {
+                attempts: 1,
+                outcome: AttemptLoopOutcome::ResponseReturned {
+                    status: StatusCode::OK
+                },
+                ..
+            },
+        ]
+    ));
+
+    let response = transport
+        .execute_stream(plan, CallOptions::default())
+        .await
+        .unwrap();
+    let stream_boundary_events = observer.events();
+    let stream_events = &stream_boundary_events[buffered_events.len()..];
+    assert_eq!(stream_events.len(), 4);
+    let stream_call_id = stream_events[0].call_id();
+    assert_ne!(buffered_call_id, stream_call_id);
+    assert!(
+        stream_events
+            .iter()
+            .all(|event| event.call_id() == stream_call_id)
+    );
+    assert!(matches!(
+        stream_events.last(),
+        Some(TransportEvent::AttemptLoopFinished {
+            attempts: 1,
+            outcome: AttemptLoopOutcome::StreamEstablished {
+                status: StatusCode::OK
+            },
+            ..
+        })
+    ));
+
+    let mut body = response.into_body();
+    while let Some(chunk) = body.next().await {
+        chunk.unwrap();
+    }
+    assert_eq!(observer.events(), stream_boundary_events);
+}
+
+#[tokio::test]
+async fn final_attempt_outcomes_distinguish_failure_cancellation_and_timeout() {
+    let failed_server = TestServer::spawn(vec![ServerAction::DropAfterRead]).await;
+    let failed_observer = Arc::new(RecordingObserver::default());
+    let failed_transport = ProviderTransport::builder(failed_server.endpoint())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(failed_observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let failed = failed_transport
+        .execute(json_post(ReplaySafety::Never), CallOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(failed.kind(), ErrorKind::Transport);
+    assert!(matches!(
+        failed_observer.events().last(),
+        Some(TransportEvent::AttemptLoopFinished {
+            attempts: 1,
+            outcome: AttemptLoopOutcome::Failed {
+                kind: ErrorKind::Transport
+            },
+            ..
+        })
+    ));
+
+    let cancelled_server = TestServer::spawn(Vec::new()).await;
+    let cancelled_observer = Arc::new(RecordingObserver::default());
+    let cancelled_transport = ProviderTransport::builder(cancelled_server.endpoint())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(cancelled_observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let cancellation = Cancellation::new();
+    cancellation.cancel();
+    let cancelled = cancelled_transport
+        .execute(
+            json_post(ReplaySafety::Never),
+            CallOptions::default().with_cancellation(cancellation),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(cancelled.kind(), ErrorKind::Cancelled);
+    assert!(matches!(
+        cancelled_observer.events().last(),
+        Some(TransportEvent::AttemptLoopFinished {
+            attempts: 0,
+            outcome: AttemptLoopOutcome::Cancelled,
+            ..
+        })
+    ));
+
+    let timed_out_server = TestServer::spawn(Vec::new()).await;
+    let timed_out_observer = Arc::new(RecordingObserver::default());
+    let timed_out_transport = ProviderTransport::builder(timed_out_server.endpoint())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(timed_out_observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let timed_out = timed_out_transport
+        .execute(
+            json_post(ReplaySafety::Never),
+            CallOptions::default().with_deadline(std::time::Instant::now()),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(timed_out.kind(), ErrorKind::Timeout);
+    assert!(matches!(
+        timed_out_observer.events().last(),
+        Some(TransportEvent::AttemptLoopFinished {
+            attempts: 0,
+            outcome: AttemptLoopOutcome::TimedOut,
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn retry_events_keep_one_call_id_and_report_structural_response_advice() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 500,
+            headers: Vec::new(),
+            body: Vec::new(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"recovered".to_vec(),
+        },
+    ])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let settings = ProviderHttpTransportSettings::default()
+        .with_retry_policy(retry_policy(2))
+        .with_observer(observer.clone());
+    ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap()
+        .execute(
+            json_post(ReplaySafety::SemanticallyIdempotent),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    let events = observer.events();
+    assert_eq!(events.len(), 7);
+    let call_id = events[0].call_id();
+    assert!(events.iter().all(|event| event.call_id() == call_id));
+    assert!(matches!(
+        events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { attempt: 1, .. },
+            TransportEvent::ResponseHeadReceived {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                attempt: 1,
+                retry_reason: Some(RetryReason::ServerUnavailable),
+                server_retry_after: None,
+                ..
+            },
+            TransportEvent::RetryScheduled {
+                reason: RetryReason::ServerUnavailable,
+                completed_attempts: 1,
+                delay,
+                ..
+            },
+            TransportEvent::AttemptStarted { attempt: 2, .. },
+            TransportEvent::ResponseHeadReceived {
+                status: StatusCode::OK,
+                attempt: 2,
+                retry_reason: None,
+                server_retry_after: None,
+                ..
+            },
+            TransportEvent::AttemptLoopFinished {
+                attempts: 2,
+                outcome: AttemptLoopOutcome::ResponseReturned {
+                    status: StatusCode::OK
+                },
+                ..
+            },
+        ] if delay.is_zero()
+    ));
+}
+
+#[tokio::test]
+async fn concurrent_executions_use_distinct_call_ids() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"first".to_vec(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"second".to_vec(),
+        },
+    ])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let first = transport.execute(
+        RequestPlan::new(Method::GET, RequestTarget::new("first").unwrap()),
+        CallOptions::default(),
+    );
+    let second = transport.execute(
+        RequestPlan::new(Method::GET, RequestTarget::new("second").unwrap()),
+        CallOptions::default(),
+    );
+    let (first, second) = tokio::join!(first, second);
+    first.unwrap();
+    second.unwrap();
+
+    let events = observer.events();
+    let call_ids = events
+        .iter()
+        .filter_map(|event| match event {
+            TransportEvent::AttemptBudgetResolved { call_id, .. } => Some(*call_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(call_ids.len(), 2);
+    assert_ne!(call_ids[0], call_ids[1]);
+    assert!(
+        events
+            .iter()
+            .all(|event| call_ids.contains(&event.call_id()))
+    );
+}
+
+#[tokio::test]
+async fn response_body_timeout_finishes_the_buffered_loop_once() {
+    let server = TestServer::spawn(vec![ServerAction::RespondThenHold {
+        status: 200,
+        prefix: b"partial".to_vec(),
+        content_length: 100,
+    }])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let error = transport
+        .execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("slow").unwrap()),
+            CallOptions::default()
+                .with_deadline(std::time::Instant::now() + Duration::from_millis(50)),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Timeout);
+
+    let events = observer.events();
+    assert!(matches!(
+        events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { attempt: 1, .. },
+            TransportEvent::ResponseHeadReceived {
+                status: StatusCode::OK,
+                attempt: 1,
+                ..
+            },
+            TransportEvent::AttemptLoopFinished {
+                attempts: 1,
+                outcome: AttemptLoopOutcome::TimedOut,
+                ..
+            },
+        ]
+    ));
+}
+
+#[tokio::test]
+async fn observer_wrappers_add_host_attribution_without_expanding_transport_events() {
+    let server = TestServer::spawn(vec![
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"first".to_vec(),
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"second".to_vec(),
+        },
+    ])
+    .await;
+    let sink = Arc::new(ScopedEventSink::default());
+    let first_scope = "canary-provider-first";
+    let second_scope = "canary-provider-second";
+    for scope in [first_scope, second_scope] {
+        let settings =
+            ProviderHttpTransportSettings::default().with_observer(Arc::new(ScopedObserver {
+                scope,
+                sink: sink.clone(),
+            }));
+        let debug = format!("{settings:?}");
+        assert!(debug.contains("observer_configured: true"));
+        assert!(!debug.contains(scope));
+        ProviderTransport::builder(server.endpoint())
+            .with_http_transport_settings(settings)
+            .build()
+            .unwrap()
+            .execute(
+                RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+    }
+
+    let events = sink.0.lock().unwrap();
+    assert!(events.iter().any(|(scope, _)| *scope == first_scope));
+    assert!(events.iter().any(|(scope, _)| *scope == second_scope));
+    for (_, event) in events.iter() {
+        let debug = format!("{event:?}");
+        assert!(!debug.contains(first_scope));
+        assert!(!debug.contains(second_scope));
+    }
+}
+
+#[tokio::test]
+async fn transport_event_debug_contains_no_request_response_or_credential_payload() {
+    let server = TestServer::spawn(vec![ServerAction::Respond {
+        status: 200,
+        headers: vec![(
+            "X-Canary-Response-Header".to_owned(),
+            "canary-response-header-value".to_owned(),
+        )],
+        body: b"canary-response-body".to_vec(),
+    }])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let transport = ProviderTransport::builder(server.endpoint())
+        .with_auth(Arc::new(SecretAuth))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+    let plan = RequestPlan::new(
+        Method::POST,
+        RequestTarget::new("canary-request-target").unwrap(),
+    )
+    .with_headers(
+        RequestHeaders::new()
+            .try_insert(
+                HeaderName::from_static("x-canary-request-header"),
+                HeaderValue::from_static("canary-request-header-value"),
+            )
+            .unwrap(),
+    )
+    .with_body(RequestBody::bytes("canary-request-body"));
+    transport
+        .execute(plan, CallOptions::default())
+        .await
+        .unwrap();
+
+    let debug = format!("{:?}", observer.events());
+    for sentinel in [
+        "canary-request-target",
+        "x-canary-request-header",
+        "canary-request-header-value",
+        "canary-request-body",
+        "x-canary-response-header",
+        "canary-response-header-value",
+        "canary-response-body",
+        "canary-header-secret",
+        "canary-query-secret",
+    ] {
+        assert!(!debug.contains(sentinel), "event leaked {sentinel}");
+    }
+}
+
+#[tokio::test]
+async fn cloned_settings_share_observation_but_built_transports_isolate_admission() {
+    let server = TestServer::spawn(vec![
+        ServerAction::RespondThenHold {
+            status: 200,
+            prefix: b"held".to_vec(),
+            content_length: 100,
+        },
+        ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"independent".to_vec(),
+        },
+    ])
+    .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let settings = ProviderHttpTransportSettings::default()
+        .with_limits(TransportLimits {
+            max_connections: 1,
+            max_in_flight_requests: 1,
+            max_queued_requests: 1,
+            ..TransportLimits::default()
+        })
+        .unwrap()
+        .with_observer(observer.clone());
+    let first = ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(settings.clone())
+        .build()
+        .unwrap();
+    let second = ProviderTransport::builder(server.endpoint())
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap();
+
+    let held = first
+        .execute_stream(
+            RequestPlan::new(Method::GET, RequestTarget::new("held").unwrap()),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+    let independent = tokio::time::timeout(
+        Duration::from_secs(1),
+        second.execute(
+            RequestPlan::new(Method::GET, RequestTarget::new("independent").unwrap()),
+            CallOptions::default(),
+        ),
+    )
+    .await
+    .expect("independently built transports must not share admission")
+    .unwrap();
+    assert_eq!(
+        independent.body(),
+        &bytes::Bytes::from_static(b"independent")
+    );
+    drop(held);
+
+    let call_ids = observer
+        .events()
+        .iter()
+        .filter_map(|event| match event {
+            TransportEvent::AttemptBudgetResolved { call_id, .. } => Some(*call_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(call_ids.len(), 2);
+    assert_ne!(call_ids[0], call_ids[1]);
 }
 
 #[test]
@@ -354,7 +923,9 @@ async fn provider_body_authority_names_are_inert_transport_data() {
         .unwrap();
     let response = ProviderTransport::builder(server.endpoint())
         .with_auth(Arc::new(ExactCredentialHeaderAuth))
-        .with_retry_policy(retry_policy(2))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy(2)),
+        )
         .build()
         .unwrap()
         .execute(plan, CallOptions::default())
@@ -534,7 +1105,9 @@ async fn unauthorized_rate_limit_and_server_error_share_one_budget() {
     let auth = Arc::new(RefreshingAuth::default());
     let transport = ProviderTransport::builder(server.endpoint())
         .with_auth(auth.clone())
-        .with_retry_policy(retry_policy(3))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy(3)),
+        )
         .build()
         .unwrap();
     let response = transport
@@ -584,7 +1157,9 @@ async fn caller_attempt_cap_also_bounds_authentication_refresh() {
     let auth = Arc::new(RefreshingAuth::default());
     let transport = ProviderTransport::builder(server.endpoint())
         .with_auth(auth.clone())
-        .with_retry_policy(retry_policy(5))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy(5)),
+        )
         .build()
         .unwrap();
 
@@ -638,7 +1213,9 @@ async fn provider_classifier_extends_statuses_without_owning_the_retry_budget() 
     .await;
     let transport = ProviderTransport::builder(server.endpoint())
         .with_retry_classifier(Arc::new(OverloadClassifier))
-        .with_retry_policy(retry_policy(2))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy(2)),
+        )
         .build()
         .unwrap();
     let response = transport
@@ -678,8 +1255,11 @@ async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() 
     .await;
     let safe_observer = Arc::new(RecordingObserver::default());
     let safe_transport = ProviderTransport::builder(safe_server.endpoint())
-        .with_retry_policy(retry_policy(5))
-        .with_observer(safe_observer.clone())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(retry_policy(5))
+                .with_observer(safe_observer.clone()),
+        )
         .build()
         .unwrap();
     let safe_response = safe_transport
@@ -700,6 +1280,7 @@ async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() 
             caller_maximum_attempts: Some(2),
             effective_maximum_attempts: 2,
             limiting_authority: RetryLimit::CallerCap,
+            ..
         }
     )));
     assert!(safe_observer.events().iter().any(|event| matches!(
@@ -707,6 +1288,7 @@ async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() 
         TransportEvent::AttemptLoopFinished {
             attempts: 2,
             outcome: AttemptLoopOutcome::ResponseReturned { status },
+            ..
         } if *status == StatusCode::INTERNAL_SERVER_ERROR
     )));
 
@@ -725,8 +1307,11 @@ async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() 
     .await;
     let unsafe_observer = Arc::new(RecordingObserver::default());
     let unsafe_transport = ProviderTransport::builder(unsafe_server.endpoint())
-        .with_retry_policy(retry_policy(5))
-        .with_observer(unsafe_observer.clone())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(retry_policy(5))
+                .with_observer(unsafe_observer.clone()),
+        )
         .build()
         .unwrap();
     let unsafe_response = unsafe_transport
@@ -746,6 +1331,7 @@ async fn caller_attempt_cap_narrows_policy_without_expanding_replay_authority() 
             caller_maximum_attempts: Some(2),
             effective_maximum_attempts: 1,
             limiting_authority: RetryLimit::ReplaySafety,
+            ..
         }
     )));
 }
@@ -767,8 +1353,11 @@ async fn server_retry_after_beyond_the_policy_is_declined_without_sleeping() {
     .await;
     let observer = Arc::new(RecordingObserver::default());
     let transport = ProviderTransport::builder(server.endpoint())
-        .with_retry_policy(retry_policy(2).with_max_server_delay(Duration::from_millis(50)))
-        .with_observer(observer.clone())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(retry_policy(2).with_max_server_delay(Duration::from_millis(50)))
+                .with_observer(observer.clone()),
+        )
         .build()
         .unwrap();
     let started = std::time::Instant::now();
@@ -792,6 +1381,7 @@ async fn server_retry_after_beyond_the_policy_is_declined_without_sleeping() {
             completed_attempts: 1,
             delay: Some(delay),
             limiting_authority: RetryLimit::ServerDelayPolicy,
+            ..
         } if *delay == Duration::from_secs(1)
     )));
 }
@@ -813,8 +1403,11 @@ async fn server_retry_after_cannot_outlive_the_deadline() {
     .await;
     let observer = Arc::new(RecordingObserver::default());
     let transport = ProviderTransport::builder(server.endpoint())
-        .with_retry_policy(retry_policy(2))
-        .with_observer(observer.clone())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(retry_policy(2))
+                .with_observer(observer.clone()),
+        )
         .build()
         .unwrap();
     let response = transport
@@ -837,6 +1430,7 @@ async fn server_retry_after_cannot_outlive_the_deadline() {
             completed_attempts: 1,
             delay: Some(delay),
             limiting_authority: RetryLimit::CallDeadline,
+            ..
         } if *delay == Duration::from_secs(1)
     )));
 }
@@ -969,7 +1563,11 @@ async fn queued_cancellation_and_stream_drop_release_all_permits() {
         ..TransportLimits::default()
     };
     let transport = ProviderTransport::builder(server.endpoint())
-        .with_limits(limits)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_limits(limits)
+                .unwrap(),
+        )
         .build()
         .unwrap();
     let first = transport
@@ -1087,7 +1685,11 @@ async fn default_error_surfaces_redact_credentials_response_headers_and_body() {
     };
     let transport = ProviderTransport::builder(server.endpoint())
         .with_auth(Arc::new(SecretAuth))
-        .with_limits(limits)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_limits(limits)
+                .unwrap(),
+        )
         .build()
         .unwrap();
     let error = transport
@@ -1127,12 +1729,15 @@ async fn cancellation_interrupts_backoff_before_another_attempt() {
     .await;
     let observer = Arc::new(RecordingObserver::default());
     let transport = ProviderTransport::builder(server.endpoint())
-        .with_observer(observer.clone())
-        .with_retry_policy(
-            RetryPolicy::new(3)
-                .unwrap()
-                .with_backoff(Duration::from_secs(10), Duration::from_secs(10))
-                .with_jitter(false),
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_retry_policy(
+                    RetryPolicy::new(3)
+                        .unwrap()
+                        .with_backoff(Duration::from_secs(10), Duration::from_secs(10))
+                        .with_jitter(false),
+                )
+                .with_observer(observer.clone()),
         )
         .build()
         .unwrap();
@@ -1162,9 +1767,8 @@ async fn cancellation_interrupts_backoff_before_another_attempt() {
         event,
         TransportEvent::AttemptLoopFinished {
             attempts: 1,
-            outcome: AttemptLoopOutcome::Failed {
-                kind: ErrorKind::Cancelled
-            },
+            outcome: AttemptLoopOutcome::Cancelled,
+            ..
         }
     )));
 }
