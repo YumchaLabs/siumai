@@ -2223,7 +2223,7 @@ mod tests {
     ) -> Result<OpenAiProvider, super::super::OpenAiConfigError> {
         let mut builder = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
-            .with_transport_limits(limits)
+            .with_responses_websocket_transport_limits(limits)
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("responses-ws-test").unwrap(),
             ));

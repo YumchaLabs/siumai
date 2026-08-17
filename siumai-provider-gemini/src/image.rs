@@ -122,6 +122,10 @@ impl ImageModel for GeminiImageModel {
         request: ImageRequest,
         options: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -612,8 +616,11 @@ mod tests {
 
     #[test]
     fn default_timeout_builder_remains_network_free() {
-        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+        let settings = siumai_transport::ProviderHttpTransportSettings::default()
             .with_call_timeout(Duration::from_secs(3))
+            .unwrap();
+        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+            .with_http_transport_settings(settings)
             .build()
             .unwrap();
         let claim = &provider

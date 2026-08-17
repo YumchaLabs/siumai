@@ -330,6 +330,10 @@ impl ImageModel for OpenAiImageModel {
         request: ImageRequest,
         call: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let call = call
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

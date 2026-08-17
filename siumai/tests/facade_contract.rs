@@ -1611,7 +1611,9 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
     use siumai::core::{ReplayDomain, ReplayDomainId};
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai::registry::{Registry, RegistryBuilderExt};
-    use siumai_transport::{EndpointConfig, TransportEvent, TransportObserver};
+    use siumai_transport::{
+        EndpointConfig, ProviderHttpTransportSettings, TransportEvent, TransportObserver,
+    };
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1627,7 +1629,7 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
                 TransportEvent::AttemptStarted { .. } => {
                     self.attempts.fetch_add(1, Ordering::SeqCst);
                 }
-                TransportEvent::Completed { .. } => {
+                TransportEvent::AttemptLoopFinished { .. } => {
                     self.completed.fetch_add(1, Ordering::SeqCst);
                 }
                 _ => {}
@@ -1690,7 +1692,9 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
         .with_replay_domain(ReplayDomain::custom(
             ReplayDomainId::new("facade-openai-test").unwrap(),
         ))
-        .with_transport_observer(observer.clone())
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
         .build()
         .unwrap();
     let direct = provider.responses("gpt-5.6-sol").unwrap();

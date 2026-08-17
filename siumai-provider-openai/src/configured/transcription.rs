@@ -272,6 +272,10 @@ impl TranscriptionModel for OpenAiTranscriptionModel {
         request: TranscriptionRequest,
         call: CallOptions,
     ) -> Result<TranscriptionResponse, Error> {
+        let call = call
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

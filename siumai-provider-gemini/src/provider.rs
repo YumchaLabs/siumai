@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -18,7 +17,8 @@ use siumai_core::{
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, EndpointError,
-    OfficialOrigin, ProviderTransport, RetryPolicy, TransportConfigError, TransportLimits,
+    OfficialOrigin, ProviderHttpTransportSettings, ProviderTransport, TransportConfigError,
+    TransportLimits,
 };
 use thiserror::Error;
 
@@ -358,11 +358,7 @@ pub struct GeminiProviderBuilder {
     endpoint: Result<EndpointConfig, EndpointError>,
     provider_selected_endpoint: bool,
     replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     interactions_defaults: GeminiInteractionsOptions,
     embedding_defaults: GeminiEmbeddingOptions,
     image_defaults: GeminiImageOptions,
@@ -379,11 +375,7 @@ impl GeminiProviderBuilder {
             endpoint,
             provider_selected_endpoint: true,
             replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             interactions_defaults: GeminiInteractionsOptions::default(),
             embedding_defaults: GeminiEmbeddingOptions::default(),
             image_defaults: GeminiImageOptions::default(),
@@ -415,28 +407,9 @@ impl GeminiProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -500,20 +473,11 @@ impl GeminiProviderBuilder {
                 Vec::new()
             },
         )?);
-        let limits = self.limits.clone();
-        let mut transport = ProviderTransport::builder(endpoint)
+        let limits = self.http_transport_settings.limits().clone();
+        let transport = ProviderTransport::builder(endpoint)
             .with_auth(self.credential.into_auth())
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
         Ok(GeminiProvider {
             runtime: Arc::new(ProviderRuntime {
                 instance_id: ProviderInstanceId::new(),
@@ -524,7 +488,7 @@ impl GeminiProviderBuilder {
                 speech_scope: profile.speech_scope(),
                 veo_scope: profile.veo_scope(),
                 generate_content_scope: profile.generate_content_scope(),
-                transport: transport.build()?,
+                transport,
                 limits,
                 interactions_defaults: self.interactions_defaults,
                 embedding_defaults: self.embedding_defaults,
@@ -682,18 +646,34 @@ fn native_support_claims() -> Result<Vec<VerifiedNativeSupportClaim>, GeminiConf
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::time::Duration;
+
     use base64::Engine as _;
     use siumai_core::{
-        EmbeddingModel, EmbeddingRequest, Model as _, Provider, ReplayAudience, SpeechModel,
-        SpeechRequest, UsageValue,
+        CallOptions, EmbeddingModel, EmbeddingRequest, ImageModel, ImageRequest, LanguageModel,
+        LanguageRequest, Message, Model as _, Provider, ReplayAudience, SpeechModel, SpeechRequest,
+        UsageValue,
     };
     use siumai_protocol_gemini::multimodal_embedding::{
         GeminiEmbeddingContentPart, GeminiMultimodalEmbeddingRequest,
     };
+    use siumai_transport::{TransportEvent, TransportObserver};
 
     use crate::{GEMINI_3_1_FLASH_TTS_PREVIEW, GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2};
 
     use super::*;
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        events: Mutex<Vec<TransportEvent>>,
+    }
+
+    impl TransportObserver for RecordingObserver {
+        fn observe(&self, event: &TransportEvent) {
+            self.events.lock().unwrap().push(event.clone());
+        }
+    }
 
     fn caller_declared_official_endpoint() -> EndpointConfig {
         let origin = OfficialOrigin::new("https://relay.example").unwrap();
@@ -733,6 +713,76 @@ mod tests {
             language.descriptor().instance_id(),
             other.descriptor().instance_id()
         );
+    }
+
+    #[test]
+    fn provider_applies_one_http_transport_settings_snapshot() {
+        let limits = TransportLimits {
+            max_response_bytes: 72 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .unwrap();
+        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+            .with_http_transport_settings(settings)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            72 * 1024
+        );
+        assert_eq!(provider.runtime.limits.max_response_bytes, 72 * 1024);
+    }
+
+    #[tokio::test]
+    async fn every_gemini_family_resolves_relative_timeout_before_planning() {
+        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+            .build()
+            .unwrap();
+        let options = CallOptions::default().with_timeout(Duration::MAX).unwrap();
+        let language_request = || LanguageRequest::new(vec![Message::user("hello")]);
+
+        let interactions_error = provider
+            .interactions("future-interactions-model")
+            .unwrap()
+            .generate(language_request(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(interactions_error.message(), "invalid call options");
+
+        let generate_content_error = provider
+            .generate_content("future-generate-content-model")
+            .unwrap()
+            .generate(language_request(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(generate_content_error.message(), "invalid call options");
+
+        let embedding_error = provider
+            .embedding(GEMINI_EMBEDDING_001)
+            .unwrap()
+            .embed(EmbeddingRequest::single("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(embedding_error.message(), "invalid call options");
+
+        let image_error = provider
+            .image("future-image-model")
+            .unwrap()
+            .generate_image(ImageRequest::new("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(image_error.message(), "invalid call options");
+
+        let speech_error = provider
+            .speech(GEMINI_3_1_FLASH_TTS_PREVIEW)
+            .unwrap()
+            .synthesize(SpeechRequest::new("hello").unwrap(), options)
+            .await
+            .unwrap_err();
+        assert_eq!(speech_error.message(), "invalid call options");
     }
 
     #[test]
@@ -832,11 +882,15 @@ mod tests {
             )
             .create_async()
             .await;
+        let observer = Arc::new(RecordingObserver::default());
         let provider = GeminiProvider::builder(GeminiCredential::api_key("test-key"))
             .with_endpoint(EndpointConfig::local_explicit(server.url()).unwrap())
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("gemini-family-test").unwrap(),
             ))
+            .with_http_transport_settings(
+                ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+            )
             .build()
             .unwrap();
 
@@ -869,6 +923,30 @@ mod tests {
 
         embedding.assert_async().await;
         speech.assert_async().await;
+
+        let events = observer.events.lock().unwrap();
+        assert_eq!(events.len(), 8);
+        for sequence in events.chunks_exact(4) {
+            assert!(matches!(
+                sequence[0],
+                TransportEvent::AttemptBudgetResolved { .. }
+            ));
+            assert!(matches!(sequence[1], TransportEvent::AttemptStarted { .. }));
+            assert!(matches!(
+                sequence[2],
+                TransportEvent::ResponseHeadReceived { .. }
+            ));
+            assert!(matches!(
+                sequence[3],
+                TransportEvent::AttemptLoopFinished { .. }
+            ));
+            assert!(
+                sequence
+                    .iter()
+                    .all(|event| event.call_id() == sequence[0].call_id())
+            );
+        }
+        assert_ne!(events[0].call_id(), events[4].call_id());
     }
 
     #[tokio::test]

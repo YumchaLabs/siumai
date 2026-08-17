@@ -205,6 +205,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiBackgroundResponse, Error> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -235,6 +239,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesResponse, Error> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -271,6 +279,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -322,6 +334,11 @@ impl LanguageModel for OpenAiResponsesModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         self.generate_native(request, options)
             .await?
             .into_portable()
@@ -332,6 +349,11 @@ impl LanguageModel for OpenAiResponsesModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         Ok(self.stream_native(request, options).await?.into_portable())
     }
 }
@@ -407,6 +429,10 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -445,6 +471,10 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -526,6 +556,8 @@ fn option_error(mode: OpenAiApiMode, source: ProviderOptionError) -> Error {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use futures_util::StreamExt;
     use serde_json::json;
     use siumai_core::{
@@ -533,7 +565,7 @@ mod tests {
         ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
     };
     use siumai_protocol_openai::responses::ResponsesWireDialect;
-    use siumai_transport::EndpointConfig;
+    use siumai_transport::{EndpointConfig, TransportEvent, TransportObserver};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -546,6 +578,17 @@ mod tests {
         OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiServiceTier,
         OpenAiTextVerbosity, OpenAiToolNamespace,
     };
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        events: Mutex<Vec<TransportEvent>>,
+    }
+
+    impl TransportObserver for RecordingObserver {
+        fn observe(&self, event: &TransportEvent) {
+            self.events.lock().unwrap().push(event.clone());
+        }
+    }
 
     fn provider() -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
@@ -1277,6 +1320,63 @@ mod tests {
         assert_eq!(body["model"], GPT_5_6_SOL);
         assert_eq!(body["messages"][0]["content"], "hello");
         assert_eq!(body.get("stream"), Some(&Value::Bool(false)));
+    }
+
+    #[tokio::test]
+    async fn openai_provider_emits_the_common_attempt_sequence() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chat-observed",
+                "model": GPT_5_6_SOL,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "observed"},
+                    "finish_reason": "stop"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let observer = Arc::new(RecordingObserver::default());
+        let settings = siumai_transport::ProviderHttpTransportSettings::default()
+            .with_observer(observer.clone());
+        let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("openai-observer-test").unwrap(),
+            ))
+            .with_http_transport_settings(settings)
+            .build()
+            .unwrap();
+
+        provider
+            .chat_completions(GPT_5_6_SOL)
+            .unwrap()
+            .generate(request(), CallOptions::default())
+            .await
+            .unwrap();
+
+        let events = observer.events.lock().unwrap();
+        assert_eq!(events.len(), 4);
+        assert!(matches!(
+            events[0],
+            TransportEvent::AttemptBudgetResolved { .. }
+        ));
+        assert!(matches!(events[1], TransportEvent::AttemptStarted { .. }));
+        assert!(matches!(
+            events[2],
+            TransportEvent::ResponseHeadReceived { .. }
+        ));
+        assert!(matches!(
+            events[3],
+            TransportEvent::AttemptLoopFinished { .. }
+        ));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.call_id() == events[0].call_id())
+        );
     }
 
     #[tokio::test]

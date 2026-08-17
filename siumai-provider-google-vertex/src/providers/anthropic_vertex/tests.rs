@@ -15,7 +15,9 @@ use siumai_protocol_anthropic::messages::{
     API_MODE_ID, MessagesRequestOptions, OutputEffort, ServerFallback, ServerFallbacks,
     ThinkingConfig, encode_request_with_resolver,
 };
-use siumai_transport::{EndpointConfig, NoAuth, OfficialOrigin};
+use siumai_transport::{
+    EndpointConfig, NoAuth, OfficialOrigin, ProviderHttpTransportSettings, TransportLimits,
+};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -106,6 +108,14 @@ fn local_provider(
     server: &MockServer,
     auth: Arc<dyn siumai_transport::AuthApplier>,
 ) -> GoogleVertexAnthropicProvider {
+    local_provider_with_settings(server, auth, ProviderHttpTransportSettings::default())
+}
+
+fn local_provider_with_settings(
+    server: &MockServer,
+    auth: Arc<dyn siumai_transport::AuthApplier>,
+    settings: ProviderHttpTransportSettings,
+) -> GoogleVertexAnthropicProvider {
     let endpoint = EndpointConfig::local_explicit(format!(
         "{}/v1/projects/test-project/locations/us-central1/publishers/anthropic/",
         server.uri()
@@ -116,6 +126,7 @@ fn local_provider(
         .with_replay_domain(ReplayDomain::custom(
             ReplayDomainId::new("vertex-test-relay").expect("replay domain"),
         ))
+        .with_http_transport_settings(settings)
         .build()
         .expect("provider")
 }
@@ -388,6 +399,38 @@ async fn generate_projects_vertex_target_body_and_bearer_auth() {
     let body: serde_json::Value = serde_json::from_slice(&requests[0].body).expect("body");
     assert!(body.get("model").is_none());
     assert_eq!(body["anthropic_version"], "vertex-2023-10-16");
+}
+
+#[tokio::test]
+async fn vertex_applies_the_common_http_transport_settings() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/v1/projects/test-project/locations/us-central1/publishers/anthropic/models/{CLAUDE_SONNET_5}:rawPredict"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            CLAUDE_SONNET_5,
+            "msg_too_large",
+            "this response is deliberately larger than the configured limit",
+        )))
+        .mount(&server)
+        .await;
+    let settings = ProviderHttpTransportSettings::default()
+        .with_limits(TransportLimits {
+            max_response_bytes: 32,
+            ..TransportLimits::default()
+        })
+        .unwrap();
+    let provider = local_provider_with_settings(&server, Arc::new(NoAuth), settings);
+
+    let error = provider
+        .language(CLAUDE_SONNET_5)
+        .unwrap()
+        .generate(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::ResponseLimit);
 }
 
 #[tokio::test]

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::{Map, Value};
 use siumai_core::{
@@ -12,8 +11,8 @@ use siumai_core::{
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
 use siumai_protocol_openai::responses::is_protected_option_field as is_responses_protected_field;
 use siumai_transport::{
-    AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
-    TransportLimits,
+    AuthApplier, EndpointError, ProviderHttpTransportSettings, ProviderTransport, ReplaySafety,
+    TransportConfigError,
 };
 use thiserror::Error;
 
@@ -43,6 +42,19 @@ impl OpenAiCompatibleProvider {
         auth: Arc<dyn AuthApplier>,
     ) -> OpenAiCompatibleProviderBuilder {
         OpenAiCompatibleProviderBuilder::with_auth(profile, auth)
+    }
+
+    /// Build a provider-author integration around an already configured transport.
+    ///
+    /// The transport must use the exact endpoint owned by `profile`. Its
+    /// authentication, settings, retry policy, and admission state remain
+    /// immutable and are shared by every model created from the provider.
+    #[doc(hidden)]
+    pub fn builder_with_transport(
+        profile: OpenAiCompatibleProfile,
+        transport: ProviderTransport,
+    ) -> OpenAiCompatibleProviderBuilder {
+        OpenAiCompatibleProviderBuilder::with_transport(profile, transport)
     }
 
     /// Create a lightweight model in the profile's recommended mode.
@@ -174,13 +186,9 @@ impl fmt::Debug for OpenAiCompatibleProvider {
 
 pub struct OpenAiCompatibleProviderBuilder {
     profile: OpenAiCompatibleProfile,
-    auth: CompatibleAuth,
+    transport_source: CompatibleTransportSource,
     instance_id: Option<ProviderInstanceId>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: Option<ProviderHttpTransportSettings>,
     chat_defaults: BTreeMap<String, Value>,
     responses_defaults: BTreeMap<String, Value>,
 }
@@ -189,13 +197,9 @@ impl OpenAiCompatibleProviderBuilder {
     fn new(profile: OpenAiCompatibleProfile, credential: OpenAiCompatibleCredential) -> Self {
         Self {
             profile,
-            auth: CompatibleAuth::Credential(credential),
+            transport_source: CompatibleTransportSource::Credential(credential),
             instance_id: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: Some(ProviderHttpTransportSettings::default()),
             chat_defaults: BTreeMap::new(),
             responses_defaults: BTreeMap::new(),
         }
@@ -204,21 +208,23 @@ impl OpenAiCompatibleProviderBuilder {
     fn with_auth(profile: OpenAiCompatibleProfile, auth: Arc<dyn AuthApplier>) -> Self {
         Self {
             profile,
-            auth: CompatibleAuth::Applied(auth),
+            transport_source: CompatibleTransportSource::Applied(auth),
             instance_id: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: Some(ProviderHttpTransportSettings::default()),
             chat_defaults: BTreeMap::new(),
             responses_defaults: BTreeMap::new(),
         }
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
+    fn with_transport(profile: OpenAiCompatibleProfile, transport: ProviderTransport) -> Self {
+        Self {
+            profile,
+            transport_source: CompatibleTransportSource::Prebuilt(transport),
+            instance_id: None,
+            http_transport_settings: None,
+            chat_defaults: BTreeMap::new(),
+            responses_defaults: BTreeMap::new(),
+        }
     }
 
     /// Reuse the owning branded provider's configured-instance capability.
@@ -228,23 +234,9 @@ impl OpenAiCompatibleProviderBuilder {
         self
     }
 
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = Some(settings);
         self
     }
 
@@ -271,13 +263,6 @@ impl OpenAiCompatibleProviderBuilder {
             .recommended_scope()
             .replay_domain()
             .ok_or(OpenAiCompatibleConfigError::MissingReplayDomain)?;
-        let auth = match self.auth {
-            CompatibleAuth::Credential(credential) => {
-                credential.validate_static()?;
-                credential.into_auth()
-            }
-            CompatibleAuth::Applied(auth) => auth,
-        };
         validate_default_options(
             &self.profile,
             OpenAiCompatibleApiMode::ChatCompletions,
@@ -289,20 +274,28 @@ impl OpenAiCompatibleProviderBuilder {
             &self.responses_defaults,
         )?;
 
-        let mut transport = ProviderTransport::builder(self.profile.endpoint().clone())
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        let transport = transport.build()?;
+        let transport = match self.transport_source {
+            CompatibleTransportSource::Credential(credential) => {
+                credential.validate_static()?;
+                build_transport(
+                    &self.profile,
+                    credential.into_auth(),
+                    required_settings(self.http_transport_settings)?,
+                )?
+            }
+            CompatibleTransportSource::Applied(auth) => build_transport(
+                &self.profile,
+                auth,
+                required_settings(self.http_transport_settings)?,
+            )?,
+            CompatibleTransportSource::Prebuilt(transport) => {
+                if self.http_transport_settings.is_some() {
+                    return Err(OpenAiCompatibleConfigError::PrebuiltTransportSettingsConflict);
+                }
+                validate_transport_endpoint(self.profile.endpoint(), &transport)?;
+                transport
+            }
+        };
         let instance_id = self.instance_id.unwrap_or_default();
         Ok(OpenAiCompatibleProvider {
             runtime: Arc::new(ProviderRuntime {
@@ -323,9 +316,40 @@ impl OpenAiCompatibleProviderBuilder {
     }
 }
 
-enum CompatibleAuth {
+enum CompatibleTransportSource {
     Credential(OpenAiCompatibleCredential),
     Applied(Arc<dyn AuthApplier>),
+    Prebuilt(ProviderTransport),
+}
+
+fn required_settings(
+    settings: Option<ProviderHttpTransportSettings>,
+) -> Result<ProviderHttpTransportSettings, OpenAiCompatibleConfigError> {
+    settings.ok_or(OpenAiCompatibleConfigError::MissingTransportSettings)
+}
+
+fn build_transport(
+    profile: &OpenAiCompatibleProfile,
+    auth: Arc<dyn AuthApplier>,
+    settings: ProviderHttpTransportSettings,
+) -> Result<ProviderTransport, TransportConfigError> {
+    ProviderTransport::builder(profile.endpoint().clone())
+        .with_auth(auth)
+        .with_http_transport_settings(settings)
+        .build()
+}
+
+fn validate_transport_endpoint(
+    expected: &siumai_transport::EndpointConfig,
+    transport: &ProviderTransport,
+) -> Result<(), OpenAiCompatibleConfigError> {
+    let actual = transport.endpoint();
+    if expected.expose_base_url() != actual.expose_base_url()
+        || expected.policy() != actual.policy()
+    {
+        return Err(OpenAiCompatibleConfigError::PrebuiltTransportEndpointMismatch);
+    }
+    Ok(())
 }
 
 pub(crate) struct ProviderRuntime {
@@ -529,6 +553,12 @@ pub enum OpenAiCompatibleConfigError {
     Endpoint(EndpointError),
     #[error("invalid provider transport settings: {0}")]
     Transport(#[from] TransportConfigError),
+    #[error("configured transport settings are missing")]
+    MissingTransportSettings,
+    #[error("a prebuilt transport cannot be combined with another settings snapshot")]
+    PrebuiltTransportSettingsConflict,
+    #[error("prebuilt transport endpoint does not match the compatible profile")]
+    PrebuiltTransportEndpointMismatch,
     #[error("invalid static credential: {0}")]
     Credential(#[from] CredentialSourceError),
     #[error("verified profile requires evidence-backed support claims")]
@@ -580,7 +610,7 @@ mod tests {
     use siumai_protocol_openai::responses::{
         API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, ResponsesWireDialect,
     };
-    use siumai_transport::{EndpointConfig, OfficialOrigin, RequestHeaders};
+    use siumai_transport::{EndpointConfig, OfficialOrigin, RequestHeaders, TransportLimits};
 
     use crate::configured::codec_policy::{
         ChatCodecPolicy, PreparedChatCall, PreparedResponsesCall, ResponsesCodecPolicy,
@@ -815,6 +845,61 @@ mod tests {
             .build()
             .is_err()
         );
+    }
+
+    #[test]
+    fn provider_applies_one_http_transport_settings_snapshot() {
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("local-settings-test").unwrap(),
+            "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("local-settings-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap();
+        let settings = siumai_transport::ProviderHttpTransportSettings::default()
+            .with_limits(TransportLimits {
+                max_response_bytes: 32 * 1024,
+                ..TransportLimits::default()
+            })
+            .unwrap();
+
+        let provider = OpenAiCompatibleProvider::builder(
+            profile,
+            OpenAiCompatibleCredential::unauthenticated(),
+        )
+        .with_http_transport_settings(settings)
+        .build()
+        .unwrap();
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            32 * 1024
+        );
+    }
+
+    #[test]
+    fn prebuilt_transport_requires_the_exact_profile_endpoint() {
+        let profile = OpenAiCompatibleProfile::local_explicit(
+            ProviderId::new("prebuilt-endpoint-test").unwrap(),
+            "http://127.0.0.1:11434/v1",
+            ReplayDomainId::new("prebuilt-endpoint-test").unwrap(),
+            OpenAiCompatibleApiMode::ChatCompletions,
+        )
+        .unwrap();
+        let transport = ProviderTransport::builder(
+            EndpointConfig::local_explicit("http://127.0.0.1:11435/v1").unwrap(),
+        )
+        .build()
+        .unwrap();
+
+        let error = OpenAiCompatibleProvider::builder_with_transport(profile, transport)
+            .build()
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            OpenAiCompatibleConfigError::PrebuiltTransportEndpointMismatch
+        ));
     }
 
     #[tokio::test]

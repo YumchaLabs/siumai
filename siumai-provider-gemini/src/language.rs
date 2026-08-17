@@ -105,6 +105,10 @@ impl GeminiLanguageModel {
         options: CallOptions,
     ) -> Result<DecodedInteraction, Error> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;
@@ -158,6 +162,10 @@ impl LanguageModel for GeminiLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         self.generate_native(request, options)
             .await?
             .into_result()
@@ -170,6 +178,10 @@ impl LanguageModel for GeminiLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let provider_options = self
             .options(&options)
             .map_err(|error| self.contextualize(operation, error))?;

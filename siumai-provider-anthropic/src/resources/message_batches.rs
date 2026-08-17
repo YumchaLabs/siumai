@@ -2192,7 +2192,11 @@ mod tests {
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("small-batch-request-limit").expect("replay domain"),
             ))
-            .with_transport_limits(limits)
+            .with_http_transport_settings(
+                siumai_transport::ProviderHttpTransportSettings::default()
+                    .with_limits(limits)
+                    .expect("transport limits"),
+            )
             .build()
             .expect("provider");
         let mut request = language_request(64);

@@ -146,7 +146,11 @@ fn transport_with_limits(server: &mockito::Server, limits: TransportLimits) -> P
     ProviderTransport::builder(
         EndpointConfig::local_explicit(format!("{}/v1", server.url())).unwrap(),
     )
-    .with_limits(limits)
+    .with_http_transport_settings(
+        siumai_transport::ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .unwrap(),
+    )
     .build()
     .unwrap()
 }

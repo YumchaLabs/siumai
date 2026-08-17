@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -18,8 +17,8 @@ use siumai_core::{
     VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_transport::{
-    AuthApplier, EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    AuthApplier, EndpointConfig, EndpointError, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -141,11 +140,7 @@ pub struct AnthropicProviderBuilder {
     caller_scope: Option<ReplayDomainId>,
     defaults: AnthropicMessagesOptions,
     beta_features: Vec<String>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
 }
 
 impl AnthropicProviderBuilder {
@@ -166,11 +161,7 @@ impl AnthropicProviderBuilder {
             caller_scope: None,
             defaults: AnthropicMessagesOptions::default(),
             beta_features: Vec::new(),
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
         }
     }
 
@@ -218,28 +209,9 @@ impl AnthropicProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -292,32 +264,18 @@ impl AnthropicProviderBuilder {
         )?);
 
         let instance_id = ProviderInstanceId::new();
-        let mut language_builder =
-            AnthropicCompatibleProvider::builder_with_auth(profile, auth.clone())
+        let transport = ProviderTransport::builder(endpoint)
+            .with_auth(auth)
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
+        let language =
+            AnthropicCompatibleProvider::builder_with_transport(profile, transport.clone())
                 .with_provider_instance(instance_id)
                 .with_default_options(self.defaults.to_engine())
-                .with_limits(self.limits.clone())
-                .with_retry_policy(self.retry_policy);
-        let mut resource_builder = ProviderTransport::builder(endpoint)
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            language_builder = language_builder.with_connect_timeout(timeout);
-            resource_builder = resource_builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            language_builder = language_builder.with_call_timeout(timeout);
-            resource_builder = resource_builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            language_builder = language_builder.with_read_timeout(timeout);
-            resource_builder = resource_builder.with_read_timeout(timeout);
-        }
-        let language = language_builder.build()?;
+                .build()?;
         let native = Arc::new(NativeRuntime {
             scope: native_scope,
-            transport: resource_builder.build()?,
+            transport,
             api_version: Arc::from(API_VERSION),
             beta_features: self.beta_features.into(),
             annotation_resolver: resolver,
@@ -357,6 +315,7 @@ impl AnthropicLanguageModel {
         options: AnthropicMessagesOptions,
         call_options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let call_options = call_options.resolve_deadline().map_err(Error::from)?;
         if call_options.has_provider_options() {
             return Err(Error::new(
                 siumai_core::ErrorKind::InvalidInput,
@@ -398,6 +357,7 @@ impl LanguageModel for AnthropicLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.generate(request, options).await
     }
 
@@ -406,6 +366,7 @@ impl LanguageModel for AnthropicLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.stream(request, options).await
     }
 }

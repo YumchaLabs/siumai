@@ -186,6 +186,10 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let mode = self.api_mode();
         let CompatibleCallOptions { typed, raw } =
             self.runtime
@@ -258,6 +262,10 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let mode = self.api_mode();
         let CompatibleCallOptions { typed, raw } =
             self.runtime

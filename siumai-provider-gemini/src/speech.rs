@@ -166,6 +166,10 @@ impl SpeechModel for GeminiSpeechModel {
         request: SpeechRequest,
         options: CallOptions,
     ) -> Result<SpeechResponse, Error> {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         let provider_options = self.options(&options)?;
         let plan = self
             .plan(&request, &provider_options)
