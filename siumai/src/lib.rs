@@ -28,20 +28,47 @@ pub mod transcription;
 #[cfg(feature = "transport")]
 pub mod transport;
 
+#[cfg(feature = "alibaba")]
+pub use self::siumai::{AlibabaConfigurationStage, AlibabaCredentialStage, AlibabaProviderStage};
 #[cfg(feature = "anthropic")]
 pub use self::siumai::{AnthropicCredentialStage, AnthropicProviderStage};
+#[cfg(feature = "cohere")]
+pub use self::siumai::{CohereApiKeyStage, CohereProviderStage};
+#[cfg(feature = "deepseek")]
+pub use self::siumai::{DeepSeekCredentialStage, DeepSeekProviderStage};
+#[cfg(feature = "deepgram")]
+pub use self::siumai::{DeepgramCredentialStage, DeepgramProviderStage};
+#[cfg(feature = "elevenlabs")]
+pub use self::siumai::{
+    ElevenLabsCredentialStage, ElevenLabsProfileStage, ElevenLabsProviderStage,
+};
 pub use self::siumai::{
     EmbeddingClient, ImageClient, LanguageClient, RerankClient, Siumai, SiumaiBuilder,
     SpeechClient, TranscriptionClient,
 };
 #[cfg(feature = "google")]
 pub use self::siumai::{GeminiCredentialStage, GeminiProviderStage};
+#[cfg(feature = "groq")]
+pub use self::siumai::{GroqCredentialStage, GroqProviderStage};
+#[cfg(feature = "minimax")]
+pub use self::siumai::{MinimaxCredentialStage, MinimaxProviderStage};
+#[cfg(feature = "moonshotai")]
+pub use self::siumai::{MoonshotCredentialStage, MoonshotProviderStage};
 #[cfg(feature = "openai-compatible")]
 pub use self::siumai::{
     OpenAiCompatibleCredentialStage, OpenAiCompatibleProfileStage, OpenAiCompatibleProviderStage,
 };
 #[cfg(feature = "openai")]
 pub use self::siumai::{OpenAiCredentialStage, OpenAiProviderStage};
+#[cfg(feature = "google-vertex-anthropic")]
+pub use self::siumai::{
+    VertexAnthropicCredentialStage, VertexAnthropicLocationStage, VertexAnthropicProjectStage,
+    VertexAnthropicProviderStage,
+};
+#[cfg(feature = "volcengine")]
+pub use self::siumai::{VolcengineCredentialStage, VolcengineProviderStage};
+#[cfg(feature = "xai")]
+pub use self::siumai::{XaiCredentialStage, XaiProviderStage};
 pub use embedding::EmbeddingCall;
 pub use image::ImageCall;
 pub use language::LanguageCall;

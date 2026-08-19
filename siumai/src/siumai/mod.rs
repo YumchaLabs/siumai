@@ -1,12 +1,34 @@
+#[cfg(feature = "alibaba")]
+mod alibaba;
 #[cfg(feature = "anthropic")]
 mod anthropic;
 mod clients;
+#[cfg(feature = "cohere")]
+mod cohere;
+#[cfg(feature = "deepgram")]
+mod deepgram;
+#[cfg(feature = "deepseek")]
+mod deepseek;
+#[cfg(feature = "elevenlabs")]
+mod elevenlabs;
 #[cfg(feature = "google")]
 mod gemini;
+#[cfg(feature = "groq")]
+mod groq;
+#[cfg(feature = "minimax")]
+mod minimax;
+#[cfg(feature = "moonshotai")]
+mod moonshot;
 #[cfg(feature = "openai")]
 mod openai;
 #[cfg(feature = "openai-compatible")]
 mod openai_compatible;
+#[cfg(feature = "google-vertex-anthropic")]
+mod vertex_anthropic;
+#[cfg(feature = "volcengine")]
+mod volcengine;
+#[cfg(feature = "xai")]
+mod xai;
 
 use std::fmt;
 use std::sync::Arc;
@@ -16,19 +38,44 @@ use siumai_core::{
     Provider, RerankModelProvider, SpeechModelProvider, TranscriptionModelProvider,
 };
 
+#[cfg(feature = "alibaba")]
+pub use alibaba::{AlibabaConfigurationStage, AlibabaCredentialStage, AlibabaProviderStage};
 #[cfg(feature = "anthropic")]
 pub use anthropic::{AnthropicCredentialStage, AnthropicProviderStage};
 pub use clients::{
     EmbeddingClient, ImageClient, LanguageClient, RerankClient, SpeechClient, TranscriptionClient,
 };
+#[cfg(feature = "cohere")]
+pub use cohere::{CohereApiKeyStage, CohereProviderStage};
+#[cfg(feature = "deepgram")]
+pub use deepgram::{DeepgramCredentialStage, DeepgramProviderStage};
+#[cfg(feature = "deepseek")]
+pub use deepseek::{DeepSeekCredentialStage, DeepSeekProviderStage};
+#[cfg(feature = "elevenlabs")]
+pub use elevenlabs::{ElevenLabsCredentialStage, ElevenLabsProfileStage, ElevenLabsProviderStage};
 #[cfg(feature = "google")]
 pub use gemini::{GeminiCredentialStage, GeminiProviderStage};
+#[cfg(feature = "groq")]
+pub use groq::{GroqCredentialStage, GroqProviderStage};
+#[cfg(feature = "minimax")]
+pub use minimax::{MinimaxCredentialStage, MinimaxProviderStage};
+#[cfg(feature = "moonshotai")]
+pub use moonshot::{MoonshotCredentialStage, MoonshotProviderStage};
 #[cfg(feature = "openai")]
 pub use openai::{OpenAiCredentialStage, OpenAiProviderStage};
 #[cfg(feature = "openai-compatible")]
 pub use openai_compatible::{
     OpenAiCompatibleCredentialStage, OpenAiCompatibleProfileStage, OpenAiCompatibleProviderStage,
 };
+#[cfg(feature = "google-vertex-anthropic")]
+pub use vertex_anthropic::{
+    VertexAnthropicCredentialStage, VertexAnthropicLocationStage, VertexAnthropicProjectStage,
+    VertexAnthropicProviderStage,
+};
+#[cfg(feature = "volcengine")]
+pub use volcengine::{VolcengineCredentialStage, VolcengineProviderStage};
+#[cfg(feature = "xai")]
+pub use xai::{XaiCredentialStage, XaiProviderStage};
 
 /// A typed hub around one concrete configured provider.
 ///

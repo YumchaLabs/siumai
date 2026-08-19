@@ -1,9 +1,24 @@
 use siumai::Siumai;
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 fn accepts_language_model<M: siumai::LanguageModel + ?Sized>(model: &M) {
     let _ = model;
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible",
+    feature = "alibaba",
+    feature = "google-vertex-anthropic",
+    feature = "elevenlabs"
+))]
 fn error_diagnostics(error: &(dyn std::error::Error + 'static)) -> String {
     let mut output = String::new();
     let mut current = Some(error);
@@ -1361,7 +1376,7 @@ mod openai_compatible {
 
     const CREDENTIAL_CANARY: &str = "compatible-facade-secret-canary";
 
-    fn custom_profile() -> Result<OpenAiCompatibleProfile, Box<dyn std::error::Error>> {
+    pub(super) fn custom_profile() -> Result<OpenAiCompatibleProfile, Box<dyn std::error::Error>> {
         Ok(OpenAiCompatibleProfile::public_custom(
             ProviderId::new("custom-compatible")?,
             "https://custom-compatible.example/v1",
@@ -1482,6 +1497,722 @@ mod openai_compatible {
             .build()
             .expect_err("the provider-owned credential validator must reject control characters");
         assert!(!error_diagnostics(&error).contains(CREDENTIAL_CANARY));
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "alibaba")]
+mod alibaba {
+    use siumai::providers::alibaba::{
+        AlibabaCredential, AlibabaEmbeddingModel, AlibabaLanguageModel, AlibabaProvider,
+        AlibabaProviderBuilder,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    use super::error_diagnostics;
+
+    const CREDENTIAL_CANARY: &str = "alibaba-facade-credential-canary";
+
+    fn accepts_provider(provider: &AlibabaProvider) {
+        let _ = provider;
+    }
+
+    fn accepts_language_model(model: &AlibabaLanguageModel) {
+        let _ = model;
+    }
+
+    fn accepts_embedding_model(model: &AlibabaEmbeddingModel) {
+        let _ = model;
+    }
+
+    #[test]
+    fn required_configuration_builds_one_multi_family_hub() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let hub = Siumai::builder()
+            .alibaba()
+            .credential(AlibabaCredential::api_key("test-api-key"))
+            .configure_provider(|builder: AlibabaProviderBuilder| {
+                builder
+                    .with_legacy_singapore_language()
+                    .with_legacy_singapore_embedding()
+            })
+            .build()?;
+
+        let language = hub.language("future-alibaba-language-model")?;
+        let embedding = hub.embedding("future-alibaba-embedding-model")?;
+        accepts_provider(hub.provider());
+        accepts_language_model(language.model());
+        accepts_embedding_model(embedding.model());
+        assert!(std::ptr::eq(hub.provider(), language.provider()));
+        assert!(std::ptr::eq(hub.provider(), embedding.provider()));
+        assert_eq!(language.family(), ModelFamily::Language);
+        assert_eq!(embedding.family(), ModelFamily::Embedding);
+        assert_eq!(language.descriptor().api_mode(), Some("responses"));
+        assert_eq!(embedding.descriptor().api_mode(), Some("text-embedding"));
+        assert_eq!(
+            language.descriptor().instance_id(),
+            embedding.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().model().as_str(),
+            "future-alibaba-language-model"
+        );
+        assert_eq!(
+            embedding.descriptor().model().as_str(),
+            "future-alibaba-embedding-model"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn stages_and_provider_owned_errors_redact_alibaba_credentials() {
+        let configuration = Siumai::builder().alibaba().api_key(CREDENTIAL_CANARY);
+        assert!(!format!("{configuration:?}").contains(CREDENTIAL_CANARY));
+
+        let hub = configuration
+            .configure_provider(|builder| builder.with_legacy_singapore_language())
+            .build()
+            .expect("the provider-owned legacy endpoint is valid");
+        let client = hub
+            .language("future-alibaba-canary-model")
+            .expect("future model IDs use baseline construction");
+        assert!(!format!("{hub:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{client:?}").contains(CREDENTIAL_CANARY));
+
+        let error = Siumai::builder()
+            .alibaba()
+            .api_key(format!("{CREDENTIAL_CANARY}\n"))
+            .configure_provider(|builder| builder.with_legacy_singapore_language())
+            .build()
+            .expect_err("the provider-owned credential validator must reject control characters");
+        assert!(!error_diagnostics(&error).contains(CREDENTIAL_CANARY));
+    }
+}
+
+#[cfg(feature = "moonshotai")]
+mod moonshot {
+    use siumai::providers::moonshotai::{
+        MoonshotCredential, MoonshotLanguageModel, MoonshotProvider, MoonshotProviderBuilder,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn api_key_and_credential_paths_bind_future_language_models()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let api_key_hub = Siumai::builder()
+            .moonshot()
+            .api_key("test-api-key")
+            .configure_provider(|builder: MoonshotProviderBuilder| builder)
+            .build()?;
+        let credential_hub = Siumai::builder()
+            .moonshot()
+            .credential(MoonshotCredential::api_key("test-api-key"))
+            .build()?;
+
+        let client = api_key_hub.language("future-moonshot-model")?;
+        let _: &MoonshotProvider = api_key_hub.provider();
+        let _: &MoonshotLanguageModel = client.model();
+        assert!(std::ptr::eq(api_key_hub.provider(), client.provider()));
+        assert_eq!(client.family(), ModelFamily::Language);
+        assert_eq!(client.descriptor().api_mode(), Some("chat-completions"));
+        assert_eq!(
+            client.descriptor().model().as_str(),
+            "future-moonshot-model"
+        );
+        assert_eq!(
+            credential_hub
+                .language("future-moonshot-credential-model")?
+                .descriptor()
+                .model()
+                .as_str(),
+            "future-moonshot-credential-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "volcengine")]
+mod volcengine {
+    use siumai::providers::volcengine::{
+        ArkImageModel, VolcengineCredential, VolcengineLanguageModel, VolcengineProvider,
+        VolcengineProviderBuilder,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn one_hub_binds_language_and_image_models() -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .volcengine()
+            .api_key("test-api-key")
+            .configure_provider(|builder: VolcengineProviderBuilder| builder)
+            .build()?;
+        let _credential_stage = Siumai::builder()
+            .volcengine()
+            .credential(VolcengineCredential::api_key("test-api-key"));
+
+        let language = hub.language("future-volcengine-language-model")?;
+        let image = hub.image("future-volcengine-image-model")?;
+        let _: &VolcengineProvider = hub.provider();
+        let _: &VolcengineLanguageModel = language.model();
+        let _: &ArkImageModel = image.model();
+        assert!(std::ptr::eq(hub.provider(), language.provider()));
+        assert!(std::ptr::eq(hub.provider(), image.provider()));
+        assert_eq!(language.family(), ModelFamily::Language);
+        assert_eq!(image.family(), ModelFamily::Image);
+        assert_eq!(language.descriptor().api_mode(), Some("responses"));
+        assert_eq!(image.descriptor().api_mode(), Some("images-generations"));
+        assert_eq!(
+            language.descriptor().instance_id(),
+            image.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().model().as_str(),
+            "future-volcengine-language-model"
+        );
+        assert_eq!(
+            image.descriptor().model().as_str(),
+            "future-volcengine-image-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "groq")]
+mod groq {
+    use siumai::providers::groq::{
+        GroqCredential, GroqLanguageModel, GroqProvider, GroqProviderBuilder, GroqSpeechModel,
+        GroqTranscriptionModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn one_hub_binds_language_speech_and_transcription_models()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .groq()
+            .api_key("test-api-key")
+            .configure_provider(|builder: GroqProviderBuilder| builder)
+            .build()?;
+        let _credential_stage = Siumai::builder()
+            .groq()
+            .credential(GroqCredential::api_key("test-api-key"));
+
+        let language = hub.language("future-groq-language-model")?;
+        let speech = hub.speech("future-groq-speech-model")?;
+        let transcription = hub.transcription("future-groq-transcription-model")?;
+        let _: &GroqProvider = hub.provider();
+        let _: &GroqLanguageModel = language.model();
+        let _: &GroqSpeechModel = speech.model();
+        let _: &GroqTranscriptionModel = transcription.model();
+        assert!(std::ptr::eq(hub.provider(), language.provider()));
+        assert!(std::ptr::eq(hub.provider(), speech.provider()));
+        assert!(std::ptr::eq(hub.provider(), transcription.provider()));
+        assert_eq!(language.family(), ModelFamily::Language);
+        assert_eq!(speech.family(), ModelFamily::Speech);
+        assert_eq!(transcription.family(), ModelFamily::Transcription);
+        assert_eq!(language.descriptor().api_mode(), Some("chat-completions"));
+        assert_eq!(speech.descriptor().api_mode(), Some("audio-speech"));
+        assert_eq!(
+            transcription.descriptor().api_mode(),
+            Some("audio-transcriptions")
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            speech.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().model().as_str(),
+            "future-groq-language-model"
+        );
+        assert_eq!(
+            speech.descriptor().model().as_str(),
+            "future-groq-speech-model"
+        );
+        assert_eq!(
+            transcription.descriptor().model().as_str(),
+            "future-groq-transcription-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "xai")]
+mod xai {
+    use siumai::providers::xai::models;
+    use siumai::providers::xai::{
+        XaiCredential, XaiImageModel, XaiLanguageModel, XaiProvider, XaiProviderBuilder,
+        XaiSpeechModel, XaiTranscriptionModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn one_hub_binds_all_portable_xai_families() -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .xai()
+            .api_key("test-api-key")
+            .configure_provider(|builder: XaiProviderBuilder| builder)
+            .build()?;
+        let _credential_stage = Siumai::builder()
+            .xai()
+            .credential(XaiCredential::api_key("test-api-key"));
+
+        let language = hub.language("future-xai-language-model")?;
+        let image = hub.image("future-xai-image-model")?;
+        let speech = hub.speech(models::speech::TTS)?;
+        let transcription = hub.transcription(models::transcription::STT)?;
+        let _: &XaiProvider = hub.provider();
+        let _: &XaiLanguageModel = language.model();
+        let _: &XaiImageModel = image.model();
+        let _: &XaiSpeechModel = speech.model();
+        let _: &XaiTranscriptionModel = transcription.model();
+        assert!(std::ptr::eq(hub.provider(), language.provider()));
+        assert!(std::ptr::eq(hub.provider(), image.provider()));
+        assert!(std::ptr::eq(hub.provider(), speech.provider()));
+        assert!(std::ptr::eq(hub.provider(), transcription.provider()));
+        assert_eq!(language.family(), ModelFamily::Language);
+        assert_eq!(image.family(), ModelFamily::Image);
+        assert_eq!(speech.family(), ModelFamily::Speech);
+        assert_eq!(transcription.family(), ModelFamily::Transcription);
+        assert_eq!(language.descriptor().api_mode(), Some("responses"));
+        assert_eq!(image.descriptor().api_mode(), Some("image-generations"));
+        assert_eq!(speech.descriptor().api_mode(), Some("tts"));
+        assert_eq!(transcription.descriptor().api_mode(), Some("stt"));
+        assert_eq!(
+            language.descriptor().instance_id(),
+            image.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            speech.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().model().as_str(),
+            "future-xai-language-model"
+        );
+        assert_eq!(
+            image.descriptor().model().as_str(),
+            "future-xai-image-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "minimax")]
+mod minimax {
+    use siumai::providers::minimax::{
+        MinimaxCredential, MinimaxImageModel, MinimaxLanguageModel, MinimaxProvider,
+        MinimaxProviderBuilder, MinimaxSpeechModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn one_hub_binds_language_image_and_speech_models() -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .minimax()
+            .api_key("test-api-key")
+            .configure_provider(|builder: MinimaxProviderBuilder| builder)
+            .build()?;
+        let _credential_stage = Siumai::builder()
+            .minimax()
+            .credential(MinimaxCredential::api_key("test-api-key"));
+
+        let language = hub.language("future-minimax-language-model")?;
+        let image = hub.image("future-minimax-image-model")?;
+        let speech = hub.speech("future-minimax-speech-model")?;
+        let _: &MinimaxProvider = hub.provider();
+        let _: &MinimaxLanguageModel = language.model();
+        let _: &MinimaxImageModel = image.model();
+        let _: &MinimaxSpeechModel = speech.model();
+        assert!(std::ptr::eq(hub.provider(), language.provider()));
+        assert!(std::ptr::eq(hub.provider(), image.provider()));
+        assert!(std::ptr::eq(hub.provider(), speech.provider()));
+        assert_eq!(language.family(), ModelFamily::Language);
+        assert_eq!(image.family(), ModelFamily::Image);
+        assert_eq!(speech.family(), ModelFamily::Speech);
+        assert_eq!(language.descriptor().api_mode(), Some("messages"));
+        assert_eq!(image.descriptor().api_mode(), Some("image-generation"));
+        assert_eq!(speech.descriptor().api_mode(), Some("speech-http"));
+        assert_eq!(
+            language.descriptor().instance_id(),
+            image.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().instance_id(),
+            speech.descriptor().instance_id()
+        );
+        assert_eq!(
+            language.descriptor().model().as_str(),
+            "future-minimax-language-model"
+        );
+        assert_eq!(
+            image.descriptor().model().as_str(),
+            "future-minimax-image-model"
+        );
+        assert_eq!(
+            speech.descriptor().model().as_str(),
+            "future-minimax-speech-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "deepseek")]
+mod deepseek {
+    use siumai::providers::deepseek::{
+        DeepSeekCredential, DeepSeekLanguageModel, DeepSeekProvider, DeepSeekProviderBuilder,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn api_key_and_credential_paths_bind_future_language_models()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let api_key_hub = Siumai::builder()
+            .deepseek()
+            .api_key("test-api-key")
+            .configure_provider(|builder: DeepSeekProviderBuilder| builder)
+            .build()?;
+        let credential_hub = Siumai::builder()
+            .deepseek()
+            .credential(DeepSeekCredential::api_key("test-api-key"))
+            .build()?;
+
+        let client = api_key_hub.language("future-deepseek-model")?;
+        let _: &DeepSeekProvider = api_key_hub.provider();
+        let _: &DeepSeekLanguageModel = client.model();
+        assert!(std::ptr::eq(api_key_hub.provider(), client.provider()));
+        assert_eq!(client.family(), ModelFamily::Language);
+        assert_eq!(client.descriptor().api_mode(), Some("chat-completions"));
+        assert_eq!(
+            client.descriptor().model().as_str(),
+            "future-deepseek-model"
+        );
+        assert_eq!(
+            credential_hub
+                .language("future-deepseek-credential-model")?
+                .descriptor()
+                .model()
+                .as_str(),
+            "future-deepseek-credential-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "cohere")]
+mod cohere {
+    use siumai::providers::cohere::{
+        CohereEmbeddingModel, CohereProvider, CohereProviderBuilder, CohereRerankModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn api_key_path_binds_embedding_and_rerank_models() -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .cohere()
+            .api_key("test-api-key")
+            .configure_provider(|builder: CohereProviderBuilder| builder)
+            .build()?;
+
+        let embedding = hub.embedding("future-cohere-embedding-model")?;
+        let rerank = hub.rerank("future-cohere-rerank-model")?;
+        let _: &CohereProvider = hub.provider();
+        let _: &CohereEmbeddingModel = embedding.model();
+        let _: &CohereRerankModel = rerank.model();
+        assert!(std::ptr::eq(hub.provider(), embedding.provider()));
+        assert!(std::ptr::eq(hub.provider(), rerank.provider()));
+        assert_eq!(embedding.family(), ModelFamily::Embedding);
+        assert_eq!(rerank.family(), ModelFamily::Rerank);
+        assert_eq!(embedding.descriptor().api_mode(), Some("v2"));
+        assert_eq!(rerank.descriptor().api_mode(), Some("v2"));
+        assert_eq!(
+            embedding.descriptor().instance_id(),
+            rerank.descriptor().instance_id()
+        );
+        assert_eq!(
+            embedding.descriptor().model().as_str(),
+            "future-cohere-embedding-model"
+        );
+        assert_eq!(
+            rerank.descriptor().model().as_str(),
+            "future-cohere-rerank-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "deepgram")]
+mod deepgram {
+    use siumai::providers::deepgram::{
+        DeepgramCredential, DeepgramProvider, DeepgramProviderBuilder, DeepgramSpeechModel,
+        DeepgramTranscriptionModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    #[test]
+    fn one_hub_binds_speech_and_transcription_models() -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .deepgram()
+            .api_key("test-api-key")
+            .configure_provider(|builder: DeepgramProviderBuilder| builder)
+            .build()?;
+        let _credential_stage = Siumai::builder()
+            .deepgram()
+            .credential(DeepgramCredential::api_key("test-api-key"));
+
+        let speech = hub.speech("future-deepgram-speech-model")?;
+        let transcription = hub.transcription("future-deepgram-transcription-model")?;
+        let _: &DeepgramProvider = hub.provider();
+        let _: &DeepgramSpeechModel = speech.model();
+        let _: &DeepgramTranscriptionModel = transcription.model();
+        assert!(std::ptr::eq(hub.provider(), speech.provider()));
+        assert!(std::ptr::eq(hub.provider(), transcription.provider()));
+        assert_eq!(speech.family(), ModelFamily::Speech);
+        assert_eq!(transcription.family(), ModelFamily::Transcription);
+        assert_eq!(speech.descriptor().api_mode(), Some("tts"));
+        assert_eq!(transcription.descriptor().api_mode(), Some("prerecorded"));
+        assert_eq!(
+            speech.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_eq!(
+            speech.descriptor().model().as_str(),
+            "future-deepgram-speech-model"
+        );
+        assert_eq!(
+            transcription.descriptor().model().as_str(),
+            "future-deepgram-transcription-model"
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "google-vertex-anthropic")]
+mod vertex_anthropic {
+    use siumai::providers::google_vertex_anthropic::{
+        GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE, GoogleVertexAnthropicLanguageModel,
+        GoogleVertexAnthropicProvider, GoogleVertexAnthropicProviderBuilder,
+        GoogleVertexCredential,
+    };
+    use siumai::{Model, ModelFamily, ReplayDomain, ReplayDomainId, Siumai};
+
+    use super::error_diagnostics;
+
+    const CREDENTIAL_CANARY: &str = "vertex-anthropic-facade-credential-canary";
+
+    fn replay_domain(label: &str) -> ReplayDomain {
+        ReplayDomain::official(
+            ReplayDomainId::new(GOOGLE_VERTEX_ANTHROPIC_REPLAY_AUDIENCE)
+                .expect("the official replay audience is valid"),
+        )
+        .with_caller_scope(
+            ReplayDomainId::new(label).expect("the test caller scope is a valid identifier"),
+        )
+    }
+
+    #[test]
+    fn ordered_inputs_and_access_token_sugar_build_language_hubs()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let access_token_hub = Siumai::builder()
+            .vertex_anthropic()
+            .project("test-project")
+            .location("global")
+            .access_token("test-access-token")
+            .configure_provider(|builder: GoogleVertexAnthropicProviderBuilder| {
+                builder.with_replay_domain(replay_domain("vertex-access-token-test"))
+            })
+            .build()?;
+        let credential_hub = Siumai::builder()
+            .vertex_anthropic()
+            .project("test-project")
+            .location("global")
+            .credential(GoogleVertexCredential::access_token("test-access-token"))
+            .configure_provider(|builder| {
+                builder.with_replay_domain(replay_domain("vertex-credential-test"))
+            })
+            .build()?;
+
+        let client = access_token_hub.language("future-vertex-anthropic-model")?;
+        let _: &GoogleVertexAnthropicProvider = access_token_hub.provider();
+        let _: &GoogleVertexAnthropicLanguageModel = client.model();
+        assert!(std::ptr::eq(access_token_hub.provider(), client.provider()));
+        assert_eq!(client.family(), ModelFamily::Language);
+        assert_eq!(client.descriptor().api_mode(), Some("messages"));
+        assert_eq!(
+            client.descriptor().model().as_str(),
+            "future-vertex-anthropic-model"
+        );
+        assert_eq!(
+            credential_hub
+                .language("future-vertex-credential-model")?
+                .descriptor()
+                .model()
+                .as_str(),
+            "future-vertex-credential-model"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn stages_hubs_clients_and_error_chains_redact_vertex_credentials()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stage = Siumai::builder()
+            .vertex_anthropic()
+            .project("private-project-canary")
+            .location("global")
+            .access_token(CREDENTIAL_CANARY)
+            .configure_provider(|builder| {
+                builder.with_replay_domain(replay_domain("vertex-canary-test"))
+            });
+        assert!(!format!("{stage:?}").contains(CREDENTIAL_CANARY));
+        let hub = stage.build()?;
+        let client = hub.language("future-vertex-canary-model")?;
+        assert!(!format!("{hub:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{client:?}").contains(CREDENTIAL_CANARY));
+
+        let error = Siumai::builder()
+            .vertex_anthropic()
+            .project("private-project-canary")
+            .location("global")
+            .access_token(format!("{CREDENTIAL_CANARY}\n"))
+            .configure_provider(|builder| {
+                builder.with_replay_domain(replay_domain("vertex-error-test"))
+            })
+            .build()
+            .expect_err("the provider-owned credential validator must reject control characters");
+        assert!(!error_diagnostics(&error).contains(CREDENTIAL_CANARY));
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "elevenlabs")]
+mod elevenlabs {
+    use siumai::providers::elevenlabs::{
+        ElevenLabsCredential, ElevenLabsProfile, ElevenLabsProvider, ElevenLabsProviderBuilder,
+        ElevenLabsSpeechModel, ElevenLabsTranscriptionModel,
+    };
+    use siumai::{Model, ModelFamily, Siumai};
+
+    use super::error_diagnostics;
+
+    const CREDENTIAL_CANARY: &str = "elevenlabs-facade-credential-canary";
+
+    #[test]
+    fn profile_then_credential_binds_speech_and_transcription_models()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .elevenlabs()
+            .profile(ElevenLabsProfile::official()?)
+            .credential(ElevenLabsCredential::api_key("test-api-key"))
+            .configure_provider(|builder: ElevenLabsProviderBuilder| builder)
+            .build()?;
+
+        let speech = hub.speech("future-elevenlabs-speech-model")?;
+        let transcription = hub.transcription("future-elevenlabs-transcription-model")?;
+        let _: &ElevenLabsProvider = hub.provider();
+        let _: &ElevenLabsSpeechModel = speech.model();
+        let _: &ElevenLabsTranscriptionModel = transcription.model();
+        assert!(std::ptr::eq(hub.provider(), speech.provider()));
+        assert!(std::ptr::eq(hub.provider(), transcription.provider()));
+        assert_eq!(speech.family(), ModelFamily::Speech);
+        assert_eq!(transcription.family(), ModelFamily::Transcription);
+        assert_eq!(speech.descriptor().api_mode(), Some("text-to-speech"));
+        assert_eq!(
+            transcription.descriptor().api_mode(),
+            Some("batch-transcription")
+        );
+        assert_eq!(
+            speech.descriptor().instance_id(),
+            transcription.descriptor().instance_id()
+        );
+        assert_eq!(
+            speech.descriptor().model().as_str(),
+            "future-elevenlabs-speech-model"
+        );
+        assert_eq!(
+            transcription.descriptor().model().as_str(),
+            "future-elevenlabs-transcription-model"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn stages_hubs_clients_and_error_chains_redact_elevenlabs_credentials()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let stage = Siumai::builder()
+            .elevenlabs()
+            .profile(ElevenLabsProfile::official()?)
+            .api_key(CREDENTIAL_CANARY);
+        assert!(!format!("{stage:?}").contains(CREDENTIAL_CANARY));
+        let hub = stage.build()?;
+        let client = hub.speech("future-elevenlabs-canary-model")?;
+        assert!(!format!("{hub:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{client:?}").contains(CREDENTIAL_CANARY));
+
+        let error = Siumai::builder()
+            .elevenlabs()
+            .profile(ElevenLabsProfile::official()?)
+            .api_key(format!("{CREDENTIAL_CANARY}\n"))
+            .build()
+            .expect_err("the provider-owned credential validator must reject control characters");
+        assert!(!error_diagnostics(&error).contains(CREDENTIAL_CANARY));
+
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "groq", feature = "openai-compatible"))]
+mod branded_compatible_options {
+    use siumai::providers::groq::options::GroqLanguageOptions;
+    use siumai::{CallOptions, ProviderOptionError, Siumai};
+
+    use super::openai_compatible::custom_profile;
+
+    #[test]
+    fn branded_options_cannot_cross_into_a_compatible_profile()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let groq = Siumai::builder()
+            .groq()
+            .api_key("test-api-key")
+            .build()?
+            .language("future-groq-model")?;
+        let compatible = Siumai::builder()
+            .openai_compatible()
+            .profile(custom_profile()?)
+            .api_key("test-api-key")
+            .build()?
+            .language("future-compatible-model")?;
+        let foreign = CallOptions::default()
+            .with_provider_options_for(groq.model(), &GroqLanguageOptions::default())?;
+
+        let error = match compatible.call("hello").with_options(foreign) {
+            Ok(_) => panic!("Groq options must not target an explicit compatible profile"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            ProviderOptionError::ExactTargetMismatch { .. }
+        ));
 
         Ok(())
     }
