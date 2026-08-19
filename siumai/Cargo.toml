@@ -121,7 +121,12 @@ required-features = ["anthropic"]
 [[example]]
 name = "provider_switching"
 path = "examples/provider_switching.rs"
-required-features = ["openai", "anthropic", "registry"]
+required-features = ["openai", "anthropic", "google"]
+
+[[example]]
+name = "registry_switching"
+path = "examples/registry_switching.rs"
+required-features = ["openai", "registry"]
 
 [[example]]
 name = "trusted_connect_route"

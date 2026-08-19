@@ -739,19 +739,127 @@ mod generic_hub {
 
         Ok(())
     }
+
+    #[cfg(feature = "registry")]
+    #[tokio::test]
+    async fn direct_client_and_registry_model_share_the_root_language_seam_and_exact_identity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use siumai::core::ProviderRegistration;
+        use siumai::registry::Registry;
+
+        async fn invoke<M>(model: &M) -> Result<LanguageResponse, LanguageCallError>
+        where
+            M: LanguageModel + ?Sized,
+        {
+            siumai::language::generate(model, "hello").await
+        }
+
+        let hub = Siumai::from_provider(FakeProvider::new());
+        let direct = hub.language("shared-language")?;
+        let scope = Arc::new(direct.descriptor().scope().clone());
+        let instance_id = direct.descriptor().instance_id().clone();
+        let calls = direct.provider().calls.clone();
+        let inner_route =
+            RouteId::new("registry-inner").expect("the static Registry route ID is valid");
+        let registration = ProviderRegistration::from_language(
+            scope.clone(),
+            Arc::new(move |model| {
+                Ok(Arc::new(FakeModel {
+                    descriptor: ModelDescriptor::from_scope(
+                        scope.clone(),
+                        model,
+                        ModelFamily::Language,
+                        instance_id.clone(),
+                    ),
+                    route: inner_route.clone(),
+                    calls: calls.clone(),
+                }) as Arc<dyn LanguageModel>)
+            }),
+        );
+        let mut registry = Registry::builder();
+        registry
+            .register_named("primary", registration.clone())?
+            .register_named("secondary", registration)?;
+        let registry = registry.build()?;
+        let primary = registry.language_model("primary:shared-language")?;
+        let secondary = registry.language_model("secondary:shared-language")?;
+
+        assert_eq!(direct.descriptor().scope(), primary.descriptor().scope());
+        assert_eq!(direct.model_id(), primary.model_id());
+        assert_eq!(direct.family(), primary.family());
+        assert_eq!(direct.family(), ModelFamily::Language);
+        assert_eq!(
+            direct.descriptor().instance_id(),
+            primary.descriptor().instance_id()
+        );
+        assert_eq!(primary.route_id().map(RouteId::as_str), Some("primary"));
+        assert_eq!(secondary.route_id().map(RouteId::as_str), Some("secondary"));
+
+        let direct_response = invoke(&direct).await?;
+        let registry_response = invoke(primary.as_ref()).await?;
+        assert_eq!(direct_response, registry_response);
+        assert_eq!(
+            direct
+                .provider()
+                .calls
+                .language_generate
+                .load(Ordering::SeqCst),
+            2
+        );
+
+        let matching = CallOptions::default().with_provider_options_for(
+            primary.as_ref(),
+            &InstanceBoundLanguageOptions { value: "primary" },
+        )?;
+        let matching_call =
+            siumai::language::call(primary.as_ref(), "hello").with_options(matching)?;
+        assert_eq!(
+            matching_call
+                .base_options()
+                .provider_options_for(primary.as_ref())?
+                .typed()
+                .count(),
+            1
+        );
+
+        let foreign_route = CallOptions::default().with_provider_options_for(
+            secondary.as_ref(),
+            &InstanceBoundLanguageOptions { value: "secondary" },
+        )?;
+        let mismatch =
+            match siumai::language::call(primary.as_ref(), "hello").with_options(foreign_route) {
+                Ok(_) => panic!("options bound to another Registry route must fail synchronously"),
+                Err(error) => error,
+            };
+        assert!(matches!(
+            mismatch,
+            siumai::ProviderOptionError::ExactTargetMismatch { .. }
+        ));
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "openai")]
 mod openai {
     use super::{Siumai, accepts_language_model, error_diagnostics};
-    use siumai::providers::openai::chat_completions::OpenAiChatCompletionsModel;
-    use siumai::providers::openai::embeddings::{OpenAiEmbeddingModel, TEXT_EMBEDDING_3_SMALL};
+    use siumai::providers::openai::chat_completions::{
+        OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions,
+    };
+    use siumai::providers::openai::embeddings::{
+        OpenAiEmbeddingModel, OpenAiEmbeddingOptions, TEXT_EMBEDDING_3_SMALL,
+    };
     use siumai::providers::openai::models::GPT_5_6;
-    use siumai::providers::openai::responses::OpenAiResponsesModel;
+    use siumai::providers::openai::resources::files::OpenAiFiles;
+    use siumai::providers::openai::responses::{
+        OpenAiResponsesModel, OpenAiResponsesOptions, OpenAiResponsesResource,
+    };
     use siumai::providers::openai::{
         OpenAiConfigError, OpenAiCredential, OpenAiProvider, OpenAiProviderBuilder,
     };
-    use siumai::{EmbeddingModel, Model};
+    use siumai::{
+        CallOptions, EmbeddingLimits, EmbeddingModel, Model, ModelFamily, ProviderOptionError,
+    };
 
     const CREDENTIAL_CANARY: &str = "openai-facade-secret-canary";
 
@@ -822,6 +930,142 @@ mod openai {
     }
 
     #[test]
+    fn native_access_identity_limits_and_exact_options_survive_typed_wrapping()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .openai()
+            .api_key(CREDENTIAL_CANARY)
+            .build()?;
+        let responses = hub.language(GPT_5_6)?;
+        let chat = hub.chat_completions(GPT_5_6)?;
+        let embedding = hub.embedding(TEXT_EMBEDDING_3_SMALL)?;
+
+        let files: OpenAiFiles = responses.provider().files();
+        let responses_resource: OpenAiResponsesResource = responses.provider().responses_resource();
+        assert!(!format!("{files:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{responses_resource:?}").contains(CREDENTIAL_CANARY));
+
+        assert!(std::ptr::eq(hub.provider(), responses.provider()));
+        assert!(std::ptr::eq(hub.provider(), chat.provider()));
+        assert!(std::ptr::eq(hub.provider(), embedding.provider()));
+        assert!(std::ptr::eq(
+            Model::descriptor(&responses),
+            responses.model().descriptor()
+        ));
+        assert!(responses.route_id().is_none());
+        assert_eq!(responses.family(), ModelFamily::Language);
+        assert_eq!(embedding.family(), ModelFamily::Embedding);
+        assert_eq!(responses.descriptor().api_mode(), Some("responses"));
+        assert_eq!(chat.descriptor().api_mode(), Some("chat-completions"));
+        assert_eq!(embedding.descriptor().api_mode(), Some("embeddings"));
+        assert_eq!(
+            responses.descriptor().instance_id(),
+            chat.descriptor().instance_id()
+        );
+        assert_eq!(
+            responses.descriptor().instance_id(),
+            embedding.descriptor().instance_id()
+        );
+        assert_eq!(
+            EmbeddingModel::limits(&embedding),
+            EmbeddingLimits {
+                max_inputs: Some(2_048),
+                max_input_tokens: Some(8_192),
+            }
+        );
+        assert_eq!(
+            EmbeddingModel::limits(&embedding),
+            EmbeddingModel::limits(embedding.model())
+        );
+
+        let matching = CallOptions::default().with_provider_options_for(
+            responses.model(),
+            &OpenAiResponsesOptions {
+                instructions: Some("preserve exact target".to_string()),
+                ..OpenAiResponsesOptions::default()
+            },
+        )?;
+        let matching_call = responses.call("hello").with_options(matching)?;
+        assert_eq!(
+            matching_call
+                .base_options()
+                .provider_options_for(&responses)?
+                .typed()
+                .count(),
+            1
+        );
+
+        let independent = Siumai::builder()
+            .openai()
+            .api_key("independent-openai-key")
+            .build()?
+            .language(GPT_5_6)?;
+        assert_ne!(
+            responses.descriptor().instance_id(),
+            independent.descriptor().instance_id()
+        );
+        let foreign_instance = CallOptions::default()
+            .with_provider_options_for(independent.model(), &OpenAiResponsesOptions::default())?;
+        let instance_error = match responses.call("hello").with_options(foreign_instance) {
+            Ok(_) => panic!("options from another configured instance must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            instance_error,
+            ProviderOptionError::ExactTargetMismatch { .. }
+        ));
+
+        let foreign_mode = CallOptions::default()
+            .with_provider_options_for(chat.model(), &OpenAiChatCompletionsOptions::default())?;
+        let mode_error = match responses.call("hello").with_options(foreign_mode) {
+            Ok(_) => panic!("options for Chat Completions must not target Responses"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            mode_error,
+            ProviderOptionError::TargetMismatch { .. }
+        ));
+
+        let foreign_family = CallOptions::default().with_provider_options_for(
+            embedding.model(),
+            &OpenAiEmbeddingOptions::new().with_user("facade-test")?,
+        )?;
+        let family_error = match responses.call("hello").with_options(foreign_family) {
+            Ok(_) => panic!("embedding options must not target a language client"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            family_error,
+            ProviderOptionError::TargetMismatch { .. }
+        ));
+
+        Ok(())
+    }
+
+    #[cfg(feature = "openai-responses-websocket")]
+    #[test]
+    fn responses_model_exposes_the_provider_owned_websocket_configuration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use siumai::providers::openai::experimental::responses_websocket::OpenAiResponsesWebSocketConfig;
+
+        let client = Siumai::builder()
+            .openai()
+            .api_key(CREDENTIAL_CANARY)
+            .build()?
+            .language(GPT_5_6)?;
+        let websocket: OpenAiResponsesWebSocketConfig = client.model().websocket()?;
+
+        assert_eq!(websocket.model().descriptor(), client.descriptor());
+        assert_eq!(
+            websocket.model().descriptor().instance_id(),
+            client.descriptor().instance_id()
+        );
+        assert!(!format!("{websocket:?}").contains(CREDENTIAL_CANARY));
+
+        Ok(())
+    }
+
+    #[test]
     fn explicit_chat_mode_and_future_model_ids_remain_open()
     -> Result<(), Box<dyn std::error::Error>> {
         let hub = Siumai::builder().openai().api_key("test-api-key").build()?;
@@ -877,10 +1121,13 @@ mod openai {
 #[cfg(feature = "anthropic")]
 mod anthropic {
     use super::{Siumai, accepts_language_model, error_diagnostics};
-    use siumai::Model;
+    use siumai::providers::anthropic::annotations::{AnthropicCacheTtl, AnthropicContentOptions};
+    use siumai::providers::anthropic::options::AnthropicMessagesOptions;
+    use siumai::providers::anthropic::resources::{AnthropicFiles, AnthropicMessageBatches};
     use siumai::providers::anthropic::{
         AnthropicCredential, AnthropicLanguageModel, AnthropicProvider, AnthropicProviderBuilder,
     };
+    use siumai::{LanguageRequest, Message, MessagePart, MessageRole, Model, ModelFamily};
 
     const CREDENTIAL_CANARY: &str = "anthropic-facade-secret-canary";
 
@@ -940,16 +1187,55 @@ mod anthropic {
 
         Ok(())
     }
+
+    #[test]
+    fn native_resources_annotations_and_model_methods_remain_typed_after_binding()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .anthropic()
+            .api_key(CREDENTIAL_CANARY)
+            .build()?;
+        let client = hub.language("future-anthropic-model")?;
+        let files: AnthropicFiles = client.provider().files();
+        let batches: AnthropicMessageBatches = client.provider().message_batches();
+
+        assert!(std::ptr::eq(hub.provider(), client.provider()));
+        assert!(std::ptr::eq(
+            Model::descriptor(&client),
+            client.model().descriptor()
+        ));
+        assert_eq!(client.family(), ModelFamily::Language);
+        assert_eq!(client.descriptor().api_mode(), Some("messages"));
+        assert!(client.route_id().is_none());
+        assert!(!format!("{files:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{batches:?}").contains(CREDENTIAL_CANARY));
+
+        let annotated = MessagePart::text("cache this prefix")
+            .with_provider_annotation(&AnthropicContentOptions::one_hour())?;
+        assert_eq!(
+            annotated
+                .annotations()
+                .decode::<AnthropicContentOptions>()?,
+            Some(AnthropicContentOptions::one_hour())
+        );
+        let request = LanguageRequest::new(vec![Message::new(MessageRole::User, [annotated])]);
+        let options =
+            AnthropicMessagesOptions::new().with_automatic_cache(AnthropicCacheTtl::OneHour);
+        drop(client.model().prewarm_cache(request, options));
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "google")]
 mod gemini {
     use super::{Siumai, accepts_language_model, error_diagnostics};
-    use siumai::Model;
     use siumai::providers::google::{
-        GEMINI_GENERATE_CONTENT_API_MODE_ID, GeminiCredential, GeminiGenerateContentModel,
-        GeminiLanguageModel, GeminiProvider, GeminiProviderBuilder,
+        GEMINI_GENERATE_CONTENT_API_MODE_ID, GeminiCredential, GeminiFiles,
+        GeminiGenerateContentModel, GeminiLanguageModel, GeminiProvider, GeminiProviderBuilder,
+        GeminiVeo,
     };
+    use siumai::{CallOptions, LanguageRequest, Model, ModelFamily};
 
     const CREDENTIAL_CANARY: &str = "gemini-facade-secret-canary";
 
@@ -1009,6 +1295,47 @@ mod gemini {
             .build()
             .expect_err("the real Gemini builder must validate its endpoint");
         assert!(!error_diagnostics(&error).contains(CREDENTIAL_CANARY));
+
+        Ok(())
+    }
+
+    #[test]
+    fn native_files_veo_and_interactions_methods_remain_typed_after_binding()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let hub = Siumai::builder()
+            .gemini()
+            .api_key(CREDENTIAL_CANARY)
+            .build()?;
+        let interactions = hub.language("future-gemini-model")?;
+        let generate_content = hub.generate_content("future-gemini-model")?;
+        let files: GeminiFiles = interactions.provider().files();
+        let veo: GeminiVeo = interactions.provider().veo();
+
+        assert!(std::ptr::eq(hub.provider(), interactions.provider()));
+        assert!(std::ptr::eq(hub.provider(), generate_content.provider()));
+        assert!(std::ptr::eq(
+            Model::descriptor(&interactions),
+            interactions.model().descriptor()
+        ));
+        assert_eq!(interactions.family(), ModelFamily::Language);
+        assert_eq!(interactions.descriptor().api_mode(), Some("interactions"));
+        assert_eq!(
+            generate_content.descriptor().api_mode(),
+            Some(GEMINI_GENERATE_CONTENT_API_MODE_ID)
+        );
+        assert_eq!(
+            interactions.descriptor().instance_id(),
+            generate_content.descriptor().instance_id()
+        );
+        assert!(interactions.route_id().is_none());
+        assert!(!format!("{files:?}").contains(CREDENTIAL_CANARY));
+        assert!(!format!("{veo:?}").contains(CREDENTIAL_CANARY));
+
+        drop(
+            interactions
+                .model()
+                .generate_native(LanguageRequest::new(Vec::new()), CallOptions::default()),
+        );
 
         Ok(())
     }

@@ -1,50 +1,47 @@
-use std::time::Duration;
-
-use siumai::language;
 use siumai::providers::openai::models::GPT_5_6;
+use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
+use siumai::providers::openai::resources::files::OpenAiFiles;
 use siumai::providers::openai::responses::{
-    OpenAiReasoning, OpenAiReasoningEffort, OpenAiResponsesOptions,
+    OpenAiReasoning, OpenAiReasoningEffort, OpenAiResponsesOptions, OpenAiResponsesResource,
 };
-use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
-use siumai::transport::ProviderHttpTransportSettings;
-use siumai::{LanguageRequest, Message};
+use siumai::{LanguageRequest, Message, MessagePart, MessageRole, Siumai};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(api_key) = std::env::var("OPENAI_API_KEY") else {
-        eprintln!("Set OPENAI_API_KEY to run the OpenAI flagship example.");
-        return Ok(());
-    };
-
-    let http_settings =
-        ProviderHttpTransportSettings::default().with_call_timeout(Duration::from_secs(120))?;
-    let provider = OpenAiProvider::builder(OpenAiCredential::api_key(api_key))
-        .with_http_transport_settings(http_settings)
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let ai = Siumai::builder()
+        .openai()
+        .api_key("example-openai-key")
         .build()?;
-    let model = provider.responses(GPT_5_6)?;
+    let client = ai.language(GPT_5_6)?;
+
+    let cached_prefix = MessagePart::text("Keep this stable prefix cached.")
+        .with_provider_annotation(&OpenAiContentOptions::prompt_cache_breakpoint())?;
+    let request = LanguageRequest::new(vec![Message::new(
+        MessageRole::User,
+        [
+            cached_prefix,
+            MessagePart::text(
+                "Explain why exact-target provider options are useful in one sentence.",
+            ),
+        ],
+    )]);
     let provider_options = OpenAiResponsesOptions::default()
         .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::High));
-    let response = language::call(
-        &model,
-        LanguageRequest::new(vec![Message::user(
-            "Explain why exact-target provider options are useful in one sentence.",
-        )]),
-    )
-    .with_provider_options(&provider_options)?
-    .generate()
-    .await?;
-    println!(
-        "received {} portable content parts",
-        response.content().len()
-    );
+    let call = client
+        .call(request.clone())
+        .with_provider_options(&provider_options)?;
 
-    if let Ok(conversation_id) = std::env::var("OPENAI_CONVERSATION_ID") {
-        let conversation = provider.conversations().retrieve(&conversation_id).await?;
-        println!(
-            "retrieved a conversation with {} metadata entries",
-            conversation.metadata.len()
-        );
-    }
+    // Portable execution still uses the existing family call path. The future
+    // is not polled so this flagship remains an offline compile contract.
+    drop(call.generate());
+
+    // Provider-wide and model-native APIs remain concrete and discoverable.
+    let _files: OpenAiFiles = client.provider().files();
+    let _responses: OpenAiResponsesResource = client.provider().responses_resource();
+    drop(
+        client
+            .model()
+            .generate_native(request, siumai::CallOptions::default()),
+    );
 
     Ok(())
 }
