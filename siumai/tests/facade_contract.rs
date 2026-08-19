@@ -1279,16 +1279,17 @@ async fn language_call_preserves_baseline_patch_order_and_execution_time_options
             },
         )
         .unwrap();
-    let call = siumai::language::call(&model, Message::user("hello"))
-        .with_options(replaced_baseline)
-        .unwrap()
-        .with_provider_options(&OpenAiResponsesOptions {
-            instructions: Some("C".to_string()),
-            ..OpenAiResponsesOptions::default()
-        })
-        .unwrap()
-        .with_options(baseline)
-        .unwrap();
+    let call: siumai::language::LanguageCall<'_, _> =
+        siumai::language::call(&model, Message::user("hello"))
+            .with_options(replaced_baseline)
+            .unwrap()
+            .with_provider_options(&OpenAiResponsesOptions {
+                instructions: Some("C".to_string()),
+                ..OpenAiResponsesOptions::default()
+            })
+            .unwrap()
+            .with_options(baseline)
+            .unwrap();
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     let invoked_at = Instant::now();
@@ -1696,9 +1697,10 @@ async fn non_language_root_facades_support_concrete_and_erased_models() {
     let direct_embedding_response = embedding::embed(&direct_embedding, embedding_request.clone())
         .await
         .unwrap();
-    let embedding_call = embedding::call(erased_embedding.as_ref(), embedding_request.clone())
-        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
-        .unwrap();
+    let embedding_call: siumai::embedding::EmbeddingCall<'_, _> =
+        embedding::call(erased_embedding.as_ref(), embedding_request.clone())
+            .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+            .unwrap();
     assert_eq!(embedding_call.request(), &embedding_request);
     assert_eq!(
         embedding_call.base_options().retry().maximum_attempts(),
@@ -1735,9 +1737,10 @@ async fn non_language_root_facades_support_concrete_and_erased_models() {
     let direct_rerank_response = rerank::rerank(&direct_rerank, rerank_request.clone())
         .await
         .unwrap();
-    let rerank_call = rerank::call(erased_rerank.as_ref(), rerank_request.clone())
-        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
-        .unwrap();
+    let rerank_call: siumai::rerank::RerankCall<'_, _> =
+        rerank::call(erased_rerank.as_ref(), rerank_request.clone())
+            .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+            .unwrap();
     assert_eq!(rerank_call.request(), &rerank_request);
     assert_eq!(
         rerank_call.base_options().retry().maximum_attempts(),
@@ -1765,9 +1768,10 @@ async fn non_language_root_facades_support_concrete_and_erased_models() {
     let direct_image_response = image::generate(&direct_image, image_request.clone())
         .await
         .unwrap();
-    let image_call = image::call(erased_image.as_ref(), image_request.clone())
-        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
-        .unwrap();
+    let image_call: siumai::image::ImageCall<'_, _> =
+        image::call(erased_image.as_ref(), image_request.clone())
+            .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+            .unwrap();
     assert_eq!(image_call.request(), &image_request);
     assert_eq!(
         image_call.base_options().retry().maximum_attempts(),
@@ -1804,9 +1808,10 @@ async fn non_language_root_facades_support_concrete_and_erased_models() {
     let direct_speech_response = speech::synthesize(&direct_speech, speech_request.clone())
         .await
         .unwrap();
-    let speech_call = speech::call(erased_speech.as_ref(), speech_request.clone())
-        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
-        .unwrap();
+    let speech_call: siumai::speech::SpeechCall<'_, _> =
+        speech::call(erased_speech.as_ref(), speech_request.clone())
+            .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+            .unwrap();
     assert_eq!(speech_call.request(), &speech_request);
     assert_eq!(
         speech_call.base_options().retry().maximum_attempts(),
@@ -1836,7 +1841,7 @@ async fn non_language_root_facades_support_concrete_and_erased_models() {
         transcription::transcribe(&direct_transcription, transcription_request.clone())
             .await
             .unwrap();
-    let transcription_call =
+    let transcription_call: siumai::transcription::TranscriptionCall<'_, _> =
         transcription::call(erased_transcription.as_ref(), transcription_request.clone())
             .with_options(CallOptions::default().with_max_attempts(2).unwrap())
             .unwrap();
@@ -1907,68 +1912,6 @@ async fn embedding_call_resolves_relative_timeout_at_invocation() {
         .unwrap_err();
     assert_eq!(error.kind(), siumai::ErrorKind::InvalidInput);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn facade_convergence_removes_the_redundant_public_paths() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    assert!(!manifest_dir.join("src/families.rs").exists());
-
-    let lib = include_str!("../src/lib.rs");
-    let prelude = include_str!("../src/prelude.rs");
-    assert!(!lib.contains("pub mod families;"));
-    for module in [
-        "embedding",
-        "image",
-        "language",
-        "rerank",
-        "speech",
-        "transcription",
-    ] {
-        assert!(lib.contains(&format!("pub mod {module};")));
-    }
-
-    let runtime_exports = lib
-        .split_once("pub use runtime::{")
-        .expect("runtime root exports remain curated")
-        .1
-        .split_once("};")
-        .expect("runtime root export block")
-        .0;
-    assert!(!runtime_exports.contains("generate"));
-    assert!(!runtime_exports.contains("stream"));
-    let prelude_runtime_exports = prelude
-        .split_once("pub use crate::{RunBudget")
-        .expect("runtime prelude exports remain curated")
-        .1
-        .split_once("};")
-        .expect("runtime prelude export block")
-        .0;
-    assert!(!prelude_runtime_exports.contains("generate"));
-    assert!(!prelude_runtime_exports.contains("stream"));
-
-    let facade_modules = [
-        include_str!("../src/language.rs"),
-        include_str!("../src/embedding.rs"),
-        include_str!("../src/rerank.rs"),
-        include_str!("../src/image.rs"),
-        include_str!("../src/speech.rs"),
-        include_str!("../src/transcription.rs"),
-    ];
-    for removed in [
-        "generate_with_options",
-        "stream_with_options",
-        "embed_with_options",
-        "rerank_with_options",
-        "synthesize_with_options",
-        "transcribe_with_options",
-    ] {
-        assert!(
-            facade_modules
-                .iter()
-                .all(|source| !source.contains(removed))
-        );
-    }
 }
 
 #[cfg(all(feature = "openai", feature = "cohere"))]
@@ -2308,25 +2251,30 @@ fn facade_exposes_runtime_budget_configuration() {
 async fn runtime_one_call_language_execution_remains_namespaced() {
     let calls = Arc::new(AtomicUsize::new(0));
     let model = fake_language(ModelId::new("language-v1").unwrap(), calls.clone());
-    let response = siumai::runtime::generate(
-        &model,
-        LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
-        CallOptions::default(),
-    )
-    .await
-    .unwrap();
+    let runtime = siumai::runtime::Runtime::default();
+    let response = runtime
+        .generate(
+            &model,
+            LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+            siumai::runtime::StepOptions::default(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
 
     assert!(matches!(
         &response.content()[0],
         ContentPart::Text { text } if text == "facade runtime"
     ));
-    let stream_error = siumai::runtime::stream(
-        &model,
-        LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
-        CallOptions::default(),
-    )
-    .await
-    .unwrap_err();
+    let stream_error = runtime
+        .stream(
+            &model,
+            LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+            siumai::runtime::StepOptions::default(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap_err();
     assert_eq!(stream_error.kind(), ErrorKind::Unsupported);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

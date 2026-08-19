@@ -2,7 +2,7 @@
 
 pub use siumai_runtime::{
     BudgetError, BudgetKind, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime,
-    RuntimeBuilder, RuntimeConfigError, StepOptions, generate, stream,
+    RuntimeBuilder, RuntimeConfigError, StepOptions,
 };
 
 #[cfg(feature = "json-schema")]

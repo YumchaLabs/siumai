@@ -26,9 +26,9 @@ metadata.
 
 The facade now has one canonical portability path: choose or resolve a model, call the matching root
 family module, attach typed provider intent through that call when needed, and keep the concrete
-provider for native APIs. The `siumai::families` umbrella, suffixed facade option helpers, bare
-facade runtime functions, and the runtime-owned `AgentInput` adapter are removed rather than kept as
-aliases.
+provider for native APIs. The `siumai::families` umbrella, suffixed facade option helpers, flat
+`*Call` re-exports, runtime free single-call helpers, facade relays for those helpers, and the
+runtime-owned `AgentInput` adapter are removed rather than kept as aliases.
 
 ### Exact symbol map
 
@@ -102,14 +102,30 @@ Registry route. Typed annotations remain on the message, content part, or tool t
 application already owns a complete `CallOptions` baseline, pass it through `with_options` and add
 typed patches through subsequent `with_provider_options` calls; their order is preserved.
 
-The runtime single-call helpers still exist, but only in the runtime namespace:
+Call-builder types remain public in their owning family modules, but are no longer flattened into
+the facade root or prelude:
 
-| Removed facade export | Current replacement | Behavioral note |
-|---|---|---|
-| `siumai::generate` | `siumai::runtime::generate` | This is the runtime single-call helper, not `siumai::language::generate`. |
-| `siumai::stream` | `siumai::runtime::stream` | This is the runtime single-call stream helper. |
-| `generate` imported from `siumai::prelude::*` | `siumai::runtime::generate` | Import it explicitly; the prelude no longer creates a name collision with family operations. |
-| `stream` imported from `siumai::prelude::*` | `siumai::runtime::stream` | Import it explicitly from the runtime module. |
+| Removed flat symbol | Current replacement |
+|---|---|
+| `siumai::LanguageCall` or `LanguageCall` from `siumai::prelude::*` | `siumai::language::LanguageCall` |
+| `siumai::EmbeddingCall` or `EmbeddingCall` from `siumai::prelude::*` | `siumai::embedding::EmbeddingCall` |
+| `siumai::RerankCall` or `RerankCall` from `siumai::prelude::*` | `siumai::rerank::RerankCall` |
+| `siumai::ImageCall` or `ImageCall` from `siumai::prelude::*` | `siumai::image::ImageCall` |
+| `siumai::SpeechCall` or `SpeechCall` from `siumai::prelude::*` | `siumai::speech::SpeechCall` |
+| `siumai::TranscriptionCall` or `TranscriptionCall` from `siumai::prelude::*` | `siumai::transcription::TranscriptionCall` |
+
+Runtime callers now name the configured runtime explicitly. Pass `StepOptions::default()` to keep
+the former helper behavior:
+
+| Removed runtime helper | Current replacement |
+|---|---|
+| `siumai::generate`, `generate` from `siumai::prelude::*`, or `siumai::runtime::generate` | `siumai::runtime::Runtime::default().generate(&model, request, siumai::runtime::StepOptions::default(), options)` |
+| `siumai::stream`, `stream` from `siumai::prelude::*`, or `siumai::runtime::stream` | `siumai::runtime::Runtime::default().stream(&model, request, siumai::runtime::StepOptions::default(), options)` |
+| `siumai_runtime::generate` | `siumai_runtime::Runtime::default().generate(&model, request, siumai_runtime::StepOptions::default(), options)` |
+| `siumai_runtime::stream` | `siumai_runtime::Runtime::default().stream(&model, request, siumai_runtime::StepOptions::default(), options)` |
+
+Use `siumai::language::generate` or `siumai::language::stream` instead when no runtime defaults or
+step-level orchestration are required.
 
 ### `AgentInput` to `LanguageInput`
 

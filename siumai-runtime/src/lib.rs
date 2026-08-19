@@ -1,7 +1,8 @@
 //! Provider-neutral high-level execution for Siumai language models.
 //!
-//! Plain [`generate`] and [`stream`] perform exactly one model call. Explicit
-//! multi-step tool execution is owned by the runtime's tool-loop APIs.
+//! [`Runtime::generate`] and [`Runtime::stream`] perform exactly one model
+//! call. Explicit multi-step tool execution is owned by the runtime's
+//! tool-loop APIs.
 
 #![deny(unsafe_code)]
 
@@ -29,7 +30,6 @@ mod usage;
 
 pub use agent::{Agent, AgentConfigError};
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
-pub use call::{generate, stream};
 pub use durable::{
     DurableApproval, DurableResume, DurableRun, DurableRunError, DurableToolLoop,
     IndeterminateRecoveryPolicy,

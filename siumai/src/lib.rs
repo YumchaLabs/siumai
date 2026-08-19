@@ -69,10 +69,11 @@ pub use self::siumai::{
 pub use self::siumai::{VolcengineCredentialStage, VolcengineProviderStage};
 #[cfg(feature = "xai")]
 pub use self::siumai::{XaiCredentialStage, XaiProviderStage};
-pub use embedding::EmbeddingCall;
-pub use image::ImageCall;
-pub use language::LanguageCall;
-pub use rerank::RerankCall;
+#[cfg(feature = "runtime")]
+pub use runtime::{
+    BudgetError, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime, RuntimeBuilder,
+    RuntimeConfigError, StepOptions,
+};
 pub use siumai_core as core;
 pub use siumai_core::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
@@ -95,12 +96,4 @@ pub use siumai_core::{
     ToolOutcome, ToolResult, ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
     TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
     Usage, UsageUpdate, UsageUpdateKind, UsageValue, Warning, WarningKind,
-};
-pub use speech::SpeechCall;
-pub use transcription::TranscriptionCall;
-
-#[cfg(feature = "runtime")]
-pub use runtime::{
-    BudgetError, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime, RuntimeBuilder,
-    RuntimeConfigError, StepOptions,
 };

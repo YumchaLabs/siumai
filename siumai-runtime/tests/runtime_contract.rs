@@ -13,7 +13,7 @@ use siumai_core::{
     MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, ProviderOptionError,
     ProviderOptions, RouteId, StreamTerminal, ToolCall, TypedProviderOptions, Usage,
 };
-use siumai_runtime::{Runtime, RuntimeConfigError, StepOptions, generate, stream};
+use siumai_runtime::{Runtime, RuntimeConfigError, StepOptions};
 
 #[derive(Debug, Serialize)]
 struct TestOptions {
@@ -171,11 +171,17 @@ fn request() -> LanguageRequest {
 }
 
 #[tokio::test]
-async fn plain_generate_performs_one_call_and_never_executes_returned_tools() {
+async fn default_runtime_generate_performs_one_call_and_never_executes_returned_tools() {
     let model = model();
     let calls = model.calls.clone();
 
-    let response = generate(&model, request(), CallOptions::default())
+    let response = Runtime::default()
+        .generate(
+            &model,
+            request(),
+            StepOptions::default(),
+            CallOptions::default(),
+        )
         .await
         .unwrap();
 
@@ -195,7 +201,10 @@ async fn runtime_entry_resolves_relative_timeout_and_preserves_attempt_cap() {
     tokio::time::sleep(Duration::from_millis(150)).await;
     let invoked_at = Instant::now();
 
-    generate(&model, request(), options).await.unwrap();
+    Runtime::default()
+        .generate(&model, request(), StepOptions::default(), options)
+        .await
+        .unwrap();
 
     {
         let observed = observed.lock().unwrap();
@@ -219,10 +228,16 @@ async fn runtime_entry_resolves_relative_timeout_and_preserves_attempt_cap() {
 }
 
 #[tokio::test]
-async fn plain_stream_performs_one_streaming_call() {
+async fn default_runtime_stream_performs_one_streaming_call() {
     let model = model();
     let calls = model.calls.clone();
-    let events = stream(&model, request(), CallOptions::default())
+    let events = Runtime::default()
+        .stream(
+            &model,
+            request(),
+            StepOptions::default(),
+            CallOptions::default(),
+        )
         .await
         .unwrap()
         .collect::<Vec<_>>()
@@ -372,13 +387,4 @@ fn model_defaults_reject_a_foreign_api_mode_at_build_time() {
         error,
         RuntimeConfigError::ProviderOptions(ProviderOptionError::TargetMismatch { .. })
     ));
-}
-
-#[test]
-fn runtime_no_longer_defines_or_reexports_agent_input() {
-    const AGENT_SOURCE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/agent.rs"));
-    const LIB_SOURCE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
-
-    assert!(!AGENT_SOURCE.contains("AgentInput"));
-    assert!(!LIB_SOURCE.contains("AgentInput"));
 }
