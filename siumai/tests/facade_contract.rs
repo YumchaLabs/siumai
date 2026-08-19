@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use siumai::core::RouteId;
 use siumai::prelude::*;
 use siumai::{EmbeddingLimits, ModelId, ResponseMetadata};
 
-#[cfg(feature = "runtime")]
 use siumai::{ErrorKind, LanguageCallError, LanguageCompletionReason, LanguageResponse};
 
 #[cfg(feature = "registry")]
@@ -29,11 +29,48 @@ struct DeadlineEmbedding {
     observed: Arc<std::sync::Mutex<Vec<CallOptions>>>,
 }
 
-#[cfg(feature = "runtime")]
 #[derive(Debug)]
 struct FakeLanguage {
     descriptor: ModelDescriptor,
     calls: Arc<AtomicUsize>,
+}
+
+#[derive(Debug)]
+struct RecordingLanguage {
+    descriptor: ModelDescriptor,
+    route: Option<RouteId>,
+    calls: Arc<AtomicUsize>,
+    stream_calls: Arc<AtomicUsize>,
+    observed: Arc<std::sync::Mutex<Vec<RecordedLanguageCall>>>,
+}
+
+#[derive(Debug)]
+struct RecordedLanguageCall {
+    request: LanguageRequest,
+    options: CallOptions,
+    provider_values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StreamFixture {
+    Completed,
+    Failed,
+    UnexpectedEof,
+}
+
+#[derive(Debug)]
+struct LifecycleLanguage {
+    descriptor: ModelDescriptor,
+    stream_calls: Arc<AtomicUsize>,
+    fixture: StreamFixture,
+}
+
+#[derive(Debug)]
+struct FailingLanguage {
+    descriptor: ModelDescriptor,
+    route: Option<RouteId>,
+    generate_calls: Arc<AtomicUsize>,
+    stream_calls: Arc<AtomicUsize>,
 }
 
 #[cfg(all(feature = "registry", feature = "runtime"))]
@@ -45,14 +82,38 @@ struct RegistryRuntimeLanguage {
     observed_options: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
-#[cfg(feature = "runtime")]
 impl Model for FakeLanguage {
     fn descriptor(&self) -> &ModelDescriptor {
         &self.descriptor
     }
 }
 
-#[cfg(feature = "runtime")]
+impl Model for RecordingLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+
+    fn route_id(&self) -> Option<&RouteId> {
+        self.route.as_ref()
+    }
+}
+
+impl Model for LifecycleLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+impl Model for FailingLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+
+    fn route_id(&self) -> Option<&RouteId> {
+        self.route.as_ref()
+    }
+}
+
 #[async_trait]
 impl LanguageModel for FakeLanguage {
     async fn generate(
@@ -83,6 +144,164 @@ impl LanguageModel for FakeLanguage {
         Err(Error::new(
             ErrorKind::Unsupported,
             "streaming is not part of this facade contract fixture",
+        ))
+    }
+}
+
+#[async_trait]
+impl LanguageModel for RecordingLanguage {
+    async fn generate(
+        &self,
+        request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        let selection = options.provider_options_for(self).map_err(|source| {
+            Error::new(
+                ErrorKind::Configuration,
+                "invalid recording language provider options",
+            )
+            .with_source(source)
+        })?;
+        let mut provider_values = selection
+            .typed()
+            .map(|options| {
+                options
+                    .value()
+                    .get("value")
+                    .or_else(|| options.value().get("instructions"))
+                    .and_then(serde_json::Value::as_str)
+                    .map_or_else(|| options.namespace().to_string(), ToString::to_string)
+            })
+            .collect::<Vec<_>>();
+        if let Some(value) = selection
+            .raw_override()
+            .and_then(|options| options.value().get("value"))
+            .and_then(serde_json::Value::as_str)
+        {
+            provider_values.push(value.to_string());
+        }
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.observed
+            .lock()
+            .expect("recording language observation lock")
+            .push(RecordedLanguageCall {
+                request,
+                options,
+                provider_values,
+            });
+        LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "recorded".to_string(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .map_err(|source| {
+            Error::new(ErrorKind::Protocol, "invalid recording language response")
+                .with_source(source)
+                .into()
+        })
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        Err(Error::new(
+            ErrorKind::Unsupported,
+            "streaming is not part of this recording fixture",
+        ))
+    }
+}
+
+#[async_trait]
+impl LanguageModel for LifecycleLanguage {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        Err(Error::new(
+            ErrorKind::Unsupported,
+            "generation is not part of this lifecycle fixture",
+        )
+        .into())
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        let fixture = self.fixture;
+        Ok(siumai::core::stream::established_stream(
+            options.cancellation().clone(),
+            move |_| {
+                let mut events = vec![Ok(LanguageStreamEvent::TextDelta {
+                    id: "text".to_string(),
+                    delta: "partial".to_string(),
+                })];
+                match fixture {
+                    StreamFixture::Completed => {
+                        let response = LanguageResponse::completed(
+                            vec![ContentPart::Text {
+                                text: "complete".to_string(),
+                            }],
+                            LanguageCompletionReason::Stop,
+                            Usage::default(),
+                        )
+                        .expect("valid lifecycle fixture response");
+                        events.push(Ok(LanguageStreamEvent::Terminal(
+                            StreamTerminal::Completed {
+                                response: Box::new(response),
+                            },
+                        )));
+                    }
+                    StreamFixture::Failed => events.push(Err(Error::new(
+                        ErrorKind::Provider,
+                        "provider stream failure",
+                    ))),
+                    StreamFixture::UnexpectedEof => {}
+                }
+                futures::stream::iter(events)
+            },
+        ))
+    }
+}
+
+#[async_trait]
+impl LanguageModel for FailingLanguage {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        self.generate_calls.fetch_add(1, Ordering::SeqCst);
+        let partial = PartialLanguageOutput::new(
+            vec![siumai::PartialLanguageOutputPart::Text {
+                text: "provider partial".to_string(),
+            }],
+            Usage::default().with_output_tokens(1_u64),
+        )
+        .expect("valid provider partial output");
+        Err(LanguageCallError::new(
+            Error::new(ErrorKind::Provider, "provider generate failure"),
+            Some(partial),
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        self.stream_calls.fetch_add(1, Ordering::SeqCst);
+        Err(Error::new(
+            ErrorKind::Provider,
+            "provider stream setup failure",
         ))
     }
 }
@@ -295,7 +514,6 @@ fn fake(model: ModelId, calls: Arc<AtomicUsize>) -> FakeEmbedding {
     }
 }
 
-#[cfg(feature = "runtime")]
 fn fake_language(model: ModelId, calls: Arc<AtomicUsize>) -> FakeLanguage {
     FakeLanguage {
         descriptor: ModelDescriptor::new(
@@ -304,6 +522,31 @@ fn fake_language(model: ModelId, calls: Arc<AtomicUsize>) -> FakeLanguage {
             ModelFamily::Language,
         ),
         calls,
+    }
+}
+
+fn recording_language(
+    provider: &str,
+    api_mode: &str,
+    instance_id: siumai::core::ProviderInstanceId,
+    route: Option<RouteId>,
+    calls: Arc<AtomicUsize>,
+    stream_calls: Arc<AtomicUsize>,
+    observed: Arc<std::sync::Mutex<Vec<RecordedLanguageCall>>>,
+) -> RecordingLanguage {
+    let scope = siumai::core::ProviderScope::new(ProviderId::new(provider).unwrap())
+        .with_api_mode(siumai::core::ApiModeId::new(api_mode).unwrap());
+    RecordingLanguage {
+        descriptor: ModelDescriptor::from_scope(
+            Arc::new(scope),
+            ModelId::new("language-v1").unwrap(),
+            ModelFamily::Language,
+            instance_id,
+        ),
+        route,
+        calls,
+        stream_calls,
+        observed,
     }
 }
 
@@ -317,6 +560,764 @@ fn fake_image(model: ModelId, calls: Arc<AtomicUsize>) -> FakeImage {
         ),
         calls,
     }
+}
+
+#[tokio::test]
+async fn root_language_generate_accepts_a_prompt_and_dispatches_once() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = fake_language(ModelId::new("language-v1").unwrap(), calls.clone());
+
+    let response = siumai::language::generate(&model, "hello").await.unwrap();
+
+    assert!(matches!(
+        response.content(),
+        [ContentPart::Text { text }] if text == "facade runtime"
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn language_facade_accepts_concrete_and_erased_models_through_one_generic_function() {
+    async fn invoke<M, I>(model: &M, input: I) -> Result<LanguageResponse, LanguageCallError>
+    where
+        M: LanguageModel + ?Sized,
+        I: Into<siumai::LanguageInput>,
+    {
+        siumai::language::generate(model, input).await
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let direct = fake_language(ModelId::new("direct-language-v1").unwrap(), calls.clone());
+    let erased: Arc<dyn LanguageModel> = Arc::new(fake_language(
+        ModelId::new("erased-language-v1").unwrap(),
+        calls.clone(),
+    ));
+
+    let direct_response = invoke(&direct, Message::user("hello")).await.unwrap();
+    let erased_response = invoke(&erased, vec![Message::user("hello")]).await.unwrap();
+
+    assert_eq!(direct_response, erased_response);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn language_facade_does_not_trim_or_reject_an_empty_prompt() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let model = recording_language(
+        "fixture",
+        "language",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        calls.clone(),
+        stream_calls,
+        observed.clone(),
+    );
+
+    siumai::language::generate(&model, "").await.unwrap();
+    siumai::language::generate(&model, "  exact spacing  ")
+        .await
+        .unwrap();
+
+    let observed = observed
+        .lock()
+        .expect("recording language observation lock");
+    assert_eq!(
+        observed[0].request,
+        LanguageRequest::new(vec![Message::user("")])
+    );
+    assert_eq!(
+        observed[1].request,
+        LanguageRequest::new(vec![Message::user("  exact spacing  ")])
+    );
+    assert!(!observed[0].options.has_provider_options());
+    assert!(observed[0].provider_values.is_empty());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn language_facade_validates_requests_before_generate_or_stream_dispatch() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let route = RouteId::new("production").unwrap();
+    let model = recording_language(
+        "fixture",
+        "language",
+        siumai::core::ProviderInstanceId::new(),
+        Some(route.clone()),
+        calls.clone(),
+        stream_calls.clone(),
+        observed,
+    );
+    let invalid = LanguageRequest::new(vec![Message::text(MessageRole::Tool, "invalid")]);
+
+    let generate_error = siumai::language::generate(&model, invalid.clone())
+        .await
+        .unwrap_err();
+    let stream_error = siumai::language::stream(&model, invalid).await.unwrap_err();
+
+    assert_eq!(generate_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(generate_error.message(), "language request is invalid");
+    assert!(generate_error.partial().is_none());
+    assert_eq!(generate_error.context().route.as_ref(), Some(&route));
+    assert_eq!(stream_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(stream_error.message(), "language request is invalid");
+    assert_eq!(stream_error.context().route.as_ref(), Some(&route));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn language_facade_resolves_deadlines_before_request_validation() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let route = RouteId::new("deadline-route").unwrap();
+    let model = recording_language(
+        "fixture",
+        "language",
+        siumai::core::ProviderInstanceId::new(),
+        Some(route.clone()),
+        calls.clone(),
+        stream_calls,
+        observed,
+    );
+    let invalid = LanguageRequest::new(vec![Message::text(MessageRole::Tool, "invalid")]);
+    let options = CallOptions::default().with_timeout(Duration::MAX).unwrap();
+
+    let error = siumai::language::call(&model, invalid)
+        .with_options(options)
+        .expect("unresolved timeout remains valid during builder setup")
+        .generate()
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.message(), "invalid call options");
+    assert_eq!(error.context().route.as_ref(), Some(&route));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn language_facade_rejects_foreign_instance_and_route_baselines_synchronously() {
+    use serde_json::json;
+
+    let selected_calls = Arc::new(AtomicUsize::new(0));
+    let selected_stream_calls = Arc::new(AtomicUsize::new(0));
+    let selected = recording_language(
+        "fixture",
+        "language",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        selected_calls.clone(),
+        selected_stream_calls,
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let foreign_instance = recording_language(
+        "fixture",
+        "language",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let foreign_instance_options = CallOptions::default()
+        .with_raw_provider_options_for(&foreign_instance, json!({"value": "foreign"}))
+        .unwrap();
+    let instance_error =
+        match siumai::language::call(&selected, "hello").with_options(foreign_instance_options) {
+            Ok(_) => panic!("foreign configured instance must be rejected"),
+            Err(error) => error,
+        };
+    assert!(matches!(
+        instance_error,
+        siumai::ProviderOptionError::ExactTargetMismatch { .. }
+    ));
+
+    let shared_instance = siumai::core::ProviderInstanceId::new();
+    let selected_route = recording_language(
+        "fixture",
+        "language",
+        shared_instance.clone(),
+        Some(RouteId::new("production").unwrap()),
+        selected_calls.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let foreign_route = recording_language(
+        "fixture",
+        "language",
+        shared_instance,
+        Some(RouteId::new("staging").unwrap()),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let foreign_route_options = CallOptions::default()
+        .with_raw_provider_options_for(&foreign_route, json!({"value": "foreign"}))
+        .unwrap();
+    let route_error = match siumai::language::call(&selected_route, "hello")
+        .with_options(foreign_route_options)
+    {
+        Ok(_) => panic!("foreign Registry route must be rejected"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        route_error,
+        siumai::ProviderOptionError::ExactTargetMismatch { .. }
+    ));
+    assert_eq!(selected_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn language_facade_preserves_provider_errors_and_partials() {
+    let route = RouteId::new("provider-route").unwrap();
+    let generate_calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let model = FailingLanguage {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fixture").unwrap(),
+            ModelId::new("failure-v1").unwrap(),
+            ModelFamily::Language,
+        ),
+        route: Some(route),
+        generate_calls: generate_calls.clone(),
+        stream_calls: stream_calls.clone(),
+    };
+
+    let generate_error = siumai::language::generate(&model, "hello")
+        .await
+        .unwrap_err();
+    let stream_error = siumai::language::stream(&model, "hello").await.unwrap_err();
+
+    assert_eq!(generate_error.message(), "provider generate failure");
+    assert!(generate_error.context().route.is_none());
+    assert_eq!(
+        generate_error
+            .partial()
+            .and_then(PartialLanguageOutput::output_text)
+            .as_deref(),
+        Some("provider partial")
+    );
+    assert_eq!(stream_error.message(), "provider stream setup failure");
+    assert!(stream_error.context().route.is_none());
+    assert_eq!(generate_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stream_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn language_facade_preserves_established_stream_terminal_semantics() {
+    use futures::StreamExt;
+
+    async fn terminal(fixture: StreamFixture, options: CallOptions) -> StreamTerminal {
+        let model = LifecycleLanguage {
+            descriptor: ModelDescriptor::new(
+                ProviderId::new("fixture").unwrap(),
+                ModelId::new("stream-v1").unwrap(),
+                ModelFamily::Language,
+            ),
+            stream_calls: Arc::new(AtomicUsize::new(0)),
+            fixture,
+        };
+        let events = siumai::language::call(&model, "hello")
+            .with_options(options)
+            .unwrap()
+            .stream()
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        match events.into_iter().last() {
+            Some(LanguageStreamEvent::Terminal(terminal)) => terminal,
+            _ => panic!("established stream must produce one terminal event"),
+        }
+    }
+
+    assert!(matches!(
+        terminal(StreamFixture::Completed, CallOptions::default()).await,
+        StreamTerminal::Completed { response }
+            if response.output_text().as_deref() == Some("complete")
+    ));
+    assert!(matches!(
+        terminal(StreamFixture::Failed, CallOptions::default()).await,
+        StreamTerminal::Failed {
+            error,
+            partial: Some(partial),
+        } if error.kind() == ErrorKind::Provider
+            && partial.output_text().as_deref() == Some("partial")
+    ));
+    assert!(matches!(
+        terminal(StreamFixture::UnexpectedEof, CallOptions::default()).await,
+        StreamTerminal::Failed {
+            error,
+            partial: Some(partial),
+        } if error.kind() == ErrorKind::UnexpectedEof
+            && partial.output_text().as_deref() == Some("partial")
+    ));
+
+    let cancellation = Cancellation::new();
+    cancellation.cancel();
+    assert!(matches!(
+        terminal(
+            StreamFixture::UnexpectedEof,
+            CallOptions::default().with_cancellation(cancellation),
+        )
+        .await,
+        StreamTerminal::Cancelled { partial: None, .. }
+    ));
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn language_call_preserves_baseline_patch_order_and_execution_time_options() {
+    use siumai::providers::openai::responses::OpenAiResponsesOptions;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let model = recording_language(
+        "openai",
+        "responses",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        calls.clone(),
+        stream_calls,
+        observed.clone(),
+    );
+    let cancellation = Cancellation::new();
+    let baseline = CallOptions::default()
+        .with_cancellation(cancellation.clone())
+        .with_max_attempts(2)
+        .unwrap()
+        .with_timeout(Duration::from_secs(1))
+        .unwrap()
+        .with_provider_options_for(
+            &model,
+            &OpenAiResponsesOptions {
+                instructions: Some("A".to_string()),
+                ..OpenAiResponsesOptions::default()
+            },
+        )
+        .unwrap()
+        .with_provider_options_for(
+            &model,
+            &OpenAiResponsesOptions {
+                instructions: Some("B".to_string()),
+                ..OpenAiResponsesOptions::default()
+            },
+        )
+        .unwrap();
+    let replaced_baseline = CallOptions::default()
+        .with_provider_options_for(
+            &model,
+            &OpenAiResponsesOptions {
+                instructions: Some("replaced".to_string()),
+                ..OpenAiResponsesOptions::default()
+            },
+        )
+        .unwrap();
+    let call = siumai::language::call(&model, Message::user("hello"))
+        .with_options(replaced_baseline)
+        .unwrap()
+        .with_provider_options(&OpenAiResponsesOptions {
+            instructions: Some("C".to_string()),
+            ..OpenAiResponsesOptions::default()
+        })
+        .unwrap()
+        .with_options(baseline)
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let invoked_at = Instant::now();
+    call.generate().await.unwrap();
+    cancellation.cancel();
+
+    let observed = observed
+        .lock()
+        .expect("recording language observation lock");
+    let call = observed.first().expect("one recorded language call");
+    assert_eq!(call.provider_values, ["A", "B", "C"]);
+    assert_eq!(call.options.timeout(), None);
+    assert!(call.options.deadline().unwrap() >= invoked_at + Duration::from_millis(925));
+    assert_eq!(call.options.retry().maximum_attempts(), Some(2));
+    assert!(call.options.cancellation().is_cancelled());
+    assert_eq!(
+        call.request,
+        LanguageRequest::new(vec![Message::user("hello")])
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn language_call_option_setters_validate_the_full_candidate_synchronously() {
+    use siumai::core::MAX_PROVIDER_OPTION_ENTRIES;
+    use siumai::providers::openai::responses::OpenAiResponsesOptions;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let responses = recording_language(
+        "openai",
+        "responses",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        calls.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+    let chat = recording_language(
+        "openai",
+        "chat-completions",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(std::sync::Mutex::new(Vec::new())),
+    );
+
+    let mismatch = match siumai::language::call(&chat, "hello")
+        .with_provider_options(&OpenAiResponsesOptions::default())
+    {
+        Ok(_) => panic!("Responses options must not bind to Chat Completions"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        mismatch,
+        siumai::ProviderOptionError::TargetMismatch { .. }
+    ));
+
+    let mut full_baseline = CallOptions::default();
+    for index in 0..MAX_PROVIDER_OPTION_ENTRIES {
+        full_baseline = full_baseline
+            .with_provider_options_for(
+                &responses,
+                &OpenAiResponsesOptions {
+                    instructions: Some(format!("baseline-{index}")),
+                    ..OpenAiResponsesOptions::default()
+                },
+            )
+            .unwrap();
+    }
+    let overflow = match siumai::language::call(&responses, "hello")
+        .with_options(full_baseline.clone())
+        .unwrap()
+        .with_provider_options(&OpenAiResponsesOptions::default())
+    {
+        Ok(_) => panic!("builder patch must be validated with the baseline"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        overflow,
+        siumai::ProviderOptionError::TooManyEntries { .. }
+    ));
+
+    let overflow = match siumai::language::call(&responses, "hello")
+        .with_provider_options(&OpenAiResponsesOptions::default())
+        .unwrap()
+        .with_options(full_baseline)
+    {
+        Ok(_) => panic!("replacement baseline must be validated with builder patches"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        overflow,
+        siumai::ProviderOptionError::TooManyEntries { .. }
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn language_facade_preserves_a_complete_rich_request() {
+    use serde_json::json;
+    use siumai::core::{ProtocolId, ProviderProvenance, ProviderScope};
+    use siumai::providers::openai::prompt_cache::OpenAiContentOptions;
+    use siumai::providers::openai::responses::OpenAiResponsesOptions;
+    use siumai::{
+        GenerationConfig, OpaqueProviderItem, ReplayDomain, ReplayDomainId, StructuredOutputSpec,
+    };
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let model = recording_language(
+        "openai",
+        "responses",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        calls.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        observed.clone(),
+    );
+    let annotated = MessagePart::text("annotated")
+        .with_provider_annotation(&OpenAiContentOptions::prompt_cache_breakpoint())
+        .unwrap();
+    let replay_scope = ProviderScope::new(ProviderId::new("openai").unwrap())
+        .with_protocol(ProtocolId::new("responses").unwrap())
+        .with_api_mode(siumai::core::ApiModeId::new("responses").unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("facade-rich-request").unwrap(),
+        ));
+    let provenance =
+        ProviderProvenance::from_scope(&replay_scope, ModelId::new("language-v1").unwrap())
+            .unwrap();
+    let opaque = OpaqueProviderItem::new(
+        provenance,
+        "response_state",
+        json!({"opaque": "preserve exactly"}),
+    )
+    .unwrap();
+    let tool = ToolSpec::new(
+        "lookup",
+        Some("Look up a record".to_string()),
+        json!({
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"]
+        }),
+    )
+    .unwrap();
+    let request = LanguageRequest {
+        messages: vec![
+            Message::new(MessageRole::User, [annotated]),
+            Message::new(
+                MessageRole::Assistant,
+                [ContentPart::ProviderOpaque(opaque)],
+            ),
+        ],
+        generation: GenerationConfig {
+            max_output_tokens: Some(321),
+            temperature: Some(0.25),
+            top_p: Some(0.8),
+            stop_sequences: vec!["done".to_string()],
+            seed: Some(7),
+        },
+        tools: vec![tool],
+        tool_choice: Some(ToolChoice::Named {
+            name: "lookup".to_string(),
+        }),
+        structured_output: Some(StructuredOutputSpec {
+            name: "answer".to_string(),
+            description: Some("Structured answer".to_string()),
+            schema: json!({
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"]
+            }),
+            strict: true,
+        }),
+    };
+    let expected = request.clone();
+    let call = siumai::language::call(&model, request)
+        .with_provider_options(&OpenAiResponsesOptions {
+            instructions: Some("preserve rich input".to_string()),
+            ..OpenAiResponsesOptions::default()
+        })
+        .unwrap();
+    assert_eq!(call.request(), &expected);
+    assert!(!call.base_options().has_provider_options());
+
+    call.generate().await.unwrap();
+
+    let observed = observed
+        .lock()
+        .expect("recording language observation lock");
+    assert_eq!(observed[0].request, expected);
+    assert_eq!(observed[0].provider_values, ["preserve rich input"]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_provider_executes_typed_options_through_the_language_facade() {
+    use serde_json::json;
+    use siumai::providers::anthropic::messages::OutputEffort;
+    use siumai::providers::anthropic::options::AnthropicMessagesOptions;
+    use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
+    use siumai::transport::EndpointConfig;
+    use siumai::{GenerationConfig, ReplayDomain, ReplayDomainId};
+    use wiremock::matchers::{body_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(body_json(json!({
+            "model": "future-claude-model",
+            "max_tokens": 4096,
+            "messages": [{
+                "role": "user",
+                "content": [{"type": "text", "text": "caller intent"}]
+            }],
+            "stream": false,
+            "temperature": 0.4,
+            "top_p": 0.5,
+            "top_k": 32,
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+            "output_config": {"effort": "high"}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_facade",
+            "type": "message",
+            "role": "assistant",
+            "model": "future-claude-model",
+            "content": [{"type": "text", "text": "done"}],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 1, "output_tokens": 1}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = AnthropicProvider::builder(AnthropicCredential::unauthenticated())
+        .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1/", server.uri())).unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("facade-anthropic-test").unwrap(),
+        ))
+        .build()
+        .unwrap();
+    let model = provider.language("future-claude-model").unwrap();
+    let request = LanguageRequest::new(vec![Message::user("caller intent")]).with_generation(
+        GenerationConfig {
+            max_output_tokens: Some(4_096),
+            temperature: Some(0.4),
+            top_p: Some(0.5),
+            stop_sequences: Vec::new(),
+            seed: None,
+        },
+    );
+    let options = AnthropicMessagesOptions::new()
+        .with_enabled_thinking(2_048)
+        .with_output_effort(OutputEffort::High)
+        .with_top_k(32);
+
+    let response = siumai::language::call(&model, request)
+        .with_provider_options(&options)
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
+
+    assert_eq!(response.output_text().as_deref(), Some("done"));
+}
+
+#[cfg(feature = "registry")]
+#[tokio::test]
+async fn language_facade_preserves_registry_route_identity_on_the_selected_handle() {
+    use serde_json::json;
+    use siumai::core::{ProviderInstanceId, ProviderScope};
+    use siumai::registry::Registry;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let stream_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let scope = Arc::new(
+        ProviderScope::new(ProviderId::new("fixture").unwrap())
+            .with_api_mode(siumai::core::ApiModeId::new("language").unwrap()),
+    );
+    let instance_id = ProviderInstanceId::new();
+
+    let production_scope = scope.clone();
+    let production_instance = instance_id.clone();
+    let production_calls = calls.clone();
+    let production_stream_calls = stream_calls.clone();
+    let production_observed = observed.clone();
+    let production = ProviderRegistration::from_language(
+        scope.clone(),
+        Arc::new(move |_model| {
+            Ok(Arc::new(recording_language(
+                production_scope.provider_id().as_str(),
+                production_scope
+                    .api_mode()
+                    .expect("fixture language API mode")
+                    .as_str(),
+                production_instance.clone(),
+                None,
+                production_calls.clone(),
+                production_stream_calls.clone(),
+                production_observed.clone(),
+            )) as Arc<dyn LanguageModel>)
+        }),
+    );
+    let staging_scope = scope.clone();
+    let staging_instance = instance_id;
+    let staging = ProviderRegistration::from_language(
+        scope,
+        Arc::new(move |_model| {
+            Ok(Arc::new(recording_language(
+                staging_scope.provider_id().as_str(),
+                staging_scope
+                    .api_mode()
+                    .expect("fixture language API mode")
+                    .as_str(),
+                staging_instance.clone(),
+                None,
+                Arc::new(AtomicUsize::new(0)),
+                Arc::new(AtomicUsize::new(0)),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
+            )) as Arc<dyn LanguageModel>)
+        }),
+    );
+    let mut builder = Registry::builder();
+    builder
+        .register_named("production", production)
+        .unwrap()
+        .register_named("staging", staging)
+        .unwrap();
+    let registry = builder.build().unwrap();
+    let production = registry.language_model("production:language-v1").unwrap();
+    let staging = registry.language_model("staging:language-v1").unwrap();
+    assert_eq!(
+        production.route_id().map(RouteId::as_str),
+        Some("production")
+    );
+
+    let options = CallOptions::default()
+        .with_raw_provider_options_for(production.as_ref(), json!({"value": "production"}))
+        .unwrap();
+    siumai::language::call(production.as_ref(), "hello")
+        .with_options(options)
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
+
+    let foreign = CallOptions::default()
+        .with_raw_provider_options_for(staging.as_ref(), json!({"value": "staging"}))
+        .unwrap();
+    let error = match siumai::language::call(production.as_ref(), "hello").with_options(foreign) {
+        Ok(_) => panic!("a different resolved route must fail before dispatch"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        siumai::ProviderOptionError::ExactTargetMismatch { .. }
+    ));
+
+    let invalid = LanguageRequest::new(vec![Message::text(MessageRole::Tool, "invalid")]);
+    let generate_error = siumai::language::generate(production.as_ref(), invalid.clone())
+        .await
+        .unwrap_err();
+    let stream_error = siumai::language::stream(production.as_ref(), invalid)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        generate_error.context().route.as_ref().map(RouteId::as_str),
+        Some("production")
+    );
+    assert_eq!(
+        stream_error.context().route.as_ref().map(RouteId::as_str),
+        Some("production")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stream_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        observed
+            .lock()
+            .expect("recording language observation lock")[0]
+            .provider_values,
+        ["production"]
+    );
 }
 
 #[tokio::test]
@@ -1752,9 +2753,10 @@ fn facade_registers_volcengine_with_recommended_responses_mode() {
 
 #[cfg(all(feature = "registry", feature = "openai"))]
 #[tokio::test]
-async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
+async fn openai_direct_registry_and_language_facade_paths_share_one_wire_pipeline() {
     use serde_json::{Value, json};
     use siumai::core::{ReplayDomain, ReplayDomainId};
+    use siumai::providers::openai::responses::OpenAiResponsesOptions;
     use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
     use siumai::registry::{Registry, RegistryBuilderExt};
     use siumai::transport::{
@@ -1807,7 +2809,7 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
                 }]
             }]
         })))
-        .expect(3)
+        .expect(5)
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -1868,6 +2870,24 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
         .await
         .unwrap();
     let helper_response = language::generate(&direct, request()).await.unwrap();
+    let typed_direct_response = language::call(&direct, request())
+        .with_provider_options(&OpenAiResponsesOptions {
+            instructions: Some("typed direct".to_string()),
+            ..OpenAiResponsesOptions::default()
+        })
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
+    let typed_erased_response = language::call(erased.as_ref(), request())
+        .with_provider_options(&OpenAiResponsesOptions {
+            instructions: Some("typed Registry".to_string()),
+            ..OpenAiResponsesOptions::default()
+        })
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
     let chat_response = chat
         .generate(request(), CallOptions::default())
         .await
@@ -1875,12 +2895,14 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
 
     assert_eq!(direct_response, erased_response);
     assert_eq!(erased_response, helper_response);
+    assert_eq!(helper_response, typed_direct_response);
+    assert_eq!(typed_direct_response, typed_erased_response);
     assert!(matches!(
         &chat_response.content()[0],
         ContentPart::Text { text } if text == "hello back"
     ));
-    assert_eq!(observer.attempts.load(Ordering::SeqCst), 4);
-    assert_eq!(observer.completed.load(Ordering::SeqCst), 4);
+    assert_eq!(observer.attempts.load(Ordering::SeqCst), 6);
+    assert_eq!(observer.completed.load(Ordering::SeqCst), 6);
 
     let requests = server.received_requests().await.unwrap();
     let bodies = requests
@@ -1890,6 +2912,8 @@ async fn openai_direct_registry_and_helper_paths_share_one_wire_pipeline() {
         .collect::<Vec<_>>();
     assert_eq!(bodies[0], bodies[1]);
     assert_eq!(bodies[1], bodies[2]);
+    assert_eq!(bodies[3]["instructions"], "typed direct");
+    assert_eq!(bodies[4]["instructions"], "typed Registry");
 }
 
 #[cfg(feature = "openai-realtime")]

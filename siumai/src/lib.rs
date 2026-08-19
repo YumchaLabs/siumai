@@ -11,7 +11,9 @@
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 
+mod call;
 pub mod families;
+pub mod language;
 pub mod prelude;
 pub mod providers;
 #[cfg(feature = "registry")]
@@ -21,6 +23,7 @@ pub mod runtime;
 #[cfg(feature = "transport")]
 pub mod transport;
 
+pub use language::LanguageCall;
 pub use siumai_core as core;
 pub use siumai_core::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
@@ -29,7 +32,7 @@ pub use siumai_core::{
     GenerationConfig, GenerationConfigError, ImageArtifact, ImageLimits, ImageModel,
     ImageModelProvider, ImageRequest, ImageResponse, ImageSize, InvalidId, InvalidToolCall,
     InvalidToolInput, InvalidToolSpec, LanguageCallError, LanguageCompletionReason,
-    LanguageIncompleteReason, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageIncompleteReason, LanguageInput, LanguageModel, LanguageModelProvider, LanguageRequest,
     LanguageRequestError, LanguageResponse, LanguageResponseError, LanguageStream,
     LanguageStreamEvent, LanguageTermination, MediaData, MediaPart, Message, MessagePart,
     MessageRole, MessageValidationError, Model, ModelDescriptor, ModelFamily, ModelId,
