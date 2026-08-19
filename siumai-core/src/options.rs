@@ -804,6 +804,33 @@ impl CallOptions {
         Ok(self)
     }
 
+    /// Append validated exact-target patches after the existing call entries.
+    ///
+    /// This hidden assembly seam preserves input order and rechecks the full
+    /// candidate sequence against the normal entry, target, raw-target, and
+    /// aggregate bounds. Failure leaves the accepted options unchanged.
+    #[doc(hidden)]
+    pub fn append_provider_options<I>(&mut self, patches: I) -> Result<(), ProviderOptionError>
+    where
+        I: IntoIterator<Item = ProviderOptionPatch>,
+    {
+        let mut candidate = self.clone();
+        let existing = std::mem::take(&mut candidate.exact_provider_options);
+        for entry in existing {
+            candidate.push_exact_provider_option(entry)?;
+        }
+        for patch in patches {
+            let (target, options) = patch.into_parts();
+            candidate.push_exact_provider_option(ExactProviderOptionEntry {
+                applicability: ProviderOptionApplicability::Required,
+                target,
+                options,
+            })?;
+        }
+        self.exact_provider_options = candidate.exact_provider_options;
+        Ok(())
+    }
+
     fn push_exact_provider_option(
         &mut self,
         entry: ExactProviderOptionEntry,
@@ -1508,6 +1535,93 @@ mod tests {
             .map(|options| options.value()["value"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(values, vec!["route", "step", "call"]);
+    }
+
+    #[test]
+    fn appended_provider_patches_follow_the_baseline_and_repeat_preflight() {
+        let model = fake_model("openai", "responses", None);
+        let cancellation = Cancellation::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let baseline = CallOptions::default()
+            .with_deadline(deadline)
+            .with_timeout(Duration::from_secs(10))
+            .unwrap()
+            .with_cancellation(cancellation.clone())
+            .without_retry()
+            .with_provider_options(&Layer {
+                value: "baseline-a",
+            })
+            .unwrap()
+            .with_provider_options_for(
+                &model,
+                &Layer {
+                    value: "baseline-b",
+                },
+            )
+            .unwrap();
+        let patches = vec![
+            ProviderOptionPatch::typed_for_model(&model, &Layer { value: "patch-c" }).unwrap(),
+        ];
+
+        let assemble = || {
+            let mut candidate = baseline.clone();
+            candidate.append_provider_options(patches.clone()).unwrap();
+            candidate
+        };
+        let first = assemble();
+        let second = assemble();
+
+        let values = |options: &CallOptions| {
+            options
+                .provider_options_for(&model)
+                .unwrap()
+                .typed()
+                .map(|options| options.value()["value"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            values(&baseline),
+            vec!["baseline-a".to_string(), "baseline-b".to_string()]
+        );
+        assert_eq!(
+            values(&first),
+            vec![
+                "baseline-a".to_string(),
+                "baseline-b".to_string(),
+                "patch-c".to_string()
+            ]
+        );
+        assert_eq!(values(&second), values(&first));
+        assert_eq!(first.deadline(), Some(deadline));
+        assert_eq!(first.timeout(), Some(Duration::from_secs(10)));
+        assert_eq!(first.retry().maximum_attempts(), Some(1));
+        cancellation.cancel();
+        assert!(first.cancellation().is_cancelled());
+    }
+
+    #[test]
+    fn failed_provider_patch_append_does_not_mutate_the_accepted_state() {
+        let model = fake_model("openai", "responses", None);
+        let mut accepted = CallOptions::default();
+        for _ in 0..MAX_PROVIDER_OPTION_ENTRIES {
+            accepted = accepted
+                .with_provider_options(&Layer { value: "accepted" })
+                .unwrap();
+        }
+        let patch =
+            ProviderOptionPatch::typed_for_model(&model, &Layer { value: "overflow" }).unwrap();
+
+        assert!(matches!(
+            accepted.append_provider_options([patch]),
+            Err(ProviderOptionError::TooManyEntries { .. })
+        ));
+        let values = accepted
+            .provider_options_for(&model)
+            .unwrap()
+            .typed()
+            .map(|options| options.value()["value"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["accepted"; MAX_PROVIDER_OPTION_ENTRIES]);
     }
 
     #[test]

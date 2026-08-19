@@ -1039,6 +1039,51 @@ impl LanguageRequest {
     }
 }
 
+/// Provider-neutral input accepted by ergonomic language entry points.
+///
+/// Inputs normalize immediately and losslessly into a [`LanguageRequest`].
+/// This adapter does not validate the request or retain model, routing, call
+/// option, or wire state.
+#[derive(Debug, Clone)]
+pub struct LanguageInput(LanguageRequest);
+
+impl LanguageInput {
+    /// Consume this input and return its canonical request.
+    pub fn into_request(self) -> LanguageRequest {
+        self.0
+    }
+}
+
+impl From<LanguageRequest> for LanguageInput {
+    fn from(request: LanguageRequest) -> Self {
+        Self(request)
+    }
+}
+
+impl From<Message> for LanguageInput {
+    fn from(message: Message) -> Self {
+        Self(LanguageRequest::new(vec![message]))
+    }
+}
+
+impl From<Vec<Message>> for LanguageInput {
+    fn from(messages: Vec<Message>) -> Self {
+        Self(LanguageRequest::new(messages))
+    }
+}
+
+impl From<String> for LanguageInput {
+    fn from(text: String) -> Self {
+        Self(LanguageRequest::new(vec![Message::user(text)]))
+    }
+}
+
+impl From<&str> for LanguageInput {
+    fn from(text: &str) -> Self {
+        Self::from(text.to_owned())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum LanguageRequestError {
@@ -1320,6 +1365,25 @@ impl PartialLanguageOutput {
 
     pub fn content(&self) -> &[PartialLanguageOutputPart] {
         &self.content
+    }
+
+    /// Borrow canonical text observations in their original order.
+    ///
+    /// Reasoning and refusal observations are intentionally excluded.
+    pub fn text_parts(&self) -> impl Iterator<Item = &str> + '_ {
+        self.content.iter().filter_map(|part| match part {
+            PartialLanguageOutputPart::Text { text } => Some(text.as_str()),
+            PartialLanguageOutputPart::Reasoning { .. }
+            | PartialLanguageOutputPart::Refusal { .. } => None,
+        })
+    }
+
+    /// Concatenate canonical text observations without separators or normalization.
+    ///
+    /// Returns `None` when no text observation exists and `Some("")` when one
+    /// or more text observations concatenate to an empty string.
+    pub fn output_text(&self) -> Option<String> {
+        concatenate_text_parts(self.text_parts())
     }
 
     pub fn usage(&self) -> &Usage {
@@ -1657,6 +1721,33 @@ impl LanguageResponse {
         &self.content
     }
 
+    /// Borrow canonical text parts in their original response order.
+    ///
+    /// This display-oriented view excludes reasoning, refusals, tool content,
+    /// citations, media, and provider-native state. Use
+    /// [`Self::project_assistant_history`] when constructing assistant history.
+    pub fn text_parts(&self) -> impl Iterator<Item = &str> + '_ {
+        self.content.iter().filter_map(|part| match part {
+            ContentPart::Text { text } => Some(text.as_str()),
+            ContentPart::Reasoning { .. }
+            | ContentPart::Media(_)
+            | ContentPart::Citation(_)
+            | ContentPart::Refusal { .. }
+            | ContentPart::ToolCall(_)
+            | ContentPart::ToolResult(_)
+            | ContentPart::ProviderOpaque(_) => None,
+        })
+    }
+
+    /// Concatenate canonical text parts without separators or normalization.
+    ///
+    /// Returns `None` when no text part exists and `Some("")` when one or more
+    /// text parts concatenate to an empty string. This display-oriented
+    /// projection does not replace [`Self::project_assistant_history`].
+    pub fn output_text(&self) -> Option<String> {
+        concatenate_text_parts(self.text_parts())
+    }
+
     pub fn usage(&self) -> &Usage {
         &self.usage
     }
@@ -1720,6 +1811,15 @@ impl LanguageResponse {
         }))?;
         Ok(())
     }
+}
+
+fn concatenate_text_parts<'a>(mut parts: impl Iterator<Item = &'a str>) -> Option<String> {
+    let first = parts.next()?;
+    let mut output = String::from(first);
+    for part in parts {
+        output.push_str(part);
+    }
+    Some(output)
 }
 
 #[derive(Deserialize)]
@@ -2088,6 +2188,98 @@ mod tests {
     }
 
     #[test]
+    fn language_input_preserves_prompt_bytes_without_policy() {
+        for text in ["", "  keep leading and trailing whitespace  "] {
+            let request = LanguageInput::from(text).into_request();
+
+            assert_eq!(request.messages.len(), 1);
+            assert_eq!(request.messages[0].role(), MessageRole::User);
+            assert!(matches!(
+                request.messages[0].content()[0].content(),
+                ContentPart::Text { text: actual } if actual == text
+            ));
+        }
+
+        let owned = String::from("owned\0utf8-你好");
+        let request = LanguageInput::from(owned.clone()).into_request();
+        assert!(matches!(
+            request.messages[0].content()[0].content(),
+            ContentPart::Text { text } if text.as_bytes() == owned.as_bytes()
+        ));
+    }
+
+    #[test]
+    fn language_input_preserves_messages_and_complete_requests() {
+        let content_annotation = CacheAnnotation {
+            cache_control: "ephemeral".to_string(),
+        };
+        let message_annotation = MessageLabelAnnotation {
+            label: "policy".to_string(),
+        };
+        let annotated_message = Message::new(
+            MessageRole::Developer,
+            [MessagePart::text("preserve")
+                .with_provider_annotation(&content_annotation)
+                .unwrap()],
+        )
+        .with_provider_annotation(&message_annotation)
+        .unwrap();
+
+        assert_eq!(
+            LanguageInput::from(annotated_message.clone())
+                .into_request()
+                .messages,
+            vec![annotated_message.clone()]
+        );
+
+        let messages = vec![annotated_message.clone(), Message::user("question")];
+        assert_eq!(
+            LanguageInput::from(messages.clone())
+                .into_request()
+                .messages,
+            messages
+        );
+
+        let replay_message = Message::new(
+            MessageRole::Assistant,
+            [ContentPart::ProviderOpaque(
+                OpaqueProviderItem::new(provenance(), "response.output", json!({"id": "item-1"}))
+                    .unwrap(),
+            )],
+        );
+        let request = LanguageRequest {
+            messages: vec![annotated_message, replay_message],
+            generation: GenerationConfig {
+                max_output_tokens: Some(123),
+                temperature: Some(0.25),
+                top_p: Some(0.9),
+                stop_sequences: vec!["stop".to_string()],
+                seed: Some(7),
+            },
+            tools: vec![
+                ToolSpec::new(
+                    "lookup",
+                    Some("Look up a value".to_string()),
+                    json!({"type": "object"}),
+                )
+                .unwrap(),
+            ],
+            tool_choice: Some(ToolChoice::Named {
+                name: "lookup".to_string(),
+            }),
+            structured_output: Some(StructuredOutputSpec {
+                name: "answer".to_string(),
+                description: Some("Structured answer".to_string()),
+                schema: json!({"type": "object"}),
+                strict: true,
+            }),
+        };
+        let expected = request.clone();
+
+        assert_eq!(LanguageInput::from(request).into_request(), expected);
+    }
+
+    #[test]
     fn language_response_has_one_completed_or_incomplete_termination() {
         let completed = LanguageResponse::completed(
             Vec::new(),
@@ -2132,6 +2324,131 @@ mod tests {
             ),
             Err(LanguageResponseError::EmptyIncompleteReason)
         );
+    }
+
+    #[test]
+    fn language_response_text_projection_uses_only_canonical_text_parts() {
+        let response = LanguageResponse::completed(
+            vec![
+                ContentPart::Text {
+                    text: String::new(),
+                },
+                ContentPart::Reasoning {
+                    text: "hidden reasoning".to_string(),
+                },
+                ContentPart::Text {
+                    text: "first".to_string(),
+                },
+                ContentPart::Media(MediaPart {
+                    media_type: "image/png".to_string(),
+                    data: MediaData::Bytes(Bytes::from_static(b"image")),
+                    name: None,
+                }),
+                ContentPart::Citation(Citation {
+                    source_id: "source-1".to_string(),
+                    title: Some("source title".to_string()),
+                    url: None,
+                    start: None,
+                    end: None,
+                    provider: BTreeMap::new(),
+                }),
+                ContentPart::Refusal {
+                    reason: Some("refusal detail".to_string()),
+                },
+                ContentPart::ToolCall(
+                    ToolCall::local("call-1", "lookup", json!({"query": "value"})).unwrap(),
+                ),
+                ContentPart::ToolResult(ToolResult {
+                    call_id: "call-1".to_string(),
+                    name: "lookup".to_string(),
+                    outcome: ToolOutcome::Success { value: json!(1) },
+                }),
+                ContentPart::ProviderOpaque(
+                    OpaqueProviderItem::new(
+                        provenance(),
+                        "response.output",
+                        json!({"opaque": true}),
+                    )
+                    .unwrap(),
+                ),
+                ContentPart::Text {
+                    text: "second".to_string(),
+                },
+            ],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            response.text_parts().collect::<Vec<_>>(),
+            vec!["", "first", "second"]
+        );
+        assert_eq!(response.output_text(), Some("firstsecond".to_string()));
+
+        let no_text = LanguageResponse::completed(
+            vec![ContentPart::Reasoning {
+                text: "reasoning only".to_string(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        assert_eq!(no_text.output_text(), None);
+
+        let empty_text = LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: String::new(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default(),
+        )
+        .unwrap();
+        assert_eq!(empty_text.output_text(), Some(String::new()));
+    }
+
+    #[test]
+    fn partial_language_output_text_projection_matches_response_semantics() {
+        let partial = PartialLanguageOutput::new(
+            vec![
+                PartialLanguageOutputPart::Reasoning {
+                    text: "hidden reasoning".to_string(),
+                },
+                PartialLanguageOutputPart::Text {
+                    text: String::new(),
+                },
+                PartialLanguageOutputPart::Refusal {
+                    reason: Some("refusal detail".to_string()),
+                },
+                PartialLanguageOutputPart::Text {
+                    text: "visible".to_string(),
+                },
+            ],
+            Usage::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            partial.text_parts().collect::<Vec<_>>(),
+            vec!["", "visible"]
+        );
+        assert_eq!(partial.output_text(), Some("visible".to_string()));
+
+        let no_text = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Refusal { reason: None }],
+            Usage::default(),
+        )
+        .unwrap();
+        assert_eq!(no_text.output_text(), None);
+
+        let empty_text = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: String::new(),
+            }],
+            Usage::default(),
+        )
+        .unwrap();
+        assert_eq!(empty_text.output_text(), Some(String::new()));
     }
 
     #[test]
