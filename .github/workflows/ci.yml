@@ -47,7 +47,10 @@ jobs:
 
       - name: Run focused PR tests
         if: ${{ github.event_name == 'pull_request' }}
-        run: python3 -B scripts/test-workspace.py fast --runner nextest
+        run: |
+          python3 -B scripts/test-workspace.py fast --runner nextest
+          cargo nextest run -p siumai --all-features --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai-runtime --all-features --test runtime_contract --test-threads 1
 
       - name: Run flagship PR tests
         if: ${{ github.event_name == 'pull_request' }}
@@ -60,19 +63,41 @@ jobs:
           cargo clippy -j 1 -p siumai --no-default-features --features runtime,registry,openai,anthropic,google,google-vertex-anthropic,minimax --all-targets -- -D warnings
           cargo check -j 1 -p siumai-runtime --no-default-features --features json-schema
 
-      - name: Check facade feature ownership
+      - name: Check facade feature and example ownership
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           cargo check -j 1 -p siumai --no-default-features --lib
           cargo check -j 1 -p siumai --no-default-features --features registry --lib
-          cargo check -j 1 -p siumai --no-default-features --features openai --lib
-          cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
-          cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
+          cargo check -j 1 -p siumai --no-default-features --features runtime --lib
+          cargo nextest run -p siumai --no-default-features --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features registry --test facade_contract --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features runtime --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+          for feature in \
+            openai \
+            alibaba \
+            moonshotai \
+            volcengine \
+            openai-compatible \
+            anthropic \
+            google \
+            google-vertex-anthropic \
+            groq \
+            xai \
+            minimax \
+            deepseek \
+            cohere \
+            deepgram \
+            elevenlabs
+          do
+            cargo check -j 1 -p siumai --no-default-features --features "${feature}" --test siumai_builder_contract
+          done
+          cargo check -j 1 -p siumai --no-default-features --features all-providers,openai-compatible --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
           cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
-          cargo run -j 1 -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching
-          cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
+          cargo check -j 1 -p siumai --no-default-features --features openai,anthropic,google --example provider_switching
+          cargo check -j 1 -p siumai --no-default-features --features openai,registry --example registry_switching
+          cargo metadata --format-version 1 --locked > /dev/null
 
       - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}

@@ -55,22 +55,30 @@ repository script:
 ```text
 cargo check -p siumai --no-default-features --lib -j 1
 cargo check -p siumai --no-default-features --features registry --lib -j 1
-cargo check -p siumai --no-default-features --features all-providers --lib -j 1
+cargo check -p siumai --no-default-features --features runtime --lib -j 1
+cargo nextest run -p siumai --all-features --test siumai_builder_contract --test-threads 1
+cargo nextest run -p siumai-runtime --all-features --test runtime_contract --test-threads 1
+cargo nextest run -p siumai --no-default-features --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+cargo check -p siumai --no-default-features --features <provider> --test siumai_builder_contract -j 1
+cargo check -p siumai --no-default-features --features all-providers,openai-compatible --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
-cargo run -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
-cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
+cargo check -p siumai --no-default-features --features openai,anthropic,google --example provider_switching -j 1
+cargo check -p siumai --no-default-features --features openai,registry --example registry_switching -j 1
+cargo test -p siumai --doc --all-features -j 1
+cargo metadata --format-version 1 --locked > /dev/null
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 python3 -B scripts/check_package_file_list.py
 ```
 
-`provider_switching` is the Cargo-native facade convergence gate: one application function must run
-through concrete, explicitly erased, and Registry-resolved language-model construction while real
-OpenAI and Anthropic typed options, annotations, metadata views, and concrete native resources
-remain nameable. The adjacent exact-feature facade contract exercises provider-backed dispatch.
-Keep these as fixed Cargo targets; do not mirror their public symbols or feature graph in a
-repository policy script.
+The typed builder contract is part of the fast PR lane. CI compiles it once for every provider
+feature declared by `siumai/Cargo.toml`; `<provider>` above denotes one entry in that Cargo-owned
+matrix rather than a second feature inventory. `provider_switching` checks direct typed provider
+selection, while `registry_switching` separately checks explicit Registry erasure. The flagship
+examples keep typed provider options, annotations, complete responses, and concrete native
+resources nameable. Keep these as fixed Cargo targets; do not mirror their public symbols or
+feature graph in a repository policy script.
 
 The package checker invokes `cargo package --workspace --list --locked` and rejects a small set of
 credential, private configuration, repository-local, editor-state, and live-canary artifact paths.
