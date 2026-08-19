@@ -26,7 +26,7 @@ where
     M: LanguageModel + ?Sized,
     I: Into<LanguageInput>,
 {
-    language::call(model, input).generate().await
+    language::generate(model, input).await
 }
 
 fn inspect_complete_response(
