@@ -22,11 +22,26 @@ pub mod registry;
 pub mod rerank;
 #[cfg(feature = "runtime")]
 pub mod runtime;
+mod siumai;
 pub mod speech;
 pub mod transcription;
 #[cfg(feature = "transport")]
 pub mod transport;
 
+#[cfg(feature = "anthropic")]
+pub use self::siumai::{AnthropicCredentialStage, AnthropicProviderStage};
+pub use self::siumai::{
+    EmbeddingClient, ImageClient, LanguageClient, RerankClient, Siumai, SiumaiBuilder,
+    SpeechClient, TranscriptionClient,
+};
+#[cfg(feature = "google")]
+pub use self::siumai::{GeminiCredentialStage, GeminiProviderStage};
+#[cfg(feature = "openai-compatible")]
+pub use self::siumai::{
+    OpenAiCompatibleCredentialStage, OpenAiCompatibleProfileStage, OpenAiCompatibleProviderStage,
+};
+#[cfg(feature = "openai")]
+pub use self::siumai::{OpenAiCredentialStage, OpenAiProviderStage};
 pub use embedding::EmbeddingCall;
 pub use image::ImageCall;
 pub use language::LanguageCall;

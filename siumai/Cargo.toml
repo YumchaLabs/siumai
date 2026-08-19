@@ -32,6 +32,7 @@ features = [
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+async-trait.workspace = true
 siumai-core = { workspace = true, default-features = false }
 siumai-transport = { workspace = true, default-features = false, optional = true }
 siumai-runtime = { workspace = true, default-features = false, optional = true }
@@ -103,6 +104,10 @@ path = "tests/facade_contract.rs"
 name = "facade_migration_contract"
 path = "tests/facade_migration_contract.rs"
 
+[[test]]
+name = "siumai_builder_contract"
+path = "tests/siumai_builder_contract.rs"
+
 [[example]]
 name = "openai_flagship"
 path = "examples/openai_flagship.rs"
@@ -124,7 +129,6 @@ path = "examples/trusted_connect_route.rs"
 required-features = ["openai"]
 
 [dev-dependencies]
-async-trait.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

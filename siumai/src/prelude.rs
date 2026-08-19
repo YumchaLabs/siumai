@@ -6,11 +6,13 @@ pub use crate::{
     LanguageCallError, LanguageCompletionReason, LanguageIncompleteReason, LanguageInput,
     LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent,
     LanguageTermination, Message, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
-    ModelId, PartialLanguageOutput, Provider, ProviderId, RerankCall, RerankCandidate, RerankModel,
-    RerankRequest, RerankResponse, RetryIntent, SpeechCall, SpeechModel, SpeechRequest,
-    SpeechResponse, StreamTerminal, ToolChoice, ToolSpec, TranscriptionCall, TranscriptionModel,
+    ModelId, PartialLanguageOutput, Provider, ProviderId, RerankCall, RerankCandidate,
+    RerankClient, RerankModel, RerankRequest, RerankResponse, RetryIntent, Siumai, SiumaiBuilder,
+    SpeechCall, SpeechClient, SpeechModel, SpeechRequest, SpeechResponse, StreamTerminal,
+    ToolChoice, ToolSpec, TranscriptionCall, TranscriptionClient, TranscriptionModel,
     TranscriptionRequest, TranscriptionResponse, Usage, UsageUpdate, UsageUpdateKind,
 };
+pub use crate::{EmbeddingClient, ImageClient, LanguageClient};
 pub use crate::{embedding, image, language, rerank, speech, transcription};
 
 #[cfg(feature = "runtime")]
