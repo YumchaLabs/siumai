@@ -66,6 +66,7 @@ cargo check -p siumai --no-default-features --features openai --example openai_f
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
 cargo check -p siumai --no-default-features --features openai,anthropic,google --example provider_switching -j 1
 cargo check -p siumai --no-default-features --features openai,registry --example registry_switching -j 1
+cargo nextest run -p siumai --no-default-features --features openai,registry --test siumai_builder_contract --test-threads 1
 cargo test -p siumai --doc --all-features -j 1
 cargo metadata --format-version 1 --locked > /dev/null
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
@@ -74,11 +75,13 @@ python3 -B scripts/check_package_file_list.py
 
 The typed builder contract is part of the fast PR lane. CI compiles it once for every provider
 feature declared by `siumai/Cargo.toml`; `<provider>` above denotes one entry in that Cargo-owned
-matrix rather than a second feature inventory. `provider_switching` checks direct typed provider
-selection, while `registry_switching` separately checks explicit Registry erasure. The flagship
-examples keep typed provider options, annotations, complete responses, and concrete native
-resources nameable. Keep these as fixed Cargo targets; do not mirror their public symbols or
-feature graph in a repository policy script.
+matrix rather than a second feature inventory. CI also verifies that each feature's resolved normal
+dependency closure contains only the branded provider crate declared by that Cargo feature.
+`provider_switching` checks direct typed provider selection, while `registry_switching` teaches
+explicit Registry erasure; the focused `openai,registry` nextest lane executes the corresponding
+identity and route assertions. The flagship examples keep typed provider options, annotations,
+complete responses, and concrete native resources nameable. Keep these as fixed Cargo targets; do
+not mirror their public symbols or feature graph in a repository policy script.
 
 The package checker invokes `cargo package --workspace --list --locked` and rejects a small set of
 credential, private configuration, repository-local, editor-state, and live-canary artifact paths.

@@ -30,8 +30,12 @@ without maintaining two execution APIs.
 
 `Siumai<P>` is a typed hub around one concrete configured provider. It owns no default-model slots,
 hidden Registry, route policy, runtime, or business fallback. A family selector is callable only
-when the provider implements the corresponding family-provider trait; unsupported families fail at
-compile time instead of returning a runtime capability error.
+when the provider type implements the corresponding family-provider trait, so families absent from
+that provider fail at compile time. A provider may still make a supported family conditional on an
+explicitly configured technical endpoint. In that case, such as an Alibaba provider configured for
+only one endpoint family, model lookup returns the provider-owned `UnsupportedFamily` error
+synchronously. The facade does not mirror provider endpoint choices into a second capability
+type-state system.
 
 The bound clients use one stable vocabulary:
 

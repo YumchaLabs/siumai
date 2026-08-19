@@ -72,25 +72,91 @@ jobs:
           cargo nextest run -p siumai --no-default-features --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
           cargo nextest run -p siumai --no-default-features --features registry --test facade_contract --test siumai_builder_contract --test-threads 1
           cargo nextest run -p siumai --no-default-features --features runtime --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
-          for feature in \
-            openai \
-            alibaba \
-            moonshotai \
-            volcengine \
-            openai-compatible \
-            anthropic \
-            google \
-            google-vertex-anthropic \
-            groq \
-            xai \
-            minimax \
-            deepseek \
-            cohere \
-            deepgram \
-            elevenlabs
+          cargo nextest run -p siumai --no-default-features --features openai,registry --test siumai_builder_contract --test-threads 1
+          while IFS= read -r feature
           do
             cargo check -j 1 -p siumai --no-default-features --features "${feature}" --test siumai_builder_contract
-          done
+          done < <(
+            python3 - <<'PY'
+          import json
+          import subprocess
+
+          facade_metadata = json.loads(
+              subprocess.check_output(
+                  ["cargo", "metadata", "--format-version", "1", "--locked", "--no-deps"],
+                  text=True,
+              )
+          )
+          package = next(
+              package for package in facade_metadata["packages"] if package["name"] == "siumai"
+          )
+          features = [
+              name
+              for name, members in package["features"].items()
+              if any(
+                  member.startswith("dep:siumai-provider-")
+                  or member == "dep:siumai-openai-compatible"
+                  for member in members
+              )
+          ]
+          if not features:
+              raise SystemExit("no facade provider features found in Cargo metadata")
+
+          for feature in features:
+              metadata = json.loads(
+                  subprocess.check_output(
+                      [
+                          "cargo",
+                          "metadata",
+                          "--format-version",
+                          "1",
+                          "--locked",
+                          "--no-default-features",
+                          "--features",
+                          feature,
+                      ],
+                      text=True,
+                  )
+              )
+              names = {package["id"]: package["name"] for package in metadata["packages"]}
+              nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
+              facade_id = next(
+                  package["id"] for package in metadata["packages"] if package["name"] == "siumai"
+              )
+              pending = [facade_id]
+              reachable = set()
+              while pending:
+                  package_id = pending.pop()
+                  if package_id in reachable:
+                      continue
+                  reachable.add(package_id)
+                  pending.extend(
+                      dependency["pkg"]
+                      for dependency in nodes[package_id]["deps"]
+                      if any(
+                          dependency_kind["kind"] != "dev"
+                          for dependency_kind in dependency["dep_kinds"]
+                      )
+                  )
+
+              actual = sorted(
+                  names[package_id]
+                  for package_id in reachable
+                  if names[package_id].startswith("siumai-provider-")
+              )
+              expected = sorted(
+                  member.removeprefix("dep:")
+                  for member in package["features"][feature]
+                  if member.startswith("dep:siumai-provider-")
+              )
+              if actual != expected:
+                  raise SystemExit(
+                      f"facade feature {feature!r} activates provider crates {actual}, expected {expected}"
+                  )
+
+          print("\n".join(sorted(features)))
+          PY
+          )
           cargo check -j 1 -p siumai --no-default-features --features all-providers,openai-compatible --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
