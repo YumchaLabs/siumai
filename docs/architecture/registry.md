@@ -4,7 +4,7 @@
 - Updated: 2026-08-19
 - Owner: `siumai-registry`
 - Related decisions: `docs/adr/0013-provider-identity-and-family-registration.md`,
-  `docs/adr/0019-facade-family-call-ownership.md`
+  `docs/adr/0020-typed-siumai-provider-hub.md`
 
 ## Purpose
 
@@ -35,6 +35,13 @@ Resolution attaches the canonical route through private family wrappers so route
 options and route-aware errors survive delegation to the configured provider model. The public
 `RegistryModelContext` remains the typed requested-versus-canonical route context carried by
 resolution failures; the wrappers themselves are not an extension surface.
+
+## Relationship with the typed facade
+
+`Siumai::builder()` is the primary direct-provider journey and never invokes Registry. It builds a
+typed `Siumai<P>` hub, binds a concrete family client, and retains `provider()`/`model()` access for
+native APIs. Registry is the separate route-selection path for hosts that need runtime switching;
+it does not become a hidden provider store behind the facade.
 
 ## Facade handoff
 

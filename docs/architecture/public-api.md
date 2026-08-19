@@ -7,21 +7,48 @@
 
 Applications may depend directly on an owning crate or use the `siumai` facade:
 
+- `Siumai::builder()` is the primary direct-application entry and produces one typed
+  configured-provider hub after provider-specific required inputs are supplied;
+- `Siumai<P>` exposes trait-backed family selectors, and the resulting family clients expose
+  method-style portable calls plus typed `provider()` and `model()` accessors;
 - direct provider crates are the authoritative surface for provider construction, protocol modes,
   typed options, metadata, and native resources;
 - `siumai::providers::*` contains curated provider namespaces rather than blanket crate mirrors;
-- `siumai::{language, embedding, rerank, image, speech, transcription}` owns the canonical facade
+- `siumai::{language, embedding, rerank, image, speech, transcription}` owns the canonical generic
   calls, and `siumai::prelude::*` exports those modules plus their provider-neutral contracts;
 - `siumai::registry`, `siumai::runtime`, and the curated `siumai::transport` configuration
   namespace are optional facade integrations;
 - transport execution, protocol codecs, MCP, and server adapters remain available from their
   owning packages instead of being relayed through broad facade namespaces.
 
-The facade does not expose a universal client or provider capability downcasts. Direct and routed
-models implement the same family traits, so an application can choose provider fidelity, local
-routing, or both without maintaining two execution APIs.
+The facade does not expose a universal client, provider enum, capability matrix, or provider
+downcasts. Typed family clients and routed models implement the same family traits, so an
+application can choose direct ergonomics, provider fidelity, local routing, or a combination
+without maintaining two execution APIs.
 
-## Canonical family facade
+## Typed direct facade and canonical family seam
+
+`Siumai<P>` is a typed hub around one concrete configured provider. It owns no default-model slots,
+hidden Registry, route policy, runtime, or business fallback. A family selector is callable only
+when the provider implements the corresponding family-provider trait; unsupported families fail at
+compile time instead of returning a runtime capability error.
+
+The bound clients use one stable vocabulary:
+
+| Family client | Simple operations | Advanced operation |
+|---|---|---|
+| `LanguageClient` | `generate`, `stream` | `call` |
+| `EmbeddingClient` | `embed` | `call` |
+| `RerankClient` | `rerank` | `call` |
+| `ImageClient` | `generate` | `call` |
+| `SpeechClient` | `synthesize` | `call` |
+| `TranscriptionClient` | `transcribe` | `call` |
+
+These methods are ergonomic delegates, not a second execution implementation. They preserve the
+inner model descriptor, canonical route, exact configured instance, family limits, provider-option
+preflight, complete response, and stream lifecycle. `provider()` returns the retained concrete
+provider and `model()` returns the exact provider-owned model; no arbitrary public provider/model
+pair constructor exists.
 
 The facade exposes six root family modules. Each module keeps the existing family request and
 response contract rather than wrapping results in a universal response:
@@ -47,11 +74,11 @@ Execution resolves the deadline, validates the portable request, validates exact
 selection for that same model, and dispatches once. The builder never stores a Registry or route
 string and never re-resolves the target after options are bound.
 
-A concrete provider model and a Registry-resolved `Arc<dyn LanguageModel>` (or the corresponding
-family trait object) use the same entry point. Registry resolution is explicit and network-free;
-the facade does not construct providers, select routes, match provider identities, or downcast
-erased models. Applications retain the configured concrete provider beside Registry when they also
-need native resources or sessions.
+A typed family client, concrete provider model, and Registry-resolved `Arc<dyn LanguageModel>` (or
+the corresponding family trait object) use the same root entry point. Registry resolution is
+explicit and network-free; `Siumai::builder()` does not register providers, select routes, match
+provider identities, or downcast erased models. Applications retain the configured concrete
+provider beside Registry when they also need native resources or sessions.
 
 Language calls return the complete `LanguageResponse` or established `LanguageStream`.
 `LanguageResponse::text_parts()` and `output_text()` are display-oriented projections only:
@@ -60,6 +87,14 @@ response. Text projection is not assistant-history projection; use
 `project_assistant_history()` for continuation and replay.
 
 ## Provider construction
+
+Facade construction starts from a zero-state builder and one zero-argument product selector such as
+`.openai()`, `.anthropic()`, or `.gemini()`. Provider-specific typed stages require credentials,
+profiles, projects, locations, or other constructor inputs in the real builder's order. `.build()`
+is unavailable until the required sequence is complete, remains synchronous and network-free, and
+returns the provider-owned configuration error. Optional configuration passes through one
+`configure_provider` closure over the real builder; the facade does not mirror its setters or retain
+a second plaintext credential copy.
 
 Provider builders configure credentials, endpoint policy, one
 `ProviderHttpTransportSettings` snapshot, and provider-wide typed defaults. They do not select an
@@ -71,6 +106,11 @@ setters are not compatibility aliases.
 Provider methods construct lightweight family models synchronously from open model IDs. When a
 provider supports multiple language protocols, the provider exposes named constructors such as
 `chat_completions(model)` or `responses(model)` and a documented `language(model)` default.
+
+The facade fixes OpenAI `.language(model)` to Responses and exposes
+`.chat_completions(model)` as the explicit alternative. Gemini `.language(model)` is fixed to
+Interactions and `.generate_content(model)` is the explicit alternative. These choices are part of
+the public contract and never depend on model-name patterns.
 
 The base `Provider` trait exposes only `provider_id()`. Inspect a concrete model descriptor or an
 explicit family registration when platform, protocol, or API-mode identity matters. Those values
@@ -232,9 +272,10 @@ and settlement rules.
 
 The public contract has three practical levels:
 
-1. stable family contracts in `siumai-core` and the curated facade/prelude, including the six root
-   family modules, their default operations, bound call entry points, complete response types, and
-   typed provider-option ownership;
+1. stable typed-facade and family contracts, including the documented `Siumai::builder()` chains,
+   family binding and operation names, provider/model accessors, explicit alternate-mode selectors,
+   six root family modules, bound call entry points, complete response types, and typed
+   provider-option ownership;
 2. provider-owned stable APIs for documented provider capabilities and resources;
 3. explicitly named experimental modules for sessions, jobs, or capabilities whose lifecycle is
    not yet a stable family primitive.
@@ -243,9 +284,11 @@ Compatibility namespaces, old generic builders, protocol relays, and source-layo
 a stability tier. Breaking releases delete them after the replacement path and migration guidance
 exist.
 
-The root family facade is the compatibility boundary established by
-[ADR 0019](../adr/0019-facade-family-call-ownership.md). A later beta change to a canonical module,
-default operation, bound call, result type, or typed extension owner requires an explicit
+The typed hub and retained root family seam form the compatibility boundary established by
+[ADR 0020](../adr/0020-typed-siumai-provider-hub.md), which supersedes ADR 0019's rejection of a
+`Siumai` entry while preserving its family-call ownership. A later beta change to a provider
+selector, family binding, canonical/alternate mode, operation, root module, bound call, result type,
+or typed extension owner requires an explicit
 architecture rationale, an exact old-to-new symbol map, synchronized README/rustdoc and
 compile-checked examples, a changelog entry, and release review naming the affected symbols. The
 project may still make an evidence-backed beta break; it must not rename the primary journey

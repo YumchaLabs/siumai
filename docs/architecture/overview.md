@@ -8,16 +8,18 @@
   `docs/adr/0015-validation-ownership-and-forward-compatibility.md`,
   `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
   `docs/adr/0018-openai-configured-execution-kernel.md`,
-  `docs/adr/0019-facade-family-call-ownership.md`
+  `docs/adr/0020-typed-siumai-provider-hub.md` (supersedes ADR-0019)
 
 ## Product shape
 
-Siumai is a Rust-first workspace for connecting applications to AI model providers. It offers two
-complementary paths over the same underlying model contracts:
+Siumai is a Rust-first workspace for connecting applications to AI model providers. Its public
+surface has three ordered, complementary paths over the same underlying model contracts:
 
-- provider-owned APIs expose faithful protocol modes, typed options, metadata, and resources;
-- provider-neutral family traits, Registry, runtime helpers, and the `siumai` facade provide
-  portability where the behavior is genuinely shared.
+- typed `Siumai<P>` provider hubs and family clients provide concise direct application calls;
+- provider-neutral root family modules serve generic, dependency-injected, trait-object, and
+  Registry-resolved code;
+- concrete providers and models expose faithful protocol modes, typed options, metadata, resources,
+  sessions, and native responses.
 
 The unified interface is an ergonomic assembly layer. It is not a universal client, a capability
 bag, a remote model catalog, or a replacement for provider-specific APIs.
@@ -42,12 +44,23 @@ catalogs are resources rather than model families.
 
 ## Canonical facade boundary
 
-The `siumai` facade presents the six stable families as root modules: `language`, `embedding`,
-`rerank`, `image`, `speech`, and `transcription`. A default operation covers the concise path, while
-each module's `call` function creates a single-use bound call for explicit `CallOptions` and typed
-provider options. The call borrows the selected live model, so a concrete model and the corresponding
-Registry-resolved trait object follow the same application path without provider matching or
-downcasting.
+The primary direct path starts at `Siumai::builder()`. A zero-argument provider selector enters
+provider-specific required-input stages, the credential transition creates the real provider
+builder, and synchronous `.build()` returns a typed `Siumai<P>` hub. The hub retains one concrete
+configured provider and no model slots, Registry, route table, capability matrix, provider enum, or
+`Any`. Family selectors exist only when `P` implements the corresponding provider trait.
+
+Binding `.language(model)`, `.embedding(model)`, `.rerank(model)`, `.image(model)`,
+`.speech(model)`, or `.transcription(model)` returns one family-specific client that retains the
+same provider instance and exact provider-owned model. Method-style operations delegate the root
+family modules and return the existing complete response or stream types. One hub can bind multiple
+models and families without rebuilding its provider.
+
+The `language`, `embedding`, `rerank`, `image`, `speech`, and `transcription` root modules remain the
+canonical generic path. Each module exposes its default operation and a single-use `call` builder
+for explicit `CallOptions` and typed provider options. A typed family client, concrete provider
+model, and Registry-resolved family trait object therefore follow the same generic application path
+without provider matching.
 
 Language input normalizes a string, one message, a message list, or a complete request through the
 core-owned `LanguageInput` adapter. The other families keep their honest request types and operation
@@ -55,9 +68,15 @@ names. Every terminal operation returns the existing complete family response or
 facade does not introduce a universal result enum or text-only response.
 
 Typed provider options bind to the exact live model through the same call builder. Typed annotations
-remain on the message, content part, or tool they modify. Provider-native files, batches, catalogs,
-sessions, hosted tools, and media jobs remain on retained concrete providers or models. Registry
-does not recover those APIs from an erased model.
+remain on the message, content part, or tool they modify. `hub.provider()` and each family client's
+`provider()`/`model()` accessors preserve concrete native access before erasure. Provider-native
+files, batches, catalogs, sessions, hosted tools, media jobs, and mode-specific responses remain on
+those owners; the facade does not forward or enumerate them. Registry is an explicit one-way
+erasure boundary and cannot recover concrete APIs through downcasting.
+
+OpenAI `.language(model)` is fixed to Responses and `.chat_completions(model)` is the explicit
+alternative. Gemini `.language(model)` is fixed to Interactions and `.generate_content(model)` is
+the explicit alternative. No facade selector chooses a mode or capability from model-name patterns.
 
 `LanguageResponse::output_text()` is a display projection over canonical text parts, not a semantic
 replacement for the response. Complete content, termination, usage, warnings, metadata, reasoning,

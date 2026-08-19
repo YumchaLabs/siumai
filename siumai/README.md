@@ -1,169 +1,289 @@
 # `siumai` facade
 
-`siumai` is the curated public facade for the Siumai workspace. It re-exports six small
-provider-neutral model-family contracts and opt-in provider-owned APIs without flattening native
-resources or protocol controls into a least-common-denominator client.
+`siumai` is the curated application facade for the Siumai workspace. It combines typed provider
+construction, six provider-neutral model families, optional Registry/runtime integrations, and
+provider-owned native APIs without rebuilding a universal client or capability matrix.
 
-This README documents the unreleased facade on the repository's `main` branch. Until the next
-crates.io beta containing this API is published, use the Git dependency below. Applications staying
-on `0.11.0-beta.10` should use the former `siumai::families` paths documented in the migration guide.
-
-The facade has no provider enabled by default. Select only the providers and orchestration layers
-the application uses:
+This README and the crate rustdoc document the unreleased facade on the repository's `main` branch.
+The published `0.11.0-beta.10` package does not contain this typed `Siumai` hub. Until a later beta
+is published, use the Git source below and pin a revision for reproducible application builds:
 
 ```toml
 [dependencies]
 siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["openai"] }
 ```
 
-## Canonical family calls
+No provider feature is enabled by default. The facade's default features are `registry` and
+`runtime`; keep `default-features = false` when an application does not use those integrations.
 
-The six stable provider-neutral entry points live at the crate root: `language`, `embedding`,
-`rerank`, `image`, `speech`, and `transcription`. Each module has one concise default operation and
-one `call` builder for explicit `CallOptions` or typed provider options. The model handle may be a
-concrete provider model or a Registry-resolved trait object; application call code does not need to
-match on the provider.
+## 1. Typed direct calls
 
-Language accepts a string, one `Message`, a message list, or a complete `LanguageRequest` through
-the same path:
+Start ordinary application code with `Siumai::builder()`, select one provider, build a reusable
+typed hub, and bind the model family that the call needs:
 
 ```rust,no_run
-use siumai::{LanguageCallError, LanguageModel, LanguageResponse, language};
+# #[cfg(feature = "openai")]
+use siumai::providers::openai::models::GPT_5_6;
+# #[cfg(feature = "openai")]
+use siumai::Siumai;
+
+# #[cfg(feature = "openai")]
+async fn quickstart() -> Result<(), Box<dyn std::error::Error>> {
+    let ai = Siumai::builder()
+        .openai()
+        .api_key("example-openai-key")
+        .build()?;
+    let client = ai.language(GPT_5_6)?;
+    let response = client.generate("Explain typed provider hubs in one sentence.").await?;
+
+    if let Some(text) = response.output_text() {
+        println!("{text}");
+    }
+    Ok(())
+}
+
+# #[cfg(feature = "openai")]
+fn main() {
+    // `quickstart` is intentionally not polled: the credential is synthetic and
+    // this documentation remains a compile-only, network-free contract.
+    drop(quickstart());
+}
+# #[cfg(not(feature = "openai"))]
+# fn main() {}
+```
+
+`generate` returns the complete `LanguageResponse`. `output_text()` is only a display projection;
+content parts, termination, usage, warnings, metadata, reasoning, tools, citations, and media remain
+available on the response. Use `project_assistant_history()` rather than text projection when
+constructing a continuation.
+
+Changing OpenAI to Anthropic or Gemini changes provider construction and the model identifier, not
+the application call:
+
+```text
+let client = ai.language(model)?;
+let response = client.generate("Hello").await?;
+```
+
+The compile-checked `provider_switching` example shows all three typed construction chains with the
+same `client.generate(...)` line.
+
+One hub can bind multiple models and families without storing provider-wide default model slots:
+
+```rust,no_run
+# #[cfg(feature = "openai")]
+# fn multi_family() -> Result<(), Box<dyn std::error::Error>> {
+use siumai::providers::openai::embeddings::TEXT_EMBEDDING_3_SMALL;
+use siumai::providers::openai::images::GPT_IMAGE_2;
+use siumai::providers::openai::models::GPT_5_6;
+use siumai::Siumai;
+
+let ai = Siumai::builder()
+    .openai()
+    .api_key("example-openai-key")
+    .build()?;
+let language = ai.language(GPT_5_6)?;
+let embedding = ai.embedding(TEXT_EMBEDDING_3_SMALL)?;
+let image = ai.image(GPT_IMAGE_2)?;
+
+assert!(std::ptr::eq(language.provider(), embedding.provider()));
+assert!(std::ptr::eq(language.provider(), image.provider()));
+# Ok(())
+# }
+# fn main() {
+#     #[cfg(feature = "openai")]
+#     multi_family().unwrap();
+# }
+```
+
+Family methods use one public vocabulary: language `generate`, `stream`, and `call`; embedding
+`embed` and `call`; rerank `rerank` and `call`; image `generate` and `call`; speech `synthesize` and
+`call`; transcription `transcribe` and `call`.
+
+## 2. Root family modules for generic and Registry code
+
+The root `language`, `embedding`, `rerank`, `image`, `speech`, and `transcription` modules remain the
+canonical execution seam for dependency injection, concrete generic models, family trait objects,
+and Registry-resolved models:
+
+```rust,no_run
+use siumai::{language, LanguageCallError, LanguageModel, LanguageResponse};
 
 async fn answer<M>(model: &M) -> Result<LanguageResponse, LanguageCallError>
 where
     M: LanguageModel + ?Sized,
 {
-    let response = language::generate(model, "Explain bounded streaming in one sentence.").await?;
-    if let Some(text) = response.output_text() {
-        println!("{text}");
-    }
-    Ok(response)
+    language::generate(model, "Explain explicit type erasure.").await
 }
 ```
 
-The return value is still the complete `LanguageResponse`. `output_text()` is an optional,
-display-oriented concatenation of canonical text parts; it excludes reasoning, refusals, tools,
-citations, media, and provider-native state. Inspect `content()`, `termination()`, `usage()`,
-`warnings()`, and provider metadata when those semantics matter, and use
-`project_assistant_history()` rather than text projection when constructing a continuation.
+A typed facade client implements the same family trait, so generic code accepts it without a
+facade-specific abstraction. Registry remains an explicit, caller-configured, one-way erasure
+boundary: resolve a family model, pass it to the same root function, and accept that concrete native
+APIs are no longer recoverable after erasure. `Siumai::builder()` does not register providers,
+resolve routes, inspect global state, or choose fallback policy.
 
-Provider-specific intent binds to the same live model through the ordinary call builder, while
-native resources remain on the concrete provider:
+Use `Siumai::from_provider(provider)` when a provider is already configured or supplied by a
+third-party crate. The provider's existing family-provider traits determine which family selectors
+are available at compile time.
+
+## 3. Typed provider and model access
+
+Portable calls and provider-specific intent coexist on the same exact target. Advanced calls reuse
+the family call builder, while `provider()` exposes provider-wide resources and `model()` exposes
+mode- or model-specific operations:
 
 ```rust,no_run
 # #[cfg(feature = "openai")]
-# async fn call_openai() -> Result<(), Box<dyn std::error::Error>> {
-use siumai::language;
 use siumai::providers::openai::models::GPT_5_6;
+# #[cfg(feature = "openai")]
 use siumai::providers::openai::responses::OpenAiResponsesOptions;
-use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
+# #[cfg(feature = "openai")]
+use siumai::Siumai;
 
-let provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key")).build()?;
-let model = provider.responses(GPT_5_6)?;
-let provider_options = OpenAiResponsesOptions {
-    instructions: Some("Keep this provider intent exact.".to_string()),
-    ..OpenAiResponsesOptions::default()
-};
-let response = language::call(&model, "Summarize the facade boundary.")
-    .with_provider_options(&provider_options)?
-    .generate()
-    .await?;
+# #[cfg(feature = "openai")]
+async fn advanced() -> Result<(), Box<dyn std::error::Error>> {
+    let ai = Siumai::builder()
+        .openai()
+        .api_key("example-openai-key")
+        .build()?;
+    let client = ai.language(GPT_5_6)?;
+    let options = OpenAiResponsesOptions {
+        instructions: Some("Keep this provider intent exact.".to_string()),
+        ..OpenAiResponsesOptions::default()
+    };
+    let response = client
+        .call("Summarize the facade boundary.")
+        .with_provider_options(&options)?
+        .generate()
+        .await?;
 
-let _complete_content = response.content();
-let _files = provider.files();
+    let _complete_content = response.content();
+    let _files = client.provider().files();
+    let _responses_model = client.model();
+    Ok(())
+}
+
+# #[cfg(feature = "openai")]
+fn main() {
+    // Compile the complete path without making a provider request.
+    drop(advanced());
+}
+# #[cfg(not(feature = "openai"))]
+# fn main() {}
+```
+
+Native files, batches, catalogs, sessions, hosted tools, media jobs, Realtime, WebSocket sessions,
+and native response methods stay on their provider-owned types. The facade intentionally adds no
+native resource enum, forwarding layer, `Any`, or downcast escape hatch.
+
+## Explicit language API modes
+
+Canonical language selectors have fixed provider meanings and never inspect model names:
+
+- OpenAI `.language(model)` uses Responses; `.chat_completions(model)` selects Chat Completions.
+- Gemini `.language(model)` uses Interactions; `.generate_content(model)` selects Generate Content.
+- Other providers document their canonical mode and expose alternatives only through their one
+  explicit facade method or provider-owned model constructor.
+
+```rust,no_run
+# #[cfg(all(feature = "openai", feature = "google"))]
+# fn api_modes() -> Result<(), Box<dyn std::error::Error>> {
+use siumai::providers::google::models::GEMINI_3_5_FLASH;
+use siumai::providers::openai::models::GPT_5_6;
+use siumai::Siumai;
+
+let openai = Siumai::builder()
+    .openai()
+    .api_key("example-openai-key")
+    .build()?;
+let _responses = openai.language(GPT_5_6)?;
+let _chat = openai.chat_completions(GPT_5_6)?;
+
+let gemini = Siumai::builder()
+    .gemini()
+    .api_key("example-gemini-key")
+    .build()?;
+let _interactions = gemini.language(GEMINI_3_5_FLASH)?;
+let _generate_content = gemini.generate_content(GEMINI_3_5_FLASH)?;
 # Ok(())
 # }
-```
-
-Typed annotations follow the same ownership rule but attach to the message, content part, or tool
-they modify. Registry deliberately does not downcast a resolved family model back into a concrete
-provider; retain the configured provider separately when the application needs files, batches,
-sessions, or other native APIs.
-
-Every provider feature activates the narrow `siumai::transport` configuration namespace. Enable
-`transport` by itself when an assembly crate only needs to construct shared provider HTTP settings.
-The namespace intentionally excludes authenticated execution, request plans, raw responses, and
-socket primitives.
-
-```rust,no_run
-# #[cfg(feature = "openai")]
-# fn build_openai_provider() -> Result<(), Box<dyn std::error::Error>> {
-use std::time::Duration;
-use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
-use siumai::transport::{ProviderHttpTransportSettings, RetryPolicy};
-
-let http_settings = ProviderHttpTransportSettings::default()
-    .with_retry_policy(RetryPolicy::new(2)?)
-    .with_call_timeout(Duration::from_secs(120))?;
-let _provider = OpenAiProvider::builder(OpenAiCredential::api_key("example-key"))
-    .with_http_transport_settings(http_settings)
-    .build()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
+# fn main() {
+#     #[cfg(all(feature = "openai", feature = "google"))]
+#     api_modes().unwrap();
 # }
 ```
 
-Select a trusted forward proxy explicitly; constructing the route performs no environment lookup
-or network I/O:
+Unknown future model identifiers use the provider's protocol baseline. Model names do not enable
+reasoning, caching, media, tools, or a different API mode heuristically.
 
-```rust
-use siumai::transport::{HttpTransportRoute, ProviderHttpTransportSettings, ProxyEndpoint};
+## Provider features and construction
 
-let route = HttpTransportRoute::trusted_connect(
-    ProxyEndpoint::https("https://proxy.example.com")?,
-);
-let settings = ProviderHttpTransportSettings::default().with_route(route)?;
+Provider features are additive and activate only their owning provider plus the narrow transport
+configuration surface:
 
-assert!(settings.route().proxy().is_some());
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
+| Cargo feature | Typed builder selector |
+|---|---|
+| `openai` | `.openai()` |
+| `anthropic` | `.anthropic()` |
+| `google` | `.gemini()` |
+| `openai-compatible` | `.openai_compatible()` |
+| `alibaba` | `.alibaba()` |
+| `moonshotai` | `.moonshot()` |
+| `volcengine` | `.volcengine()` |
+| `google-vertex-anthropic` | `.vertex_anthropic()` |
+| `groq` | `.groq()` |
+| `xai` | `.xai()` |
+| `minimax` | `.minimax()` |
+| `deepseek` | `.deepseek()` |
+| `cohere` | `.cohere()` |
+| `deepgram` | `.deepgram()` |
+| `elevenlabs` | `.elevenlabs()` |
 
-Transport observers receive only bounded structural attempt events. They cannot inspect URLs,
-headers, credentials, bodies, prompts, outputs, or provider identity.
+`all-providers` activates the retained branded provider features but not the generic
+`openai-compatible` escape hatch or experimental OpenAI Realtime/WebSocket features.
 
-Direct remains the default and ignores environment/system proxy configuration. A custom endpoint
-is a reverse gateway, not a forward proxy. The alternative is one explicit trusted CONNECT route
-for public HTTPS provider origins. Proxy Basic authentication and provider authentication remain
-separate, redacted audiences; rotate an immutable proxy credential by rebuilding the provider.
-WebSocket, Realtime, and provider-returned external-download routes remain Direct-only.
+Typed construction stages expose only required inputs plus one optional `configure_provider`
+transition over the real provider builder. `.build()` is synchronous and network-free and returns
+the provider-owned configuration error. The facade does not discover environment credentials or
+retain a second plaintext credential copy. Alibaba additionally requires
+`configure_provider(...)` to select a real endpoint before `.build()`; Vertex Anthropic requires
+project, location, and a Google credential; OpenAI-compatible and ElevenLabs construction starts
+with an explicit provider-owned profile.
 
-Complete portable requests use the same core types regardless of provider:
+See the repository provider support policy for the exact implemented family/API-mode/native slice.
+A facade feature is not a claim of complete parity with every product a vendor offers.
 
-```rust
-use siumai::{LanguageRequest, Message, MessageRole};
+## Registry, runtime, and transport
 
-let request = LanguageRequest::new(vec![Message::text(
-    MessageRole::User,
-    "Explain bounded streaming in one sentence.",
-)]);
+Enable `registry` for immutable local lookup over providers the caller has already configured.
+Enable `runtime` for multi-step tool loops, structured output, approvals, budgets, and durable run
+behavior. Use `Runtime::{generate, stream}` when runtime defaults or step orchestration are required;
+ordinary one-call applications use a family client or root family function.
 
-assert_eq!(request.messages.len(), 1);
-```
+Every provider feature also enables the curated `siumai::transport` configuration namespace.
+`ProviderHttpTransportSettings` owns retry caps, deadlines, bounds, attempt observation, and
+explicit trusted CONNECT routing. It does not expose authenticated execution, raw clients, request
+interceptors, or environment proxy discovery.
 
-Provider-specific behavior remains available under `siumai::providers`, including typed options,
-annotations, native resources, and experimental session APIs behind their owning feature flags.
-Enable `registry` for deterministic lookup over caller-configured providers and `runtime` for
-provider-neutral multi-step execution.
+## Compile-checked examples
 
-The facade includes four compile-checked examples. The provider-switching example is also executed
-offline in CI so provider construction, Registry resolution, and synchronous option binding remain
-covered:
+- `examples/provider_switching.rs` — OpenAI, Anthropic, and Gemini typed construction followed by
+  identical portable calls.
+- `examples/registry_switching.rs` — the separate generic/Registry path and deliberate one-way type
+  erasure.
+- `examples/openai_flagship.rs` — typed Responses options and prompt-cache intent, complete portable
+  responses, native resources, and model-native Responses access.
+- `examples/anthropic_flagship.rs` — typed Messages/cache/file intent, complete portable responses,
+  and provider-native Files, Message Batches, and model cache prewarming.
+- `examples/trusted_connect_route.rs` — explicit transport-route configuration without credentials
+  or network I/O.
 
-- `examples/openai_flagship.rs` combines an exact-target Responses option, the portable language
-  family, and the provider-owned Conversations lifecycle;
-- `examples/anthropic_flagship.rs` combines Messages options, scope-bound Files-in-Messages,
-  assistant-history replay, and a provider-owned Skills metadata list;
-- `examples/provider_switching.rs` passes concrete, erased, and Registry-resolved models through
-  one application function while preserving typed options, annotations, complete response
-  metadata, and concrete provider resources;
-- `examples/trusted_connect_route.rs` constructs a trusted route through curated facade APIs and
-  proves how a provider builder consumes the resulting settings without credentials or I/O.
-
-The flagship examples are offline by default and perform network calls only after their provider
-credential environment variable is set. The provider-switching and trusted-route examples perform
-no network I/O.
+All flagship and switching examples use synthetic credentials and remain offline: they construct
+or compile futures without polling provider requests.
 
 See the [repository README](https://github.com/YumchaLabs/siumai#readme),
-[migration guide](https://github.com/YumchaLabs/siumai/blob/main/docs/migration/siumai-next.md), and
-[provider support policy](https://github.com/YumchaLabs/siumai/blob/main/docs/providers/support-policy.md)
-for the primary user journey and current support evidence.
+[migration guide](https://github.com/YumchaLabs/siumai/blob/main/docs/migration/siumai-next.md),
+[typed facade ADR](https://github.com/YumchaLabs/siumai/blob/main/docs/adr/0020-typed-siumai-provider-hub.md),
+and [provider support policy](https://github.com/YumchaLabs/siumai/blob/main/docs/providers/support-policy.md)
+for the release boundary and dated support evidence.

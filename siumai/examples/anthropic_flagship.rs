@@ -6,7 +6,7 @@ use siumai::providers::anthropic::options::AnthropicMessagesOptions;
 use siumai::providers::anthropic::resources::{AnthropicFiles, AnthropicMessageBatches};
 use siumai::{LanguageRequest, Message, MessagePart, MessageRole, Siumai};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn flagship() -> Result<(), Box<dyn std::error::Error>> {
     let ai = Siumai::builder()
         .anthropic()
         .api_key("example-anthropic-key")
@@ -30,16 +30,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider_options = AnthropicMessagesOptions::new()
         .with_adaptive_thinking()
         .with_automatic_cache(AnthropicCacheTtl::OneHour);
-    let call = client
+    let response = client
         .call(request.clone())
-        .with_provider_options(&provider_options)?;
+        .with_provider_options(&provider_options)?
+        .generate()
+        .await?;
+
+    // The portable result remains complete rather than collapsing to text.
+    let _content = response.content();
+    let _termination = response.termination();
+    let _usage = response.usage();
+    let _warnings = response.warnings();
+    let _provider_metadata = response.provider_metadata();
 
     // Portable execution and the model-native cache prewarm path share the
-    // provider-owned request policy. Neither future is polled in this example.
-    drop(call.generate());
+    // provider-owned request policy.
     drop(client.model().prewarm_cache(request, provider_options));
 
     let _batches: AnthropicMessageBatches = client.provider().message_batches();
 
     Ok(())
+}
+
+fn main() {
+    // The future is compiled but never polled, so the synthetic credential
+    // cannot produce a provider request or billable work.
+    drop(flagship());
 }

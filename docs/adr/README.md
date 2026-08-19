@@ -34,6 +34,14 @@ superseded by a later accepted decision or current architecture contract.
 - `0018-openai-configured-execution-kernel.md` — OpenAI-family providers may share one stateless,
   lossless HTTP/SSE execution kernel while branded providers retain preparation, native decoding,
   resources, identity, evidence, and session ownership.
+- `0020-typed-siumai-provider-hub.md` — The facade restores `Siumai::builder()` as a typed
+  configured-provider hub, retains root family modules for generic/Registry code, and preserves
+  native capability through concrete provider/model access without a universal client.
+
+## Superseded decisions
+
+- `0019-facade-family-call-ownership.md` — Superseded by ADR-0020 only in its rejection of a
+  `Siumai` entry. Its root family execution ownership remains part of the accepted replacement.
 
 ## Conventions
 

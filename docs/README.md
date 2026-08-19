@@ -16,6 +16,7 @@ rules below before relying on it.
 | Transport and security | `architecture/transport-contract.md` | Accepted contract; verify implementation status per crate |
 | Provider/host ownership | `adr/0010-provider-plane-and-host-control-plane.md` | Accepted |
 | Provider identity and registration | `adr/0013-provider-identity-and-family-registration.md` | Accepted |
+| Typed Siumai provider hub | `adr/0020-typed-siumai-provider-hub.md` | Accepted; supersedes ADR-0019's rejection of a `Siumai` entry |
 | Provider support claims | `providers/support-policy.md` | Current claim policy |
 | Gemini provider support | `providers/google.md` | Current dated Gemini Interactions and product-surface evidence |
 | MiniMax support | `providers/minimax.md` | Current dated provider/API-mode and resource evidence |

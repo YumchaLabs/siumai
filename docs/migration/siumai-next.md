@@ -1,18 +1,22 @@
 # Migrating to the Siumai Next API
 
 This guide targets the breaking Siumai Next API in the current repository. The focused facade
-section below starts from the published `0.11.0-beta.10` surface; the remaining sections describe
-the broader Next migration. This guide documents public API migration, not internal refactor
-history.
+section maps both the published `0.11.0-beta.10` surface and the unreleased root-family-only
+intermediate surface directly to the final typed facade. Users should follow one final migration,
+not apply the two refactors sequentially. It also gives users of the `0.11.0-beta.9` universal
+builder/client a direct final replacement. This guide documents public API migration, not internal
+refactor history.
 
 ## Architectural change
 
 The old surface centered on broad clients, capability discovery, global construction shortcuts,
-and provider-option maps. The new surface has two complementary entry points:
+and provider-option maps. The final surface has three ordered, complementary entry points:
 
-1. provider-owned APIs for construction, protocol selection, typed options, annotations, metadata,
-   and native resources;
-2. provider-neutral model-family traits for portable execution.
+1. typed `Siumai::builder()` provider hubs and family clients for ordinary direct application calls;
+2. provider-neutral root family modules for generic, dependency-injected, trait-object, and
+   Registry-resolved execution;
+3. concrete `provider()` and `model()` access for native resources, sessions, responses, and
+   mode-specific methods.
 
 Registry and runtime are optional integrations. Registry routes providers that the host has already
 configured; it does not construct hidden providers, discover remote inventories, or choose business
@@ -24,11 +28,36 @@ metadata.
 
 ## Facade convergence after `0.11.0-beta.10`
 
-The facade now has one canonical portability path: choose or resolve a model, call the matching root
-family module, attach typed provider intent through that call when needed, and keep the concrete
-provider for native APIs. The `siumai::families` umbrella, suffixed facade option helpers, flat
-`*Call` re-exports, runtime free single-call helpers, facade relays for those helpers, and the
+The facade restores the familiar `Siumai::builder()` outline without restoring the old universal
+`LlmClient`. Direct callers now retain one concrete provider hub and one exact family client;
+unsupported families are absent under trait bounds, and native APIs remain typed. The root family
+modules introduced during the unreleased intermediate refactor remain the canonical generic and
+Registry path.
+
+The `siumai::families` umbrella, suffixed facade option helpers, flat `*Call` re-exports, runtime
+free single-call helpers, facade relays for those helpers, capability/downcast paths, and the
 runtime-owned `AgentInput` adapter are removed rather than kept as aliases.
+
+### One-step migration map
+
+| Starting surface | Former code or symbol | Final replacement | Behavioral note |
+|---|---|---|---|
+| Published `0.11.0-beta.9` universal facade | `Siumai::builder().openai().api_key(key).model(model).build().await?` | `Siumai::builder().openai().api_key(key).build()?.language(model)?` | Provider construction and model binding are synchronous and network-free; the family/API mode is explicit. |
+| Published `0.11.0-beta.9` universal facade | `client.chat(input).await?` | `client.generate(input).await?` | Returns the complete `LanguageResponse`; it is not reduced to text. |
+| Published `0.11.0-beta.9` universal facade | `client.chat_stream(input).await?` | `client.stream(input).await?` | Preserves established-stream setup, cancellation, backpressure, partial output, and terminal semantics. |
+| Published `0.11.0-beta.9` universal facade | `supports("embedding")`, capability flags, or runtime `Unsupported` probing | `ai.embedding(model)?` when the provider implements `EmbeddingModelProvider` | Family support is represented by Rust trait bounds; there is no capability string or synchronized matrix. |
+| Published `0.11.0-beta.9` universal facade | `client.downcast_client::<T>()` or provider capability downcasts | `client.provider()` or `client.model()` before erasure | Native resources and mode-specific APIs stay concrete; Registry erasure is intentionally one-way. |
+| Published `0.11.0-beta.10` | `siumai::families::language::generate(&model, input)` and the other `siumai::families::*` calls | Direct applications: `client.generate(input)`; generic/Registry code: `siumai::language::generate(&model, input)` | The direct typed method and retained root family function share the same execution contract. |
+| Published `0.11.0-beta.10` | `*_with_options(&model, request, options)` | Direct applications: `client.call(request).with_options(options)?.<operation>().await`; generic code: `family::call(&model, request).with_options(options)?.<operation>().await` | Candidate options are validated synchronously before dispatch. |
+| Unreleased root-family-only surface | Direct `language::generate(&model, input)` after manual provider/model construction | `Siumai::builder().<provider>().<required inputs>.build()?.language(model)?.generate(input).await?` | Use the typed facade for common direct calls; the root function remains unchanged for generic code. |
+| Unreleased root-family-only surface | `siumai::language::generate(&model, input)` in generic, dependency-injected, or Registry code | Unchanged | Root family functions remain the canonical generic path. |
+| Unreleased root-family-only surface | `siumai::LanguageCall` or a flat/prelude `*Call` name | `siumai::language::LanguageCall` and the corresponding family module type | Call builders remain public only in their owning family modules. |
+| Published `0.11.0-beta.10` or unreleased intermediate | Bare `siumai::generate`, `siumai::stream`, facade/prelude runtime relays, or `siumai_runtime::{generate, stream}` | `Runtime::default().generate(...)` or `Runtime::default().stream(...)`; use a family client/root function for an ordinary one-call operation | Runtime methods remain for step defaults and orchestration; shallow free helpers are removed. |
+| Published `0.11.0-beta.10` or unreleased intermediate | `siumai_runtime::AgentInput` | `siumai_core::LanguageInput` or `siumai::LanguageInput` | Runtime and direct language calls share one provider-neutral input conversion. |
+
+OpenAI `.language(model)` is fixed to Responses; use `.chat_completions(model)` for the explicit
+alternative. Gemini `.language(model)` is fixed to Interactions; use `.generate_content(model)` for
+the explicit alternative. No model-name heuristic changes these modes.
 
 ### Exact symbol map
 
@@ -191,11 +220,14 @@ model-name capability gate merely to preserve an old call site.
 
 ## Dependency features
 
-The facade no longer enables an AI provider by default. Select providers explicitly:
+The typed facade documented here is unreleased on the repository's `main` branch. The published
+`0.11.0-beta.10` package still exposes the starting surface in the table above. Until a later beta
+is published, select providers explicitly from the Git source and pin a revision for reproducible
+builds:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.10", default-features = false, features = ["minimax"] }
+siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -206,7 +238,7 @@ provider but does not enable Realtime:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai-responses-websocket"] }
+siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["openai-responses-websocket"] }
 ```
 
 ## Provider HTTP settings, trusted CONNECT routes, call deadlines, and retry caps
@@ -1186,22 +1218,29 @@ and `create_with_options` respectively.
 
 ## Migration checklist
 
+- Move ordinary direct calls to `Siumai::builder().<provider>().<required inputs>.build()?`, bind a
+  family client, and use its method-style operation.
+- Replace historical `chat`/`chat_stream` calls with `generate`/`stream`, and replace capability
+  probing with trait-backed family selectors.
+- Replace universal-client downcasts with `client.provider()` or `client.model()` before erasure;
+  do not attempt to recover native APIs from Registry handles.
 - Replace every `siumai::families::*` import with the matching root `language`, `embedding`,
-  `rerank`, `image`, `speech`, or `transcription` module.
+  `rerank`, `image`, `speech`, or `transcription` module when the call is generic or Registry-based.
 - Replace the seven facade `*_with_options` helpers with
-  `family::call(...).with_options(options)?.<terminal>().await`; attach typed provider intent with
-  `with_provider_options` on the same bound call.
-- Import runtime single-call helpers explicitly from `siumai::runtime::{generate, stream}` rather
-  than the facade root or prelude.
+  `client.call(...).with_options(options)?.<terminal>().await` for direct calls or the equivalent
+  root family call for generic code; attach typed provider intent with `with_provider_options` on
+  the same bound call.
+- Replace removed runtime free helpers with `Runtime::{generate, stream}` when step defaults or
+  orchestration are required; otherwise use a family client or root family function.
 - Replace `siumai_runtime::AgentInput` and downstream conversions into it with
   `siumai_core::LanguageInput` or the facade re-export `siumai::LanguageInput`.
 - Treat `LanguageResponse::output_text()` as an optional display projection only; retain the
   complete response for termination, usage, warnings, metadata, non-text content, and history
   projection.
-- Pass concrete and Registry-resolved models through the same root family functions, and retain the
-  concrete provider separately for native resources instead of attempting a Registry downcast.
+- Pass typed facade clients and Registry-resolved models through the same root family functions,
+  and retain the concrete hub/provider separately for native resources.
 - Replace `MinimaxConfig` and `MinimaxClient` with `MinimaxCredential` and `MinimaxProvider`.
-- Construct a family model explicitly and keep the configured provider long-lived.
+- Keep the configured typed hub long-lived and bind exact family models synchronously as needed.
 - Replace compatibility chat request types with `LanguageRequest`, `Message`, and `MessagePart`.
 - Replace direct `ToolCall` field construction with `ToolCall::local` and checked accessors.
 - Use role-safe message constructors and project responses with

@@ -8,7 +8,13 @@ the crate sets `autotests = false`:
 - `facade_migration_contract.rs` verifies the current migration-facing call and error shape.
 - `siumai_builder_contract.rs` is the focused compile-oriented contract for the typed
   `Siumai::builder()` journey, provider construction stages, reusable hubs, family clients, and
-  concrete provider/model access.
+  concrete provider/model access. It also locks OpenAI Responses/Gemini Interactions canonical
+  selectors and their explicit alternate modes.
+
+User-facing examples keep the same hierarchy as these contracts: `provider_switching.rs` covers
+typed direct construction, `registry_switching.rs` separately covers generic/Registry erasure, and
+the flagship examples combine typed provider intent, complete responses, and native access without
+polling provider request futures.
 
 Run the maintained local suites through the cross-platform Python entry points:
 

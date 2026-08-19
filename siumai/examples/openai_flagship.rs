@@ -6,7 +6,7 @@ use siumai::providers::openai::responses::{
 };
 use siumai::{LanguageRequest, Message, MessagePart, MessageRole, Siumai};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn flagship() -> Result<(), Box<dyn std::error::Error>> {
     let ai = Siumai::builder()
         .openai()
         .api_key("example-openai-key")
@@ -26,13 +26,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )]);
     let provider_options = OpenAiResponsesOptions::default()
         .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::High));
-    let call = client
+    let response = client
         .call(request.clone())
-        .with_provider_options(&provider_options)?;
+        .with_provider_options(&provider_options)?
+        .generate()
+        .await?;
 
-    // Portable execution still uses the existing family call path. The future
-    // is not polled so this flagship remains an offline compile contract.
-    drop(call.generate());
+    // The portable result remains complete rather than collapsing to text.
+    let _content = response.content();
+    let _termination = response.termination();
+    let _usage = response.usage();
+    let _warnings = response.warnings();
+    let _provider_metadata = response.provider_metadata();
 
     // Provider-wide and model-native APIs remain concrete and discoverable.
     let _files: OpenAiFiles = client.provider().files();
@@ -44,4 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     Ok(())
+}
+
+fn main() {
+    // The future is compiled but never polled, so the synthetic credential
+    // cannot produce a provider request or billable work.
+    drop(flagship());
 }

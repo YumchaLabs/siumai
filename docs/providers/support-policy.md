@@ -68,9 +68,12 @@ deferred`, not implied defects in the implemented slice.
 
 ## Current facade surface
 
-The `0.11.0-beta.10` facade intentionally exposes narrow provider slices. Every row is `claimed
-slice complete`; the last column is `intentionally deferred`. This inventory is not a promise that
-every account can use every model or endpoint.
+The unreleased facade on the repository's `main` branch exposes the narrow provider slices below
+through typed `Siumai` construction and curated provider namespaces. The published
+`0.11.0-beta.10` crate has an earlier construction API; this table describes the current repository
+implementation, not that published artifact. Every row is `claimed slice complete`; the last column
+is `intentionally deferred`. This inventory is not a promise that every account can use every model
+or endpoint.
 
 | Facade feature | Public scope | `intentionally deferred` |
 |---|---|---|

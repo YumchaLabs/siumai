@@ -1,9 +1,10 @@
 //! The ergonomic Siumai facade.
 //!
-//! The facade exposes six stable provider-neutral model families, optional
-//! immutable routing, and curated provider APIs under explicit namespaces.
-//! Native provider extensions remain provider-owned and are not flattened into
-//! a least-common-denominator client.
+//! The facade exposes typed [`Siumai::builder`] provider construction for direct
+//! application calls, six root provider-neutral model families for generic and
+//! Registry code, and concrete provider/model access for native capabilities.
+//! Optional routing and runtime integrations remain explicit. Native provider
+//! extensions are not flattened into a least-common-denominator client.
 //!
 //! The facade README is included below so the published crate remains
 //! self-contained and its maintained Rust examples stay in the doctest lane.

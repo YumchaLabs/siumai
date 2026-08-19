@@ -5,14 +5,15 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/YumchaLabs/siumai/blob/main/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/YumchaLabs/siumai)
 
-Siumai (烧卖) is a type-safe Rust workspace for integrating AI model providers. It offers
-provider-faithful typed access to explicitly retained provider scopes and small provider-neutral
-model-family interfaces for portable application code. The unified family API and Registry are
-optional convenience layers, not replacements for provider-specific capabilities.
+Siumai (烧卖) is a type-safe Rust workspace for integrating AI model providers. Its application
+facade starts with a typed `Siumai::builder()` provider hub, retains six small provider-neutral
+model-family interfaces for portable code, and keeps provider-specific resources and modes on their
+concrete owners. Registry and runtime are optional integrations, not hidden parts of the builder.
 
 ## What Siumai provides
 
 - Provider-direct construction, typed options, annotations, metadata, and native resources
+- Typed provider hubs and family clients for concise direct application calls
 - Provider-neutral family traits for language, embeddings, images, reranking, speech, and
   transcription
 - Established language streams with explicit terminal outcomes and cancellation
@@ -31,15 +32,52 @@ Enable only the provider and integration features that the application uses:
 
 ```toml
 [dependencies]
-siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["minimax"] }
+siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["openai"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
+
+The Git dependency above follows the unreleased `main`-branch API; pin a revision for reproducible
+builds. The published `0.11.0-beta.10` crate does not contain the typed hub documented below.
 
 The facade's default features are `registry` and `runtime`; no provider is enabled by default. Add
 `registry` or `runtime` explicitly when using `default-features = false`.
 
 The current workspace is a breaking public API reset. Existing users should read
 [`docs/migration/siumai-next.md`](docs/migration/siumai-next.md) before updating.
+
+## Quickstart: typed direct call
+
+For ordinary application calls, configure one provider, bind one model family, and use the family
+client method:
+
+```rust,no_run
+use siumai::providers::openai::models::GPT_5_6;
+use siumai::Siumai;
+
+async fn quickstart() -> Result<(), Box<dyn std::error::Error>> {
+    let ai = Siumai::builder()
+        .openai()
+        .api_key("example-openai-key")
+        .build()?;
+    let client = ai.language(GPT_5_6)?;
+    let response = client.generate("Explain typed provider hubs in one sentence.").await?;
+
+    if let Some(text) = response.output_text() {
+        println!("{text}");
+    }
+    Ok(())
+}
+
+fn main() {
+    // This repository example uses a synthetic credential and deliberately
+    // does not poll the future, so it cannot make a billable provider call.
+    drop(quickstart());
+}
+```
+
+OpenAI `.language(...)` means Responses; use `.chat_completions(...)` explicitly for Chat
+Completions. Gemini `.language(...)` means Interactions; use `.generate_content(...)` explicitly
+for Generate Content. Neither provider infers an API mode from the model name.
 
 ## Provider features
 
@@ -121,16 +159,18 @@ Realtime, and provider-returned external downloads remain Direct-only.
 
 ## Verified facade journeys
 
-The facade ships four compile-checked examples:
+The facade ships five compile-checked, offline examples:
 
-- [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines an exact-target typed
-  Responses option, the portable language family, and a provider-owned Conversations read;
-- [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
-  options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
-  Skills metadata list;
-- [`provider_switching.rs`](siumai/examples/provider_switching.rs) passes concrete, erased, and
-  Registry-resolved language models through one application function while retaining typed OpenAI
-  and Anthropic options, annotations, metadata views, and concrete provider resources;
+- [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines typed Responses options and
+  prompt-cache intent, complete portable response inspection, Files/Responses resources, and a
+  model-native Responses call;
+- [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines typed Messages/cache/file
+  intent, complete portable response inspection, model cache prewarming, and provider-owned Files
+  and Message Batches;
+- [`provider_switching.rs`](siumai/examples/provider_switching.rs) constructs OpenAI, Anthropic,
+  and Gemini typed hubs and uses the identical `client.generate(...)` application call;
+- [`registry_switching.rs`](siumai/examples/registry_switching.rs) keeps generic and
+  Registry-resolved switching separate and makes the one-way erasure boundary explicit;
 - [`trusted_connect_route.rs`](siumai/examples/trusted_connect_route.rs) constructs the trusted
   route and compiles a provider settings handoff without credentials or network I/O.
 
@@ -139,9 +179,13 @@ Compile or execute them independently with only their documented feature set:
 ```text
 cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
 cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
-cargo run -p siumai --example provider_switching --no-default-features --features openai,anthropic,registry -j 1
+cargo check -p siumai --example provider_switching --no-default-features --features openai,anthropic,google -j 1
+cargo check -p siumai --example registry_switching --no-default-features --features openai,registry -j 1
 cargo check -p siumai --example trusted_connect_route --no-default-features --features openai -j 1
 ```
+
+The switching and flagship examples use synthetic credentials and never poll provider request
+futures, so checking or running them does not perform a billable network call.
 
 OpenAI Responses WebSocket is intentionally provider-owned rather than a portable family. Enable
 `openai-responses-websocket`, acquire a Responses model, call `model.websocket()?`, and connect the
@@ -152,10 +196,12 @@ official session support claim.
 
 ## Choose the narrowest public surface
 
-- Start with a configured provider when protocol modes, provider options, or native resources
-  matter.
-- Pass its model handles through the root `siumai::{language, embedding, rerank, image, speech,
-  transcription}` modules when an operation is portable.
+- Start ordinary direct calls with `Siumai::builder()`, then bind a family client from the typed
+  provider hub.
+- Use the root `siumai::{language, embedding, rerank, image, speech, transcription}` modules for
+  generic, dependency-injected, trait-object, or Registry-resolved code.
+- Use `client.provider()` or `client.model()` for provider-native resources, sessions, responses,
+  and explicit mode-specific methods before type erasure.
 - Add Registry only when the host needs deterministic local route lookup.
 - Add runtime only when the host needs provider-neutral multi-step orchestration.
 
@@ -170,29 +216,45 @@ route once and pass that live handle to ordinary application code; Registry does
 concrete provider through downcasting. Keep the configured concrete provider beside Registry when
 the application also needs native files, batches, sessions, or media jobs.
 
+Generic, dependency-injected, and Registry code uses the root family seam rather than a
+facade-specific trait:
+
+```rust,no_run
+use siumai::{language, LanguageCallError, LanguageModel, LanguageResponse};
+
+async fn answer<M>(model: &M) -> Result<LanguageResponse, LanguageCallError>
+where
+    M: LanguageModel + ?Sized,
+{
+    language::generate(model, "Explain explicit type erasure.").await
+}
+```
+
+A typed family client and a Registry-resolved `Arc<dyn LanguageModel>` both satisfy this function.
+Erasure is one-way: use `client.provider()` and `client.model()` for native resources, sessions, or
+mode-specific responses before passing a model behind a trait object.
+
 ## Canonical language call with MiniMax
 
 MiniMax uses Anthropic-compatible Messages as its recommended language mode:
 
 ```rust,no_run
-use siumai::language;
 use siumai::providers::minimax::{
-    MinimaxCredential, MinimaxMessagesOptions, MinimaxProvider, MinimaxServiceTier,
-    MinimaxThinking, models,
+    MinimaxMessagesOptions, MinimaxServiceTier, MinimaxThinking, models,
 };
+use siumai::Siumai;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = MinimaxProvider::builder(MinimaxCredential::api_key(
-        std::env::var("MINIMAX_API_KEY")?,
-    ))
-    .build()?;
-    let model = provider.language(models::MINIMAX_M3)?;
-
+async fn minimax_example() -> Result<(), Box<dyn std::error::Error>> {
+    let ai = Siumai::builder()
+        .minimax()
+        .api_key("example-minimax-key")
+        .build()?;
+    let client = ai.language(models::MINIMAX_M3)?;
     let provider_options = MinimaxMessagesOptions::new()
         .with_thinking(MinimaxThinking::Adaptive)
         .with_service_tier(MinimaxServiceTier::Standard);
-    let response = language::call(&model, "Hello MiniMax!")
+    let response = client
+        .call("Hello MiniMax!")
         .with_provider_options(&provider_options)?
         .generate()
         .await?;
@@ -202,6 +264,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+fn main() {
+    // Keep the synthetic-credential example offline.
+    drop(minimax_example());
+}
 ```
 
 The call returns the complete `LanguageResponse`: content, termination, usage, warnings, and
@@ -210,20 +277,20 @@ canonical text parts. It excludes reasoning, refusals, tools, citations, media, 
 provider-native state, and it does not replace `project_assistant_history()` when building the next
 request.
 
-`provider.language(model)` and `provider.messages(model)` both select Messages. Use
-`provider.chat_completions(model)` or `provider.responses(model)` only when that wire API is an
-explicit requirement. Each mode has a matching typed options type and rejects options from another
-mode.
+The typed hub's `language(model)` and the provider's `language(model)`/`messages(model)` constructors
+select Messages. Use `client.provider().chat_completions(model)` or
+`client.provider().responses(model)` only when that wire API is an explicit requirement. Each mode
+has a matching typed options type and rejects options from another mode.
 
 Messages prompt-cache breakpoints use typed `MinimaxMessageCache`, `MinimaxContentCache`, or
-`MinimaxToolCache` annotations on the node they modify. The same configured provider owns native
-resources through:
+`MinimaxToolCache` annotations on the node they modify. The same configured provider remains
+reachable through `client.provider()` and owns native resources through:
 
-- `provider.files()`;
-- `provider.images()`;
-- `provider.video()`;
-- `provider.music()`;
-- `provider.speech()`.
+- `client.provider().files()`;
+- `client.provider().images()`;
+- `client.provider().video()`;
+- `client.provider().music()`;
+- `client.provider().speech()`.
 
 These resources are not flattened into a universal client because their request shapes, result
 types, and task lifecycles are provider-specific.
@@ -239,14 +306,18 @@ policy. One route may expose several disjoint model families from the same provi
 retains its own exact protocol scope and configured factory.
 
 ```rust,no_run
-use siumai::providers::minimax::{MinimaxCredential, MinimaxProvider};
+use siumai::providers::minimax::models;
 use siumai::registry::{Registry, RegistryBuilderExt};
+use siumai::Siumai;
 
-let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
+let ai = Siumai::builder()
+    .minimax()
+    .api_key("example-minimax-key")
+    .build()?;
 let mut builder = Registry::builder();
-builder.register_provider("minimax", &provider)?;
+builder.register_provider("minimax", ai.provider())?;
 let registry = builder.build()?;
-let model = registry.language_model("minimax:MiniMax-M3")?;
+let model = registry.language_model(format!("minimax:{}", models::MINIMAX_M3))?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -270,7 +341,7 @@ it for addressing or signing. That input is not an SDK-maintained availability c
 
 - [Repository architecture](docs/architecture/overview.md)
 - [Public API and extension policy](docs/architecture/public-api.md)
-- [Facade family call ownership decision](docs/adr/0019-facade-family-call-ownership.md)
+- [Typed Siumai provider hub decision](docs/adr/0020-typed-siumai-provider-hub.md)
 - [Registry contract](docs/architecture/registry.md)
 - [Transport contract](docs/architecture/transport-contract.md)
 - [Provider support policy](docs/providers/support-policy.md)
