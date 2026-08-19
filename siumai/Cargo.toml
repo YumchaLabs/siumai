@@ -110,6 +110,11 @@ path = "examples/anthropic_flagship.rs"
 required-features = ["anthropic"]
 
 [[example]]
+name = "provider_switching"
+path = "examples/provider_switching.rs"
+required-features = ["openai", "anthropic", "registry"]
+
+[[example]]
 name = "trusted_connect_route"
 path = "examples/trusted_connect_route.rs"
 required-features = ["openai"]

@@ -70,6 +70,7 @@ jobs:
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
           cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
+          cargo check -j 1 -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching
 
       - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}

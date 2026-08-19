@@ -120,6 +120,13 @@ struct FailingLanguage {
     stream_calls: Arc<AtomicUsize>,
 }
 
+#[cfg(feature = "anthropic")]
+#[derive(Debug)]
+struct CompleteResponseLanguage {
+    descriptor: ModelDescriptor,
+    response: LanguageResponse,
+}
+
 #[cfg(all(feature = "registry", feature = "runtime"))]
 #[derive(Debug)]
 struct RegistryRuntimeLanguage {
@@ -349,6 +356,36 @@ impl LanguageModel for FailingLanguage {
         Err(Error::new(
             ErrorKind::Provider,
             "provider stream setup failure",
+        ))
+    }
+}
+
+#[cfg(feature = "anthropic")]
+impl Model for CompleteResponseLanguage {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+#[cfg(feature = "anthropic")]
+#[async_trait]
+impl LanguageModel for CompleteResponseLanguage {
+    async fn generate(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageResponse, LanguageCallError> {
+        Ok(self.response.clone())
+    }
+
+    async fn stream(
+        &self,
+        _request: LanguageRequest,
+        _options: CallOptions,
+    ) -> Result<LanguageStream, Error> {
+        Err(Error::new(
+            ErrorKind::Unsupported,
+            "streaming is not part of this complete-response fixture",
         ))
     }
 }
@@ -785,6 +822,99 @@ async fn language_facade_accepts_concrete_and_erased_models_through_one_generic_
 
     assert_eq!(direct_response, erased_response);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn language_facade_preserves_complete_response_and_typed_provider_metadata() {
+    use serde_json::json;
+    use siumai::providers::anthropic::{
+        AnthropicAssignedServiceTier, AnthropicAssignedSpeed, AnthropicLanguageResponseExt,
+    };
+
+    let model_id = ModelId::new("claude-fixture").unwrap();
+    let response = LanguageResponse::completed(
+        vec![
+            ContentPart::Text {
+                text: "visible".to_string(),
+            },
+            ContentPart::Reasoning {
+                text: "preserved reasoning".to_string(),
+            },
+        ],
+        LanguageCompletionReason::Stop,
+        Usage::default()
+            .with_input_tokens(3_u64)
+            .with_output_tokens(2_u64),
+    )
+    .unwrap()
+    .with_id("msg_fixture")
+    .with_model(model_id.clone())
+    .with_warnings(vec![siumai::Warning::provider(
+        "fixture_warning",
+        "provider warning remains visible",
+    )])
+    .with_provider_metadata(BTreeMap::from([(
+        "anthropic-messages".to_string(),
+        json!({
+            "usage": {
+                "service_tier": "priority",
+                "speed": "fast",
+                "inference_geo": "us",
+                "future_usage": 7
+            },
+            "container": {"id": "container_fixture"},
+            "future_metadata": true
+        }),
+    )]));
+    let model = CompleteResponseLanguage {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("anthropic").unwrap(),
+            model_id,
+            ModelFamily::Language,
+        ),
+        response,
+    };
+
+    let response = siumai::language::generate(&model, "hello").await.unwrap();
+
+    assert_eq!(response.id(), Some("msg_fixture"));
+    assert_eq!(
+        response.model().map(ModelId::as_str),
+        Some("claude-fixture")
+    );
+    assert!(matches!(
+        response.termination(),
+        LanguageTermination::Completed(LanguageCompletionReason::Stop)
+    ));
+    assert!(matches!(
+        response.content(),
+        [ContentPart::Text { .. }, ContentPart::Reasoning { .. }]
+    ));
+    assert_eq!(response.output_text().as_deref(), Some("visible"));
+    assert_eq!(response.usage().input_tokens.value(), Some(3));
+    assert_eq!(response.usage().output_tokens.value(), Some(2));
+    assert_eq!(
+        response.warnings()[0].message(),
+        "provider warning remains visible"
+    );
+    assert_eq!(
+        response.provider_metadata()["anthropic-messages"]["future_metadata"],
+        true
+    );
+
+    let metadata = response
+        .anthropic_metadata()
+        .unwrap()
+        .expect("typed Anthropic metadata");
+    let usage = metadata.usage().expect("Anthropic usage metadata");
+    assert_eq!(
+        usage.assigned_service_tier(),
+        Some(&AnthropicAssignedServiceTier::Priority)
+    );
+    assert_eq!(usage.speed(), Some(&AnthropicAssignedSpeed::Fast));
+    assert_eq!(usage.raw()["future_usage"], 7);
+    assert_eq!(metadata.raw()["future_metadata"], true);
 }
 
 #[tokio::test]
