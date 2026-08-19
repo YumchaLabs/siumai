@@ -2,54 +2,13 @@
 
 use std::sync::Arc;
 
-use siumai_core::{CallOptions, Error, LanguageModel, LanguageRequest, Message, MessageRole};
+use siumai_core::{
+    CallOptions, Error, LanguageInput, LanguageModel, LanguageRequest, Message, MessageRole,
+};
 use thiserror::Error;
 
 use crate::tool::{ToolBinding, ToolSet, ToolSetBuildError};
 use crate::{ProjectionPolicy, RunStream, RunTerminal, StepModelSelector, ToolLoop};
-
-/// Ergonomic input accepted by [`Agent`] run methods.
-#[derive(Debug, Clone)]
-pub struct AgentInput(LanguageRequest);
-
-impl AgentInput {
-    pub fn into_request(self) -> LanguageRequest {
-        self.0
-    }
-}
-
-impl From<LanguageRequest> for AgentInput {
-    fn from(request: LanguageRequest) -> Self {
-        Self(request)
-    }
-}
-
-impl From<Message> for AgentInput {
-    fn from(message: Message) -> Self {
-        Self(LanguageRequest::new(vec![message]))
-    }
-}
-
-impl From<Vec<Message>> for AgentInput {
-    fn from(messages: Vec<Message>) -> Self {
-        Self(LanguageRequest::new(messages))
-    }
-}
-
-impl From<String> for AgentInput {
-    fn from(text: String) -> Self {
-        Self(LanguageRequest::new(vec![Message::text(
-            MessageRole::User,
-            text,
-        )]))
-    }
-}
-
-impl From<&str> for AgentInput {
-    fn from(text: &str) -> Self {
-        Self::from(text.to_owned())
-    }
-}
 
 /// Stateless facade for repeatedly running one configured [`ToolLoop`].
 #[derive(Clone)]
@@ -154,7 +113,7 @@ impl Agent {
     /// Stream one independent run with default call options.
     pub async fn stream<I>(&self, input: I) -> Result<RunStream, Error>
     where
-        I: Into<AgentInput>,
+        I: Into<LanguageInput>,
     {
         self.stream_with(input, CallOptions::default()).await
     }
@@ -162,7 +121,7 @@ impl Agent {
     /// Stream one independent run with explicit call options.
     pub async fn stream_with<I>(&self, input: I, options: CallOptions) -> Result<RunStream, Error>
     where
-        I: Into<AgentInput>,
+        I: Into<LanguageInput>,
     {
         self.tool_loop
             .stream(self.prepare_request(input.into()), options)
@@ -172,7 +131,7 @@ impl Agent {
     /// Collect one independent run through the same streaming execution path.
     pub async fn run<I>(&self, input: I) -> Result<RunTerminal, Error>
     where
-        I: Into<AgentInput>,
+        I: Into<LanguageInput>,
     {
         self.run_with(input, CallOptions::default()).await
     }
@@ -180,14 +139,14 @@ impl Agent {
     /// Collect one independent run with explicit call options.
     pub async fn run_with<I>(&self, input: I, options: CallOptions) -> Result<RunTerminal, Error>
     where
-        I: Into<AgentInput>,
+        I: Into<LanguageInput>,
     {
         self.tool_loop
             .run(self.prepare_request(input.into()), options)
             .await
     }
 
-    fn prepare_request(&self, input: AgentInput) -> LanguageRequest {
+    fn prepare_request(&self, input: LanguageInput) -> LanguageRequest {
         let mut request = input.into_request();
         if !self.instructions.is_empty() {
             let mut messages = Vec::with_capacity(self.instructions.len() + request.messages.len());

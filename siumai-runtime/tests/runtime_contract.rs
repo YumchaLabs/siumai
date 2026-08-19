@@ -373,3 +373,12 @@ fn model_defaults_reject_a_foreign_api_mode_at_build_time() {
         RuntimeConfigError::ProviderOptions(ProviderOptionError::TargetMismatch { .. })
     ));
 }
+
+#[test]
+fn runtime_no_longer_defines_or_reexports_agent_input() {
+    const AGENT_SOURCE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/agent.rs"));
+    const LIB_SOURCE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"));
+
+    assert!(!AGENT_SOURCE.contains("AgentInput"));
+    assert!(!LIB_SOURCE.contains("AgentInput"));
+}

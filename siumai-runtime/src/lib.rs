@@ -27,7 +27,7 @@ mod structured_run;
 mod tool_loop;
 mod usage;
 
-pub use agent::{Agent, AgentConfigError, AgentInput};
+pub use agent::{Agent, AgentConfigError};
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
 pub use call::{generate, stream};
 pub use durable::{
