@@ -12,18 +12,25 @@
 #![deny(unsafe_code)]
 
 mod call;
-pub mod families;
+pub mod embedding;
+pub mod image;
 pub mod language;
 pub mod prelude;
 pub mod providers;
 #[cfg(feature = "registry")]
 pub mod registry;
+pub mod rerank;
 #[cfg(feature = "runtime")]
 pub mod runtime;
+pub mod speech;
+pub mod transcription;
 #[cfg(feature = "transport")]
 pub mod transport;
 
+pub use embedding::EmbeddingCall;
+pub use image::ImageCall;
 pub use language::LanguageCall;
+pub use rerank::RerankCall;
 pub use siumai_core as core;
 pub use siumai_core::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
@@ -47,9 +54,11 @@ pub use siumai_core::{
     TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
     Usage, UsageUpdate, UsageUpdateKind, UsageValue, Warning, WarningKind,
 };
+pub use speech::SpeechCall;
+pub use transcription::TranscriptionCall;
 
 #[cfg(feature = "runtime")]
 pub use runtime::{
     BudgetError, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime, RuntimeBuilder,
-    RuntimeConfigError, StepOptions, generate, stream,
+    RuntimeConfigError, StepOptions,
 };

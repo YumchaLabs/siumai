@@ -27,6 +27,10 @@ where
         &self.request
     }
 
+    pub(crate) fn model(&self) -> &M {
+        self.model
+    }
+
     pub(crate) fn base_options(&self) -> &CallOptions {
         &self.base_options
     }

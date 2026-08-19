@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use siumai::core::MessagePart;
-use siumai::families::language;
+use siumai::language;
 use siumai::providers::anthropic::annotations::{
     AnthropicCacheTtl, AnthropicContentOptions, AnthropicMessageFile,
 };
@@ -10,7 +10,7 @@ use siumai::providers::anthropic::options::AnthropicMessagesOptions;
 use siumai::providers::anthropic::resources::AnthropicSkillListQuery;
 use siumai::providers::anthropic::{AnthropicCredential, AnthropicProvider};
 use siumai::transport::ProviderHttpTransportSettings;
-use siumai::{CallOptions, LanguageRequest, Message, MessageRole, ReplayDomainId};
+use siumai::{LanguageRequest, Message, MessageRole, ReplayDomainId};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,14 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider_options = AnthropicMessagesOptions::new()
         .with_adaptive_thinking()
         .with_automatic_cache(AnthropicCacheTtl::OneHour);
-    let call_options =
-        CallOptions::default().with_provider_options_for(&model, &provider_options)?;
-    let response = language::generate_with_options(
-        &model,
-        LanguageRequest::new(vec![user_message]),
-        call_options,
-    )
-    .await?;
+    let response = language::call(&model, LanguageRequest::new(vec![user_message]))
+        .with_provider_options(&provider_options)?
+        .generate()
+        .await?;
 
     let (assistant_history, omissions) = response.project_assistant_history().into_parts();
     if let Some(assistant_history) = assistant_history {

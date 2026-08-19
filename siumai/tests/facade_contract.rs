@@ -10,7 +10,6 @@ use siumai::{EmbeddingLimits, ModelId, ResponseMetadata};
 
 use siumai::{ErrorKind, LanguageCallError, LanguageCompletionReason, LanguageResponse};
 
-#[cfg(feature = "registry")]
 use siumai::{ImageArtifact, MediaData};
 
 #[cfg(feature = "registry")]
@@ -27,6 +26,54 @@ struct DeadlineEmbedding {
     descriptor: ModelDescriptor,
     calls: Arc<AtomicUsize>,
     observed: Arc<std::sync::Mutex<Vec<CallOptions>>>,
+}
+
+#[derive(Debug)]
+struct FakeRerank {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+    expect_provider_options: bool,
+}
+
+#[derive(Debug)]
+struct FakeSpeech {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+    expect_provider_options: bool,
+}
+
+#[derive(Debug)]
+struct FakeTranscription {
+    descriptor: ModelDescriptor,
+    calls: Arc<AtomicUsize>,
+    expect_provider_options: bool,
+}
+
+fn validate_expected_provider_options<M>(
+    model: &M,
+    options: &CallOptions,
+    expected: bool,
+) -> Result<(), Error>
+where
+    M: Model + ?Sized,
+{
+    if !expected {
+        return Ok(());
+    }
+    let selection = options.provider_options_for(model).map_err(|source| {
+        Error::new(
+            ErrorKind::Configuration,
+            "invalid non-language facade provider options",
+        )
+        .with_source(source)
+    })?;
+    if selection.typed().count() != 1 {
+        return Err(Error::new(
+            ErrorKind::Configuration,
+            "expected one typed provider option at trait dispatch",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -415,6 +462,24 @@ impl Model for DeadlineEmbedding {
     }
 }
 
+impl Model for FakeRerank {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+impl Model for FakeSpeech {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
+impl Model for FakeTranscription {
+    fn descriptor(&self) -> &ModelDescriptor {
+        &self.descriptor
+    }
+}
+
 #[async_trait]
 impl EmbeddingModel for DeadlineEmbedding {
     async fn embed(
@@ -448,8 +513,8 @@ impl EmbeddingModel for FakeEmbedding {
         request: EmbeddingRequest,
         _options: CallOptions,
     ) -> Result<EmbeddingResponse, Error> {
-        self.limits().validate(&request)?;
         self.calls.fetch_add(1, Ordering::SeqCst);
+        self.limits().validate(&request)?;
         let response = EmbeddingResponse {
             embeddings: request.inputs().iter().map(|_| vec![1.0, 2.0]).collect(),
             metadata: ResponseMetadata::default(),
@@ -462,35 +527,72 @@ impl EmbeddingModel for FakeEmbedding {
     }
 }
 
-#[cfg(feature = "registry")]
+#[async_trait]
+impl RerankModel for FakeRerank {
+    async fn rerank(
+        &self,
+        request: RerankRequest,
+        options: CallOptions,
+    ) -> Result<RerankResponse, Error> {
+        validate_expected_provider_options(self, &options, self.expect_provider_options)?;
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let count = request.top_n().unwrap_or(request.candidates().len());
+        let response = RerankResponse {
+            results: request
+                .candidates()
+                .iter()
+                .take(count)
+                .enumerate()
+                .map(|(index, candidate)| {
+                    siumai::RerankResult::new(
+                        index,
+                        1.0 - (index as f64 * 0.1),
+                        candidate.id().map(ToString::to_string),
+                    )
+                    .expect("valid fake rerank result")
+                })
+                .collect(),
+            metadata: ResponseMetadata::default(),
+            usage: Usage::default(),
+            warnings: Vec::new(),
+            provider: BTreeMap::from([(
+                "query".to_string(),
+                serde_json::Value::String(request.query().to_string()),
+            )]),
+        };
+        response.validate(&request)?;
+        Ok(response)
+    }
+}
+
 #[derive(Debug)]
 struct FakeImage {
     descriptor: ModelDescriptor,
     calls: Arc<AtomicUsize>,
+    expect_provider_options: bool,
 }
 
-#[cfg(feature = "registry")]
 impl Model for FakeImage {
     fn descriptor(&self) -> &ModelDescriptor {
         &self.descriptor
     }
 }
 
-#[cfg(feature = "registry")]
 #[async_trait]
 impl ImageModel for FakeImage {
     async fn generate_image(
         &self,
         request: ImageRequest,
-        _options: CallOptions,
+        options: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        validate_expected_provider_options(self, &options, self.expect_provider_options)?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         let response = ImageResponse {
             images: (0..request.count())
                 .map(|_| ImageArtifact {
                     media_type: "image/png".to_string(),
                     data: MediaData::Url("https://example.test/image.png".to_string()),
-                    revised_prompt: None,
+                    revised_prompt: Some(request.prompt().to_string()),
                 })
                 .collect(),
             metadata: ResponseMetadata::default(),
@@ -499,6 +601,55 @@ impl ImageModel for FakeImage {
             provider: BTreeMap::new(),
         };
         response.validate(&request)?;
+        Ok(response)
+    }
+}
+
+#[async_trait]
+impl SpeechModel for FakeSpeech {
+    async fn synthesize(
+        &self,
+        request: SpeechRequest,
+        options: CallOptions,
+    ) -> Result<SpeechResponse, Error> {
+        validate_expected_provider_options(self, &options, self.expect_provider_options)?;
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let response = SpeechResponse {
+            media_type: "audio/wav".to_string(),
+            audio: request.text().as_bytes().to_vec().into(),
+            duration_seconds: Some(1.25),
+            sample_rate_hz: Some(24_000),
+            metadata: ResponseMetadata::default(),
+            usage: Usage::default(),
+            warnings: Vec::new(),
+            provider: BTreeMap::new(),
+        };
+        response.validate()?;
+        Ok(response)
+    }
+}
+
+#[async_trait]
+impl TranscriptionModel for FakeTranscription {
+    async fn transcribe(
+        &self,
+        request: TranscriptionRequest,
+        options: CallOptions,
+    ) -> Result<TranscriptionResponse, Error> {
+        validate_expected_provider_options(self, &options, self.expect_provider_options)?;
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let response = TranscriptionResponse {
+            text: format!("{}:{}", request.media_type(), request.audio().len()),
+            language: request.language().map(ToString::to_string),
+            confidence: Some(0.99),
+            duration_seconds: Some(2.5),
+            segments: Vec::new(),
+            metadata: ResponseMetadata::default(),
+            usage: Usage::default(),
+            warnings: Vec::new(),
+            provider: BTreeMap::new(),
+        };
+        response.validate()?;
         Ok(response)
     }
 }
@@ -522,6 +673,42 @@ fn fake_language(model: ModelId, calls: Arc<AtomicUsize>) -> FakeLanguage {
             ModelFamily::Language,
         ),
         calls,
+    }
+}
+
+fn fake_rerank(model: ModelId, calls: Arc<AtomicUsize>) -> FakeRerank {
+    FakeRerank {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            model,
+            ModelFamily::Rerank,
+        ),
+        calls,
+        expect_provider_options: false,
+    }
+}
+
+fn fake_speech(model: ModelId, calls: Arc<AtomicUsize>) -> FakeSpeech {
+    FakeSpeech {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            model,
+            ModelFamily::Speech,
+        ),
+        calls,
+        expect_provider_options: false,
+    }
+}
+
+fn fake_transcription(model: ModelId, calls: Arc<AtomicUsize>) -> FakeTranscription {
+    FakeTranscription {
+        descriptor: ModelDescriptor::new(
+            ProviderId::new("fake").unwrap(),
+            model,
+            ModelFamily::Transcription,
+        ),
+        calls,
+        expect_provider_options: false,
     }
 }
 
@@ -550,7 +737,6 @@ fn recording_language(
     }
 }
 
-#[cfg(feature = "registry")]
 fn fake_image(model: ModelId, calls: Arc<AtomicUsize>) -> FakeImage {
     FakeImage {
         descriptor: ModelDescriptor::new(
@@ -559,6 +745,7 @@ fn fake_image(model: ModelId, calls: Arc<AtomicUsize>) -> FakeImage {
             ModelFamily::Image,
         ),
         calls,
+        expect_provider_options: false,
     }
 }
 
@@ -1321,19 +1508,191 @@ async fn language_facade_preserves_registry_route_identity_on_the_selected_handl
 }
 
 #[tokio::test]
-async fn direct_family_helper_preserves_one_call_per_batch() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let model = fake(ModelId::new("embed-v1").unwrap(), calls.clone());
-    let request = EmbeddingRequest::new(["one", "two"]).unwrap();
+async fn non_language_root_facades_support_concrete_and_erased_models() {
+    let embedding_calls = Arc::new(AtomicUsize::new(0));
+    let direct_embedding = fake(
+        ModelId::new("direct-embedding-v1").unwrap(),
+        embedding_calls.clone(),
+    );
+    let erased_embedding: Arc<dyn EmbeddingModel> = Arc::new(fake(
+        ModelId::new("erased-embedding-v1").unwrap(),
+        embedding_calls.clone(),
+    ));
+    let embedding_request = EmbeddingRequest::new(["one", "two"]).unwrap();
+    let direct_embedding_response = embedding::embed(&direct_embedding, embedding_request.clone())
+        .await
+        .unwrap();
+    let embedding_call = embedding::call(erased_embedding.as_ref(), embedding_request.clone())
+        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+        .unwrap();
+    assert_eq!(embedding_call.request(), &embedding_request);
+    assert_eq!(
+        embedding_call.base_options().retry().maximum_attempts(),
+        Some(2)
+    );
+    let erased_embedding_response = embedding_call.embed().await.unwrap();
+    assert_eq!(direct_embedding_response, erased_embedding_response);
+    assert_eq!(direct_embedding_response.embeddings.len(), 2);
+    assert_eq!(embedding_calls.load(Ordering::SeqCst), 2);
 
-    let response = embedding::embed(&model, request).await.unwrap();
+    let rerank_calls = Arc::new(AtomicUsize::new(0));
+    let direct_rerank = fake_rerank(
+        ModelId::new("direct-rerank-v1").unwrap(),
+        rerank_calls.clone(),
+    );
+    let erased_rerank: Arc<dyn RerankModel> = Arc::new(fake_rerank(
+        ModelId::new("erased-rerank-v1").unwrap(),
+        rerank_calls.clone(),
+    ));
+    let rerank_request = RerankRequest::new(
+        "query",
+        vec![
+            RerankCandidate::new("first")
+                .unwrap()
+                .with_id("first-id")
+                .unwrap(),
+            RerankCandidate::new("second")
+                .unwrap()
+                .with_id("second-id")
+                .unwrap(),
+        ],
+    )
+    .unwrap();
+    let direct_rerank_response = rerank::rerank(&direct_rerank, rerank_request.clone())
+        .await
+        .unwrap();
+    let rerank_call = rerank::call(erased_rerank.as_ref(), rerank_request.clone())
+        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+        .unwrap();
+    assert_eq!(rerank_call.request(), &rerank_request);
+    assert_eq!(
+        rerank_call.base_options().retry().maximum_attempts(),
+        Some(2)
+    );
+    let erased_rerank_response = rerank_call.rerank().await.unwrap();
+    assert_eq!(direct_rerank_response, erased_rerank_response);
+    assert_eq!(direct_rerank_response.results.len(), 2);
+    assert_eq!(direct_rerank_response.provider["query"], "query");
+    assert_eq!(rerank_calls.load(Ordering::SeqCst), 2);
 
-    assert_eq!(response.embeddings.len(), 2);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let image_calls = Arc::new(AtomicUsize::new(0));
+    let direct_image = fake_image(
+        ModelId::new("direct-image-v1").unwrap(),
+        image_calls.clone(),
+    );
+    let erased_image: Arc<dyn ImageModel> = Arc::new(fake_image(
+        ModelId::new("erased-image-v1").unwrap(),
+        image_calls.clone(),
+    ));
+    let image_request = ImageRequest::new("draw an exact red square")
+        .unwrap()
+        .with_count(2)
+        .unwrap();
+    let direct_image_response = image::generate(&direct_image, image_request.clone())
+        .await
+        .unwrap();
+    let image_call = image::call(erased_image.as_ref(), image_request.clone())
+        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+        .unwrap();
+    assert_eq!(image_call.request(), &image_request);
+    assert_eq!(
+        image_call.base_options().retry().maximum_attempts(),
+        Some(2)
+    );
+    let erased_image_response = image_call.generate().await.unwrap();
+    assert_eq!(direct_image_response, erased_image_response);
+    assert_eq!(direct_image_response.images.len(), 2);
+    assert_eq!(
+        direct_image_response.images[0].revised_prompt.as_deref(),
+        Some("draw an exact red square")
+    );
+    assert_eq!(image_calls.load(Ordering::SeqCst), 2);
+
+    let speech_calls = Arc::new(AtomicUsize::new(0));
+    let direct_speech = fake_speech(
+        ModelId::new("direct-speech-v1").unwrap(),
+        speech_calls.clone(),
+    );
+    let erased_speech: Arc<dyn SpeechModel> = Arc::new(fake_speech(
+        ModelId::new("erased-speech-v1").unwrap(),
+        speech_calls.clone(),
+    ));
+    let speech_request = SpeechRequest::new("speak exactly")
+        .unwrap()
+        .with_voice("fixture-voice")
+        .unwrap()
+        .with_format("wav")
+        .unwrap()
+        .with_language("en")
+        .unwrap()
+        .with_speed(1.25)
+        .unwrap();
+    let direct_speech_response = speech::synthesize(&direct_speech, speech_request.clone())
+        .await
+        .unwrap();
+    let speech_call = speech::call(erased_speech.as_ref(), speech_request.clone())
+        .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+        .unwrap();
+    assert_eq!(speech_call.request(), &speech_request);
+    assert_eq!(
+        speech_call.base_options().retry().maximum_attempts(),
+        Some(2)
+    );
+    let erased_speech_response = speech_call.synthesize().await.unwrap();
+    assert_eq!(direct_speech_response, erased_speech_response);
+    assert_eq!(direct_speech_response.audio.as_ref(), b"speak exactly");
+    assert_eq!(speech_calls.load(Ordering::SeqCst), 2);
+
+    let transcription_calls = Arc::new(AtomicUsize::new(0));
+    let direct_transcription = fake_transcription(
+        ModelId::new("direct-transcription-v1").unwrap(),
+        transcription_calls.clone(),
+    );
+    let erased_transcription: Arc<dyn TranscriptionModel> = Arc::new(fake_transcription(
+        ModelId::new("erased-transcription-v1").unwrap(),
+        transcription_calls.clone(),
+    ));
+    let transcription_request = TranscriptionRequest::new(vec![1_u8, 2, 3], "audio/wav")
+        .unwrap()
+        .with_language("en")
+        .unwrap()
+        .with_prompt("preserve this prompt")
+        .unwrap();
+    let direct_transcription_response =
+        transcription::transcribe(&direct_transcription, transcription_request.clone())
+            .await
+            .unwrap();
+    let transcription_call =
+        transcription::call(erased_transcription.as_ref(), transcription_request.clone())
+            .with_options(CallOptions::default().with_max_attempts(2).unwrap())
+            .unwrap();
+    assert_eq!(transcription_call.request(), &transcription_request);
+    assert_eq!(transcription_call.request().audio().as_ref(), [1_u8, 2, 3]);
+    assert_eq!(transcription_call.request().media_type(), "audio/wav");
+    assert_eq!(
+        transcription_call.base_options().retry().maximum_attempts(),
+        Some(2)
+    );
+    let erased_transcription_response = transcription_call.transcribe().await.unwrap();
+    assert_eq!(direct_transcription_response, erased_transcription_response);
+    assert_eq!(direct_transcription_response.text, "audio/wav:3");
+    assert_eq!(transcription_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
-async fn family_helper_resolves_relative_timeout_at_invocation() {
+async fn non_language_facade_validates_model_limits_before_dispatch() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let model = fake(ModelId::new("limited-embedding-v1").unwrap(), calls.clone());
+    let request = EmbeddingRequest::new(["one", "two", "three", "four", "five"]).unwrap();
+
+    let error = embedding::embed(&model, request).await.unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn embedding_call_resolves_relative_timeout_at_invocation() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let model = DeadlineEmbedding {
@@ -1351,7 +1710,10 @@ async fn family_helper_resolves_relative_timeout_at_invocation() {
     tokio::time::sleep(Duration::from_millis(150)).await;
     let invoked_at = Instant::now();
 
-    embedding::embed_with_options(&model, EmbeddingRequest::single("hello").unwrap(), options)
+    embedding::call(&model, EmbeddingRequest::single("hello").unwrap())
+        .with_options(options)
+        .unwrap()
+        .embed()
         .await
         .unwrap();
 
@@ -1363,15 +1725,243 @@ async fn family_helper_resolves_relative_timeout_at_invocation() {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    let error = embedding::embed_with_options(
-        &model,
-        EmbeddingRequest::single("hello").unwrap(),
-        CallOptions::default().with_timeout(Duration::MAX).unwrap(),
-    )
-    .await
-    .unwrap_err();
+    let error = embedding::call(&model, EmbeddingRequest::single("hello").unwrap())
+        .with_options(CallOptions::default().with_timeout(Duration::MAX).unwrap())
+        .unwrap()
+        .embed()
+        .await
+        .unwrap_err();
     assert_eq!(error.kind(), siumai::ErrorKind::InvalidInput);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn facade_convergence_removes_the_redundant_public_paths() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!manifest_dir.join("src/families.rs").exists());
+
+    let lib = include_str!("../src/lib.rs");
+    let prelude = include_str!("../src/prelude.rs");
+    assert!(!lib.contains("pub mod families;"));
+    for module in [
+        "embedding",
+        "image",
+        "language",
+        "rerank",
+        "speech",
+        "transcription",
+    ] {
+        assert!(lib.contains(&format!("pub mod {module};")));
+    }
+
+    let runtime_exports = lib
+        .split_once("pub use runtime::{")
+        .expect("runtime root exports remain curated")
+        .1
+        .split_once("};")
+        .expect("runtime root export block")
+        .0;
+    assert!(!runtime_exports.contains("generate"));
+    assert!(!runtime_exports.contains("stream"));
+    let prelude_runtime_exports = prelude
+        .split_once("pub use crate::{RunBudget")
+        .expect("runtime prelude exports remain curated")
+        .1
+        .split_once("};")
+        .expect("runtime prelude export block")
+        .0;
+    assert!(!prelude_runtime_exports.contains("generate"));
+    assert!(!prelude_runtime_exports.contains("stream"));
+
+    let facade_modules = [
+        include_str!("../src/language.rs"),
+        include_str!("../src/embedding.rs"),
+        include_str!("../src/rerank.rs"),
+        include_str!("../src/image.rs"),
+        include_str!("../src/speech.rs"),
+        include_str!("../src/transcription.rs"),
+    ];
+    for removed in [
+        "generate_with_options",
+        "stream_with_options",
+        "embed_with_options",
+        "rerank_with_options",
+        "synthesize_with_options",
+        "transcribe_with_options",
+    ] {
+        assert!(
+            facade_modules
+                .iter()
+                .all(|source| !source.contains(removed))
+        );
+    }
+}
+
+#[cfg(all(feature = "openai", feature = "cohere"))]
+#[tokio::test]
+async fn non_language_calls_bind_typed_options_to_the_exact_executing_model() {
+    use siumai::core::{ApiModeId, ProviderInstanceId, ProviderScope};
+    use siumai::providers::cohere::options::CohereRerankOptions;
+    use siumai::providers::openai::audio::speech::OpenAiSpeechOptions;
+    use siumai::providers::openai::audio::transcription::OpenAiTranscriptionOptions;
+    use siumai::providers::openai::embeddings::OpenAiEmbeddingOptions;
+    use siumai::providers::openai::images::OpenAiImageOptions;
+
+    fn descriptor(
+        provider: &str,
+        api_mode: &str,
+        family: ModelFamily,
+        model: &str,
+    ) -> ModelDescriptor {
+        let scope = ProviderScope::new(ProviderId::new(provider).unwrap())
+            .with_api_mode(ApiModeId::new(api_mode).unwrap());
+        ModelDescriptor::from_scope(
+            Arc::new(scope),
+            ModelId::new(model).unwrap(),
+            family,
+            ProviderInstanceId::new(),
+        )
+    }
+
+    let embedding_calls = Arc::new(AtomicUsize::new(0));
+    let embedding_observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let embedding = DeadlineEmbedding {
+        descriptor: descriptor(
+            "openai",
+            "embeddings",
+            ModelFamily::Embedding,
+            "embedding-v1",
+        ),
+        calls: embedding_calls.clone(),
+        observed: embedding_observed.clone(),
+    };
+    let embedding_options = OpenAiEmbeddingOptions::new()
+        .with_user("facade-test")
+        .unwrap();
+    let embedding_call = embedding::call(
+        &embedding,
+        EmbeddingRequest::single("typed embedding").unwrap(),
+    )
+    .with_provider_options(&embedding_options)
+    .unwrap();
+    assert!(!embedding_call.base_options().has_provider_options());
+    embedding_call.embed().await.unwrap();
+    {
+        let observed = embedding_observed
+            .lock()
+            .expect("embedding option observation lock");
+        let selection = observed[0].provider_options_for(&embedding).unwrap();
+        let mut selected = selection.typed();
+        let options = selected.next().expect("one typed embedding option");
+        assert!(selected.next().is_none());
+        assert_eq!(options.namespace().as_str(), "openai");
+        assert_eq!(options.value()["user"], "facade-test");
+    }
+    assert_eq!(embedding_calls.load(Ordering::SeqCst), 1);
+
+    let foreign_embedding = DeadlineEmbedding {
+        descriptor: descriptor(
+            "openai",
+            "embeddings",
+            ModelFamily::Embedding,
+            "embedding-v1",
+        ),
+        calls: Arc::new(AtomicUsize::new(0)),
+        observed: Arc::new(std::sync::Mutex::new(Vec::new())),
+    };
+    let foreign_baseline = CallOptions::default()
+        .with_provider_options_for(&foreign_embedding, &embedding_options)
+        .unwrap();
+    let mismatch = match embedding::call(
+        &embedding,
+        EmbeddingRequest::single("typed embedding").unwrap(),
+    )
+    .with_options(foreign_baseline)
+    {
+        Ok(_) => panic!("foreign configured instance must fail during builder setup"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        mismatch,
+        siumai::ProviderOptionError::ExactTargetMismatch { .. }
+    ));
+    assert_eq!(embedding_calls.load(Ordering::SeqCst), 1);
+
+    let rerank_calls = Arc::new(AtomicUsize::new(0));
+    let rerank_model = FakeRerank {
+        descriptor: descriptor("cohere", "v2", ModelFamily::Rerank, "rerank-v1"),
+        calls: rerank_calls.clone(),
+        expect_provider_options: true,
+    };
+    rerank::call(
+        &rerank_model,
+        RerankRequest::new(
+            "typed query",
+            vec![RerankCandidate::new("candidate").unwrap()],
+        )
+        .unwrap(),
+    )
+    .with_provider_options(&CohereRerankOptions::new().with_priority(1))
+    .unwrap()
+    .rerank()
+    .await
+    .unwrap();
+    assert_eq!(rerank_calls.load(Ordering::SeqCst), 1);
+
+    let image_calls = Arc::new(AtomicUsize::new(0));
+    let image_model = FakeImage {
+        descriptor: descriptor(
+            "openai",
+            "image-generations",
+            ModelFamily::Image,
+            "image-v1",
+        ),
+        calls: image_calls.clone(),
+        expect_provider_options: true,
+    };
+    image::call(&image_model, ImageRequest::new("typed image").unwrap())
+        .with_provider_options(&OpenAiImageOptions::default())
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
+    assert_eq!(image_calls.load(Ordering::SeqCst), 1);
+
+    let speech_calls = Arc::new(AtomicUsize::new(0));
+    let speech_model = FakeSpeech {
+        descriptor: descriptor("openai", "audio-speech", ModelFamily::Speech, "speech-v1"),
+        calls: speech_calls.clone(),
+        expect_provider_options: true,
+    };
+    speech::call(&speech_model, SpeechRequest::new("typed speech").unwrap())
+        .with_provider_options(&OpenAiSpeechOptions::default())
+        .unwrap()
+        .synthesize()
+        .await
+        .unwrap();
+    assert_eq!(speech_calls.load(Ordering::SeqCst), 1);
+
+    let transcription_calls = Arc::new(AtomicUsize::new(0));
+    let transcription_model = FakeTranscription {
+        descriptor: descriptor(
+            "openai",
+            "audio-transcriptions",
+            ModelFamily::Transcription,
+            "transcription-v1",
+        ),
+        calls: transcription_calls.clone(),
+        expect_provider_options: true,
+    };
+    transcription::call(
+        &transcription_model,
+        TranscriptionRequest::new(vec![1_u8, 2, 3], "audio/wav").unwrap(),
+    )
+    .with_provider_options(&OpenAiTranscriptionOptions::default())
+    .unwrap()
+    .transcribe()
+    .await
+    .unwrap();
+    assert_eq!(transcription_calls.load(Ordering::SeqCst), 1);
 }
 
 #[cfg(feature = "transport")]
@@ -1541,10 +2131,10 @@ fn facade_exposes_runtime_budget_configuration() {
 
 #[cfg(feature = "runtime")]
 #[tokio::test]
-async fn runtime_facade_reexports_one_call_language_execution() {
+async fn runtime_one_call_language_execution_remains_namespaced() {
     let calls = Arc::new(AtomicUsize::new(0));
     let model = fake_language(ModelId::new("language-v1").unwrap(), calls.clone());
-    let response = siumai::generate(
+    let response = siumai::runtime::generate(
         &model,
         LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
         CallOptions::default(),
@@ -1556,7 +2146,23 @@ async fn runtime_facade_reexports_one_call_language_execution() {
         &response.content()[0],
         ContentPart::Text { text } if text == "facade runtime"
     ));
+    let stream_error = siumai::runtime::stream(
+        &model,
+        LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+        CallOptions::default(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(stream_error.kind(), ErrorKind::Unsupported);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "volcengine")]
+#[test]
+fn provider_native_with_options_methods_remain_nameable() {
+    use siumai::providers::volcengine::ArkImages;
+
+    let _generate_with_options = ArkImages::generate_with_options;
 }
 
 #[cfg(all(feature = "registry", feature = "runtime"))]

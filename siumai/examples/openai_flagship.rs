@@ -1,13 +1,13 @@
 use std::time::Duration;
 
-use siumai::families::language;
+use siumai::language;
 use siumai::providers::openai::models::GPT_5_6;
 use siumai::providers::openai::responses::{
     OpenAiReasoning, OpenAiReasoningEffort, OpenAiResponsesOptions,
 };
 use siumai::providers::openai::{OpenAiCredential, OpenAiProvider};
 use siumai::transport::ProviderHttpTransportSettings;
-use siumai::{CallOptions, LanguageRequest, Message};
+use siumai::{LanguageRequest, Message};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,16 +24,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = provider.responses(GPT_5_6)?;
     let provider_options = OpenAiResponsesOptions::default()
         .with_reasoning(OpenAiReasoning::default().with_effort(OpenAiReasoningEffort::High));
-    let call_options =
-        CallOptions::default().with_provider_options_for(&model, &provider_options)?;
-
-    let response = language::generate_with_options(
+    let response = language::call(
         &model,
         LanguageRequest::new(vec![Message::user(
             "Explain why exact-target provider options are useful in one sentence.",
         )]),
-        call_options,
     )
+    .with_provider_options(&provider_options)?
+    .generate()
     .await?;
     println!(
         "received {} portable content parts",
