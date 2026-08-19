@@ -99,6 +99,10 @@ all-providers = [
 name = "facade_contract"
 path = "tests/facade_contract.rs"
 
+[[test]]
+name = "facade_migration_contract"
+path = "tests/facade_migration_contract.rs"
+
 [[example]]
 name = "openai_flagship"
 path = "examples/openai_flagship.rs"
@@ -122,6 +126,7 @@ required-features = ["openai"]
 [dev-dependencies]
 async-trait.workspace = true
 futures.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 siumai-protocol-openai = { workspace = true, default-features = false }

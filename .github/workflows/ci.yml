@@ -64,13 +64,15 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           cargo check -j 1 -p siumai --no-default-features --lib
+          cargo check -j 1 -p siumai --no-default-features --features registry --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --lib
           cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
           cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
           cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
-          cargo check -j 1 -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching
+          cargo run -j 1 -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching
+          cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
 
       - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}

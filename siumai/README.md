@@ -4,12 +4,16 @@
 provider-neutral model-family contracts and opt-in provider-owned APIs without flattening native
 resources or protocol controls into a least-common-denominator client.
 
+This README documents the unreleased facade on the repository's `main` branch. Until the next
+crates.io beta containing this API is published, use the Git dependency below. Applications staying
+on `0.11.0-beta.10` should use the former `siumai::families` paths documented in the migration guide.
+
 The facade has no provider enabled by default. Select only the providers and orchestration layers
 the application uses:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.10", default-features = false, features = ["openai"] }
+siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["openai"] }
 ```
 
 ## Canonical family calls
@@ -141,7 +145,9 @@ annotations, native resources, and experimental session APIs behind their owning
 Enable `registry` for deterministic lookup over caller-configured providers and `runtime` for
 provider-neutral multi-step execution.
 
-The packaged facade includes four compile-checked examples:
+The facade includes four compile-checked examples. The provider-switching example is also executed
+offline in CI so provider construction, Registry resolution, and synchronous option binding remain
+covered:
 
 - `examples/openai_flagship.rs` combines an exact-target Responses option, the portable language
   family, and the provider-owned Conversations lifecycle;

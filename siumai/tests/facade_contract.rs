@@ -801,6 +801,48 @@ async fn root_language_generate_accepts_a_prompt_and_dispatches_once() {
 }
 
 #[tokio::test]
+async fn language_facade_accepts_family_wide_options_for_a_mode_bound_model() {
+    #[derive(serde::Serialize)]
+    struct FamilyWideOptions {
+        value: &'static str,
+    }
+
+    impl siumai::TypedProviderOptions for FamilyWideOptions {
+        const NAMESPACE: &'static str = "fake";
+        const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+
+        fn binding_requirement(&self) -> siumai::core::ProviderOptionBindingRequirement {
+            siumai::core::ProviderOptionBindingRequirement::Reusable
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let model = recording_language(
+        "fake",
+        "responses",
+        siumai::core::ProviderInstanceId::new(),
+        None,
+        calls.clone(),
+        Arc::new(AtomicUsize::new(0)),
+        observed.clone(),
+    );
+
+    siumai::language::call(&model, "hello")
+        .with_provider_options(&FamilyWideOptions { value: "family" })
+        .unwrap()
+        .generate()
+        .await
+        .unwrap();
+
+    let observed = observed
+        .lock()
+        .expect("recording language observation lock");
+    assert_eq!(observed[0].provider_values, ["family"]);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn language_facade_accepts_concrete_and_erased_models_through_one_generic_function() {
     async fn invoke<M, I>(model: &M, input: I) -> Result<LanguageResponse, LanguageCallError>
     where
@@ -1129,13 +1171,14 @@ async fn language_facade_preserves_established_stream_terminal_semantics() {
     use futures::StreamExt;
 
     async fn terminal(fixture: StreamFixture, options: CallOptions) -> StreamTerminal {
+        let stream_calls = Arc::new(AtomicUsize::new(0));
         let model = LifecycleLanguage {
             descriptor: ModelDescriptor::new(
                 ProviderId::new("fixture").unwrap(),
                 ModelId::new("stream-v1").unwrap(),
                 ModelFamily::Language,
             ),
-            stream_calls: Arc::new(AtomicUsize::new(0)),
+            stream_calls: stream_calls.clone(),
             fixture,
         };
         let events = siumai::language::call(&model, "hello")
@@ -1146,6 +1189,7 @@ async fn language_facade_preserves_established_stream_terminal_semantics() {
             .unwrap()
             .collect::<Vec<_>>()
             .await;
+        assert_eq!(stream_calls.load(Ordering::SeqCst), 1);
         match events.into_iter().last() {
             Some(LanguageStreamEvent::Terminal(terminal)) => terminal,
             _ => panic!("established stream must produce one terminal event"),

@@ -13,11 +13,13 @@ python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
 cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features registry --lib -j 1
 cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
-cargo check -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
+cargo run -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
+cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
@@ -31,12 +33,14 @@ version. These checks are deterministic and offline; credentialed provider tests
 prerequisite unless a maintainer explicitly authorizes the external calls.
 
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
-They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
+They also compile the facade without default features for bare, Registry-only, OpenAI, Anthropic, all-provider,
 and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
 flagship examples are each compiled with only their exact provider feature. The
-`provider_switching` example is compiled with exactly OpenAI, Anthropic, and Registry to protect the
-canonical concrete-to-erased facade journey. This remains a small fixed Cargo-native gate rather
-than a provider-by-feature matrix or a custom public-symbol policy script. Pull requests also run
+`provider_switching` example is executed offline with exactly OpenAI, Anthropic, and Registry, and
+the same exact feature set runs the facade contract test. Together they protect the canonical
+concrete-to-erased construction path and provider-backed dispatch behavior. This remains a small
+fixed Cargo-native gate rather than a provider-by-feature matrix or a custom public-symbol policy
+script. Pull requests also run
 the documentation lane, which builds the OpenAI provider with all optional modules enabled before
 workspace docs and doctests pass. Deterministic nextest failures are not retried, and the workspace
 has a finite global test timeout.

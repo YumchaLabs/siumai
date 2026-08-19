@@ -22,11 +22,16 @@ optional convenience layers, not replacements for provider-specific capabilities
 
 ## Install
 
+The examples in this README document the unreleased facade on the repository's `main` branch.
+Until the next crates.io beta containing this API is published, use the Git dependency below.
+Users staying on `0.11.0-beta.10` should follow the old side of the
+[migration map](docs/migration/siumai-next.md#facade-convergence-after-0110-beta10).
+
 Enable only the provider and integration features that the application uses:
 
 ```toml
 [dependencies]
-siumai = { version = "0.11.0-beta.10", default-features = false, features = ["minimax"] }
+siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -114,7 +119,7 @@ authentication is separate from provider authentication and rotates by rebuildin
 provider. Streamable HTTP MCP reuses only the route type through `McpClientConfig`; WebSocket,
 Realtime, and provider-returned external downloads remain Direct-only.
 
-## Compile-checked facade journeys
+## Verified facade journeys
 
 The facade ships four compile-checked examples:
 
@@ -129,12 +134,12 @@ The facade ships four compile-checked examples:
 - [`trusted_connect_route.rs`](siumai/examples/trusted_connect_route.rs) constructs the trusted
   route and compiles a provider settings handoff without credentials or network I/O.
 
-Compile them independently with only their documented feature set:
+Compile or execute them independently with only their documented feature set:
 
 ```text
 cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
 cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
-cargo check -p siumai --example provider_switching --no-default-features --features openai,anthropic,registry -j 1
+cargo run -p siumai --example provider_switching --no-default-features --features openai,anthropic,registry -j 1
 cargo check -p siumai --example trusted_connect_route --no-default-features --features openai -j 1
 ```
 

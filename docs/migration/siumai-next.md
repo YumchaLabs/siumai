@@ -57,6 +57,37 @@ The seven facade helpers that accepted `CallOptions` as a separate argument move
 | `siumai::families::speech::synthesize_with_options(&model, request, options)` | `siumai::speech::call(&model, request).with_options(options)?.synthesize().await` | Returns the complete buffered speech response. |
 | `siumai::families::transcription::transcribe_with_options(&model, request, options)` | `siumai::transcription::call(&model, request).with_options(options)?.transcribe().await` | Returns the complete transcription response. |
 
+These replacements have two explicit error phases. `with_options` and
+`with_provider_options` validate the complete candidate synchronously and return
+`ProviderOptionError`; no model call has been dispatched when either method fails. The terminal
+language `generate` method still returns `LanguageCallError`, while language `stream` and the five
+non-language terminal methods retain their family `Error` result. Code that previously returned
+only the terminal error type must widen its application error or map the setup error explicitly:
+
+```rust,ignore
+#[derive(Debug, thiserror::Error)]
+enum ApplicationCallError {
+    #[error("invalid provider options")]
+    Setup(#[from] siumai::ProviderOptionError),
+    #[error("language call failed")]
+    Call(#[from] siumai::LanguageCallError),
+}
+
+async fn generate_with_options<M>(
+    model: &M,
+    request: siumai::LanguageRequest,
+    options: siumai::CallOptions,
+) -> Result<siumai::LanguageResponse, ApplicationCallError>
+where
+    M: siumai::LanguageModel + ?Sized,
+{
+    Ok(siumai::language::call(model, request)
+        .with_options(options)?
+        .generate()
+        .await?)
+}
+```
+
 Typed provider options normally no longer need a separately assembled `CallOptions` value:
 
 ```rust,ignore
@@ -105,6 +136,9 @@ Applications depending directly on the owning crates use `siumai_core::LanguageI
 `siumai_runtime::Agent`. The conversion immediately preserves the complete canonical request; Agent
 instruction prepending, request validation, tools, structured output, annotations, and runtime
 behavior are otherwise unchanged.
+
+Direct callers of the removed `AgentInput::into_request` method should use
+`LanguageInput::into_request`.
 
 ### Complete language results and native escape paths
 

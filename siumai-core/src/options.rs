@@ -418,7 +418,7 @@ impl ProviderOptionTarget {
     ) -> bool {
         if self.provider != *model.provider_id()
             || self.family != model.family()
-            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+            || !self.matches_api_mode(model.descriptor().scope().api_mode())
         {
             return false;
         }
@@ -436,6 +436,16 @@ impl ProviderOptionTarget {
         }
     }
 
+    fn matches_api_mode(&self, actual: Option<&ApiModeId>) -> bool {
+        match &self.binding {
+            ProviderOptionBinding::Unbound => self
+                .api_mode
+                .as_ref()
+                .is_none_or(|expected| Some(expected) == actual),
+            ProviderOptionBinding::Model { .. } => self.api_mode.as_ref() == actual,
+        }
+    }
+
     fn mismatch_error<M: Model + ?Sized>(&self, model: &M) -> ProviderOptionError {
         if self.provider != *model.provider_id() {
             return ProviderOptionError::NamespaceMismatch {
@@ -444,7 +454,7 @@ impl ProviderOptionTarget {
             };
         }
         if self.family != model.family()
-            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+            || !self.matches_api_mode(model.descriptor().scope().api_mode())
         {
             return ProviderOptionError::TargetMismatch {
                 expected_family: model.family(),
@@ -508,7 +518,8 @@ fn validate_options_target(
     }
 
     if let Some(actual_family) = options.model_family()
-        && (actual_family != target.family() || options.api_mode() != target.api_mode())
+        && (actual_family != target.family()
+            || (options.api_mode().is_some() && options.api_mode() != target.api_mode()))
     {
         return Err(ProviderOptionError::TargetMismatch {
             expected_family: target.family(),
@@ -526,10 +537,10 @@ fn validate_options_target(
     Ok(())
 }
 
-/// Core-owned validated provider-option patch used by runtime assembly.
+/// Core-owned validated provider-option patch used by higher-layer call assembly.
 ///
 /// Ordinary callers should use the typed [`CallOptions`] builders. This
-/// carrier exists so higher-level orchestration can retain one validated
+/// carrier exists so the facade and runtime can retain one validated
 /// target/options pair without duplicating route, scope, family, API-mode, or
 /// configured-instance identity.
 #[doc(hidden)]
@@ -1447,6 +1458,44 @@ mod tests {
             ),
             Err(ProviderOptionError::TargetMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn family_wide_typed_options_match_mode_bound_models() {
+        #[derive(Serialize)]
+        struct FamilyWideOptions {
+            value: &'static str,
+        }
+
+        impl TypedProviderOptions for FamilyWideOptions {
+            const NAMESPACE: &'static str = "openai";
+            const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+
+            fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+                ProviderOptionBindingRequirement::Reusable
+            }
+        }
+
+        let model = fake_model("openai", "responses", None);
+        let reusable = CallOptions::default()
+            .with_provider_options(&FamilyWideOptions { value: "shared" })
+            .unwrap();
+        assert_eq!(
+            reusable
+                .provider_options_for(&model)
+                .unwrap()
+                .typed()
+                .count(),
+            1
+        );
+
+        let exact = CallOptions::default()
+            .with_provider_options_for(&model, &FamilyWideOptions { value: "exact" })
+            .unwrap();
+        assert_eq!(
+            exact.provider_options_for(&model).unwrap().typed().count(),
+            1
+        );
     }
 
     #[test]

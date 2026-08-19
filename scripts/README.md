@@ -54,20 +54,23 @@ repository script:
 
 ```text
 cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features registry --lib -j 1
 cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
-cargo check -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
+cargo run -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
+cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 python3 -B scripts/check_package_file_list.py
 ```
 
-`provider_switching` is the Cargo-native facade convergence gate: one application function must
-compile for concrete, explicitly erased, and Registry-resolved language models while real OpenAI
-and Anthropic typed options, annotations, metadata views, and concrete native resources remain
-nameable. Keep this as an exact example target; do not mirror its public symbols or feature graph in
-a repository policy script.
+`provider_switching` is the Cargo-native facade convergence gate: one application function must run
+through concrete, explicitly erased, and Registry-resolved language-model construction while real
+OpenAI and Anthropic typed options, annotations, metadata views, and concrete native resources
+remain nameable. The adjacent exact-feature facade contract exercises provider-backed dispatch.
+Keep these as fixed Cargo targets; do not mirror their public symbols or feature graph in a
+repository policy script.
 
 The package checker invokes `cargo package --workspace --list --locked` and rejects a small set of
 credential, private configuration, repository-local, editor-state, and live-canary artifact paths.
