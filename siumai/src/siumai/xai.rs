@@ -11,6 +11,17 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().xai().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .xai()
+///     .api_key("test-api-key")
+///     .build()
+///     .unwrap();
+/// let _ = hub.embedding("unsupported-model");
+/// ```
 #[must_use = "supply an xAI credential to continue provider construction"]
 pub struct XaiCredentialStage {
     _private: (),

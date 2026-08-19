@@ -2211,7 +2211,7 @@ mod branded_compatible_options {
         };
         assert!(matches!(
             error,
-            ProviderOptionError::ExactTargetMismatch { .. }
+            ProviderOptionError::NamespaceMismatch { .. }
         ));
 
         Ok(())

@@ -11,6 +11,17 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().groq().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .groq()
+///     .api_key("test-api-key")
+///     .build()
+///     .unwrap();
+/// let _ = hub.embedding("unsupported-model");
+/// ```
 #[must_use = "supply a Groq credential to continue provider construction"]
 pub struct GroqCredentialStage {
     _private: (),

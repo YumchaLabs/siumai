@@ -13,6 +13,17 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().deepseek().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .deepseek()
+///     .api_key("test-api-key")
+///     .build()
+///     .unwrap();
+/// let _ = hub.embedding("unsupported-model");
+/// ```
 #[must_use = "supply a DeepSeek credential to continue provider construction"]
 pub struct DeepSeekCredentialStage {
     _private: (),

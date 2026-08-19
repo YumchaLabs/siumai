@@ -13,6 +13,17 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().volcengine().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .volcengine()
+///     .api_key("test-api-key")
+///     .build()
+///     .unwrap();
+/// let _ = hub.embedding("unsupported-model");
+/// ```
 #[must_use = "supply a Volcengine credential to continue provider construction"]
 pub struct VolcengineCredentialStage {
     _private: (),

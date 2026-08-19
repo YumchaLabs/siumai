@@ -13,6 +13,17 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().minimax().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .minimax()
+///     .api_key("test-api-key")
+///     .build()
+///     .unwrap();
+/// let _ = hub.embedding("unsupported-model");
+/// ```
 #[must_use = "supply a MiniMax credential to continue provider construction"]
 pub struct MinimaxCredentialStage {
     _private: (),

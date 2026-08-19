@@ -13,6 +13,18 @@ use super::{Siumai, SiumaiBuilder};
 ///
 /// let _ = Siumai::builder().alibaba().build();
 /// ```
+///
+/// ```compile_fail
+/// use siumai::Siumai;
+///
+/// let hub = Siumai::builder()
+///     .alibaba()
+///     .api_key("test-api-key")
+///     .configure_provider(|builder| builder.with_legacy_singapore_language())
+///     .build()
+///     .unwrap();
+/// let _ = hub.rerank("unsupported-model");
+/// ```
 #[must_use = "supply an Alibaba credential to continue provider construction"]
 pub struct AlibabaCredentialStage {
     _private: (),
