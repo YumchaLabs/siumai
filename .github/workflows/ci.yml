@@ -73,10 +73,7 @@ jobs:
           cargo nextest run -p siumai --no-default-features --features registry --test facade_contract --test siumai_builder_contract --test-threads 1
           cargo nextest run -p siumai --no-default-features --features runtime --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
           cargo nextest run -p siumai --no-default-features --features openai,registry --test siumai_builder_contract --test-threads 1
-          while IFS= read -r feature
-          do
-            cargo check -j 1 -p siumai --no-default-features --features "${feature}" --test siumai_builder_contract
-          done < <(
+          provider_features="$(
             python3 - <<'PY'
           import json
           import subprocess
@@ -156,7 +153,11 @@ jobs:
 
           print("\n".join(sorted(features)))
           PY
-          )
+          )" || exit $?
+          while IFS= read -r feature
+          do
+            cargo check -j 1 -p siumai --no-default-features --features "${feature}" --test siumai_builder_contract
+          done <<< "${provider_features}"
           cargo check -j 1 -p siumai --no-default-features --features all-providers,openai-compatible --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
