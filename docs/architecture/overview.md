@@ -1,13 +1,14 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-17
+- Updated: 2026-08-19
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
   `docs/adr/0015-validation-ownership-and-forward-compatibility.md`,
   `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
-  `docs/adr/0018-openai-configured-execution-kernel.md`
+  `docs/adr/0018-openai-configured-execution-kernel.md`,
+  `docs/adr/0019-facade-family-call-ownership.md`
 
 ## Product shape
 
@@ -38,6 +39,30 @@ Realtime sessions, live connections, streaming transcription or translation, vid
 and asynchronous media jobs have distinct lifecycle semantics and remain explicit experimental or
 provider-owned resources. Files, batches, skills, assistants, hosted applications, and remote model
 catalogs are resources rather than model families.
+
+## Canonical facade boundary
+
+The `siumai` facade presents the six stable families as root modules: `language`, `embedding`,
+`rerank`, `image`, `speech`, and `transcription`. A default operation covers the concise path, while
+each module's `call` function creates a single-use bound call for explicit `CallOptions` and typed
+provider options. The call borrows the selected live model, so a concrete model and the corresponding
+Registry-resolved trait object follow the same application path without provider matching or
+downcasting.
+
+Language input normalizes a string, one message, a message list, or a complete request through the
+core-owned `LanguageInput` adapter. The other families keep their honest request types and operation
+names. Every terminal operation returns the existing complete family response or stream type; the
+facade does not introduce a universal result enum or text-only response.
+
+Typed provider options bind to the exact live model through the same call builder. Typed annotations
+remain on the message, content part, or tool they modify. Provider-native files, batches, catalogs,
+sessions, hosted tools, and media jobs remain on retained concrete providers or models. Registry
+does not recover those APIs from an erased model.
+
+`LanguageResponse::output_text()` is a display projection over canonical text parts, not a semantic
+replacement for the response. Complete content, termination, usage, warnings, metadata, reasoning,
+tools, citations, media, and provider-native state stay available, and assistant continuation uses
+`project_assistant_history()`.
 
 ## Workspace layers
 
@@ -164,6 +189,10 @@ Portable language requests use direction-aware role validation. Prefer `Message:
 `Message::tool_result` over unchecked role/content assembly. Provider codecs validate the complete
 `LanguageRequest` before transport, so response-only citations and refusals, misplaced tool results,
 and unsupported request content cannot be silently accepted.
+
+Ergonomic language entry points accept `LanguageInput`. Its string conversion creates exactly one
+user message and performs no trimming, inference, route selection, or validation; complete requests
+remain authoritative and are validated at the execution boundary.
 
 A portable `ToolCall` is always caller-executed and contains one bounded parsed JSON `ToolInput`.
 Encoded function argument text is normalized exactly once by the protocol decoder. Provider-hosted

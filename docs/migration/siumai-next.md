@@ -1,7 +1,9 @@
 # Migrating to the Siumai Next API
 
-This guide targets the breaking Siumai Next API represented by the current `0.11.0-beta.10`
-workspace. It describes public API migration, not internal refactor history.
+This guide targets the breaking Siumai Next API in the current repository. The focused facade
+section below starts from the published `0.11.0-beta.10` surface; the remaining sections describe
+the broader Next migration. This guide documents public API migration, not internal refactor
+history.
 
 ## Architectural change
 
@@ -19,6 +21,103 @@ routes.
 The base `Provider` trait now exposes canonical provider identity only. Exact platform, protocol,
 and API mode are properties of a concrete model or family registration rather than provider-wide
 metadata.
+
+## Facade convergence after `0.11.0-beta.10`
+
+The facade now has one canonical portability path: choose or resolve a model, call the matching root
+family module, attach typed provider intent through that call when needed, and keep the concrete
+provider for native APIs. The `siumai::families` umbrella, suffixed facade option helpers, bare
+facade runtime functions, and the runtime-owned `AgentInput` adapter are removed rather than kept as
+aliases.
+
+### Exact symbol map
+
+Default family calls keep their operation names and move from `siumai::families` to root modules:
+
+| `0.11.0-beta.10` symbol | Current replacement | Behavioral note |
+|---|---|---|
+| `use siumai::families::{language, embedding, rerank, image, speech, transcription}` | `use siumai::{language, embedding, rerank, image, speech, transcription}` | The root modules are the only canonical facade family namespace. |
+| `siumai::families::language::generate` | `siumai::language::generate` | Also accepts `&str`, `String`, one `Message`, a message list, or a complete `LanguageRequest` through `LanguageInput`; returns the complete `LanguageResponse`. |
+| `siumai::families::language::stream` | `siumai::language::stream` | Accepts the same language input forms and returns the existing established `LanguageStream`. |
+| `siumai::families::embedding::embed` | `siumai::embedding::embed` | Keeps the complete `EmbeddingRequest` and `EmbeddingResponse`. |
+| `siumai::families::rerank::rerank` | `siumai::rerank::rerank` | Keeps the complete query/candidate request and response. |
+| `siumai::families::image::generate` | `siumai::image::generate` | Keeps the complete `ImageRequest` and `ImageResponse`. |
+| `siumai::families::speech::synthesize` | `siumai::speech::synthesize` | Keeps the complete `SpeechRequest` and buffered response. |
+| `siumai::families::transcription::transcribe` | `siumai::transcription::transcribe` | Keeps the complete audio request and final-result response. |
+
+The seven facade helpers that accepted `CallOptions` as a separate argument move to bound calls:
+
+| Removed `0.11.0-beta.10` helper | Current replacement | Behavioral note |
+|---|---|---|
+| `siumai::families::language::generate_with_options(&model, input, options)` | `siumai::language::call(&model, input).with_options(options)?.generate().await` | `with_options` validates the complete candidate synchronously; generation still returns the complete response. |
+| `siumai::families::language::stream_with_options(&model, input, options)` | `siumai::language::call(&model, input).with_options(options)?.stream().await` | Stream establishment and terminal semantics are unchanged. |
+| `siumai::families::embedding::embed_with_options(&model, request, options)` | `siumai::embedding::call(&model, request).with_options(options)?.embed().await` | No universal input or hidden defaults are added. |
+| `siumai::families::rerank::rerank_with_options(&model, request, options)` | `siumai::rerank::call(&model, request).with_options(options)?.rerank().await` | Query and candidates remain explicit. |
+| `siumai::families::image::generate_with_options(&model, request, options)` | `siumai::image::call(&model, request).with_options(options)?.generate().await` | Returns the complete image response. |
+| `siumai::families::speech::synthesize_with_options(&model, request, options)` | `siumai::speech::call(&model, request).with_options(options)?.synthesize().await` | Returns the complete buffered speech response. |
+| `siumai::families::transcription::transcribe_with_options(&model, request, options)` | `siumai::transcription::call(&model, request).with_options(options)?.transcribe().await` | Returns the complete transcription response. |
+
+Typed provider options normally no longer need a separately assembled `CallOptions` value:
+
+```rust,ignore
+let response = siumai::language::call(&model, "Summarize the request")
+    .with_provider_options(&provider_options)?
+    .generate()
+    .await?;
+```
+
+The patch binds to the exact live model, including configured-instance identity and canonical
+Registry route. Typed annotations remain on the message, content part, or tool they modify. If an
+application already owns a complete `CallOptions` baseline, pass it through `with_options` and add
+typed patches through subsequent `with_provider_options` calls; their order is preserved.
+
+The runtime single-call helpers still exist, but only in the runtime namespace:
+
+| Removed facade export | Current replacement | Behavioral note |
+|---|---|---|
+| `siumai::generate` | `siumai::runtime::generate` | This is the runtime single-call helper, not `siumai::language::generate`. |
+| `siumai::stream` | `siumai::runtime::stream` | This is the runtime single-call stream helper. |
+| `generate` imported from `siumai::prelude::*` | `siumai::runtime::generate` | Import it explicitly; the prelude no longer creates a name collision with family operations. |
+| `stream` imported from `siumai::prelude::*` | `siumai::runtime::stream` | Import it explicitly from the runtime module. |
+
+### `AgentInput` to `LanguageInput`
+
+`siumai_runtime::AgentInput` is removed. Agent methods now accept `Into<LanguageInput>`, sharing the
+same provider-neutral conversion as facade language calls. Strings, messages, message lists, and
+complete requests continue to work without wrapping.
+
+If downstream code implemented a custom conversion into `AgentInput`, move that conversion to
+`LanguageInput`:
+
+```rust,no_run
+use siumai::{LanguageInput, LanguageRequest};
+
+struct LocalAgentInput(LanguageRequest);
+
+impl From<LocalAgentInput> for LanguageInput {
+    fn from(input: LocalAgentInput) -> Self {
+        input.0.into()
+    }
+}
+```
+
+Applications depending directly on the owning crates use `siumai_core::LanguageInput` with
+`siumai_runtime::Agent`. The conversion immediately preserves the complete canonical request; Agent
+instruction prepending, request validation, tools, structured output, annotations, and runtime
+behavior are otherwise unchanged.
+
+### Complete language results and native escape paths
+
+The concise call still returns a complete `LanguageResponse`. Use `output_text()` only when the
+application needs a display string. It concatenates canonical text parts in order and returns
+`None` when there is no text part; reasoning, refusals, tools, citations, media, provider-native
+state, termination, usage, warnings, and metadata remain on the response. It does not replace
+`project_assistant_history()` for continuation.
+
+A Registry-resolved model exposes the same family trait accepted by the root module, so portable
+application code does not match on providers. Registry does not downcast that trait object into
+native capabilities. Retain the concrete configured provider beside Registry when the application
+also needs provider-owned files, batches, catalogs, sessions, hosted tools, or media jobs.
 
 ## Breaking ownership API map
 
@@ -352,54 +451,57 @@ constructed.
 
 ## Requests and execution
 
-Replace compatibility `ChatRequest` calls and broad client methods with `LanguageRequest`, a
-concrete language model, and the family helper or `LanguageModel` trait:
+Replace compatibility `ChatRequest` calls and broad client methods with a concrete language model
+and the root language facade. A plain prompt uses the shared `LanguageInput` conversion; construct a
+complete `LanguageRequest` only when the call needs messages, tools, structured output, annotations,
+or other portable request fields:
 
 ```rust,no_run
-use siumai::families::language;
+use siumai::language;
 use siumai::providers::minimax::{MinimaxCredential, MinimaxProvider};
-use siumai::{LanguageRequest, Message, MessageRole};
 
 # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
 let model = provider.language("MiniMax-M3")?;
-let response = language::generate(
-    &model,
-    LanguageRequest::new(vec![Message::text(MessageRole::User, "Hello")]),
-)
-.await?;
-println!("{:?}", response.content());
+let response = language::generate(&model, "Hello").await?;
+println!("{:?}", response.output_text());
 # Ok(())
 # }
 ```
 
 Shared requests contain portable semantics. Provider-specific call behavior moves into typed
-provider options carried by `CallOptions`:
+provider options bound through the same family call:
 
 ```rust,no_run
+use siumai::language;
 use siumai::providers::minimax::{
     MinimaxCredential, MinimaxMessagesOptions, MinimaxProvider, MinimaxServiceTier,
     MinimaxThinking,
 };
-use siumai::CallOptions;
 
-# let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
-# let model = provider.language("MiniMax-M3")?;
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key")).build()?;
+let model = provider.language("MiniMax-M3")?;
 let minimax = MinimaxMessagesOptions::new()
     .with_thinking(MinimaxThinking::Adaptive)
     .with_service_tier(MinimaxServiceTier::Priority);
-let options = CallOptions::default().with_provider_options_for(&model, &minimax)?;
-# Ok::<(), Box<dyn std::error::Error>>(())
+let response = language::call(&model, "Hello")
+    .with_provider_options(&minimax)?
+    .generate()
+    .await?;
+println!("{:?}", response.output_text());
+# Ok(())
+# }
 ```
 
-The ordinary builder binds typed options to the exact configured model instance, family, API mode,
-and selected Registry route. This prevents credentials, replay-sensitive state, and provider-body
-authorization from crossing two configurations that happen to share public provider labels. A
-typed option may use `with_provider_options(&options)` only when its provider-owned type explicitly
-opts into reusable, instance-insensitive targeting. Routing fallbacks use the `with_optional_*_for`
-methods. Raw forward-compatible body fields use `with_raw_provider_json_for(&model, bytes)` or the
-`Value` convenience method and remain subject to exact targeting, aggregate bounds, and the selected
-provider mode's protected-field policy.
+The bound call validates typed options against the exact configured model instance, family, API
+mode, and selected Registry route before execution. This prevents credentials, replay-sensitive
+state, and provider-body authorization from crossing two configurations that happen to share public
+provider labels. Lower-level option assembly remains available through
+`CallOptions::with_provider_options_for(&model, &options)`. Routing fallbacks use the
+`with_optional_*_for` methods. Raw forward-compatible body fields use
+`with_raw_provider_json_for(&model, bytes)` or the `Value` convenience method and remain subject to
+exact targeting, aggregate bounds, and the selected provider mode's protected-field policy.
 
 Do not move credentials, endpoints, authorization headers, or transport policy into provider
 options. The provider builder owns those settings.
@@ -1034,14 +1136,29 @@ and `create_with_options` respectively.
 
 ## Migration checklist
 
+- Replace every `siumai::families::*` import with the matching root `language`, `embedding`,
+  `rerank`, `image`, `speech`, or `transcription` module.
+- Replace the seven facade `*_with_options` helpers with
+  `family::call(...).with_options(options)?.<terminal>().await`; attach typed provider intent with
+  `with_provider_options` on the same bound call.
+- Import runtime single-call helpers explicitly from `siumai::runtime::{generate, stream}` rather
+  than the facade root or prelude.
+- Replace `siumai_runtime::AgentInput` and downstream conversions into it with
+  `siumai_core::LanguageInput` or the facade re-export `siumai::LanguageInput`.
+- Treat `LanguageResponse::output_text()` as an optional display projection only; retain the
+  complete response for termination, usage, warnings, metadata, non-text content, and history
+  projection.
+- Pass concrete and Registry-resolved models through the same root family functions, and retain the
+  concrete provider separately for native resources instead of attempting a Registry downcast.
 - Replace `MinimaxConfig` and `MinimaxClient` with `MinimaxCredential` and `MinimaxProvider`.
 - Construct a family model explicitly and keep the configured provider long-lived.
 - Replace compatibility chat request types with `LanguageRequest`, `Message`, and `MessagePart`.
 - Replace direct `ToolCall` field construction with `ToolCall::local` and checked accessors.
 - Use role-safe message constructors and project responses with
   `LanguageResponse::project_assistant_history()` before appending assistant history.
-- Move provider call controls into the matching typed MiniMax options and bind them with
-  `CallOptions::with_provider_options_for`.
+- Move provider call controls into the matching typed MiniMax options and bind them through the
+  root family call builder; use `CallOptions::with_provider_options_for` only for lower-level option
+  assembly.
 - Replace public provider-option origin/layer/merger code with ordered exact-target patches; keep
   route, model, step, and call precedence inside runtime assembly.
 - Replace `LanguageResponseStatus`/`FinishReason` matches with `LanguageTermination`; handle direct

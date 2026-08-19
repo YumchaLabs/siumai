@@ -1,9 +1,10 @@
 # Registry Contract
 
 - Status: Current repository contract
-- Updated: 2026-08-17
+- Updated: 2026-08-19
 - Owner: `siumai-registry`
-- Related decision: `docs/adr/0013-provider-identity-and-family-registration.md`
+- Related decisions: `docs/adr/0013-provider-identity-and-family-registration.md`,
+  `docs/adr/0019-facade-family-call-ownership.md`
 
 ## Purpose
 
@@ -34,6 +35,26 @@ Resolution attaches the canonical route through private family wrappers so route
 options and route-aware errors survive delegation to the configured provider model. The public
 `RegistryModelContext` remains the typed requested-versus-canonical route context carried by
 resolution failures; the wrappers themselves are not an extension surface.
+
+## Facade handoff
+
+Callers resolve a route once and pass the returned family trait object to the same root facade module
+used by a concrete model:
+
+```rust,ignore
+let model = registry.language_model("primary:gpt-5.6")?;
+let response = siumai::language::generate(model.as_ref(), "Summarize the request").await?;
+```
+
+The facade call borrows that exact live handle. Typed provider options therefore validate against
+the canonical route and configured-instance identity before dispatch, and route-aware facade errors
+retain the Registry route context. The facade never accepts a Registry plus a route string and does
+not resolve the target again after options are bound.
+
+Resolution erases concrete provider methods intentionally. Registry does not expose `Any`, a
+provider enum, a capability downcast, or a native-resource recovery API. Applications that need
+portable routing and provider-native files, batches, sessions, or jobs keep the configured concrete
+provider beside the Registry snapshot and call those native APIs directly.
 
 ## Route semantics
 

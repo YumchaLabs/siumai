@@ -17,6 +17,7 @@ cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
+cargo check -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
@@ -32,11 +33,13 @@ prerequisite unless a maintainer explicitly authorizes the external calls.
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
 They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
 and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
-flagship examples are each compiled with only their exact provider feature. This remains a small
-fixed gate rather than a provider-by-feature matrix. Pull requests also run the documentation lane,
-which builds the OpenAI provider with all optional modules enabled before workspace docs and
-doctests pass. Deterministic nextest failures are not retried, and the workspace has a finite global
-test timeout.
+flagship examples are each compiled with only their exact provider feature. The
+`provider_switching` example is compiled with exactly OpenAI, Anthropic, and Registry to protect the
+canonical concrete-to-erased facade journey. This remains a small fixed Cargo-native gate rather
+than a provider-by-feature matrix or a custom public-symbol policy script. Pull requests also run
+the documentation lane, which builds the OpenAI provider with all optional modules enabled before
+workspace docs and doctests pass. Deterministic nextest failures are not retried, and the workspace
+has a finite global test timeout.
 
 The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
 `claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
@@ -61,6 +64,20 @@ README/rustdoc entry point. The facade's documented feature set must match its `
 configuration. A breaking release updates the root changelog and migration guide together. The first
 published version after this API reset becomes the new semver baseline; do not hide intentional
 breaks behind compatibility aliases merely to satisfy the previous beta baseline.
+
+The compatibility boundary established by
+[ADR 0019](adr/0019-facade-family-call-ownership.md) includes the six root family modules, their
+default operations, their bound `call` entry points and public call types, complete family response
+types, and typed provider-option ownership. A later beta release that breaks this boundary must not
+enter the standard release flow until review confirms all of the following:
+
+- an architecture rationale names every affected canonical symbol;
+- the migration guide contains an exact old-symbol-to-new-symbol map and behavioral notes;
+- the root README, facade rustdoc, and compile-checked examples teach the replacement path;
+- the changelog identifies the break, and Cargo-native no-default/provider/Registry gates cover it.
+
+Compatibility aliases are not required, but migration evidence is. Release review should stop on a
+canonical rename or ownership move that lacks any item above.
 
 ## What gets released
 

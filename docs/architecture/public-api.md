@@ -1,7 +1,7 @@
 # Public API and Extension Policy
 
 - Status: Current repository contract
-- Updated: 2026-08-17
+- Updated: 2026-08-19
 
 ## Public entry points
 
@@ -10,7 +10,8 @@ Applications may depend directly on an owning crate or use the `siumai` facade:
 - direct provider crates are the authoritative surface for provider construction, protocol modes,
   typed options, metadata, and native resources;
 - `siumai::providers::*` contains curated provider namespaces rather than blanket crate mirrors;
-- `siumai::prelude::*` exports the provider-neutral family contracts used by application code;
+- `siumai::{language, embedding, rerank, image, speech, transcription}` owns the canonical facade
+  calls, and `siumai::prelude::*` exports those modules plus their provider-neutral contracts;
 - `siumai::registry`, `siumai::runtime`, and the curated `siumai::transport` configuration
   namespace are optional facade integrations;
 - transport execution, protocol codecs, MCP, and server adapters remain available from their
@@ -19,6 +20,44 @@ Applications may depend directly on an owning crate or use the `siumai` facade:
 The facade does not expose a universal client or provider capability downcasts. Direct and routed
 models implement the same family traits, so an application can choose provider fidelity, local
 routing, or both without maintaining two execution APIs.
+
+## Canonical family facade
+
+The facade exposes six root family modules. Each module keeps the existing family request and
+response contract rather than wrapping results in a universal response:
+
+| Family module | Default operation | Bound call terminal |
+|---|---|---|
+| `language` | `generate`, `stream` | `call(...).generate()`, `call(...).stream()` |
+| `embedding` | `embed` | `call(...).embed()` |
+| `rerank` | `rerank` | `call(...).rerank()` |
+| `image` | `generate` | `call(...).generate()` |
+| `speech` | `synthesize` | `call(...).synthesize()` |
+| `transcription` | `transcribe` | `call(...).transcribe()` |
+
+Language entry points accept `LanguageInput`, which normalizes a string, one `Message`, a message
+list, or a complete `LanguageRequest` immediately and losslessly into the canonical request. The
+other families retain their complete request types because their required inputs and validation are
+not interchangeable.
+
+Every `call` builder borrows one already selected live model and owns one request, one replaceable
+`CallOptions` baseline, and ordered typed provider-option patches. `with_options` and
+`with_provider_options` are fallible and validate their complete candidate state synchronously.
+Execution resolves the deadline, validates the portable request, validates exact provider-option
+selection for that same model, and dispatches once. The builder never stores a Registry or route
+string and never re-resolves the target after options are bound.
+
+A concrete provider model and a Registry-resolved `Arc<dyn LanguageModel>` (or the corresponding
+family trait object) use the same entry point. Registry resolution is explicit and network-free;
+the facade does not construct providers, select routes, match provider identities, or downcast
+erased models. Applications retain the configured concrete provider beside Registry when they also
+need native resources or sessions.
+
+Language calls return the complete `LanguageResponse` or established `LanguageStream`.
+`LanguageResponse::text_parts()` and `output_text()` are display-oriented projections only:
+reasoning, refusals, tools, citations, media, and provider-native state remain on the complete
+response. Text projection is not assistant-history projection; use
+`project_assistant_history()` for continuation and replay.
 
 ## Provider construction
 
@@ -112,11 +151,13 @@ Realtime, provider-returned external downloads, or arbitrary-URL proxy routing.
 ## Typed provider extensions
 
 Provider-specific request behavior uses types owned by the provider package. A typed call option
-declares its provider namespace, model family, and API mode, validates before type erasure, and is
-attached through `CallOptions::with_provider_options_for(&model, &options)`. The normal path binds
-the patch to one configured provider instance. A provider option type may opt into reusable
-unbound targeting only after its author proves that it carries no credentials, replay state, or
-instance-sensitive body data.
+declares its provider namespace, model family, and API mode and validates before type erasure. The
+canonical facade path attaches it with
+`family::call(&model, request).with_provider_options(&options)?`; lower-level callers may assemble
+the same exact-target patch through `CallOptions::with_provider_options_for(&model, &options)`.
+Both paths bind normal provider intent to one configured provider instance. A provider option type
+may opt into reusable unbound targeting only after its author proves that it carries no credentials,
+replay state, or instance-sensitive body data.
 
 Runtime may prepend route, model, and step defaults internally, but those host-level origins are not
 part of the provider-facing contract. Providers receive one ordered exact-target selection, apply
@@ -191,7 +232,9 @@ and settlement rules.
 
 The public contract has three practical levels:
 
-1. stable family contracts in `siumai-core` and the curated facade/prelude;
+1. stable family contracts in `siumai-core` and the curated facade/prelude, including the six root
+   family modules, their default operations, bound call entry points, complete response types, and
+   typed provider-option ownership;
 2. provider-owned stable APIs for documented provider capabilities and resources;
 3. explicitly named experimental modules for sessions, jobs, or capabilities whose lifecycle is
    not yet a stable family primitive.
@@ -199,6 +242,14 @@ The public contract has three practical levels:
 Compatibility namespaces, old generic builders, protocol relays, and source-layout aliases are not
 a stability tier. Breaking releases delete them after the replacement path and migration guidance
 exist.
+
+The root family facade is the compatibility boundary established by
+[ADR 0019](../adr/0019-facade-family-call-ownership.md). A later beta change to a canonical module,
+default operation, bound call, result type, or typed extension owner requires an explicit
+architecture rationale, an exact old-to-new symbol map, synchronized README/rustdoc and
+compile-checked examples, a changelog entry, and release review naming the affected symbols. The
+project may still make an evidence-backed beta break; it must not rename the primary journey
+silently or preserve contradictory aliases as a substitute for migration evidence.
 
 ## Features
 

@@ -116,21 +116,25 @@ Realtime, and provider-returned external downloads remain Direct-only.
 
 ## Compile-checked facade journeys
 
-The facade ships three compile-checked examples:
+The facade ships four compile-checked examples:
 
 - [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines an exact-target typed
   Responses option, the portable language family, and a provider-owned Conversations read;
 - [`anthropic_flagship.rs`](siumai/examples/anthropic_flagship.rs) combines current Messages
   options, scope-bound Files-in-Messages, canonical assistant-history replay, and a provider-owned
   Skills metadata list;
+- [`provider_switching.rs`](siumai/examples/provider_switching.rs) passes concrete, erased, and
+  Registry-resolved language models through one application function while retaining typed OpenAI
+  and Anthropic options, annotations, metadata views, and concrete provider resources;
 - [`trusted_connect_route.rs`](siumai/examples/trusted_connect_route.rs) constructs the trusted
   route and compiles a provider settings handoff without credentials or network I/O.
 
-Compile them independently with only their documented provider feature:
+Compile them independently with only their documented feature set:
 
 ```text
 cargo check -p siumai --example openai_flagship --no-default-features --features openai -j 1
 cargo check -p siumai --example anthropic_flagship --no-default-features --features anthropic -j 1
+cargo check -p siumai --example provider_switching --no-default-features --features openai,anthropic,registry -j 1
 cargo check -p siumai --example trusted_connect_route --no-default-features --features openai -j 1
 ```
 
@@ -145,7 +149,8 @@ official session support claim.
 
 - Start with a configured provider when protocol modes, provider options, or native resources
   matter.
-- Pass its model handles through `siumai::families::*` when an operation is portable.
+- Pass its model handles through the root `siumai::{language, embedding, rerank, image, speech,
+  transcription}` modules when an operation is portable.
 - Add Registry only when the host needs deterministic local route lookup.
 - Add runtime only when the host needs provider-neutral multi-step orchestration.
 
@@ -155,17 +160,21 @@ in shared family requests. Call-level provider options are bounded ordered patch
 to the exact configured model instance; host route/model/step/call precedence remains private to
 runtime instead of becoming part of every provider API.
 
-## MiniMax provider-direct example
+Registry resolution returns the same family trait object accepted by the root modules. Resolve a
+route once and pass that live handle to ordinary application code; Registry does not recover a
+concrete provider through downcasting. Keep the configured concrete provider beside Registry when
+the application also needs native files, batches, sessions, or media jobs.
+
+## Canonical language call with MiniMax
 
 MiniMax uses Anthropic-compatible Messages as its recommended language mode:
 
 ```rust,no_run
-use siumai::families::language;
+use siumai::language;
 use siumai::providers::minimax::{
     MinimaxCredential, MinimaxMessagesOptions, MinimaxProvider, MinimaxServiceTier,
     MinimaxThinking, models,
 };
-use siumai::{CallOptions, ContentPart, LanguageRequest, Message, MessageRole};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -178,25 +187,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider_options = MinimaxMessagesOptions::new()
         .with_thinking(MinimaxThinking::Adaptive)
         .with_service_tier(MinimaxServiceTier::Standard);
-    let options = CallOptions::default().with_provider_options_for(&model, &provider_options)?;
-    let response = language::generate_with_options(
-        &model,
-        LanguageRequest::new(vec![Message::text(
-            MessageRole::User,
-            "Hello MiniMax!",
-        )]),
-        options,
-    )
-    .await?;
+    let response = language::call(&model, "Hello MiniMax!")
+        .with_provider_options(&provider_options)?
+        .generate()
+        .await?;
 
-    for part in response.content() {
-        if let ContentPart::Text { text } = part {
-            print!("{text}");
-        }
+    if let Some(text) = response.output_text() {
+        print!("{text}");
     }
     Ok(())
 }
 ```
+
+The call returns the complete `LanguageResponse`: content, termination, usage, warnings, and
+provider metadata remain available. `output_text()` is only a display-oriented concatenation of
+canonical text parts. It excludes reasoning, refusals, tools, citations, media, and
+provider-native state, and it does not replace `project_assistant_history()` when building the next
+request.
 
 `provider.language(model)` and `provider.messages(model)` both select Messages. Use
 `provider.chat_completions(model)` or `provider.responses(model)` only when that wire API is an
@@ -258,6 +265,7 @@ it for addressing or signing. That input is not an SDK-maintained availability c
 
 - [Repository architecture](docs/architecture/overview.md)
 - [Public API and extension policy](docs/architecture/public-api.md)
+- [Facade family call ownership decision](docs/adr/0019-facade-family-call-ownership.md)
 - [Registry contract](docs/architecture/registry.md)
 - [Transport contract](docs/architecture/transport-contract.md)
 - [Provider support policy](docs/providers/support-policy.md)

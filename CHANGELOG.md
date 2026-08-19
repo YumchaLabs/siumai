@@ -6,6 +6,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- *(facade/core)* Added canonical root modules for all six stable model families, single-use bound
+  call builders with exact-target typed provider options, shared `LanguageInput` conversions, and
+  display-oriented `text_parts()`/`output_text()` projections that preserve the complete language
+  response. A compile-checked `provider_switching` example exercises concrete, erased, and
+  Registry-resolved models together with provider annotations, metadata, and native escape paths.
 - *(core/transport/facade)* Added invocation-relative `CallOptions` timeouts, caller attempt caps,
   the transport-owned `ProviderHttpTransportSettings`, and the curated `siumai::transport`
   configuration/attempt-observation namespace. Relative timeouts resolve once at the outer call
@@ -14,6 +19,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- *(facade/runtime)* [**breaking**] Converged portable calls on
+  `siumai::{language, embedding, rerank, image, speech, transcription}`. Language entry points now
+  accept strings, messages, message lists, and complete requests through `LanguageInput`; runtime
+  Agent entry points use the same adapter. Complete family responses, typed provider metadata,
+  node annotations, and concrete provider-native APIs remain available without Registry downcasts.
 - *(providers)* [**breaking**] All configured providers and compatibility engines now accept
   stateless HTTP limits, retry policy, connect/call/read timeouts, and payload-free observation
   through `with_http_transport_settings(...)`. Provider WebSocket/Realtime sessions and Alibaba
@@ -22,6 +32,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Removed
 
+- *(facade/runtime)* [**breaking**] Removed the `siumai::families` umbrella and its seven
+  `*_with_options` helpers, bare facade/prelude runtime `generate` and `stream` exports, and the
+  duplicate `siumai_runtime::AgentInput` type. Use root family `call(...).with_options(...)`
+  builders, explicit `siumai::runtime::{generate, stream}`, and `LanguageInput` respectively; see
+  the beta.10 symbol map in `docs/migration/siumai-next.md`.
 - *(registry)* [**breaking**] Removed `RegistryMiddleware`, its builder/snapshot APIs, facade
   exports, and execution-decoration tests. Registry now owns only deterministic lookup and private
   canonical-route projection; `RegistryModelContext` remains public for typed resolve errors.

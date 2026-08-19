@@ -58,9 +58,16 @@ cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
+cargo check -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 python3 -B scripts/check_package_file_list.py
 ```
+
+`provider_switching` is the Cargo-native facade convergence gate: one application function must
+compile for concrete, explicitly erased, and Registry-resolved language models while real OpenAI
+and Anthropic typed options, annotations, metadata views, and concrete native resources remain
+nameable. Keep this as an exact example target; do not mirror its public symbols or feature graph in
+a repository policy script.
 
 The package checker invokes `cargo package --workspace --list --locked` and rejects a small set of
 credential, private configuration, repository-local, editor-state, and live-canary artifact paths.
