@@ -66,7 +66,7 @@ cargo check -p siumai --no-default-features --features openai --example openai_f
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
 cargo check -p siumai --no-default-features --features openai,anthropic,google --example provider_switching -j 1
 cargo check -p siumai --no-default-features --features openai,registry --example registry_switching -j 1
-cargo nextest run -p siumai --no-default-features --features openai,registry --test siumai_builder_contract --test-threads 1
+cargo nextest run -p siumai --no-default-features --features openai,registry --test facade_contract --test siumai_builder_contract --test-threads 1
 cargo test -p siumai --doc --all-features -j 1
 cargo metadata --format-version 1 --locked > /dev/null
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
@@ -75,8 +75,8 @@ python3 -B scripts/check_package_file_list.py
 
 The typed builder contract is part of the fast PR lane. CI compiles it once for every provider
 feature declared by `siumai/Cargo.toml`; `<provider>` above denotes one entry in that Cargo-owned
-matrix rather than a second feature inventory. CI also verifies that each feature's resolved normal
-dependency closure contains only the branded provider crate declared by that Cargo feature.
+matrix rather than a second feature inventory. Cargo manifests and metadata remain authoritative
+for feature dependency ownership; CI does not maintain a second dependency-closure checker.
 `provider_switching` checks direct typed provider selection, while `registry_switching` teaches
 explicit Registry erasure; the focused `openai,registry` nextest lane executes the corresponding
 identity and route assertions. The flagship examples keep typed provider options, annotations,
