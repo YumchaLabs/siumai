@@ -242,8 +242,17 @@ fn parse_model_id(model: String) -> Result<ModelId, ModelLookupError> {
     ModelId::new(model).map_err(ModelLookupError::from)
 }
 
-/// The zero-state entry for feature-gated provider construction adapters.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+/// The zero-state type returned by [`Siumai::builder`].
+///
+/// Construct this value through [`Siumai::builder`]; it intentionally does not
+/// provide an independent [`Default`] entry point.
+///
+/// ```compile_fail
+/// use siumai::SiumaiBuilder;
+///
+/// let _ = SiumaiBuilder::default();
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SiumaiBuilder {
     _private: (),
 }

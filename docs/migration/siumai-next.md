@@ -43,6 +43,7 @@ runtime-owned `AgentInput` adapter are removed rather than kept as aliases.
 | Starting surface | Former code or symbol | Final replacement | Behavioral note |
 |---|---|---|---|
 | Published `0.11.0-beta.9` universal facade | `Siumai::builder().openai().api_key(key).model(model).build().await?` | `Siumai::builder().openai().api_key(key).build()?.language(model)?` | Provider construction and model binding are synchronous and network-free; the family/API mode is explicit. |
+| Published or intermediate facade | `SiumaiBuilder::default()` | `Siumai::builder()` | The facade has one canonical zero-state construction entry; provider stages still expose the same typed chains. |
 | Published `0.11.0-beta.9` universal facade | `client.chat(input).await?` | `client.generate(input).await?` | Returns the complete `LanguageResponse`; it is not reduced to text. |
 | Published `0.11.0-beta.9` universal facade | `client.chat_stream(input).await?` | `client.stream(input).await?` | Preserves established-stream setup, cancellation, backpressure, partial output, and terminal semantics. |
 | Published `0.11.0-beta.9` universal facade | `supports("embedding")`, capability flags, or runtime `Unsupported` probing | `ai.embedding(model)?` when the provider implements `EmbeddingModelProvider` | Family support is represented by Rust trait bounds; there is no capability string or synchronized matrix. |
