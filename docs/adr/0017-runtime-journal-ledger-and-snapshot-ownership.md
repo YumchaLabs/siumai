@@ -53,6 +53,14 @@ stores must reject oversized serialized input before typed deserialization and s
 confidentiality, integrity and authenticity, tenant/run isolation, access control, and rollback or
 revision protection.
 
+The object-safe store boundary intentionally keeps lease authority erased. An adapter returns a
+`RunLease` containing a private token type, validates that token together with store and run
+identity on every load, renewal, compare-and-swap, and release, and updates the lease's public
+expiry only after its atomic renewal succeeds. Release consumes the lease; expiry remains the
+crash fallback. The token is not part of snapshots, journals, serialization, diagnostics, or a
+public token enum. The external contract test exercises this lifecycle through `Arc<dyn RunStore>`;
+backend fencing and serialized-input edge cases remain with the internal store suites.
+
 ## Options considered
 
 ### Option A: Keep public state constructors and validate at CAS time
