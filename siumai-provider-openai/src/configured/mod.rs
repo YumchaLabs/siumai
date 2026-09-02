@@ -11,6 +11,7 @@ mod credential;
 mod embedding;
 mod http_error;
 mod image;
+mod language_execution;
 mod mode;
 mod model;
 mod options;
@@ -28,6 +29,27 @@ mod responses_websocket;
 mod speech;
 mod tools;
 mod transcription;
+
+#[cfg(any(feature = "openai-realtime", feature = "openai-responses-websocket"))]
+fn effective_deadline(
+    explicit: Option<std::time::Instant>,
+    timeout: std::time::Duration,
+) -> Option<std::time::Instant> {
+    let configured = std::time::Instant::now().checked_add(timeout);
+    match (explicit, configured) {
+        (Some(explicit), Some(configured)) => Some(explicit.min(configured)),
+        (Some(explicit), None) => Some(explicit),
+        (None, configured) => configured,
+    }
+}
+
+#[cfg(any(feature = "openai-realtime", feature = "openai-responses-websocket"))]
+async fn wait_for_deadline(deadline: Option<std::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+        None => std::future::pending::<()>().await,
+    }
+}
 
 pub use annotations::OpenAiContentOptions;
 pub use catalog::{
@@ -85,7 +107,8 @@ pub use responses_resource::{
 pub use responses_websocket::{
     OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame, OpenAiResponsesWarmUpOutcome,
     OpenAiResponsesWebSocketConfig, OpenAiResponsesWebSocketConfigError,
-    OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
+    OpenAiResponsesWebSocketEvent, OpenAiResponsesWebSocketSession,
+    OpenAiResponsesWebSocketSubmissionState, OpenAiResponsesWebSocketTurn,
     OpenAiResponsesWebSocketTurnKind,
 };
 pub use speech::{
@@ -111,7 +134,7 @@ pub use tools::{
 };
 pub use transcription::{
     GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20, GPT_4O_MINI_TRANSCRIBE_2025_12_15,
-    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, OpenAiTranscriptionModel,
+    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, GPT_TRANSCRIBE, OpenAiTranscriptionModel,
     OpenAiTranscriptionOptions, OpenAiTranscriptionResponseFormat,
     OpenAiTranscriptionTimestampGranularity, WHISPER_1,
 };
@@ -215,17 +238,8 @@ pub mod experimental {
             OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
             OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
             OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
-            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
-            OpenAiResponsesWebSocketTurnKind,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
+            OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
-
-        /// Connector seams for custom transports and deterministic integration tests.
-        pub mod advanced {
-            pub use crate::configured::responses_websocket::{
-                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
-                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
-                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
-            };
-        }
     }
 }

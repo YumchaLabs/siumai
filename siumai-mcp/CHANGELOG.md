@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** replace the lifetime notification cap with a pre-decode raw MCP message limit;
+  bounded broadcast lag remains observable without permanently poisoning a drained session.
+
+### Fixed
+
+- disable transparent streamable-HTTP session reinitialization for tool calls, bound stdio,
+  JSON, error-body, and SSE inputs before protocol decoding, and redact backend sources by
+  default while retaining explicit sensitive inspection.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.9...siumai-mcp-v0.11.0-beta.10) - 2026-08-13
 
 ### Added

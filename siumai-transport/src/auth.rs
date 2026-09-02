@@ -98,6 +98,10 @@ impl fmt::Debug for AuthContext<'_> {
 }
 
 /// Credential headers whose values stay redacted on default surfaces.
+///
+/// Header names returned by the selected applier become its exact protected
+/// names for that attempt. The transport rejects a collision with protocol
+/// request headers before any network submission.
 #[derive(Clone, Default)]
 pub struct CredentialPatch {
     headers: HeaderMap,
@@ -115,12 +119,7 @@ impl CredentialPatch {
         name: HeaderName,
         mut value: HeaderValue,
     ) -> Result<Self, RequestBuildError> {
-        if is_transport_controlled(&name)
-            || matches!(
-                name.as_str(),
-                "cookie" | "proxy-authorization" | "set-cookie"
-            )
-        {
+        if is_transport_controlled(&name) || matches!(name.as_str(), "cookie" | "set-cookie") {
             return Err(RequestBuildError::ProtectedHeader);
         }
         value.set_sensitive(true);

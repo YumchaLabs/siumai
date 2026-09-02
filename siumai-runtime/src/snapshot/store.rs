@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{RunId, RunSnapshot, RunSnapshotError, RunSnapshotSuccessorError};
+use super::{RunId, RunSnapshot, RunSnapshotError};
 
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -24,6 +24,12 @@ pub struct SnapshotRevision(u64);
 impl SnapshotRevision {
     /// Expected revision when creating a run that is not stored yet.
     pub const EMPTY: Self = Self(0);
+
+    /// Construct a revision returned by a custom [`RunStore`] adapter.
+    #[doc(hidden)]
+    pub const fn from_value(value: u64) -> Self {
+        Self(value)
+    }
 
     pub const fn value(self) -> u64 {
         self.0
@@ -51,6 +57,12 @@ pub struct StoredRun {
 }
 
 impl StoredRun {
+    /// Construct the loaded value returned by a custom [`RunStore`] adapter.
+    #[doc(hidden)]
+    pub fn new(revision: SnapshotRevision, snapshot: RunSnapshot) -> Self {
+        Self { revision, snapshot }
+    }
+
     pub fn revision(&self) -> SnapshotRevision {
         self.revision
     }
@@ -132,11 +144,23 @@ pub type RunStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, RunStoreError>> + Send + 'a>>;
 
 /// Snapshot persistence hook with exclusive resume and optimistic updates.
+///
+/// Serialized snapshots contain sensitive replay authority. External adapters
+/// must bound encoded input before typed deserialization and provide
+/// confidentiality, integrity and authenticity, tenant/run isolation, access
+/// control, and rollback or revision protection. The runtime owns snapshot
+/// schema and successor validation; stores must not implement a second runtime
+/// state machine.
 pub trait RunStore: Send + Sync {
     fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease>;
 
     fn load<'a>(&'a self, lease: &'a RunLease) -> RunStoreFuture<'a, Option<StoredRun>>;
 
+    /// Atomically replace the expected revision while the lease owns the run.
+    ///
+    /// Implementations enforce lease fencing, run identity, revision, and
+    /// terminal-write rules. The durable runtime validates successor semantics
+    /// immediately before this method is called.
     fn compare_and_swap<'a>(
         &'a self,
         lease: &'a RunLease,
@@ -186,8 +210,10 @@ pub enum RunStoreError {
     },
     #[error("a terminal run cannot be updated")]
     RunAlreadyTerminal,
-    #[error(transparent)]
-    InvalidSuccessor(#[from] RunSnapshotSuccessorError),
+    #[error(
+        "serialized snapshot exceeds the store input bound: observed {actual} bytes, maximum {maximum}"
+    )]
+    SerializedSnapshotTooLarge { actual: usize, maximum: usize },
     #[error("run store is unavailable")]
     Unavailable,
     #[error(transparent)]
@@ -249,6 +275,18 @@ impl InMemoryRunStore {
             state.leases.remove(lease.run_id());
             return Err(RunStoreError::LeaseExpired);
         }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn expire_lease_for_test(&self, lease: &RunLease) -> Result<(), RunStoreError> {
+        let mut state = self.lock()?;
+        self.validate_lease(&mut state, lease)?;
+        let record = state
+            .leases
+            .get_mut(lease.run_id())
+            .ok_or(RunStoreError::LeaseLost)?;
+        record.expires_at = Instant::now();
         Ok(())
     }
 }
@@ -319,10 +357,7 @@ impl RunStore for InMemoryRunStore {
                 .runs
                 .get(lease.run_id())
                 .cloned()
-                .map(|stored| StoredRun {
-                    revision: stored.revision,
-                    snapshot: stored.snapshot,
-                }))
+                .map(|stored| StoredRun::new(stored.revision, stored.snapshot)))
         })
     }
 
@@ -350,11 +385,10 @@ impl RunStore for InMemoryRunStore {
                 return Err(RunStoreError::CasConflict { expected, actual });
             }
 
-            if let Some(current) = state.runs.get(lease.run_id()) {
-                if current.snapshot.resume_point().is_terminal() {
-                    return Err(RunStoreError::RunAlreadyTerminal);
-                }
-                current.snapshot.validate_successor(&snapshot)?;
+            if let Some(current) = state.runs.get(lease.run_id())
+                && current.snapshot.resume_point().is_terminal()
+            {
+                return Err(RunStoreError::RunAlreadyTerminal);
             }
 
             let revision = actual.next()?;

@@ -2,23 +2,24 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use siumai_core::{
     ContentPart, LanguageRequest, LanguageRequestError, LanguageResponse, Message,
-    PartialLanguageOutput, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult, Usage,
-    UsageValue,
+    PartialLanguageOutput, ProviderScope, ToolBindingIdentity, ToolCall, ToolOutcome, ToolResult,
+    Usage,
 };
 use thiserror::Error;
 
 use crate::tool::{EffectCertainty, RecoveryPolicy, ToolExecutionAttempt, ToolIdempotencyKey};
 use crate::{
     ModelTarget, ModelTransitionOutcome, ProjectionPolicy, RunReport, StepModelSelectorIdentity,
-    project_history,
 };
 
-/// The only snapshot schema version understood by this release.
-pub const RUN_SNAPSHOT_SCHEMA_VERSION: u16 = 6;
+mod successor;
+mod wire;
+
+pub use successor::RunSnapshotSuccessorError;
+pub use wire::RUN_SNAPSHOT_SCHEMA_VERSION;
 
 const MAX_ID_BYTES: usize = 256;
 const MAX_FINGERPRINT_BYTES: usize = 1_024;
@@ -26,8 +27,6 @@ const MAX_ENGINE_VERSION_BYTES: usize = 128;
 const MAX_REASON_CODE_BYTES: usize = 128;
 const MAX_REASON_MESSAGE_BYTES: usize = 2_048;
 const MAX_APPROVAL_ID_BYTES: usize = 256;
-const MAX_PROVIDER_STATE_NAMESPACE_BYTES: usize = 256;
-const MAX_CORRELATION_ID_BYTES: usize = 1_024;
 const MAX_TOOL_CALL_ID_BYTES: usize = 512;
 
 /// Why a run, lineage, or checkpoint identifier is invalid.
@@ -163,7 +162,7 @@ impl fmt::Debug for SnapshotFingerprint {
 
 impl fmt::Display for SnapshotFingerprint {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str("<redacted>")
     }
 }
 
@@ -179,12 +178,35 @@ impl<'de> Deserialize<'de> for SnapshotFingerprint {
 
 /// Fingerprints that bind a continuation to its execution policy.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SnapshotFingerprints {
-    pub options: SnapshotFingerprint,
-    pub tool_catalog: SnapshotFingerprint,
-    pub approval_policy: SnapshotFingerprint,
-    pub model_selector: Option<StepModelSelectorIdentity>,
-    pub projection_policy: ProjectionPolicy,
+    pub(crate) options: SnapshotFingerprint,
+    pub(crate) tool_catalog: SnapshotFingerprint,
+    pub(crate) approval_policy: SnapshotFingerprint,
+    pub(crate) model_selector: Option<StepModelSelectorIdentity>,
+    pub(crate) projection_policy: ProjectionPolicy,
+}
+
+impl SnapshotFingerprints {
+    pub fn options(&self) -> &SnapshotFingerprint {
+        &self.options
+    }
+
+    pub fn tool_catalog(&self) -> &SnapshotFingerprint {
+        &self.tool_catalog
+    }
+
+    pub fn approval_policy(&self) -> &SnapshotFingerprint {
+        &self.approval_policy
+    }
+
+    pub fn model_selector(&self) -> Option<&StepModelSelectorIdentity> {
+        self.model_selector.as_ref()
+    }
+
+    pub fn projection_policy(&self) -> ProjectionPolicy {
+        self.projection_policy
+    }
 }
 
 impl fmt::Debug for SnapshotFingerprints {
@@ -200,13 +222,19 @@ impl fmt::Debug for SnapshotFingerprints {
     }
 }
 
-/// Runtime version that created a snapshot.
+/// Durable execution ABI identifier that created a snapshot.
+///
+/// This value is independent from both the snapshot schema version and the
+/// crate's package version. Change the schema version only for incompatible
+/// serialized-shape changes; change this ABI when execution or fingerprint
+/// interpretation changes. The serialized field remains `engine_version` as
+/// the stable durable-wire name.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct SnapshotEngineVersion(String);
 
 impl SnapshotEngineVersion {
-    pub fn new(value: impl Into<String>) -> Result<Self, RunSnapshotError> {
+    pub(crate) fn new(value: impl Into<String>) -> Result<Self, RunSnapshotError> {
         let value = value.into();
         validate_bounded_text(&value, "engine version", MAX_ENGINE_VERSION_BYTES, false)?;
         Ok(Self(value))
@@ -247,7 +275,7 @@ pub struct SnapshotCheckpoint {
 }
 
 impl SnapshotCheckpoint {
-    pub fn new(
+    pub(crate) fn new(
         engine_version: SnapshotEngineVersion,
         run_id: RunId,
         lineage_id: LineageId,
@@ -307,6 +335,7 @@ impl fmt::Debug for SnapshotCheckpoint {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SnapshotCheckpointWire {
     engine_version: SnapshotEngineVersion,
     run_id: RunId,
@@ -340,7 +369,10 @@ pub struct SnapshotReason {
 }
 
 impl SnapshotReason {
-    pub fn new(code: impl Into<String>, message: Option<String>) -> Result<Self, RunSnapshotError> {
+    pub(crate) fn new(
+        code: impl Into<String>,
+        message: Option<String>,
+    ) -> Result<Self, RunSnapshotError> {
         let code = code.into();
         validate_reason_code(&code)?;
         if let Some(message) = &message {
@@ -368,13 +400,6 @@ impl SnapshotReason {
             message: None,
         }
     }
-
-    fn dispatch_outcome_unknown() -> Self {
-        Self {
-            code: "dispatch_outcome_unknown".to_string(),
-            message: None,
-        }
-    }
 }
 
 impl fmt::Debug for SnapshotReason {
@@ -388,6 +413,7 @@ impl fmt::Debug for SnapshotReason {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SnapshotReasonWire {
     code: String,
     message: Option<String>,
@@ -403,10 +429,20 @@ impl<'de> Deserialize<'de> for SnapshotReason {
     }
 }
 
-/// A terminal run outcome stored in a continuation.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+/// Stable label for a terminal run outcome stored in a continuation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub enum SnapshotTerminal {
+pub enum SnapshotTerminalKind {
+    Completed,
+    Cancelled,
+    Exhausted,
+    Failed,
+    Indeterminate,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+enum SnapshotTerminalState {
     Completed {
         reason: Option<SnapshotReason>,
     },
@@ -427,29 +463,104 @@ pub enum SnapshotTerminal {
     },
 }
 
+/// A read-only terminal run outcome stored in a continuation.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SnapshotTerminal {
+    state: SnapshotTerminalState,
+}
+
+impl SnapshotTerminal {
+    pub fn kind(&self) -> SnapshotTerminalKind {
+        match &self.state {
+            SnapshotTerminalState::Completed { .. } => SnapshotTerminalKind::Completed,
+            SnapshotTerminalState::Cancelled { .. } => SnapshotTerminalKind::Cancelled,
+            SnapshotTerminalState::Exhausted { .. } => SnapshotTerminalKind::Exhausted,
+            SnapshotTerminalState::Failed { .. } => SnapshotTerminalKind::Failed,
+            SnapshotTerminalState::Indeterminate { .. } => SnapshotTerminalKind::Indeterminate,
+        }
+    }
+
+    pub fn reason(&self) -> Option<&SnapshotReason> {
+        match &self.state {
+            SnapshotTerminalState::Completed { reason } => reason.as_ref(),
+            SnapshotTerminalState::Cancelled { reason, .. }
+            | SnapshotTerminalState::Exhausted { reason, .. }
+            | SnapshotTerminalState::Failed { reason, .. }
+            | SnapshotTerminalState::Indeterminate { reason } => Some(reason),
+        }
+    }
+
+    pub fn partial(&self) -> Option<&PartialLanguageOutput> {
+        match &self.state {
+            SnapshotTerminalState::Cancelled { partial, .. }
+            | SnapshotTerminalState::Exhausted { partial, .. }
+            | SnapshotTerminalState::Failed { partial, .. } => partial.as_ref(),
+            SnapshotTerminalState::Completed { .. }
+            | SnapshotTerminalState::Indeterminate { .. } => None,
+        }
+    }
+
+    pub(crate) fn completed(reason: Option<SnapshotReason>) -> Self {
+        Self {
+            state: SnapshotTerminalState::Completed { reason },
+        }
+    }
+
+    pub(crate) fn cancelled(
+        reason: SnapshotReason,
+        partial: Option<PartialLanguageOutput>,
+    ) -> Self {
+        Self {
+            state: SnapshotTerminalState::Cancelled { reason, partial },
+        }
+    }
+
+    pub(crate) fn exhausted(
+        reason: SnapshotReason,
+        partial: Option<PartialLanguageOutput>,
+    ) -> Self {
+        Self {
+            state: SnapshotTerminalState::Exhausted { reason, partial },
+        }
+    }
+
+    pub(crate) fn failed(reason: SnapshotReason, partial: Option<PartialLanguageOutput>) -> Self {
+        Self {
+            state: SnapshotTerminalState::Failed { reason, partial },
+        }
+    }
+
+    pub(crate) fn indeterminate(reason: SnapshotReason) -> Self {
+        Self {
+            state: SnapshotTerminalState::Indeterminate { reason },
+        }
+    }
+}
+
 impl fmt::Debug for SnapshotTerminal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Completed { reason } => formatter
+        match &self.state {
+            SnapshotTerminalState::Completed { reason } => formatter
                 .debug_struct("Completed")
                 .field("reason", reason)
                 .finish(),
-            Self::Cancelled { reason, partial } => formatter
+            SnapshotTerminalState::Cancelled { reason, partial } => formatter
                 .debug_struct("Cancelled")
                 .field("reason", reason)
                 .field("has_partial", &partial.is_some())
                 .finish(),
-            Self::Exhausted { reason, partial } => formatter
+            SnapshotTerminalState::Exhausted { reason, partial } => formatter
                 .debug_struct("Exhausted")
                 .field("reason", reason)
                 .field("has_partial", &partial.is_some())
                 .finish(),
-            Self::Failed { reason, partial } => formatter
+            SnapshotTerminalState::Failed { reason, partial } => formatter
                 .debug_struct("Failed")
                 .field("reason", reason)
                 .field("has_partial", &partial.is_some())
                 .finish(),
-            Self::Indeterminate { reason } => formatter
+            SnapshotTerminalState::Indeterminate { reason } => formatter
                 .debug_struct("Indeterminate")
                 .field("reason", reason)
                 .finish(),
@@ -459,12 +570,35 @@ impl fmt::Debug for SnapshotTerminal {
 
 /// Portable approval state. The executable binding remains host-owned.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PendingApprovalSnapshot {
-    pub approval_id: String,
-    pub call: ToolCall,
-    pub binding: ToolBindingIdentity,
-    pub claim_fingerprint: SnapshotFingerprint,
-    pub expires_at_unix_ms: Option<u64>,
+    pub(crate) approval_id: String,
+    pub(crate) call: ToolCall,
+    pub(crate) binding: ToolBindingIdentity,
+    pub(crate) claim_fingerprint: SnapshotFingerprint,
+    pub(crate) expires_at_unix_ms: Option<u64>,
+}
+
+impl PendingApprovalSnapshot {
+    pub fn approval_id(&self) -> &str {
+        &self.approval_id
+    }
+
+    pub fn call(&self) -> &ToolCall {
+        &self.call
+    }
+
+    pub fn binding(&self) -> &ToolBindingIdentity {
+        &self.binding
+    }
+
+    pub fn claim_fingerprint(&self) -> &SnapshotFingerprint {
+        &self.claim_fingerprint
+    }
+
+    pub fn expires_at_unix_ms(&self) -> Option<u64> {
+        self.expires_at_unix_ms
+    }
 }
 
 impl fmt::Debug for PendingApprovalSnapshot {
@@ -486,11 +620,52 @@ impl fmt::Debug for PendingApprovalSnapshot {
 /// Redacted diagnostics do not encrypt serialized bytes. Applications that
 /// persist sensitive continuations must add confidentiality and integrity.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderStateSnapshot {
-    pub namespace: String,
-    pub correlation_id: Option<String>,
-    pub encoding: String,
-    pub payload: Vec<u8>,
+    namespace: String,
+    scope: ProviderScope,
+    correlation_id: String,
+    encoding: String,
+    payload: Vec<u8>,
+}
+
+impl ProviderStateSnapshot {
+    pub(crate) fn new(
+        namespace: String,
+        scope: ProviderScope,
+        correlation_id: String,
+        encoding: String,
+        payload: Vec<u8>,
+    ) -> Self {
+        Self {
+            namespace,
+            scope,
+            correlation_id,
+            encoding,
+            payload,
+        }
+    }
+
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    pub fn scope(&self) -> &ProviderScope {
+        &self.scope
+    }
+
+    pub fn correlation_id(&self) -> &str {
+        &self.correlation_id
+    }
+
+    pub fn encoding(&self) -> &str {
+        &self.encoding
+    }
+
+    /// Return the sensitive provider-owned continuation bytes.
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
 }
 
 impl fmt::Debug for ProviderStateSnapshot {
@@ -498,10 +673,8 @@ impl fmt::Debug for ProviderStateSnapshot {
         formatter
             .debug_struct("ProviderStateSnapshot")
             .field("namespace", &self.namespace)
-            .field(
-                "correlation_id",
-                &self.correlation_id.as_ref().map(|_| "<redacted>"),
-            )
+            .field("scope", &"<redacted>")
+            .field("correlation_id", &"<redacted>")
             .field("encoding", &self.encoding)
             .field("payload_bytes", &self.payload.len())
             .finish()
@@ -510,6 +683,7 @@ impl fmt::Debug for ProviderStateSnapshot {
 
 /// One local tool call whose executable identity has been frozen for resume.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PreparedToolSnapshot {
     ordinal: u32,
     call: ToolCall,
@@ -520,7 +694,7 @@ pub struct PreparedToolSnapshot {
 }
 
 impl PreparedToolSnapshot {
-    pub fn new(
+    pub(crate) fn new(
         ordinal: u32,
         call: ToolCall,
         binding: ToolBindingIdentity,
@@ -591,13 +765,14 @@ impl fmt::Debug for PreparedToolSnapshot {
 
 /// One result already completed inside an otherwise pending model step.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompletedToolSnapshot {
     ordinal: u32,
     result: ToolResult,
 }
 
 impl CompletedToolSnapshot {
-    pub fn new(ordinal: u32, result: ToolResult) -> Self {
+    pub(crate) fn new(ordinal: u32, result: ToolResult) -> Self {
         Self { ordinal, result }
     }
 
@@ -624,6 +799,7 @@ impl fmt::Debug for CompletedToolSnapshot {
 
 /// Frozen local-tool work for a model response that is not yet a completed step.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PendingStepSnapshot {
     index: u32,
     target: ModelTarget,
@@ -634,7 +810,7 @@ pub struct PendingStepSnapshot {
 }
 
 impl PendingStepSnapshot {
-    pub fn new(
+    pub(crate) fn new(
         index: u32,
         target: ModelTarget,
         response: LanguageResponse,
@@ -693,6 +869,7 @@ impl fmt::Debug for PendingStepSnapshot {
 
 /// Frozen provider-owned work for a model response awaiting native continuation.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PendingProviderStepSnapshot {
     index: u32,
     target: ModelTarget,
@@ -701,7 +878,7 @@ pub struct PendingProviderStepSnapshot {
 }
 
 impl PendingProviderStepSnapshot {
-    pub fn new(
+    pub(crate) fn new(
         index: u32,
         target: ModelTarget,
         response: LanguageResponse,
@@ -730,6 +907,15 @@ impl PendingProviderStepSnapshot {
     pub fn provider_state(&self) -> &[ProviderStateSnapshot] {
         &self.provider_state
     }
+
+    pub(crate) fn matches_step(
+        &self,
+        index: u32,
+        target: &ModelTarget,
+        response: &LanguageResponse,
+    ) -> bool {
+        self.index == index && &self.target == target && &self.response == response
+    }
 }
 
 impl fmt::Debug for PendingProviderStepSnapshot {
@@ -755,10 +941,9 @@ pub enum ResumePointKind {
     Terminal,
 }
 
-/// Exact continuation cursor for a durable run checkpoint.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum ResumePoint {
+#[serde(deny_unknown_fields)]
+pub(crate) enum ResumePointState {
     AwaitingApprovals(PendingStepSnapshot),
     AwaitingProvider(PendingProviderStepSnapshot),
     ReadyToDispatch(PendingStepSnapshot),
@@ -766,69 +951,143 @@ pub enum ResumePoint {
     Terminal(SnapshotTerminal),
 }
 
+/// Exact read-only continuation cursor for a durable run checkpoint.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ResumePoint {
+    state: ResumePointState,
+}
+
 impl ResumePoint {
     pub fn kind(&self) -> ResumePointKind {
-        match self {
-            Self::AwaitingApprovals(_) => ResumePointKind::AwaitingApprovals,
-            Self::AwaitingProvider(_) => ResumePointKind::AwaitingProvider,
-            Self::ReadyToDispatch(_) => ResumePointKind::ReadyToDispatch,
-            Self::ReadyForModel { .. } => ResumePointKind::ReadyForModel,
-            Self::Terminal(_) => ResumePointKind::Terminal,
+        match &self.state {
+            ResumePointState::AwaitingApprovals(_) => ResumePointKind::AwaitingApprovals,
+            ResumePointState::AwaitingProvider(_) => ResumePointKind::AwaitingProvider,
+            ResumePointState::ReadyToDispatch(_) => ResumePointKind::ReadyToDispatch,
+            ResumePointState::ReadyForModel { .. } => ResumePointKind::ReadyForModel,
+            ResumePointState::Terminal(_) => ResumePointKind::Terminal,
         }
     }
 
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Terminal(_))
+        matches!(&self.state, ResumePointState::Terminal(_))
     }
 
     pub fn pending_step(&self) -> Option<&PendingStepSnapshot> {
-        match self {
-            Self::AwaitingApprovals(step) | Self::ReadyToDispatch(step) => Some(step),
-            Self::AwaitingProvider(_) | Self::ReadyForModel { .. } | Self::Terminal(_) => None,
+        match &self.state {
+            ResumePointState::AwaitingApprovals(step) | ResumePointState::ReadyToDispatch(step) => {
+                Some(step)
+            }
+            ResumePointState::AwaitingProvider(_)
+            | ResumePointState::ReadyForModel { .. }
+            | ResumePointState::Terminal(_) => None,
         }
     }
 
     pub fn provider_step(&self) -> Option<&PendingProviderStepSnapshot> {
-        match self {
-            Self::AwaitingProvider(step) => Some(step),
-            Self::AwaitingApprovals(_)
-            | Self::ReadyToDispatch(_)
-            | Self::ReadyForModel { .. }
-            | Self::Terminal(_) => None,
+        match &self.state {
+            ResumePointState::AwaitingProvider(step) => Some(step),
+            ResumePointState::AwaitingApprovals(_)
+            | ResumePointState::ReadyToDispatch(_)
+            | ResumePointState::ReadyForModel { .. }
+            | ResumePointState::Terminal(_) => None,
         }
     }
 
     pub fn target(&self) -> Option<&ModelTarget> {
-        match self {
-            Self::AwaitingApprovals(step) | Self::ReadyToDispatch(step) => Some(step.target()),
-            Self::AwaitingProvider(step) => Some(step.target()),
-            Self::ReadyForModel { target, .. } => Some(target),
-            Self::Terminal(_) => None,
+        match &self.state {
+            ResumePointState::AwaitingApprovals(step) | ResumePointState::ReadyToDispatch(step) => {
+                Some(step.target())
+            }
+            ResumePointState::AwaitingProvider(step) => Some(step.target()),
+            ResumePointState::ReadyForModel { target, .. } => Some(target),
+            ResumePointState::Terminal(_) => None,
         }
+    }
+
+    pub fn next_step(&self) -> Option<u32> {
+        match &self.state {
+            ResumePointState::AwaitingApprovals(step) | ResumePointState::ReadyToDispatch(step) => {
+                Some(step.index())
+            }
+            ResumePointState::AwaitingProvider(step) => Some(step.index()),
+            ResumePointState::ReadyForModel { next_step, .. } => Some(*next_step),
+            ResumePointState::Terminal(_) => None,
+        }
+    }
+
+    pub fn terminal(&self) -> Option<&SnapshotTerminal> {
+        match &self.state {
+            ResumePointState::Terminal(terminal) => Some(terminal),
+            ResumePointState::AwaitingApprovals(_)
+            | ResumePointState::AwaitingProvider(_)
+            | ResumePointState::ReadyToDispatch(_)
+            | ResumePointState::ReadyForModel { .. } => None,
+        }
+    }
+
+    pub(crate) fn awaiting_approvals(step: PendingStepSnapshot) -> Self {
+        Self {
+            state: ResumePointState::AwaitingApprovals(step),
+        }
+    }
+
+    pub(crate) fn awaiting_provider(step: PendingProviderStepSnapshot) -> Self {
+        Self {
+            state: ResumePointState::AwaitingProvider(step),
+        }
+    }
+
+    pub(crate) fn ready_to_dispatch(step: PendingStepSnapshot) -> Self {
+        Self {
+            state: ResumePointState::ReadyToDispatch(step),
+        }
+    }
+
+    pub(crate) fn ready_for_model(next_step: u32, target: ModelTarget) -> Self {
+        Self {
+            state: ResumePointState::ReadyForModel { next_step, target },
+        }
+    }
+
+    pub(crate) fn terminal_state(terminal: SnapshotTerminal) -> Self {
+        Self {
+            state: ResumePointState::Terminal(terminal),
+        }
+    }
+
+    pub(crate) fn state(&self) -> &ResumePointState {
+        &self.state
+    }
+
+    pub(crate) fn into_state(self) -> ResumePointState {
+        self.state
     }
 }
 
 impl fmt::Debug for ResumePoint {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::AwaitingApprovals(step) => formatter
+        match &self.state {
+            ResumePointState::AwaitingApprovals(step) => formatter
                 .debug_tuple("AwaitingApprovals")
                 .field(step)
                 .finish(),
-            Self::AwaitingProvider(step) => formatter
+            ResumePointState::AwaitingProvider(step) => formatter
                 .debug_tuple("AwaitingProvider")
                 .field(step)
                 .finish(),
-            Self::ReadyToDispatch(step) => formatter
+            ResumePointState::ReadyToDispatch(step) => formatter
                 .debug_tuple("ReadyToDispatch")
                 .field(step)
                 .finish(),
-            Self::ReadyForModel { next_step, .. } => formatter
+            ResumePointState::ReadyForModel { next_step, .. } => formatter
                 .debug_struct("ReadyForModel")
                 .field("next_step", next_step)
                 .field("target", &"<redacted>")
                 .finish(),
-            Self::Terminal(terminal) => formatter.debug_tuple("Terminal").field(terminal).finish(),
+            ResumePointState::Terminal(terminal) => {
+                formatter.debug_tuple("Terminal").field(terminal).finish()
+            }
         }
     }
 }
@@ -864,10 +1123,9 @@ pub enum IndeterminateReason {
     CheckpointFailure,
 }
 
-/// One append-only tool execution event.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum ToolExecutionEvent {
+#[serde(deny_unknown_fields)]
+pub(crate) enum ToolExecutionEventState {
     Prepared {
         sequence: u64,
         occurred_at_unix_ms: u64,
@@ -879,7 +1137,6 @@ pub enum ToolExecutionEvent {
         occurred_at_unix_ms: u64,
         call_id: String,
         attempt: ToolExecutionAttempt,
-        dispatch_id: Option<String>,
     },
     Completed {
         sequence: u64,
@@ -897,110 +1154,177 @@ pub enum ToolExecutionEvent {
     },
 }
 
+/// One read-only append-only tool execution event.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ToolExecutionEvent {
+    state: ToolExecutionEventState,
+}
+
 impl ToolExecutionEvent {
-    pub fn prepared(
+    pub(crate) fn prepared(
         sequence: u64,
         occurred_at_unix_ms: u64,
         step: u32,
         tool: PreparedToolSnapshot,
     ) -> Self {
-        Self::Prepared {
-            sequence,
-            occurred_at_unix_ms,
-            step,
-            tool,
+        Self {
+            state: ToolExecutionEventState::Prepared {
+                sequence,
+                occurred_at_unix_ms,
+                step,
+                tool,
+            },
         }
     }
 
-    pub fn dispatched(
+    pub(crate) fn dispatched(
         sequence: u64,
         occurred_at_unix_ms: u64,
         call_id: impl Into<String>,
         attempt: ToolExecutionAttempt,
-        dispatch_id: Option<String>,
     ) -> Self {
-        Self::Dispatched {
-            sequence,
-            occurred_at_unix_ms,
-            call_id: call_id.into(),
-            attempt,
-            dispatch_id,
+        Self {
+            state: ToolExecutionEventState::Dispatched {
+                sequence,
+                occurred_at_unix_ms,
+                call_id: call_id.into(),
+                attempt,
+            },
         }
     }
 
-    pub fn completed(
+    pub(crate) fn completed(
         sequence: u64,
         occurred_at_unix_ms: u64,
         call_id: impl Into<String>,
         attempt: ToolExecutionAttempt,
         outcome: ToolOutcome,
     ) -> Self {
-        Self::Completed {
-            sequence,
-            occurred_at_unix_ms,
-            call_id: call_id.into(),
-            attempt,
-            outcome,
+        Self {
+            state: ToolExecutionEventState::Completed {
+                sequence,
+                occurred_at_unix_ms,
+                call_id: call_id.into(),
+                attempt,
+                outcome,
+            },
         }
     }
 
-    pub fn indeterminate(
+    pub(crate) fn indeterminate(
         sequence: u64,
         occurred_at_unix_ms: u64,
         call_id: impl Into<String>,
         attempt: ToolExecutionAttempt,
         reason: IndeterminateReason,
     ) -> Self {
-        Self::Indeterminate {
-            sequence,
-            occurred_at_unix_ms,
-            call_id: call_id.into(),
-            attempt,
-            reason,
+        Self {
+            state: ToolExecutionEventState::Indeterminate {
+                sequence,
+                occurred_at_unix_ms,
+                call_id: call_id.into(),
+                attempt,
+                reason,
+            },
         }
     }
 
     pub fn sequence(&self) -> u64 {
-        match self {
-            Self::Prepared { sequence, .. }
-            | Self::Dispatched { sequence, .. }
-            | Self::Completed { sequence, .. }
-            | Self::Indeterminate { sequence, .. } => *sequence,
+        match &self.state {
+            ToolExecutionEventState::Prepared { sequence, .. }
+            | ToolExecutionEventState::Dispatched { sequence, .. }
+            | ToolExecutionEventState::Completed { sequence, .. }
+            | ToolExecutionEventState::Indeterminate { sequence, .. } => *sequence,
+        }
+    }
+
+    pub fn occurred_at_unix_ms(&self) -> u64 {
+        match &self.state {
+            ToolExecutionEventState::Prepared {
+                occurred_at_unix_ms,
+                ..
+            }
+            | ToolExecutionEventState::Dispatched {
+                occurred_at_unix_ms,
+                ..
+            }
+            | ToolExecutionEventState::Completed {
+                occurred_at_unix_ms,
+                ..
+            }
+            | ToolExecutionEventState::Indeterminate {
+                occurred_at_unix_ms,
+                ..
+            } => *occurred_at_unix_ms,
         }
     }
 
     pub fn call_id(&self) -> &str {
-        match self {
-            Self::Prepared { tool, .. } => tool.call().id(),
-            Self::Dispatched { call_id, .. }
-            | Self::Completed { call_id, .. }
-            | Self::Indeterminate { call_id, .. } => call_id,
+        match &self.state {
+            ToolExecutionEventState::Prepared { tool, .. } => tool.call().id(),
+            ToolExecutionEventState::Dispatched { call_id, .. }
+            | ToolExecutionEventState::Completed { call_id, .. }
+            | ToolExecutionEventState::Indeterminate { call_id, .. } => call_id,
         }
     }
 
     pub fn attempt(&self) -> ToolExecutionAttempt {
-        match self {
-            Self::Prepared { tool, .. } => tool.attempt(),
-            Self::Dispatched { attempt, .. }
-            | Self::Completed { attempt, .. }
-            | Self::Indeterminate { attempt, .. } => *attempt,
+        match &self.state {
+            ToolExecutionEventState::Prepared { tool, .. } => tool.attempt(),
+            ToolExecutionEventState::Dispatched { attempt, .. }
+            | ToolExecutionEventState::Completed { attempt, .. }
+            | ToolExecutionEventState::Indeterminate { attempt, .. } => *attempt,
         }
     }
 
     pub fn prepared_tool(&self) -> Option<&PreparedToolSnapshot> {
-        match self {
-            Self::Prepared { tool, .. } => Some(tool),
-            Self::Dispatched { .. } | Self::Completed { .. } | Self::Indeterminate { .. } => None,
+        match &self.state {
+            ToolExecutionEventState::Prepared { tool, .. } => Some(tool),
+            ToolExecutionEventState::Dispatched { .. }
+            | ToolExecutionEventState::Completed { .. }
+            | ToolExecutionEventState::Indeterminate { .. } => None,
         }
     }
 
     pub fn status(&self) -> ToolExecutionStatus {
-        match self {
-            Self::Prepared { .. } => ToolExecutionStatus::Prepared,
-            Self::Dispatched { .. } => ToolExecutionStatus::Dispatched,
-            Self::Completed { .. } => ToolExecutionStatus::Completed,
-            Self::Indeterminate { .. } => ToolExecutionStatus::Indeterminate,
+        match &self.state {
+            ToolExecutionEventState::Prepared { .. } => ToolExecutionStatus::Prepared,
+            ToolExecutionEventState::Dispatched { .. } => ToolExecutionStatus::Dispatched,
+            ToolExecutionEventState::Completed { .. } => ToolExecutionStatus::Completed,
+            ToolExecutionEventState::Indeterminate { .. } => ToolExecutionStatus::Indeterminate,
         }
+    }
+
+    pub fn step(&self) -> Option<u32> {
+        match &self.state {
+            ToolExecutionEventState::Prepared { step, .. } => Some(*step),
+            ToolExecutionEventState::Dispatched { .. }
+            | ToolExecutionEventState::Completed { .. }
+            | ToolExecutionEventState::Indeterminate { .. } => None,
+        }
+    }
+
+    pub fn outcome(&self) -> Option<&ToolOutcome> {
+        match &self.state {
+            ToolExecutionEventState::Completed { outcome, .. } => Some(outcome),
+            ToolExecutionEventState::Prepared { .. }
+            | ToolExecutionEventState::Dispatched { .. }
+            | ToolExecutionEventState::Indeterminate { .. } => None,
+        }
+    }
+
+    pub fn indeterminate_reason(&self) -> Option<IndeterminateReason> {
+        match &self.state {
+            ToolExecutionEventState::Indeterminate { reason, .. } => Some(*reason),
+            ToolExecutionEventState::Prepared { .. }
+            | ToolExecutionEventState::Dispatched { .. }
+            | ToolExecutionEventState::Completed { .. } => None,
+        }
+    }
+
+    pub(crate) fn state(&self) -> &ToolExecutionEventState {
+        &self.state
     }
 }
 
@@ -1063,32 +1387,33 @@ pub enum ToolReplayDisposition {
 }
 
 /// Validated append-only execution history.
-#[derive(Clone, Default, PartialEq, Serialize)]
-#[serde(transparent)]
+#[derive(Clone, PartialEq)]
 pub struct ToolExecutionLog {
     events: Vec<ToolExecutionEvent>,
+    states: BTreeMap<String, ExecutionState>,
 }
 
 impl ToolExecutionLog {
-    pub fn new() -> Self {
-        Self::default()
+    pub(crate) fn new() -> Self {
+        Self {
+            events: Vec::new(),
+            states: BTreeMap::new(),
+        }
     }
 
-    pub fn from_events(
+    pub(crate) fn from_events(
         events: Vec<ToolExecutionEvent>,
     ) -> Result<Self, ToolExecutionTransitionError> {
-        validate_execution_events(&events)?;
-        Ok(Self { events })
+        let states = execution_states(&events)?;
+        Ok(Self { events, states })
     }
 
-    pub fn append(
+    pub(crate) fn append(
         &mut self,
         event: ToolExecutionEvent,
     ) -> Result<(), ToolExecutionTransitionError> {
-        let mut candidate = self.events.clone();
-        candidate.push(event);
-        validate_execution_events(&candidate)?;
-        self.events = candidate;
+        apply_execution_event(&mut self.states, self.events.len() as u64, &event)?;
+        self.events.push(event);
         Ok(())
     }
 
@@ -1096,24 +1421,18 @@ impl ToolExecutionLog {
         &self.events
     }
 
-    pub fn next_sequence(&self) -> u64 {
+    pub(crate) fn next_sequence(&self) -> u64 {
         self.events.len() as u64
     }
 
     pub fn status(&self, call_id: &str) -> Option<ToolExecutionStatus> {
-        self.events
-            .iter()
-            .rev()
-            .find(|event| event.call_id() == call_id)
-            .map(ToolExecutionEvent::status)
+        self.states.get(call_id).map(|state| state.status)
     }
 
     pub fn attempt(&self, call_id: &str) -> Option<ToolExecutionAttempt> {
-        self.events
-            .iter()
-            .rev()
-            .find(|event| event.call_id() == call_id)
-            .map(ToolExecutionEvent::attempt)
+        self.states
+            .get(call_id)
+            .map(|state| state.prepared.attempt())
     }
 
     pub fn replay_disposition(&self, call_id: &str) -> ToolReplayDisposition {
@@ -1127,12 +1446,12 @@ impl ToolExecutionLog {
         }
     }
 
-    pub fn recover_dispatched(
+    pub(crate) fn recover_dispatched(
         &mut self,
         observed_at_unix_ms: u64,
     ) -> Result<usize, ToolExecutionTransitionError> {
-        let states = execution_states(&self.events)?;
-        let dispatched = states
+        let dispatched = self
+            .states
             .iter()
             .filter_map(|(call_id, state)| {
                 (state.status == ToolExecutionStatus::Dispatched)
@@ -1154,6 +1473,15 @@ impl ToolExecutionLog {
 
     pub(crate) fn has_prefix(&self, prefix: &Self) -> bool {
         self.events.starts_with(&prefix.events)
+    }
+}
+
+impl Serialize for ToolExecutionLog {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.events.serialize(serializer)
     }
 }
 
@@ -1188,7 +1516,7 @@ impl<'de> Deserialize<'de> for ToolExecutionLog {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct ExecutionState {
     status: ToolExecutionStatus,
     step: u32,
@@ -1200,169 +1528,162 @@ fn execution_states(
 ) -> Result<BTreeMap<String, ExecutionState>, ToolExecutionTransitionError> {
     let mut states = BTreeMap::<String, ExecutionState>::new();
     for (index, event) in events.iter().enumerate() {
-        let expected = index as u64;
-        if event.sequence() != expected {
-            return Err(ToolExecutionTransitionError::InvalidSequence {
-                expected,
-                actual: event.sequence(),
-            });
-        }
-        validate_tool_call_id(event.call_id())?;
-
-        let call_id = event.call_id().to_string();
-        if event.attempt().get() == 0 {
-            return Err(ToolExecutionTransitionError::InvalidAttempt {
-                call_id,
-                attempt: event.attempt().get(),
-            });
-        }
-
-        match event {
-            ToolExecutionEvent::Prepared { step, tool, .. } => {
-                if tool.binding().name != tool.call().name() {
-                    return Err(ToolExecutionTransitionError::BindingNameMismatch { call_id });
-                }
-                if tool
-                    .stable_idempotency_key()
-                    .is_some_and(|key| ToolIdempotencyKey::new(key.as_str()).is_err())
-                {
-                    return Err(ToolExecutionTransitionError::InvalidStableIdempotencyKey {
-                        call_id,
-                    });
-                }
-
-                match states.get(&call_id) {
-                    None => {
-                        if tool.attempt() != ToolExecutionAttempt::INITIAL {
-                            return Err(ToolExecutionTransitionError::AttemptMismatch {
-                                call_id,
-                                expected: ToolExecutionAttempt::INITIAL.get(),
-                                actual: tool.attempt().get(),
-                            });
-                        }
-                    }
-                    Some(previous) if previous.status == ToolExecutionStatus::Indeterminate => {
-                        let expected_attempt =
-                            previous.prepared.attempt().next().ok_or_else(|| {
-                                ToolExecutionTransitionError::AttemptExhausted {
-                                    call_id: call_id.clone(),
-                                }
-                            })?;
-                        if tool.attempt() != expected_attempt {
-                            return Err(ToolExecutionTransitionError::AttemptMismatch {
-                                call_id,
-                                expected: expected_attempt.get(),
-                                actual: tool.attempt().get(),
-                            });
-                        }
-                        if *step != previous.step || !tool.same_logical_work(&previous.prepared) {
-                            return Err(ToolExecutionTransitionError::PreparedWorkChanged {
-                                call_id,
-                            });
-                        }
-                        if !previous.prepared.recovery_policy().permits_retry(
-                            EffectCertainty::Indeterminate,
-                            previous.prepared.stable_idempotency_key().is_some(),
-                        ) {
-                            return Err(ToolExecutionTransitionError::RecoveryNotPermitted {
-                                call_id,
-                            });
-                        }
-                    }
-                    Some(previous) => {
-                        return Err(ToolExecutionTransitionError::InvalidTransition {
-                            call_id,
-                            from: Some(previous.status),
-                            to: ToolExecutionStatus::Prepared,
-                        });
-                    }
-                }
-                states.insert(
-                    event.call_id().to_string(),
-                    ExecutionState {
-                        status: ToolExecutionStatus::Prepared,
-                        step: *step,
-                        prepared: tool.clone(),
-                    },
-                );
-            }
-            ToolExecutionEvent::Dispatched { attempt, .. } => {
-                let Some(previous) = states.get_mut(&call_id) else {
-                    return Err(ToolExecutionTransitionError::InvalidTransition {
-                        call_id,
-                        from: None,
-                        to: ToolExecutionStatus::Dispatched,
-                    });
-                };
-                if previous.status != ToolExecutionStatus::Prepared {
-                    return Err(ToolExecutionTransitionError::InvalidTransition {
-                        call_id,
-                        from: Some(previous.status),
-                        to: ToolExecutionStatus::Dispatched,
-                    });
-                }
-                validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
-                previous.status = ToolExecutionStatus::Dispatched;
-            }
-            ToolExecutionEvent::Completed {
-                attempt, outcome, ..
-            } => {
-                let Some(previous) = states.get_mut(&call_id) else {
-                    return Err(ToolExecutionTransitionError::InvalidTransition {
-                        call_id,
-                        from: None,
-                        to: ToolExecutionStatus::Completed,
-                    });
-                };
-                validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
-                match previous.status {
-                    ToolExecutionStatus::Prepared => {
-                        if matches!(outcome, ToolOutcome::Success { .. }) {
-                            return Err(
-                                ToolExecutionTransitionError::DirectSuccessRequiresDispatch {
-                                    call_id,
-                                },
-                            );
-                        }
-                    }
-                    ToolExecutionStatus::Dispatched => {}
-                    status => {
-                        return Err(ToolExecutionTransitionError::InvalidTransition {
-                            call_id,
-                            from: Some(status),
-                            to: ToolExecutionStatus::Completed,
-                        });
-                    }
-                }
-                previous.status = ToolExecutionStatus::Completed;
-            }
-            ToolExecutionEvent::Indeterminate { attempt, .. } => {
-                let Some(previous) = states.get_mut(&call_id) else {
-                    return Err(ToolExecutionTransitionError::InvalidTransition {
-                        call_id,
-                        from: None,
-                        to: ToolExecutionStatus::Indeterminate,
-                    });
-                };
-                if previous.status != ToolExecutionStatus::Dispatched {
-                    return Err(ToolExecutionTransitionError::InvalidTransition {
-                        call_id,
-                        from: Some(previous.status),
-                        to: ToolExecutionStatus::Indeterminate,
-                    });
-                }
-                validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
-                previous.status = ToolExecutionStatus::Indeterminate;
-            }
-        }
+        apply_execution_event(&mut states, index as u64, event)?;
     }
     Ok(states)
 }
 
-fn validate_execution_events(
-    events: &[ToolExecutionEvent],
+fn apply_execution_event(
+    states: &mut BTreeMap<String, ExecutionState>,
+    expected_sequence: u64,
+    event: &ToolExecutionEvent,
 ) -> Result<(), ToolExecutionTransitionError> {
-    execution_states(events).map(drop)
+    if event.sequence() != expected_sequence {
+        return Err(ToolExecutionTransitionError::InvalidSequence {
+            expected: expected_sequence,
+            actual: event.sequence(),
+        });
+    }
+    validate_tool_call_id(event.call_id())?;
+
+    let call_id = event.call_id().to_string();
+    if event.attempt().get() == 0 {
+        return Err(ToolExecutionTransitionError::InvalidAttempt {
+            call_id,
+            attempt: event.attempt().get(),
+        });
+    }
+
+    match event.state() {
+        ToolExecutionEventState::Prepared { step, tool, .. } => {
+            if tool.binding().name != tool.call().name() {
+                return Err(ToolExecutionTransitionError::BindingNameMismatch { call_id });
+            }
+            if tool
+                .stable_idempotency_key()
+                .is_some_and(|key| ToolIdempotencyKey::new(key.as_str()).is_err())
+            {
+                return Err(ToolExecutionTransitionError::InvalidStableIdempotencyKey { call_id });
+            }
+
+            match states.get(&call_id) {
+                None => {
+                    if tool.attempt() != ToolExecutionAttempt::INITIAL {
+                        return Err(ToolExecutionTransitionError::AttemptMismatch {
+                            call_id,
+                            expected: ToolExecutionAttempt::INITIAL.get(),
+                            actual: tool.attempt().get(),
+                        });
+                    }
+                }
+                Some(previous) if previous.status == ToolExecutionStatus::Indeterminate => {
+                    let expected_attempt = previous.prepared.attempt().next().ok_or_else(|| {
+                        ToolExecutionTransitionError::AttemptExhausted {
+                            call_id: call_id.clone(),
+                        }
+                    })?;
+                    if tool.attempt() != expected_attempt {
+                        return Err(ToolExecutionTransitionError::AttemptMismatch {
+                            call_id,
+                            expected: expected_attempt.get(),
+                            actual: tool.attempt().get(),
+                        });
+                    }
+                    if *step != previous.step || !tool.same_logical_work(&previous.prepared) {
+                        return Err(ToolExecutionTransitionError::PreparedWorkChanged { call_id });
+                    }
+                    if !previous.prepared.recovery_policy().permits_retry(
+                        EffectCertainty::Indeterminate,
+                        previous.prepared.stable_idempotency_key().is_some(),
+                    ) {
+                        return Err(ToolExecutionTransitionError::RecoveryNotPermitted { call_id });
+                    }
+                }
+                Some(previous) => {
+                    return Err(ToolExecutionTransitionError::InvalidTransition {
+                        call_id,
+                        from: Some(previous.status),
+                        to: ToolExecutionStatus::Prepared,
+                    });
+                }
+            }
+            states.insert(
+                call_id,
+                ExecutionState {
+                    status: ToolExecutionStatus::Prepared,
+                    step: *step,
+                    prepared: tool.clone(),
+                },
+            );
+        }
+        ToolExecutionEventState::Dispatched { attempt, .. } => {
+            let Some(previous) = states.get_mut(&call_id) else {
+                return Err(ToolExecutionTransitionError::InvalidTransition {
+                    call_id,
+                    from: None,
+                    to: ToolExecutionStatus::Dispatched,
+                });
+            };
+            if previous.status != ToolExecutionStatus::Prepared {
+                return Err(ToolExecutionTransitionError::InvalidTransition {
+                    call_id,
+                    from: Some(previous.status),
+                    to: ToolExecutionStatus::Dispatched,
+                });
+            }
+            validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
+            previous.status = ToolExecutionStatus::Dispatched;
+        }
+        ToolExecutionEventState::Completed {
+            attempt, outcome, ..
+        } => {
+            let Some(previous) = states.get_mut(&call_id) else {
+                return Err(ToolExecutionTransitionError::InvalidTransition {
+                    call_id,
+                    from: None,
+                    to: ToolExecutionStatus::Completed,
+                });
+            };
+            validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
+            match previous.status {
+                ToolExecutionStatus::Prepared => {
+                    if matches!(outcome, ToolOutcome::Success { .. }) {
+                        return Err(
+                            ToolExecutionTransitionError::DirectSuccessRequiresDispatch { call_id },
+                        );
+                    }
+                }
+                ToolExecutionStatus::Dispatched => {}
+                status => {
+                    return Err(ToolExecutionTransitionError::InvalidTransition {
+                        call_id,
+                        from: Some(status),
+                        to: ToolExecutionStatus::Completed,
+                    });
+                }
+            }
+            previous.status = ToolExecutionStatus::Completed;
+        }
+        ToolExecutionEventState::Indeterminate { attempt, .. } => {
+            let Some(previous) = states.get_mut(&call_id) else {
+                return Err(ToolExecutionTransitionError::InvalidTransition {
+                    call_id,
+                    from: None,
+                    to: ToolExecutionStatus::Indeterminate,
+                });
+            };
+            if previous.status != ToolExecutionStatus::Dispatched {
+                return Err(ToolExecutionTransitionError::InvalidTransition {
+                    call_id,
+                    from: Some(previous.status),
+                    to: ToolExecutionStatus::Indeterminate,
+                });
+            }
+            validate_event_attempt(&call_id, previous.prepared.attempt(), *attempt)?;
+            previous.status = ToolExecutionStatus::Indeterminate;
+        }
+    }
+    Ok(())
 }
 
 fn validate_event_attempt(
@@ -1406,7 +1727,7 @@ pub struct RunSnapshot {
 }
 
 impl RunSnapshot {
-    pub fn new(
+    pub(crate) fn new(
         checkpoint: SnapshotCheckpoint,
         fingerprints: SnapshotFingerprints,
         continuation: LanguageRequest,
@@ -1510,31 +1831,6 @@ impl RunSnapshot {
         &self.resume_point
     }
 
-    /// Convert every execution left in `Dispatched` into `Indeterminate`.
-    ///
-    /// This operation never turns a completed execution back into dispatchable
-    /// work and should be applied before resuming a deserialized continuation.
-    pub fn recovered_for_resume(
-        mut self,
-        observed_at_unix_ms: u64,
-    ) -> Result<Self, RunSnapshotError> {
-        let pending_approvals = self.pending_approvals().len();
-        let recovered = self
-            .report
-            .execution_log_mut()
-            .recover_dispatched(observed_at_unix_ms)?;
-        if recovered > 0 {
-            for _ in 0..pending_approvals {
-                self.report.budget_mut().release_pending_approval();
-            }
-            self.resume_point = ResumePoint::Terminal(SnapshotTerminal::Indeterminate {
-                reason: SnapshotReason::dispatch_outcome_unknown(),
-            });
-        }
-        self.validate()?;
-        Ok(self)
-    }
-
     fn validate(&self) -> Result<(), RunSnapshotError> {
         if self.snapshot_version != RUN_SNAPSHOT_SCHEMA_VERSION {
             return Err(RunSnapshotError::UnsupportedVersion {
@@ -1547,7 +1843,12 @@ impl RunSnapshot {
         if self.continuation.messages != self.report.messages() {
             return Err(RunSnapshotError::ContinuationHistoryMismatch);
         }
-        validate_execution_events(self.report.execution_log().events())?;
+        if !self.report.usage_is_settled()
+            && (self.report.usage() != &Usage::default()
+                || requires_settled_usage(&self.report, &self.resume_point))
+        {
+            return Err(RunSnapshotError::UsageSettlementMismatch);
+        }
         let expected_step = validate_report(&self.report)?;
         validate_model_transitions(
             &self.report,
@@ -1556,26 +1857,26 @@ impl RunSnapshot {
             expected_step,
         )?;
 
-        let expected_pending_approvals = match &self.resume_point {
-            ResumePoint::AwaitingApprovals(step) => {
+        let expected_pending_approvals = match self.resume_point.state() {
+            ResumePointState::AwaitingApprovals(step) => {
                 validate_pending_step(step, &self.report, expected_step)?;
                 if step.pending_approvals().is_empty() {
                     return Err(RunSnapshotError::MissingPendingApproval);
                 }
                 step.pending_approvals().len()
             }
-            ResumePoint::AwaitingProvider(step) => {
-                validate_provider_step(step, expected_step)?;
+            ResumePointState::AwaitingProvider(step) => {
+                validate_provider_step(step, &self.report, expected_step)?;
                 0
             }
-            ResumePoint::ReadyToDispatch(step) => {
+            ResumePointState::ReadyToDispatch(step) => {
                 validate_pending_step(step, &self.report, expected_step)?;
                 if !step.pending_approvals().is_empty() {
                     return Err(RunSnapshotError::UnexpectedPendingApproval);
                 }
                 0
             }
-            ResumePoint::ReadyForModel { next_step, target } => {
+            ResumePointState::ReadyForModel { next_step, target } => {
                 if *next_step != expected_step {
                     return Err(RunSnapshotError::ResumeStepMismatch {
                         expected: expected_step,
@@ -1587,9 +1888,12 @@ impl RunSnapshot {
                 {
                     return Err(RunSnapshotError::MissingModelSelectorIdentity);
                 }
+                if self.report.provider_deferred_ledger().has_unresolved() {
+                    return Err(RunSnapshotError::UnexpectedUnresolvedProviderState);
+                }
                 0
             }
-            ResumePoint::Terminal(_) => 0,
+            ResumePointState::Terminal(_) => 0,
         };
         let actual_pending_approvals = self.report.budget().pending_approvals();
         if u64::try_from(expected_pending_approvals).unwrap_or(u64::MAX)
@@ -1602,58 +1906,20 @@ impl RunSnapshot {
         }
         Ok(())
     }
+}
 
-    pub(crate) fn validate_successor(
-        &self,
-        successor: &Self,
-    ) -> Result<(), RunSnapshotSuccessorError> {
-        successor.validate()?;
-        if self.run_id() != successor.run_id() {
-            return Err(RunSnapshotSuccessorError::RunIdChanged);
+fn requires_settled_usage(report: &RunReport, resume_point: &ResumePoint) -> bool {
+    if !report.steps().is_empty() {
+        return true;
+    }
+    match resume_point.state() {
+        ResumePointState::AwaitingApprovals(_)
+        | ResumePointState::AwaitingProvider(_)
+        | ResumePointState::ReadyToDispatch(_) => true,
+        ResumePointState::Terminal(terminal) => {
+            terminal.kind() == SnapshotTerminalKind::Completed || terminal.partial().is_some()
         }
-        if self.lineage_id() != successor.lineage_id() {
-            return Err(RunSnapshotSuccessorError::LineageIdChanged);
-        }
-        if self.engine_version() != successor.engine_version() {
-            return Err(RunSnapshotSuccessorError::EngineVersionChanged);
-        }
-        if self.report.initial_target() != successor.report.initial_target() {
-            return Err(RunSnapshotSuccessorError::InitialTargetChanged);
-        }
-        if self.fingerprints != successor.fingerprints {
-            return Err(RunSnapshotSuccessorError::FingerprintsChanged);
-        }
-        if successor.parent_checkpoint_id() != Some(self.checkpoint_id()) {
-            return Err(RunSnapshotSuccessorError::ParentCheckpointMismatch {
-                expected: self.checkpoint_id().clone(),
-                actual: successor.parent_checkpoint_id().cloned(),
-            });
-        }
-        if successor.checkpoint_id() == self.checkpoint_id() {
-            return Err(RunSnapshotSuccessorError::ReusedCheckpoint);
-        }
-        validate_continuation_successor(self, successor)?;
-        if !successor.report.steps().starts_with(self.report.steps()) {
-            return Err(RunSnapshotSuccessorError::StepHistoryRegression);
-        }
-        if !successor
-            .report
-            .provider_deferred()
-            .starts_with(self.report.provider_deferred())
-        {
-            return Err(RunSnapshotSuccessorError::ProviderHistoryRegression);
-        }
-        if !successor
-            .report
-            .execution_log()
-            .has_prefix(self.report.execution_log())
-        {
-            return Err(RunSnapshotSuccessorError::ExecutionLogRegression);
-        }
-        validate_budget_successor(self.report.budget(), successor.report.budget())?;
-        validate_usage_successor(self.report.usage(), successor.report.usage())?;
-        validate_deadline_successor(self.deadline_unix_ms, successor.deadline_unix_ms)?;
-        validate_resume_successor(&self.resume_point, &successor.resume_point)
+        ResumePointState::ReadyForModel { .. } => false,
     }
 }
 
@@ -1680,54 +1946,6 @@ impl fmt::Debug for RunSnapshot {
             .field("deadline_unix_ms", &self.deadline_unix_ms)
             .field("resume_point", &self.resume_point)
             .finish()
-    }
-}
-
-#[derive(Deserialize)]
-struct RunSnapshotEnvelope {
-    snapshot_version: u16,
-    #[serde(flatten)]
-    payload: BTreeMap<String, Value>,
-}
-
-#[derive(Deserialize)]
-struct RunSnapshotPayloadWire {
-    checkpoint: SnapshotCheckpoint,
-    fingerprints: SnapshotFingerprints,
-    continuation: LanguageRequest,
-    report: RunReport,
-    deadline_unix_ms: Option<u64>,
-    resume_point: ResumePoint,
-}
-
-impl<'de> Deserialize<'de> for RunSnapshot {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let envelope = RunSnapshotEnvelope::deserialize(deserializer)?;
-        if envelope.snapshot_version != RUN_SNAPSHOT_SCHEMA_VERSION {
-            return Err(serde::de::Error::custom(
-                RunSnapshotError::UnsupportedVersion {
-                    found: envelope.snapshot_version,
-                    supported: RUN_SNAPSHOT_SCHEMA_VERSION,
-                },
-            ));
-        }
-        let payload = Value::Object(envelope.payload.into_iter().collect());
-        let wire = serde_json::from_value::<RunSnapshotPayloadWire>(payload)
-            .map_err(serde::de::Error::custom)?;
-        let snapshot = Self {
-            snapshot_version: envelope.snapshot_version,
-            checkpoint: wire.checkpoint,
-            fingerprints: wire.fingerprints,
-            continuation: wire.continuation,
-            report: wire.report,
-            deadline_unix_ms: wire.deadline_unix_ms,
-            resume_point: wire.resume_point,
-        };
-        snapshot.validate().map_err(serde::de::Error::custom)?;
-        Ok(snapshot)
     }
 }
 
@@ -1781,17 +1999,14 @@ pub enum RunSnapshotError {
     ResumeStepMismatch { expected: u32, actual: u32 },
     #[error("continuation messages must exactly match report message history")]
     ContinuationHistoryMismatch,
+    #[error("snapshot usage observations require settled report usage state")]
+    UsageSettlementMismatch,
     #[error("a frozen model transition requires a versioned selector identity")]
     MissingModelSelectorIdentity,
     #[error("a pending step must contain at least one tool call")]
     PendingStepWithoutToolCalls,
-    #[error("pending step has {prepared} prepared calls for {response_calls} response tool calls")]
-    PreparedCallCountMismatch {
-        response_calls: usize,
-        prepared: usize,
-    },
-    #[error("prepared tool at position {position} has ordinal {actual}")]
-    PreparedOrdinalMismatch { position: usize, actual: u32 },
+    #[error("prepared tool ordinal {actual} does not follow ordinal {previous}")]
+    PreparedOrdinalOutOfOrder { previous: u32, actual: u32 },
     #[error("pending step contains duplicate tool call `{call_id}`")]
     DuplicatePreparedCall { call_id: String },
     #[error("prepared tool at ordinal {ordinal} does not match the response tool call")]
@@ -1806,12 +2021,17 @@ pub enum RunSnapshotError {
     DuplicateCompletedOrdinal { ordinal: u32 },
     #[error("completed tool ordinal {actual} does not follow ordinal {previous}")]
     CompletedOrdinalOutOfOrder { previous: u32, actual: u32 },
-    #[error("completed tool ordinal {ordinal} does not reference a prepared call")]
-    CompletedCallNotPrepared { ordinal: u32 },
     #[error("completed tool ordinal {ordinal} has a mismatched result identity")]
     CompletedResultMismatch { ordinal: u32 },
     #[error("completed tool `{call_id}` does not exactly match its Completed execution event")]
     CompletedEventMismatch { call_id: String },
+    #[error("completed unprepared tool `{call_id}` has local execution journal state {status:?}")]
+    CompletedUnpreparedCallHasJournal {
+        call_id: String,
+        status: ToolExecutionStatus,
+    },
+    #[error("response tool ordinal {ordinal} is not represented by prepared or completed state")]
+    MissingPendingToolState { ordinal: u32 },
     #[error("prepared tool `{call_id}` has unresolved execution status {status:?}")]
     PreparedCallNotReady {
         call_id: String,
@@ -1823,8 +2043,8 @@ pub enum RunSnapshotError {
     DuplicateApprovalCall,
     #[error("pending approval call `{call_id}` does not exactly match a prepared tool")]
     ApprovalPreparedMismatch { call_id: String },
-    #[error("provider-state namespaces must be unique")]
-    DuplicateProviderStateNamespace,
+    #[error("pending provider state does not exactly match the provider-deferred ledger")]
+    ProviderStateProjectionMismatch,
     #[error("AwaitingApprovals requires at least one pending approval")]
     MissingPendingApproval,
     #[error("ReadyToDispatch cannot retain pending approvals")]
@@ -1833,177 +2053,10 @@ pub enum RunSnapshotError {
     PendingApprovalBudgetMismatch { expected: u64, actual: u64 },
     #[error("AwaitingProvider requires at least one provider-state entry")]
     MissingProviderState,
+    #[error("ready-for-model state cannot retain unresolved provider work")]
+    UnexpectedUnresolvedProviderState,
     #[error(transparent)]
     InvalidExecutionTransition(#[from] ToolExecutionTransitionError),
-}
-
-/// Why a candidate checkpoint cannot follow the currently stored checkpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[non_exhaustive]
-pub enum RunSnapshotSuccessorError {
-    #[error(transparent)]
-    InvalidSnapshot(#[from] RunSnapshotError),
-    #[error("successor changes the run identifier")]
-    RunIdChanged,
-    #[error("successor changes the lineage identifier")]
-    LineageIdChanged,
-    #[error("successor changes the runtime engine version")]
-    EngineVersionChanged,
-    #[error("successor changes the report's initial model target")]
-    InitialTargetChanged,
-    #[error("successor changes immutable execution-policy fingerprints")]
-    FingerprintsChanged,
-    #[error("successor parent checkpoint must be {expected}, got {actual:?}")]
-    ParentCheckpointMismatch {
-        expected: CheckpointId,
-        actual: Option<CheckpointId>,
-    },
-    #[error("successor reuses the current checkpoint identifier")]
-    ReusedCheckpoint,
-    #[error("successor rewrites or removes report message history")]
-    MessageHistoryRegression,
-    #[error("successor changes non-history continuation request state")]
-    ContinuationStateChanged,
-    #[error("successor rewrites or removes model-transition history")]
-    ModelTransitionHistoryRegression,
-    #[error("successor appends more than one model transition")]
-    MultipleModelTransitions,
-    #[error("successor appends a model transition outside a ready-for-model boundary")]
-    UnexpectedModelTransition,
-    #[error("successor omits the transition to the frozen ready-for-model target")]
-    MissingModelTransition,
-    #[error("successor model transition does not match the frozen selection")]
-    ModelTransitionMismatch,
-    #[error("successor continuation is not a reproducible history projection")]
-    ProjectionResultMismatch,
-    #[error("successor rewrites or removes completed step history")]
-    StepHistoryRegression,
-    #[error("successor rewrites or removes provider-native report history")]
-    ProviderHistoryRegression,
-    #[error("successor rewrites or removes execution-log history")]
-    ExecutionLogRegression,
-    #[error("successor budget `{dimension}` regresses from {previous} to {next}")]
-    BudgetRegression {
-        dimension: &'static str,
-        previous: u64,
-        next: u64,
-    },
-    #[error("successor usage `{dimension}` regresses from {previous} to {next}")]
-    UsageRegression {
-        dimension: &'static str,
-        previous: u64,
-        next: u64,
-    },
-    #[error("successor extends or removes deadline {previous:?} with {next:?}")]
-    DeadlineRegression {
-        previous: Option<u64>,
-        next: Option<u64>,
-    },
-    #[error("resume point cannot transition from {from:?} to {to:?}")]
-    InvalidResumeTransition {
-        from: ResumePointKind,
-        to: ResumePointKind,
-    },
-    #[error("successor changes immutable pending-step work")]
-    PendingStepChanged,
-    #[error("successor rewrites or removes completed work in a pending step")]
-    PendingStepCompletionRegression,
-    #[error("successor adds or changes a pending approval")]
-    PendingApprovalRegression,
-    #[error("successor changes immutable provider-step work")]
-    ProviderStepChanged,
-    #[error("successor resume step {actual} is earlier than {minimum}")]
-    ResumeStepRegression { minimum: u32, actual: u32 },
-    #[error("pending step {step} did not advance before returning to model step {next_step}")]
-    PendingStepDidNotComplete { step: u32, next_step: u32 },
-}
-
-fn validate_continuation_successor(
-    previous: &RunSnapshot,
-    successor: &RunSnapshot,
-) -> Result<(), RunSnapshotSuccessorError> {
-    if !successor
-        .report
-        .model_transitions()
-        .starts_with(previous.report.model_transitions())
-    {
-        return Err(RunSnapshotSuccessorError::ModelTransitionHistoryRegression);
-    }
-    let appended =
-        &successor.report.model_transitions()[previous.report.model_transitions().len()..];
-    if appended.len() > 1 {
-        return Err(RunSnapshotSuccessorError::MultipleModelTransitions);
-    }
-
-    let frozen = match previous.resume_point() {
-        ResumePoint::ReadyForModel { next_step, target } => Some((*next_step, target)),
-        _ => None,
-    };
-    let source = previous.report.current_target();
-    let Some(transition) = appended.first() else {
-        if frozen.is_some_and(|(_, target)| target != source) {
-            return Err(RunSnapshotSuccessorError::MissingModelTransition);
-        }
-        if !same_continuation_state(&previous.continuation, &successor.continuation) {
-            return Err(RunSnapshotSuccessorError::ContinuationStateChanged);
-        }
-        if !successor
-            .continuation
-            .messages
-            .starts_with(&previous.continuation.messages)
-        {
-            return Err(RunSnapshotSuccessorError::MessageHistoryRegression);
-        }
-        return Ok(());
-    };
-
-    let Some((next_step, frozen_target)) = frozen else {
-        return Err(RunSnapshotSuccessorError::UnexpectedModelTransition);
-    };
-    if transition.step() != next_step
-        || transition.source() != source
-        || transition.target() != frozen_target
-        || transition.policy() != previous.fingerprints.projection_policy
-    {
-        return Err(RunSnapshotSuccessorError::ModelTransitionMismatch);
-    }
-
-    match project_history(
-        previous.continuation.clone(),
-        source,
-        frozen_target,
-        previous.fingerprints.projection_policy,
-    ) {
-        Ok(projected) if transition.outcome() == ModelTransitionOutcome::Applied => {
-            if transition.scope() != projected.scope()
-                || transition.losses() != projected.losses()
-                || !same_continuation_state(projected.request(), &successor.continuation)
-                || !successor
-                    .continuation
-                    .messages
-                    .starts_with(&projected.request().messages)
-            {
-                return Err(RunSnapshotSuccessorError::ProjectionResultMismatch);
-            }
-        }
-        Err(error) if transition.outcome() == ModelTransitionOutcome::Rejected => {
-            if transition.scope() != error.scope()
-                || transition.losses() != error.losses()
-                || successor.continuation != previous.continuation
-            {
-                return Err(RunSnapshotSuccessorError::ProjectionResultMismatch);
-            }
-        }
-        _ => return Err(RunSnapshotSuccessorError::ModelTransitionMismatch),
-    }
-    Ok(())
-}
-
-fn same_continuation_state(previous: &LanguageRequest, next: &LanguageRequest) -> bool {
-    previous.generation == next.generation
-        && previous.tools == next.tools
-        && previous.tool_choice == next.tool_choice
-        && previous.structured_output == next.structured_output
 }
 
 fn validate_report(report: &RunReport) -> Result<u32, RunSnapshotError> {
@@ -2076,23 +2129,23 @@ fn validate_model_transitions(
         return Err(RunSnapshotError::RejectedModelTransitionNotTerminal { step });
     }
 
-    match resume_point {
-        ResumePoint::AwaitingApprovals(step) | ResumePoint::ReadyToDispatch(step) => {
+    match resume_point.state() {
+        ResumePointState::AwaitingApprovals(step) | ResumePointState::ReadyToDispatch(step) => {
             if step.target() != &active_target {
                 return Err(RunSnapshotError::ResumeTargetMismatch { step: step.index() });
             }
         }
-        ResumePoint::AwaitingProvider(step) => {
+        ResumePointState::AwaitingProvider(step) => {
             if step.target() != &active_target {
                 return Err(RunSnapshotError::ResumeTargetMismatch { step: step.index() });
             }
         }
-        ResumePoint::ReadyForModel { next_step, target } => {
+        ResumePointState::ReadyForModel { next_step, target } => {
             if last_transition_step == Some(*next_step) && target != &active_target {
                 return Err(RunSnapshotError::ResumeTargetMismatch { step: *next_step });
             }
         }
-        ResumePoint::Terminal(_) => {}
+        ResumePointState::Terminal(_) => {}
     }
     Ok(())
 }
@@ -2168,33 +2221,31 @@ fn validate_pending_step(
     if response_calls.is_empty() {
         return Err(RunSnapshotError::PendingStepWithoutToolCalls);
     }
-    if response_calls.len() != step.prepared().len() {
-        return Err(RunSnapshotError::PreparedCallCountMismatch {
-            response_calls: response_calls.len(),
-            prepared: step.prepared().len(),
-        });
-    }
-
     let mut prepared_call_ids = BTreeSet::new();
-    for (position, prepared) in step.prepared().iter().enumerate() {
-        let expected_ordinal =
-            u32::try_from(position).map_err(|_| RunSnapshotError::PreparedOrdinalMismatch {
-                position,
-                actual: prepared.ordinal(),
-            })?;
-        if prepared.ordinal() != expected_ordinal {
-            return Err(RunSnapshotError::PreparedOrdinalMismatch {
-                position,
+    let mut prepared_ordinals = BTreeSet::new();
+    let mut previous_prepared_ordinal = None;
+    for prepared in step.prepared() {
+        if let Some(previous) = previous_prepared_ordinal
+            && prepared.ordinal() <= previous
+        {
+            return Err(RunSnapshotError::PreparedOrdinalOutOfOrder {
+                previous,
                 actual: prepared.ordinal(),
             });
         }
+        previous_prepared_ordinal = Some(prepared.ordinal());
+        prepared_ordinals.insert(prepared.ordinal());
         validate_tool_call_id(prepared.call().id())?;
         if !prepared_call_ids.insert(prepared.call().id()) {
             return Err(RunSnapshotError::DuplicatePreparedCall {
                 call_id: prepared.call().id().to_owned(),
             });
         }
-        if response_calls[position] != prepared.call() {
+        let matches_response = usize::try_from(prepared.ordinal())
+            .ok()
+            .and_then(|ordinal| response_calls.get(ordinal))
+            .is_some_and(|call| *call == prepared.call());
+        if !matches_response {
             return Err(RunSnapshotError::PreparedCallMismatch {
                 ordinal: prepared.ordinal(),
             });
@@ -2212,11 +2263,11 @@ fn validate_pending_step(
             .iter()
             .rev()
             .find_map(|event| {
-                let ToolExecutionEvent::Prepared {
+                let ToolExecutionEventState::Prepared {
                     step: event_step,
                     tool,
                     ..
-                } = event
+                } = event.state()
                 else {
                     return None;
                 };
@@ -2251,43 +2302,61 @@ fn validate_pending_step(
             });
         }
         previous_completed_ordinal = Some(completed.ordinal());
-        let prepared = usize::try_from(completed.ordinal())
+        let response_call = usize::try_from(completed.ordinal())
             .ok()
-            .and_then(|ordinal| step.prepared().get(ordinal))
-            .filter(|prepared| prepared.ordinal() == completed.ordinal())
-            .ok_or(RunSnapshotError::CompletedCallNotPrepared {
+            .and_then(|ordinal| response_calls.get(ordinal))
+            .ok_or(RunSnapshotError::CompletedResultMismatch {
                 ordinal: completed.ordinal(),
             })?;
-        if completed.result().call_id != prepared.call().id()
-            || completed.result().name != prepared.call().name()
+        if completed.result().call_id != response_call.id()
+            || completed.result().name != response_call.name()
         {
             return Err(RunSnapshotError::CompletedResultMismatch {
                 ordinal: completed.ordinal(),
             });
         }
-        let completed_event = report
-            .execution_log()
-            .events()
+        if let Some(prepared) = step
+            .prepared()
             .iter()
-            .rev()
-            .find_map(|event| {
-                let ToolExecutionEvent::Completed {
-                    call_id,
-                    attempt,
-                    outcome,
-                    ..
-                } = event
-                else {
-                    return None;
-                };
-                (call_id == prepared.call().id()).then_some((attempt, outcome))
+            .find(|prepared| prepared.ordinal() == completed.ordinal())
+        {
+            let completed_event = report
+                .execution_log()
+                .events()
+                .iter()
+                .rev()
+                .find_map(|event| {
+                    let ToolExecutionEventState::Completed {
+                        call_id,
+                        attempt,
+                        outcome,
+                        ..
+                    } = event.state()
+                    else {
+                        return None;
+                    };
+                    (call_id == prepared.call().id()).then_some((attempt, outcome))
+                });
+            if completed_event.is_none_or(|(attempt, outcome)| {
+                *attempt != prepared.attempt() || outcome != &completed.result().outcome
+            }) {
+                return Err(RunSnapshotError::CompletedEventMismatch {
+                    call_id: prepared.call().id().to_owned(),
+                });
+            }
+        } else if let Some(status) = report.execution_log().status(response_call.id()) {
+            return Err(RunSnapshotError::CompletedUnpreparedCallHasJournal {
+                call_id: response_call.id().to_owned(),
+                status,
             });
-        if completed_event.is_none_or(|(attempt, outcome)| {
-            *attempt != prepared.attempt() || outcome != &completed.result().outcome
-        }) {
-            return Err(RunSnapshotError::CompletedEventMismatch {
-                call_id: prepared.call().id().to_owned(),
-            });
+        }
+    }
+
+    for ordinal in 0..response_calls.len() {
+        let ordinal = u32::try_from(ordinal)
+            .expect("response tool call ordinal is representable in a snapshot");
+        if !prepared_ordinals.contains(&ordinal) && !completed_ordinals.contains(&ordinal) {
+            return Err(RunSnapshotError::MissingPendingToolState { ordinal });
         }
     }
 
@@ -2346,6 +2415,7 @@ fn validate_pending_step(
 
 fn validate_provider_step(
     step: &PendingProviderStepSnapshot,
+    report: &RunReport,
     expected_step: u32,
 ) -> Result<(), RunSnapshotError> {
     if step.index() != expected_step {
@@ -2358,257 +2428,10 @@ fn validate_provider_step(
         return Err(RunSnapshotError::MissingProviderState);
     }
 
-    let mut provider_namespaces = BTreeSet::new();
-    for state in step.provider_state() {
-        validate_bounded_text(
-            &state.namespace,
-            "provider-state namespace",
-            MAX_PROVIDER_STATE_NAMESPACE_BYTES,
-            false,
-        )?;
-        validate_bounded_text(
-            &state.encoding,
-            "provider-state encoding",
-            MAX_PROVIDER_STATE_NAMESPACE_BYTES,
-            false,
-        )?;
-        if let Some(correlation_id) = &state.correlation_id {
-            validate_bounded_text(
-                correlation_id,
-                "provider correlation identifier",
-                MAX_CORRELATION_ID_BYTES,
-                false,
-            )?;
-        }
-        if !provider_namespaces.insert(state.namespace.as_str()) {
-            return Err(RunSnapshotError::DuplicateProviderStateNamespace);
-        }
-    }
-    Ok(())
-}
-
-fn validate_budget_successor(
-    previous: &crate::BudgetLedger,
-    next: &crate::BudgetLedger,
-) -> Result<(), RunSnapshotSuccessorError> {
-    for (dimension, previous, next) in [
-        (
-            "model_steps",
-            u64::from(previous.model_steps()),
-            u64::from(next.model_steps()),
-        ),
-        (
-            "tool_calls",
-            u64::from(previous.tool_calls()),
-            u64::from(next.tool_calls()),
-        ),
-        (
-            "argument_bytes",
-            previous.argument_bytes(),
-            next.argument_bytes(),
-        ),
-        ("result_bytes", previous.result_bytes(), next.result_bytes()),
-        ("known_tokens", previous.known_tokens(), next.known_tokens()),
-        (
-            "usage_steps_with_unknown_tokens",
-            u64::from(previous.usage_steps_with_unknown_tokens()),
-            u64::from(next.usage_steps_with_unknown_tokens()),
-        ),
-        (
-            "known_cost_microunits",
-            previous.known_cost_microunits(),
-            next.known_cost_microunits(),
-        ),
-    ] {
-        if next < previous {
-            return Err(RunSnapshotSuccessorError::BudgetRegression {
-                dimension,
-                previous,
-                next,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn validate_usage_successor(
-    previous: &Usage,
-    next: &Usage,
-) -> Result<(), RunSnapshotSuccessorError> {
-    for (dimension, previous, next) in [
-        ("input_tokens", previous.input_tokens, next.input_tokens),
-        ("output_tokens", previous.output_tokens, next.output_tokens),
-        ("total_tokens", previous.total_tokens, next.total_tokens),
-        (
-            "reasoning_tokens",
-            previous.reasoning_tokens,
-            next.reasoning_tokens,
-        ),
-        (
-            "cache_read_tokens",
-            previous.cache_read_tokens,
-            next.cache_read_tokens,
-        ),
-        (
-            "cache_write_tokens",
-            previous.cache_write_tokens,
-            next.cache_write_tokens,
-        ),
-        (
-            "audio_input_tokens",
-            previous.audio_input_tokens,
-            next.audio_input_tokens,
-        ),
-        (
-            "audio_output_tokens",
-            previous.audio_output_tokens,
-            next.audio_output_tokens,
-        ),
-        (
-            "orchestration_tokens",
-            previous.orchestration_tokens,
-            next.orchestration_tokens,
-        ),
-    ] {
-        if let (UsageValue::Known(previous), UsageValue::Known(next)) = (previous, next)
-            && next < previous
-        {
-            return Err(RunSnapshotSuccessorError::UsageRegression {
-                dimension,
-                previous,
-                next,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn validate_deadline_successor(
-    previous: Option<u64>,
-    next: Option<u64>,
-) -> Result<(), RunSnapshotSuccessorError> {
-    if matches!((previous, next), (Some(_), None))
-        || matches!((previous, next), (Some(previous), Some(next)) if next > previous)
-    {
-        return Err(RunSnapshotSuccessorError::DeadlineRegression { previous, next });
-    }
-    Ok(())
-}
-
-fn validate_resume_successor(
-    previous: &ResumePoint,
-    next: &ResumePoint,
-) -> Result<(), RunSnapshotSuccessorError> {
-    match (previous, next) {
-        (ResumePoint::AwaitingApprovals(previous), ResumePoint::AwaitingApprovals(next))
-        | (ResumePoint::AwaitingApprovals(previous), ResumePoint::ReadyToDispatch(next))
-        | (ResumePoint::ReadyToDispatch(previous), ResumePoint::ReadyToDispatch(next)) => {
-            validate_pending_step_successor(previous, next)
-        }
-        (
-            ResumePoint::AwaitingApprovals(previous) | ResumePoint::ReadyToDispatch(previous),
-            ResumePoint::ReadyForModel { next_step, .. },
-        ) => validate_pending_step_advanced(previous.index(), *next_step),
-        (
-            ResumePoint::AwaitingApprovals(_) | ResumePoint::ReadyToDispatch(_),
-            ResumePoint::Terminal(_),
-        ) => Ok(()),
-        (ResumePoint::AwaitingProvider(previous), ResumePoint::AwaitingProvider(next)) => {
-            if previous.index() != next.index()
-                || previous.target() != next.target()
-                || previous.response() != next.response()
-            {
-                return Err(RunSnapshotSuccessorError::ProviderStepChanged);
-            }
-            Ok(())
-        }
-        (
-            ResumePoint::AwaitingProvider(previous),
-            ResumePoint::AwaitingApprovals(next) | ResumePoint::ReadyToDispatch(next),
-        ) => validate_resume_step_floor(previous.index(), next.index()),
-        (ResumePoint::AwaitingProvider(previous), ResumePoint::ReadyForModel { next_step, .. }) => {
-            validate_pending_step_advanced(previous.index(), *next_step)
-        }
-        (ResumePoint::AwaitingProvider(_), ResumePoint::Terminal(_)) => Ok(()),
-        (
-            ResumePoint::ReadyForModel {
-                next_step: previous,
-                ..
-            },
-            ResumePoint::AwaitingApprovals(next) | ResumePoint::ReadyToDispatch(next),
-        ) => validate_resume_step_floor(*previous, next.index()),
-        (
-            ResumePoint::ReadyForModel {
-                next_step: previous,
-                ..
-            },
-            ResumePoint::AwaitingProvider(next),
-        ) => validate_resume_step_floor(*previous, next.index()),
-        (
-            ResumePoint::ReadyForModel {
-                next_step: previous,
-                ..
-            },
-            ResumePoint::ReadyForModel {
-                next_step: next, ..
-            },
-        ) => validate_resume_step_floor(*previous, *next),
-        (ResumePoint::ReadyForModel { .. }, ResumePoint::Terminal(_)) => Ok(()),
-        _ => Err(RunSnapshotSuccessorError::InvalidResumeTransition {
-            from: previous.kind(),
-            to: next.kind(),
-        }),
-    }
-}
-
-fn validate_pending_step_successor(
-    previous: &PendingStepSnapshot,
-    next: &PendingStepSnapshot,
-) -> Result<(), RunSnapshotSuccessorError> {
-    if previous.index() != next.index()
-        || previous.target() != next.target()
-        || previous.response() != next.response()
-        || previous.prepared().len() != next.prepared().len()
-        || previous
-            .prepared()
-            .iter()
-            .zip(next.prepared())
-            .any(|(previous, next)| !previous.same_logical_work(next))
-    {
-        return Err(RunSnapshotSuccessorError::PendingStepChanged);
-    }
-    if previous
-        .completed()
-        .iter()
-        .any(|completed| !next.completed().contains(completed))
-    {
-        return Err(RunSnapshotSuccessorError::PendingStepCompletionRegression);
-    }
-    if next
-        .pending_approvals()
-        .iter()
-        .any(|approval| !previous.pending_approvals().contains(approval))
-    {
-        return Err(RunSnapshotSuccessorError::PendingApprovalRegression);
-    }
-    Ok(())
-}
-
-fn validate_pending_step_advanced(
-    step: u32,
-    next_step: u32,
-) -> Result<(), RunSnapshotSuccessorError> {
-    if next_step <= step {
-        return Err(RunSnapshotSuccessorError::PendingStepDidNotComplete { step, next_step });
-    }
-    Ok(())
-}
-
-fn validate_resume_step_floor(minimum: u32, actual: u32) -> Result<(), RunSnapshotSuccessorError> {
-    if actual < minimum {
-        return Err(RunSnapshotSuccessorError::ResumeStepRegression { minimum, actual });
-    }
-    Ok(())
+    report
+        .provider_deferred_ledger()
+        .validate_pending_projection(step.target().scope(), step.provider_state())
+        .map_err(|_| RunSnapshotError::ProviderStateProjectionMismatch)
 }
 
 fn validate_bounded_text(
@@ -2652,7 +2475,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt};
+    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt, ToolJournal};
 
     fn target() -> ModelTarget {
         ModelTarget::new(
@@ -2698,11 +2521,12 @@ mod tests {
     }
 
     fn response(prepared: &[PreparedToolSnapshot]) -> LanguageResponse {
+        response_for_calls(prepared.iter().map(|tool| tool.call().clone()).collect())
+    }
+
+    fn response_for_calls(calls: Vec<ToolCall>) -> LanguageResponse {
         LanguageResponse::completed(
-            prepared
-                .iter()
-                .map(|tool| ContentPart::ToolCall(tool.call().clone()))
-                .collect(),
+            calls.into_iter().map(ContentPart::ToolCall).collect(),
             LanguageCompletionReason::ToolCalls,
             Usage::default(),
         )
@@ -2730,7 +2554,7 @@ mod tests {
             Vec::new(),
         );
 
-        validate_pending_step_successor(&previous, &next).unwrap();
+        super::successor::validate_pending_step_successor(&previous, &next).unwrap();
     }
 
     #[test]
@@ -2755,7 +2579,6 @@ mod tests {
                 20,
                 tool.call().id(),
                 tool.attempt(),
-                None,
             ))
             .unwrap();
             log.append(ToolExecutionEvent::completed(
@@ -2768,7 +2591,7 @@ mod tests {
             .unwrap();
         }
         let mut report = RunReport::new(target(), Vec::new());
-        *report.execution_log_mut() = log;
+        report.replace_tool_journal(ToolJournal::from_log(log));
         let step = PendingStepSnapshot::new(
             0,
             target(),
@@ -2785,5 +2608,38 @@ mod tests {
                 actual: 0,
             }
         );
+    }
+
+    #[test]
+    fn pending_snapshot_accepts_sparse_prepared_subset_and_unbound_completion() {
+        let prepared = vec![prepared(1)];
+        let response = response_for_calls(vec![call(0), call(1)]);
+        let unbound_result = CompletedToolSnapshot::new(
+            0,
+            ToolResult {
+                call_id: "call-0".to_string(),
+                name: "tool-0".to_string(),
+                outcome: ToolOutcome::ExecutionFailed {
+                    message: "unknown local tool".to_string(),
+                    retryable: false,
+                    details: None,
+                },
+            },
+        );
+        let mut log = ToolExecutionLog::new();
+        log.append(ToolExecutionEvent::prepared(0, 10, 0, prepared[0].clone()))
+            .unwrap();
+        let mut report = RunReport::new(target(), Vec::new());
+        report.replace_tool_journal(ToolJournal::from_log(log));
+        let step = PendingStepSnapshot::new(
+            0,
+            target(),
+            response,
+            prepared,
+            vec![unbound_result],
+            Vec::new(),
+        );
+
+        validate_pending_step(&step, &report, 0).unwrap();
     }
 }

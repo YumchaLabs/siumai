@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import math
 import os
 import re
@@ -24,6 +25,37 @@ RATE_LIMIT_PATTERNS = (
     "status 429 Too Many Requests",
     "published too many new crates",
 )
+OUTPUT_TAIL_BYTES = 128 * 1024
+
+
+class BoundedOutputTail:
+    def __init__(self, maximum_bytes: int = OUTPUT_TAIL_BYTES) -> None:
+        if maximum_bytes <= 0:
+            raise ValueError("maximum_bytes must be greater than zero")
+        self._maximum_bytes = maximum_bytes
+        self._chunks: deque[bytes] = deque()
+        self._bytes = 0
+
+    def append(self, value: str) -> None:
+        encoded = value.encode("utf-8", errors="replace")
+        if len(encoded) >= self._maximum_bytes:
+            self._chunks.clear()
+            self._chunks.append(encoded[-self._maximum_bytes :])
+            self._bytes = self._maximum_bytes
+            return
+        self._chunks.append(encoded)
+        self._bytes += len(encoded)
+        while self._bytes > self._maximum_bytes:
+            excess = self._bytes - self._maximum_bytes
+            first = self._chunks.popleft()
+            if len(first) > excess:
+                self._chunks.appendleft(first[excess:])
+                self._bytes -= excess
+                break
+            self._bytes -= len(first)
+
+    def text(self) -> str:
+        return b"".join(self._chunks).decode("utf-8", errors="replace")
 
 
 def positive_env_int(name: str, default: int) -> int:
@@ -81,11 +113,11 @@ def run_release(github_token: str, *, dry_run: bool = False) -> tuple[int, str]:
         errors="replace",
     )
     assert process.stdout is not None
-    lines: list[str] = []
+    output_tail = BoundedOutputTail()
     for line in process.stdout:
         print(line, end="", flush=True)
-        lines.append(line)
-    return process.wait(), "".join(lines)
+        output_tail.append(line)
+    return process.wait(), output_tail.text()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

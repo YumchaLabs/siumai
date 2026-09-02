@@ -12,7 +12,14 @@ pub mod models {
     };
 }
 
+pub mod common {
+    pub use siumai_provider_openai::{
+        OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity,
+    };
+}
+
 pub mod chat_completions {
+    pub use super::common::{OpenAiReasoningEffort, OpenAiServiceTier, OpenAiTextVerbosity};
     pub use siumai_provider_openai::{OpenAiChatCompletionsModel, OpenAiChatCompletionsOptions};
 }
 
@@ -51,7 +58,7 @@ pub mod audio {
         pub use siumai_provider_openai::{
             GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20,
             GPT_4O_MINI_TRANSCRIBE_2025_12_15, GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE,
-            OpenAiTranscriptionModel, OpenAiTranscriptionOptions,
+            GPT_TRANSCRIBE, OpenAiTranscriptionModel, OpenAiTranscriptionOptions,
             OpenAiTranscriptionResponseFormat, OpenAiTranscriptionTimestampGranularity, WHISPER_1,
         };
     }
@@ -171,16 +178,8 @@ pub mod experimental {
             OPENAI_RESPONSES_WEBSOCKET_URL, OpenAiResponsesWarmUpFrame,
             OpenAiResponsesWarmUpOutcome, OpenAiResponsesWebSocketConfig,
             OpenAiResponsesWebSocketConfigError, OpenAiResponsesWebSocketEvent,
-            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketTurn,
-            OpenAiResponsesWebSocketTurnKind,
+            OpenAiResponsesWebSocketSession, OpenAiResponsesWebSocketSubmissionState,
+            OpenAiResponsesWebSocketTurn, OpenAiResponsesWebSocketTurnKind,
         };
-
-        pub mod advanced {
-            pub use siumai_provider_openai::experimental::responses_websocket::advanced::{
-                OpenAiResponsesWebSocketConnectRequest, OpenAiResponsesWebSocketConnector,
-                OpenAiResponsesWebSocketSocket, OpenAiResponsesWebSocketSocketReceiver,
-                OpenAiResponsesWebSocketSocketSender, OpenAiResponsesWebSocketTransportConnector,
-            };
-        }
     }
 }

@@ -1,14 +1,13 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use siumai_core::{
     CallOptions, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
     Provider, ProviderInstanceId, ProviderOptionError, ProviderRegistration, ProviderScope,
 };
 use siumai_transport::{
-    AuthApplier, EndpointError, ProviderTransport, ReplaySafety, RetryPolicy, TransportConfigError,
-    TransportLimits,
+    AuthApplier, EndpointError, ProviderHttpTransportSettings, ProviderTransport, ReplaySafety,
+    TransportConfigError,
 };
 use thiserror::Error;
 
@@ -37,6 +36,19 @@ impl AnthropicCompatibleProvider {
         auth: Arc<dyn AuthApplier>,
     ) -> AnthropicCompatibleProviderBuilder {
         AnthropicCompatibleProviderBuilder::with_auth(profile, auth)
+    }
+
+    /// Build a provider-author integration around an already configured transport.
+    ///
+    /// The transport must use the exact endpoint owned by `profile`. Its
+    /// authentication, settings, retry policy, and admission state remain
+    /// immutable and are shared by every model created from the provider.
+    #[doc(hidden)]
+    pub fn builder_with_transport(
+        profile: AnthropicCompatibleProfile,
+        transport: ProviderTransport,
+    ) -> AnthropicCompatibleProviderBuilder {
+        AnthropicCompatibleProviderBuilder::with_transport(profile, transport)
     }
 
     pub fn language(
@@ -104,53 +116,47 @@ impl fmt::Debug for AnthropicCompatibleProvider {
     }
 }
 
-enum ConfiguredAuth {
-    Credential(AnthropicCompatibleCredential),
-    Applied(Arc<dyn AuthApplier>),
-}
-
 /// Builder for one network-free configured runtime.
 pub struct AnthropicCompatibleProviderBuilder {
     profile: AnthropicCompatibleProfile,
-    auth: ConfiguredAuth,
+    transport_source: ConfiguredTransportSource,
     instance_id: Option<ProviderInstanceId>,
     defaults: MessagesCallOptions,
     replay_safety: ReplaySafety,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: Option<ProviderHttpTransportSettings>,
 }
 
 impl AnthropicCompatibleProviderBuilder {
     fn new(profile: AnthropicCompatibleProfile, credential: AnthropicCompatibleCredential) -> Self {
         Self {
             profile,
-            auth: ConfiguredAuth::Credential(credential),
+            transport_source: ConfiguredTransportSource::Credential(credential),
             instance_id: None,
             defaults: MessagesCallOptions::default(),
             replay_safety: ReplaySafety::Never,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: Some(ProviderHttpTransportSettings::default()),
         }
     }
 
     fn with_auth(profile: AnthropicCompatibleProfile, auth: Arc<dyn AuthApplier>) -> Self {
         Self {
             profile,
-            auth: ConfiguredAuth::Applied(auth),
+            transport_source: ConfiguredTransportSource::Applied(auth),
             instance_id: None,
             defaults: MessagesCallOptions::default(),
             replay_safety: ReplaySafety::Never,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: Some(ProviderHttpTransportSettings::default()),
+        }
+    }
+
+    fn with_transport(profile: AnthropicCompatibleProfile, transport: ProviderTransport) -> Self {
+        Self {
+            profile,
+            transport_source: ConfiguredTransportSource::Prebuilt(transport),
+            instance_id: None,
+            defaults: MessagesCallOptions::default(),
+            replay_safety: ReplaySafety::Never,
+            http_transport_settings: None,
         }
     }
 
@@ -172,28 +178,9 @@ impl AnthropicCompatibleProviderBuilder {
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = Some(settings);
         self
     }
 
@@ -203,28 +190,31 @@ impl AnthropicCompatibleProviderBuilder {
             .scope()
             .replay_domain()
             .ok_or(AnthropicCompatibleConfigError::MissingReplayDomain)?;
-        let auth = match self.auth {
-            ConfiguredAuth::Credential(credential) => {
-                credential.validate()?;
-                credential.into_auth()
-            }
-            ConfiguredAuth::Applied(auth) => auth,
-        };
         let option_merger = MessagesOptionMerger::new(self.defaults)?;
-        let mut transport = ProviderTransport::builder(self.profile.endpoint().clone())
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        let transport = transport.build()?;
+        let transport = match self.transport_source {
+            ConfiguredTransportSource::Credential(credential) => {
+                credential.validate()?;
+                build_transport(
+                    &self.profile,
+                    credential.into_auth(),
+                    self.http_transport_settings
+                        .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
+                )?
+            }
+            ConfiguredTransportSource::Applied(auth) => build_transport(
+                &self.profile,
+                auth,
+                self.http_transport_settings
+                    .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
+            )?,
+            ConfiguredTransportSource::Prebuilt(transport) => {
+                if self.http_transport_settings.is_some() {
+                    return Err(AnthropicCompatibleConfigError::PrebuiltTransportSettingsConflict);
+                }
+                validate_transport_endpoint(self.profile.endpoint(), &transport)?;
+                transport
+            }
+        };
         let scope = self.profile.scope_arc();
         let instance_id = self.instance_id.unwrap_or_default();
         Ok(AnthropicCompatibleProvider {
@@ -238,6 +228,36 @@ impl AnthropicCompatibleProviderBuilder {
             }),
         })
     }
+}
+
+enum ConfiguredTransportSource {
+    Credential(AnthropicCompatibleCredential),
+    Applied(Arc<dyn AuthApplier>),
+    Prebuilt(ProviderTransport),
+}
+
+fn build_transport(
+    profile: &AnthropicCompatibleProfile,
+    auth: Arc<dyn AuthApplier>,
+    settings: ProviderHttpTransportSettings,
+) -> Result<ProviderTransport, TransportConfigError> {
+    ProviderTransport::builder(profile.endpoint().clone())
+        .with_auth(auth)
+        .with_http_transport_settings(settings)
+        .build()
+}
+
+fn validate_transport_endpoint(
+    expected: &siumai_transport::EndpointConfig,
+    transport: &ProviderTransport,
+) -> Result<(), AnthropicCompatibleConfigError> {
+    let actual = transport.endpoint();
+    if expected.expose_base_url() != actual.expose_base_url()
+        || expected.policy() != actual.policy()
+    {
+        return Err(AnthropicCompatibleConfigError::PrebuiltTransportEndpointMismatch);
+    }
+    Ok(())
 }
 
 pub(crate) struct ProviderRuntime {
@@ -283,6 +303,12 @@ pub enum AnthropicCompatibleConfigError {
     RequestTarget(#[source] siumai_transport::RequestBuildError),
     #[error("invalid provider transport settings: {0}")]
     Transport(#[from] TransportConfigError),
+    #[error("configured transport settings are missing")]
+    MissingTransportSettings,
+    #[error("a prebuilt transport cannot be combined with another settings snapshot")]
+    PrebuiltTransportSettingsConflict,
+    #[error("prebuilt transport endpoint does not match the compatible profile")]
+    PrebuiltTransportEndpointMismatch,
     #[error("invalid static credential: {0}")]
     Credential(#[from] CredentialError),
     #[error("invalid default Messages options: {0}")]

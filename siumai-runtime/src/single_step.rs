@@ -39,6 +39,7 @@ where
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         validate_request(&request).map_err(LanguageCallError::from)?;
         let options = self
             .runtime
@@ -53,6 +54,7 @@ where
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         validate_request(&request)?;
         self.model
             .stream(

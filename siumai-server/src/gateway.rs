@@ -150,6 +150,7 @@ impl ServerGateway {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, ServerGatewayError> {
+        let options = resolve_options(options)?;
         self.runtime
             .generate(
                 self.model.as_ref(),
@@ -167,6 +168,7 @@ impl ServerGateway {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, ServerGatewayError> {
+        let options = resolve_options(options)?;
         self.runtime
             .stream(
                 self.model.as_ref(),
@@ -185,6 +187,7 @@ impl ServerGateway {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<RunTerminal, ServerGatewayError> {
+        let options = resolve_options(options)?;
         self.tool_loop(trust)?
             .run(request, options)
             .await
@@ -198,6 +201,7 @@ impl ServerGateway {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<RunStream, ServerGatewayError> {
+        let options = resolve_options(options)?;
         self.tool_loop(trust)?
             .stream(request, options)
             .await
@@ -232,12 +236,24 @@ impl ServerGateway {
     }
 }
 
+fn resolve_options(options: CallOptions) -> Result<CallOptions, ServerGatewayError> {
+    options
+        .resolve_deadline()
+        .map_err(Error::from)
+        .map_err(ServerGatewayError::from)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
     use async_trait::async_trait;
+    use siumai_core::stream::established_stream;
     use siumai_core::{
-        LanguageStream, Message, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId,
-        ProviderId,
+        ContentPart, LanguageCompletionReason, LanguageStream, LanguageStreamEvent, Message,
+        MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProviderId, StreamTerminal,
+        Usage,
     };
     use siumai_runtime::approval::TrustIdentity;
     use siumai_runtime::tool::{ApprovalDecision, ApprovalDecisionError};
@@ -246,6 +262,12 @@ mod tests {
 
     struct NeverCalledModel {
         descriptor: ModelDescriptor,
+    }
+
+    struct RecordingModel {
+        descriptor: ModelDescriptor,
+        generate_options: Mutex<Vec<CallOptions>>,
+        stream_options: Mutex<Vec<CallOptions>>,
     }
 
     struct AwaitExternal {
@@ -288,9 +310,72 @@ mod tests {
         }
     }
 
+    impl RecordingModel {
+        fn new() -> Self {
+            Self {
+                descriptor: ModelDescriptor::new(
+                    ProviderId::new("test").unwrap(),
+                    ModelId::new("recording").unwrap(),
+                    ModelFamily::Language,
+                ),
+                generate_options: Mutex::new(Vec::new()),
+                stream_options: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
     impl Model for NeverCalledModel {
         fn descriptor(&self) -> &ModelDescriptor {
             &self.descriptor
+        }
+    }
+
+    impl Model for RecordingModel {
+        fn descriptor(&self) -> &ModelDescriptor {
+            &self.descriptor
+        }
+    }
+
+    #[async_trait]
+    impl LanguageModel for RecordingModel {
+        async fn generate(
+            &self,
+            _request: LanguageRequest,
+            options: CallOptions,
+        ) -> Result<LanguageResponse, LanguageCallError> {
+            self.generate_options.lock().unwrap().push(options);
+            Ok(LanguageResponse::completed(
+                vec![ContentPart::Text {
+                    text: "ok".to_string(),
+                }],
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            )
+            .unwrap())
+        }
+
+        async fn stream(
+            &self,
+            _request: LanguageRequest,
+            options: CallOptions,
+        ) -> Result<LanguageStream, Error> {
+            self.stream_options.lock().unwrap().push(options.clone());
+            let cancellation = options.cancellation().clone();
+            let response = LanguageResponse::completed(
+                vec![ContentPart::Text {
+                    text: "done".to_string(),
+                }],
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            )
+            .unwrap();
+            Ok(established_stream(cancellation, |_| {
+                futures::stream::iter([Ok(LanguageStreamEvent::Terminal(
+                    StreamTerminal::Completed {
+                        response: Box::new(response),
+                    },
+                ))])
+            }))
         }
     }
 
@@ -328,6 +413,97 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, ServerGatewayError::LocalToolsDisabled));
+    }
+
+    #[tokio::test]
+    async fn gateway_preserves_resolved_call_intent_for_single_and_runtime_routes() {
+        let model = Arc::new(RecordingModel::new());
+        let route = RouteId::new("tools").unwrap();
+        let gateway = ServerGateway::new(model.clone()).enable_local_tools(
+            route.clone(),
+            ToolSet::default(),
+            Arc::new(AwaitExternal::new()),
+        );
+        let trust = ServerTrustContext::new(
+            TrustIdentity::new("issuer", "audience", "subject", "tenant").unwrap(),
+            route,
+        );
+        let options = || {
+            CallOptions::default()
+                .with_timeout(Duration::from_secs(1))
+                .unwrap()
+                .with_max_attempts(2)
+                .unwrap()
+        };
+        let generate_options = options();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let generate_invoked_at = Instant::now();
+
+        gateway
+            .generate(
+                LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+                generate_options,
+            )
+            .await
+            .unwrap();
+
+        {
+            let generate_options = model.generate_options.lock().unwrap();
+            assert_eq!(generate_options.len(), 1);
+            assert_eq!(generate_options[0].timeout(), None);
+            assert_eq!(generate_options[0].retry().maximum_attempts(), Some(2));
+            assert!(
+                generate_options[0].deadline().unwrap()
+                    >= generate_invoked_at + Duration::from_millis(925)
+            );
+        }
+
+        let run_options = options();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let run_invoked_at = Instant::now();
+        let terminal = gateway
+            .run(
+                &trust,
+                LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+                run_options,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(terminal, RunTerminal::Completed { .. }));
+        let stream_options = model.stream_options.lock().unwrap();
+        assert_eq!(stream_options.len(), 1);
+        assert_eq!(stream_options[0].timeout(), None);
+        assert_eq!(stream_options[0].retry().maximum_attempts(), Some(2));
+        assert!(
+            stream_options[0].deadline().unwrap() >= run_invoked_at + Duration::from_millis(925)
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_resolves_call_options_before_route_policy_work() {
+        let gateway = ServerGateway::new(Arc::new(NeverCalledModel::new())).enable_local_tools(
+            RouteId::new("tools").unwrap(),
+            ToolSet::default(),
+            Arc::new(AwaitExternal::new()),
+        );
+        let wrong_trust = ServerTrustContext::new(
+            TrustIdentity::new("issuer", "audience", "subject", "tenant").unwrap(),
+            RouteId::new("other-route").unwrap(),
+        );
+
+        let error = gateway
+            .run(
+                &wrong_trust,
+                LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]),
+                CallOptions::default().with_timeout(Duration::MAX).unwrap(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ServerGatewayError::Runtime(error) if error.kind() == siumai_core::ErrorKind::InvalidInput
+        ));
     }
 
     #[tokio::test]

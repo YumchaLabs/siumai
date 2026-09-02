@@ -9,27 +9,33 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/siumai-mcp"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["llm", "ai", "mcp", "tools"]
 categories = ["api-bindings"]
 
 [dependencies]
 async-trait.workspace = true
+futures-util.workspace = true
+http.workspace = true
+reqwest.workspace = true
 rmcp = { workspace = true, features = [
     "client",
-    "reqwest",
-    "transport-child-process",
-    "transport-io",
-    "transport-streamable-http-client-reqwest",
+    "transport-async-rw",
+    "transport-streamable-http-client",
 ] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 siumai-core.workspace = true
 siumai-runtime.workspace = true
+siumai-transport.workspace = true
+sse-stream = "0.2"
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 tokio-test.workspace = true
+tokio-rustls = { version = "0.26", default-features = false }

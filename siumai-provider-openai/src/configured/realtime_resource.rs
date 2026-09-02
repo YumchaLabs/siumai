@@ -205,7 +205,10 @@ mod tests {
             .with_replay_domain(ReplayDomain::custom(
                 ReplayDomainId::new("realtime-resource-test").unwrap(),
             ))
-            .with_retry_policy(retry_policy(maximum_attempts))
+            .with_http_transport_settings(
+                siumai_transport::ProviderHttpTransportSettings::default()
+                    .with_retry_policy(retry_policy(maximum_attempts)),
+            )
             .build()
             .unwrap();
         OpenAiRealtimeResource::new(provider.runtime.clone())

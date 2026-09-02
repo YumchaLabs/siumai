@@ -111,6 +111,7 @@ impl ImageModel for MinimaxImageModel {
         request: ImageRequest,
         call: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -276,6 +277,7 @@ impl SpeechModel for MinimaxSpeechModel {
         request: SpeechRequest,
         call: CallOptions,
     ) -> Result<SpeechResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

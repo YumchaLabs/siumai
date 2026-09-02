@@ -10,9 +10,11 @@ mod endpoint;
 mod error;
 pub mod framing;
 mod limits;
+mod proxy;
 mod replay;
 mod request;
 mod resource;
+mod settings;
 mod transport;
 mod websocket;
 
@@ -25,6 +27,7 @@ pub use endpoint::{
 };
 pub use error::{EndpointError, RequestBuildError, TransportConfigError};
 pub use limits::TransportLimits;
+pub use proxy::{HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint};
 pub use replay::{IdempotencyHeader, ReplaySafety, RetryPolicy, TransportRetryPolicyError};
 pub use request::{
     MultipartBody, MultipartPart, RequestBody, RequestHeaders, RequestPlan, RequestTarget,
@@ -33,10 +36,11 @@ pub use resource::{
     DownloadedResource, ResourceDownloadOptions, ResourceDownloader, ResourceDownloaderBuilder,
     ResourceProvenance, ResourceUrl, ResourceUrlError,
 };
+pub use settings::ProviderHttpTransportSettings;
 pub use transport::{
-    ProviderTransport, ProviderTransportBuilder, ResponseHeaders, RetryClassifier, RetryReason,
-    TransportByteStream, TransportEvent, TransportObserver, TransportResponse,
-    TransportStreamResponse,
+    AttemptLoopOutcome, ProviderTransport, ProviderTransportBuilder, ResponseHeaders,
+    RetryClassifier, RetryLimit, RetryReason, TransportByteStream, TransportCallId, TransportEvent,
+    TransportObserver, TransportResponse, TransportStreamResponse,
 };
 pub use websocket::{
     WebSocketConnection, WebSocketEndpoint, WebSocketReceiver, WebSocketSender, WebSocketTransport,

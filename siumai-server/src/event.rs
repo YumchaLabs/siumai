@@ -150,12 +150,12 @@ impl GatewayEvent {
             LanguageStreamEvent::Refusal { reason } => {
                 Ok(Self::event("model.refusal", json!({ "reason": reason })))
             }
-            LanguageStreamEvent::ProviderDeferred { id, .. } => loss_event(
+            LanguageStreamEvent::ProviderDeferred { .. } => loss_event(
                 policy.loss_policy(),
                 "provider_deferred_omitted",
                 "event.state",
                 "model.projection.loss",
-                json!({ "id": id }),
+                json!({ "provider_deferred": { "pending": 1 } }),
                 false,
             ),
             LanguageStreamEvent::ProviderOpaque(_) => loss_event(
@@ -549,14 +549,27 @@ fn project_run_report(
         steps.push(step);
         losses.extend(step_losses);
     }
-    if !report.provider_deferred().is_empty() {
+    let provider_deferred = report.provider_deferred();
+    let provider_deferred_counts = if provider_deferred.is_empty() {
+        None
+    } else {
         record_loss(
             loss_policy,
             &mut losses,
             "provider_deferred_omitted",
             "report.provider_deferred",
         )?;
-    }
+        let total = provider_deferred.len();
+        let resolved = provider_deferred
+            .iter()
+            .filter(|observation| observation.is_resolved())
+            .count();
+        Some(json!({
+            "total": total,
+            "resolved": resolved,
+            "pending": total - resolved,
+        }))
+    };
 
     let mut projection = Map::new();
     projection.insert(
@@ -577,6 +590,9 @@ fn project_run_report(
         "budget".to_string(),
         to_value(report.budget(), "run budget")?,
     );
+    if let Some(provider_deferred_counts) = provider_deferred_counts {
+        projection.insert("provider_deferred".to_string(), provider_deferred_counts);
+    }
     Ok((Value::Object(projection), losses))
 }
 
@@ -638,7 +654,7 @@ mod tests {
         OpaqueProviderItem, ProtocolId, ProviderId, ProviderProvenance, ProviderScope,
         ReplayDomain, ReplayDomainId,
     };
-    use siumai_runtime::ModelTarget;
+    use siumai_runtime::{ModelTarget, SuspensionReason};
 
     use super::*;
 
@@ -649,6 +665,44 @@ mod tests {
                 ReplayDomainId::new("gateway-test").unwrap(),
             ));
         ProviderProvenance::from_scope(&scope, ModelId::new("test-model").unwrap()).unwrap()
+    }
+
+    fn test_target() -> ModelTarget {
+        ModelTarget::new(
+            ProviderId::new("test").unwrap(),
+            ModelId::new("test-model").unwrap(),
+        )
+    }
+
+    fn report_with_provider_deferred() -> RunReport {
+        let pending = OpaqueProviderItem::new(
+            test_provenance(),
+            "provider.deferred",
+            json!({ "secret": "pending-payload-never-export" }),
+        )
+        .unwrap();
+        let resolved = OpaqueProviderItem::new(
+            test_provenance(),
+            "provider.deferred",
+            json!({ "secret": "resolved-payload-never-export" }),
+        )
+        .unwrap();
+        let mut report = serde_json::to_value(RunReport::new(test_target(), Vec::new())).unwrap();
+        report["provider_deferred"] = json!({
+            "observations": [
+                {
+                    "correlation_id": "pending-correlation-never-export",
+                    "item": pending,
+                    "resolved": false,
+                },
+                {
+                    "correlation_id": "resolved-correlation-never-export",
+                    "item": resolved,
+                    "resolved": true,
+                },
+            ]
+        });
+        serde_json::from_value(report).unwrap()
     }
 
     #[test]
@@ -681,6 +735,59 @@ mod tests {
         assert_eq!(event.kind(), "model.usage");
         assert_eq!(event.data()["usage"]["kind"], "Delta");
         assert_eq!(event.data()["usage"]["usage"]["output_tokens"], 2);
+    }
+
+    #[test]
+    fn provider_deferred_stream_projection_exposes_only_pending_count() {
+        let state = OpaqueProviderItem::new(
+            test_provenance(),
+            "provider.deferred",
+            json!({ "secret": "stream-payload-never-export" }),
+        )
+        .unwrap();
+        let event = GatewayEvent::from_language(
+            LanguageStreamEvent::ProviderDeferred {
+                id: "stream-correlation-never-export".to_string(),
+                state,
+            },
+            &GatewayPolicy::default(),
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&event).unwrap();
+
+        assert_eq!(event.kind(), "model.projection.loss");
+        assert_eq!(event.losses()[0].code(), "provider_deferred_omitted");
+        assert_eq!(
+            event.data(),
+            &json!({ "provider_deferred": { "pending": 1 } })
+        );
+        assert!(!serialized.contains("stream-correlation-never-export"));
+        assert!(!serialized.contains("stream-payload-never-export"));
+    }
+
+    #[test]
+    fn run_report_provider_deferred_projection_exposes_only_counts() {
+        let event = GatewayEvent::from_run_terminal(
+            RunTerminal::Suspended {
+                reason: SuspensionReason::AwaitingProvider { pending: 1 },
+                report: Box::new(report_with_provider_deferred()),
+            },
+            &GatewayPolicy::default(),
+        )
+        .unwrap();
+        let serialized = serde_json::to_string(&event).unwrap();
+
+        assert_eq!(event.kind(), "run.suspended");
+        assert_eq!(event.losses()[0].code(), "provider_deferred_omitted");
+        assert_eq!(event.data()["reason"]["AwaitingProvider"]["pending"], 1);
+        assert_eq!(
+            event.data()["report"]["provider_deferred"],
+            json!({ "total": 2, "resolved": 1, "pending": 1 })
+        );
+        assert!(!serialized.contains("pending-correlation-never-export"));
+        assert!(!serialized.contains("resolved-correlation-never-export"));
+        assert!(!serialized.contains("pending-payload-never-export"));
+        assert!(!serialized.contains("resolved-payload-never-export"));
     }
 
     #[test]

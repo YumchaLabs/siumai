@@ -34,14 +34,14 @@ pub use language::{
     DEFAULT_OPAQUE_ITEM_LIMIT, DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_BYTE_LIMIT,
     DEFAULT_PARTIAL_LANGUAGE_OUTPUT_ITEM_COUNT_LIMIT,
     DEFAULT_PARTIAL_LANGUAGE_OUTPUT_TOTAL_BYTE_LIMIT, GenerationConfig, GenerationConfigError,
-    LanguageCallError, LanguageCompletionReason, LanguageIncompleteReason, LanguageRequest,
-    LanguageRequestBudget, LanguageRequestError, LanguageResponse, LanguageResponseError,
-    LanguageTermination, MediaData, MediaPart, Message, MessagePart, MessageRole,
-    MessageValidationError, OpaqueProviderBudget, OpaqueProviderItem, OpaqueProviderItemBuilder,
-    OpaqueProviderItemError, PartialLanguageOutput, PartialLanguageOutputBudget,
-    PartialLanguageOutputError, PartialLanguageOutputPart, PartialStructuredOutput,
-    ProviderItemRelation, ProviderProvenance, ProviderProvenanceError, StructuredOutputSpec,
-    ToolChoice, Warning, WarningKind,
+    LanguageCallError, LanguageCompletionReason, LanguageIncompleteReason, LanguageInput,
+    LanguageRequest, LanguageRequestBudget, LanguageRequestError, LanguageResponse,
+    LanguageResponseError, LanguageTermination, MediaData, MediaPart, Message, MessagePart,
+    MessageRole, MessageValidationError, OpaqueProviderBudget, OpaqueProviderItem,
+    OpaqueProviderItemBuilder, OpaqueProviderItemError, PartialLanguageOutput,
+    PartialLanguageOutputBudget, PartialLanguageOutputError, PartialLanguageOutputPart,
+    PartialStructuredOutput, ProviderItemRelation, ProviderProvenance, ProviderProvenanceError,
+    StructuredOutputSpec, ToolChoice, Warning, WarningKind,
 };
 pub use model::{
     EmbeddingLimits, EmbeddingModel, EmbeddingRequest, EmbeddingResponse, ImageArtifact,
@@ -52,10 +52,10 @@ pub use model::{
     TranscriptionRequest, TranscriptionResponse,
 };
 pub use options::{
-    CallOptions, Cancellation, MAX_PROVIDER_OPTION_ENTRIES, MAX_PROVIDER_OPTION_TARGETS,
-    MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement, ProviderOptionError,
-    ProviderOptionSelection, ProviderOptionTarget, ProviderOptions, RetryIntent,
-    TypedProviderOptions,
+    CallOptions, CallOptionsError, Cancellation, MAX_PROVIDER_OPTION_ENTRIES,
+    MAX_PROVIDER_OPTION_TARGETS, MAX_PROVIDER_OPTION_TOTAL_BYTES, ProviderOptionBindingRequirement,
+    ProviderOptionError, ProviderOptionPatch, ProviderOptionSelection, ProviderOptionTarget,
+    ProviderOptions, RetryIntent, TypedProviderOptions,
 };
 pub use profile::{
     ApiStability, CatalogError, GenericSupportClaim, ModelCatalog, ModelLifecycle, ModelProfile,

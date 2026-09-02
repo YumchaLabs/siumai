@@ -7,6 +7,7 @@
 mod approval;
 mod binding;
 mod execution;
+mod journal;
 
 pub use approval::{
     ApprovalDecider, ApprovalDecision, ApprovalDecisionError, ApprovalDecisionFuture,
@@ -16,6 +17,10 @@ pub use binding::{
     CatalogFingerprint, ToolBinding, ToolBindingConfigError, ToolSet, ToolSetBuildError,
     ToolSetBuilder, canonical_arguments_digest,
 };
+pub(crate) use binding::{
+    PreparedVisibleToolCatalog, VisibleToolCatalogError, VisibleToolCatalogSource,
+    prepare_visible_tool_catalog,
+};
 pub(crate) use execution::AuthorizedToolCall;
 pub use execution::{
     ApprovalPolicy, EffectCertainty, RecoveryPolicy, ToolArgumentError, ToolArgumentValidator,
@@ -23,3 +28,4 @@ pub use execution::{
     ToolExecutionRequest, ToolExecutor, ToolIdempotencyKey, ToolIdempotencyKeyError,
     ToolIdempotencyKeyProvider,
 };
+pub(crate) use journal::{ToolJournal, ToolJournalError};

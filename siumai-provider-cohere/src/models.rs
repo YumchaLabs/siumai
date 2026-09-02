@@ -40,13 +40,3 @@ pub mod rerank {
 
 pub const CURRENT_EMBEDDING_MODELS: &[&str] = embedding::CURRENT;
 pub const CURRENT_RERANK_MODELS: &[&str] = rerank::CURRENT;
-
-pub(crate) fn supports_output_dimension(model: &str) -> bool {
-    matches!(
-        model,
-        embedding::EMBED_V4
-            | embedding::EMBED_V4_FAST
-            | embedding::EMBED_V4_2B
-            | embedding::EMBED_V4_FAST_2B
-    )
-}

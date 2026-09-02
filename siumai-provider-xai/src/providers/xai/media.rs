@@ -205,6 +205,7 @@ impl ImageModel for XaiImageModel {
         request: ImageRequest,
         call: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -333,6 +334,7 @@ impl SpeechModel for XaiSpeechModel {
         request: SpeechRequest,
         call: CallOptions,
     ) -> Result<SpeechResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -485,6 +487,7 @@ impl TranscriptionModel for XaiTranscriptionModel {
         request: TranscriptionRequest,
         call: CallOptions,
     ) -> Result<TranscriptionResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

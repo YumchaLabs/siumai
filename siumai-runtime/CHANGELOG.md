@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- *(runtime)* [**breaking**] move completed-step mutation behind one atomic planner and make the
+  durable tool journal and provider-deferred ledger the sole owners of their state transitions.
+- *(runtime)* [**breaking**] advance durable snapshots to schema v8 and execution ABI v7, remove
+  `dispatch_id`, and replace public snapshot-state construction with read-only kinds and accessors.
+- *(runtime)* enforce the snapshot byte budget before every store CAS and document bounded,
+  authenticated storage requirements for external `RunStore` adapters.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-runtime-v0.11.0-beta.9...siumai-runtime-v0.11.0-beta.10) - 2026-08-13
 
 ### Added

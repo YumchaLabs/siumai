@@ -8,10 +8,12 @@ use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize};
 use siumai_core::{
     AssistantHistoryOmission, Cancellation, Error, LanguageResponse, LanguageStreamEvent, Message,
-    OpaqueProviderItem, PartialLanguageOutput, ToolCall, ToolOutcome, ToolResult, Usage,
+    PartialLanguageOutput, ToolCall, ToolOutcome, ToolResult, Usage,
 };
 
+use crate::provider_deferred::{ProviderDeferredLedger, ProviderDeferredObservation};
 use crate::snapshot::ToolExecutionLog;
+use crate::tool::ToolJournal;
 use crate::{
     BudgetError, BudgetLedger, ModelTarget, ProjectionLoss, ProjectionPolicy, ProjectionScope,
 };
@@ -173,17 +175,17 @@ impl StepRecord {
 
 /// Durable, provider-neutral trace accumulated before a run terminal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunReport {
     initial_target: ModelTarget,
     messages: Vec<Message>,
     steps: Vec<StepRecord>,
     model_transitions: Vec<ModelTransitionRecord>,
     usage: Usage,
-    #[serde(default)]
     usage_settled: bool,
     budget: BudgetLedger,
-    execution_log: ToolExecutionLog,
-    provider_deferred: Vec<OpaqueProviderItem>,
+    tool_journal: ToolJournal,
+    provider_deferred: ProviderDeferredLedger,
 }
 
 impl RunReport {
@@ -196,8 +198,8 @@ impl RunReport {
             usage: Usage::default(),
             usage_settled: false,
             budget: BudgetLedger::default(),
-            execution_log: ToolExecutionLog::new(),
-            provider_deferred: Vec::new(),
+            tool_journal: ToolJournal::default(),
+            provider_deferred: ProviderDeferredLedger::default(),
         }
     }
 
@@ -229,16 +231,20 @@ impl RunReport {
         &self.usage
     }
 
+    pub(crate) fn usage_is_settled(&self) -> bool {
+        self.usage_settled
+    }
+
     pub fn budget(&self) -> &BudgetLedger {
         &self.budget
     }
 
     pub fn execution_log(&self) -> &ToolExecutionLog {
-        &self.execution_log
+        self.tool_journal.view()
     }
 
-    pub fn provider_deferred(&self) -> &[OpaqueProviderItem] {
-        &self.provider_deferred
+    pub fn provider_deferred(&self) -> &[ProviderDeferredObservation] {
+        self.provider_deferred.observations()
     }
 
     pub fn final_response(&self) -> Option<&LanguageResponse> {
@@ -274,12 +280,24 @@ impl RunReport {
         &mut self.budget
     }
 
-    pub(crate) fn execution_log_mut(&mut self) -> &mut ToolExecutionLog {
-        &mut self.execution_log
+    pub(crate) fn tool_journal(&self) -> &ToolJournal {
+        &self.tool_journal
     }
 
-    pub(crate) fn provider_deferred_mut(&mut self) -> &mut Vec<OpaqueProviderItem> {
-        &mut self.provider_deferred
+    pub(crate) fn tool_journal_mut(&mut self) -> &mut ToolJournal {
+        &mut self.tool_journal
+    }
+
+    pub(crate) fn replace_tool_journal(&mut self, journal: ToolJournal) {
+        self.tool_journal = journal;
+    }
+
+    pub(crate) fn provider_deferred_ledger(&self) -> &ProviderDeferredLedger {
+        &self.provider_deferred
+    }
+
+    pub(crate) fn replace_provider_deferred_ledger(&mut self, ledger: ProviderDeferredLedger) {
+        self.provider_deferred = ledger;
     }
 }
 
@@ -288,7 +306,7 @@ impl RunReport {
 #[non_exhaustive]
 pub enum SuspensionReason {
     AwaitingApproval { call_ids: Vec<String> },
-    AwaitingProvider { state_ids: Vec<String> },
+    AwaitingProvider { pending: usize },
 }
 
 /// Runtime-owned timeout classification.

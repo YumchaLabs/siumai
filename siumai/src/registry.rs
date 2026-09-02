@@ -12,8 +12,7 @@ use std::fmt;
 
 pub use siumai_registry::{
     ModelReference, ModelReferenceError, ProviderRegistration, Registry, RegistryBuildError,
-    RegistryBuilder, RegistryMiddleware, RegistryModelContext, RegistryResolveError,
-    RegistrySnapshot, RouteId,
+    RegistryBuilder, RegistryModelContext, RegistryResolveError, RegistrySnapshot, RouteId,
 };
 
 /// A configured provider that exposes one recommended Registry registration.

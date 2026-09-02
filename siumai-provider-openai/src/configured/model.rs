@@ -1,39 +1,31 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
-use http::Method;
-use http::header::{ACCEPT, HeaderValue};
 use serde_json::Value;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, Error, ErrorContext, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamDecoder, LanguageStreamEvent, Model,
-    ModelDescriptor, ModelFamily, ModelId, ModelOperation, ProviderOptionError, ProviderScope,
-    StreamTerminal,
+    CallOptions, Error, ErrorKind, LanguageCallError, LanguageModel, LanguageRequest,
+    LanguageResponse, LanguageStream, Model, ModelDescriptor, ModelFamily, ModelId, ModelOperation,
+    ProviderOptionError, ProviderScope,
 };
+use siumai_openai_compatible::extension::v2::{execute_direct, execute_sse};
 use siumai_protocol_openai::chat_completions::{
     CHAT_COMPLETIONS_TARGET, ChatCompletionsDialect, ChatCompletionsStreamDecoder,
-    ChatRequestEncodingOptions, MaxOutputTokensField, decode_response as decode_chat_response,
+    ChatRequestEncodingOptions, MaxOutputTokensField,
     encode_request_with_options_and_resolver as encode_chat_request_with_options,
 };
 use siumai_protocol_openai::responses::{
-    RequestEncodingOptions, ResponsesStreamDecoder, decode_response as decode_responses_response,
-    encode_request_with_options_and_resolver as encode_request_with_options,
-};
-use siumai_transport::framing::{SseDecoder, SseFrameError};
-use siumai_transport::{
-    RequestBody, RequestHeaders, RequestPlan, RequestTarget, TransportByteStream, TransportLimits,
-    TransportResponse, TransportStreamResponse,
+    RequestEncodingOptions, encode_request_with_options_and_resolver as encode_request_with_options,
 };
 
 use super::annotations::OpenAiAnnotationResolver;
-use super::http_error;
+use super::language_execution::{
+    BackgroundDirectDecoder, ChatDirectDecoder, ChatSseDecoder, ResponsesDirectDecoder,
+    ResponsesSseDecoder, model_error_context, prepare_call,
+};
 use super::mode::OpenAiApiMode;
 use super::provider::{OpenAiMergedOptions, OpenAiRuntime};
-use super::responses_native::{
-    OpenAiResponsesResponse, OpenAiResponsesStream, OpenAiResponsesStreamFrame,
-};
+use super::responses_native::{OpenAiResponsesResponse, OpenAiResponsesStream};
 use super::responses_resource::OpenAiBackgroundResponse;
 #[cfg(feature = "openai-responses-websocket")]
 use super::responses_websocket::{
@@ -84,42 +76,36 @@ impl OpenAiResponsesModel {
         OpenAiApiMode::Responses
     }
 
-    fn plan(
+    fn http_body(
         &self,
         request: &LanguageRequest,
         stream: bool,
         merged: OpenAiMergedOptions,
-    ) -> Result<RequestPlan, Error> {
-        self.plan_internal(request, stream, false, merged)
-    }
-
-    fn background_plan(
-        &self,
-        request: &LanguageRequest,
-        merged: OpenAiMergedOptions,
-    ) -> Result<RequestPlan, Error> {
-        self.plan_internal(request, false, true, merged)
-    }
-
-    fn plan_internal(
-        &self,
-        request: &LanguageRequest,
-        stream: bool,
-        background: bool,
-        merged: OpenAiMergedOptions,
-    ) -> Result<RequestPlan, Error> {
-        let body = self.encode_body(
+    ) -> Result<Value, Error> {
+        self.encode_body(
             self.runtime.scope(OpenAiApiMode::Responses),
             request,
-            OpenAiResponsesBodyMode::Http { stream, background },
+            OpenAiResponsesBodyMode::Http {
+                stream,
+                background: false,
+            },
             merged,
-        )?;
-        request_plan(
-            RESPONSES_TARGET,
-            body,
-            stream,
-            self.runtime.replay_safety.clone(),
-            OpenAiApiMode::Responses,
+        )
+    }
+
+    fn background_body(
+        &self,
+        request: &LanguageRequest,
+        merged: OpenAiMergedOptions,
+    ) -> Result<Value, Error> {
+        self.encode_body(
+            self.runtime.scope(OpenAiApiMode::Responses),
+            request,
+            OpenAiResponsesBodyMode::Http {
+                stream: false,
+                background: true,
+            },
+            merged,
         )
     }
 
@@ -219,6 +205,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiBackgroundResponse, Error> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -227,24 +217,19 @@ impl OpenAiResponsesModel {
             })?;
         let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
-        let plan = self
-            .background_plan(&request, merged)
+        let body = self
+            .background_body(&request, merged)
             .map_err(|error| self.contextualize(operation, error))?;
-        let response = self
-            .runtime
-            .transport
-            .execute(plan, options)
-            .await
-            .map_err(|error| self.contextualize(operation, error))?;
-        if !response.status().is_success() {
-            return Err(self.contextualize(
-                operation,
-                response_error(OpenAiApiMode::Responses, response),
-            ));
-        }
-        let resource = siumai_protocol_openai::responses::decode_response_resource(response.body())
-            .map_err(|error| self.contextualize(operation, error))?;
-        Ok(OpenAiBackgroundResponse::new(resource))
+        let call = prepare_call(
+            &self.runtime.transport,
+            OpenAiApiMode::Responses,
+            RESPONSES_TARGET,
+            body,
+            self.runtime.replay_safety.clone(),
+            BackgroundDirectDecoder,
+            model_error_context(self, operation),
+        )?;
+        execute_direct(&self.runtime.transport, call, options).await
     }
 
     /// Generate one Responses result while retaining the provider-native resource.
@@ -254,6 +239,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesResponse, Error> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -262,30 +251,22 @@ impl OpenAiResponsesModel {
             })?;
         let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
-        let plan = self
-            .plan(&request, false, merged)
+        let body = self
+            .http_body(&request, false, merged)
             .map_err(|error| self.contextualize(operation, error))?;
-        let response = self
-            .runtime
-            .transport
-            .execute(plan, options)
-            .await
-            .map_err(|error| self.contextualize(operation, error))?;
-        if !response.status().is_success() {
-            return Err(self.contextualize(
-                operation,
-                response_error(OpenAiApiMode::Responses, response),
-            ));
-        }
-        let decoded = decode_responses_response(
-            response.body(),
-            self.runtime.scope(OpenAiApiMode::Responses),
-            self.model_id(),
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        let (native, portable) = decoded.into_parts();
-        let portable = portable.map_err(|error| contextualize_call_error(self, operation, error));
-        Ok(OpenAiResponsesResponse::new(native, portable))
+        let call = prepare_call(
+            &self.runtime.transport,
+            OpenAiApiMode::Responses,
+            RESPONSES_TARGET,
+            body,
+            self.runtime.replay_safety.clone(),
+            ResponsesDirectDecoder::new(
+                self.runtime.scope_arc(OpenAiApiMode::Responses),
+                self.model_id().clone(),
+            ),
+            model_error_context(self, operation),
+        )?;
+        execute_direct(&self.runtime.transport, call, options).await
     }
 
     /// Establish one native Responses stream.
@@ -298,6 +279,10 @@ impl OpenAiResponsesModel {
         options: CallOptions,
     ) -> Result<OpenAiResponsesStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::Responses, &options)
@@ -306,37 +291,24 @@ impl OpenAiResponsesModel {
             })?;
         let request = normalize_request(OpenAiApiMode::Responses, request)
             .map_err(|error| self.contextualize(operation, error))?;
-        let plan = self
-            .plan(&request, true, merged)
+        let body = self
+            .http_body(&request, true, merged)
             .map_err(|error| self.contextualize(operation, error))?;
-        let cancellation = options.cancellation().clone();
-        let response = self
-            .runtime
-            .transport
-            .execute_stream(plan, options)
-            .await
-            .map_err(|error| self.contextualize(operation, error))?;
-        if !response.status().is_success() {
-            let error = stream_response_error(OpenAiApiMode::Responses, response).await;
-            return Err(self.contextualize(operation, error));
-        }
-        let (status, headers, body) = response.into_parts();
-        let diagnostics = headers.diagnostics().with_status(status.as_u16());
-        let context = model_error_context(self, operation);
-        let decoder = ResponsesStreamDecoder::new(
-            self.runtime.scope(OpenAiApiMode::Responses).clone(),
-            self.model_id().clone(),
-        )
-        .with_wire_dialect(self.runtime.responses_wire_dialect)
-        .with_response_diagnostics(diagnostics);
-
-        Ok(decode_responses_sse_stream(
-            cancellation,
+        let call = prepare_call(
+            &self.runtime.transport,
+            OpenAiApiMode::Responses,
+            RESPONSES_TARGET,
             body,
-            self.runtime.transport.limits().clone(),
-            decoder,
-            context,
-        ))
+            self.runtime.replay_safety.clone(),
+            ResponsesSseDecoder::new(
+                self.runtime.scope(OpenAiApiMode::Responses).clone(),
+                self.model_id().clone(),
+                self.runtime.responses_wire_dialect,
+            ),
+            model_error_context(self, operation),
+        )?;
+        let stream = execute_sse(&self.runtime.transport, call, options).await?;
+        Ok(OpenAiResponsesStream::new(stream))
     }
 }
 
@@ -362,6 +334,11 @@ impl LanguageModel for OpenAiResponsesModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         self.generate_native(request, options)
             .await?
             .into_portable()
@@ -372,6 +349,11 @@ impl LanguageModel for OpenAiResponsesModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         Ok(self.stream_native(request, options).await?.into_portable())
     }
 }
@@ -401,28 +383,21 @@ impl OpenAiChatCompletionsModel {
         OpenAiApiMode::ChatCompletions
     }
 
-    fn plan(
+    fn body(
         &self,
         request: &LanguageRequest,
         stream: bool,
         merged: OpenAiMergedOptions,
-    ) -> Result<RequestPlan, Error> {
+    ) -> Result<Value, Error> {
         let resolver = OpenAiAnnotationResolver;
         let encoding = ChatRequestEncodingOptions::new(stream).with_extra(merged.wire);
-        let body = encode_chat_request_with_options(
+        encode_chat_request_with_options(
             self.runtime.scope(OpenAiApiMode::ChatCompletions),
             self.model_id(),
             request,
             &official_chat_dialect(),
             &encoding,
             &resolver,
-        )?;
-        request_plan(
-            CHAT_COMPLETIONS_TARGET,
-            body,
-            stream,
-            self.runtime.replay_safety.clone(),
-            OpenAiApiMode::ChatCompletions,
         )
     }
 
@@ -454,6 +429,10 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -465,31 +444,25 @@ impl LanguageModel for OpenAiChatCompletionsModel {
             })?;
         let request = normalize_request(OpenAiApiMode::ChatCompletions, request)
             .map_err(|error| self.contextualize(operation, error))?;
-        let plan = self
-            .plan(&request, false, merged)
+        let body = self
+            .body(&request, false, merged)
             .map_err(|error| self.contextualize(operation, error))?;
-        let response = self
-            .runtime
-            .transport
-            .execute(plan, options)
+        let call = prepare_call(
+            &self.runtime.transport,
+            OpenAiApiMode::ChatCompletions,
+            CHAT_COMPLETIONS_TARGET,
+            body,
+            self.runtime.replay_safety.clone(),
+            ChatDirectDecoder::new(
+                self.runtime.scope_arc(OpenAiApiMode::ChatCompletions),
+                self.model_id().clone(),
+                official_chat_dialect(),
+            ),
+            model_error_context(self, operation),
+        )?;
+        execute_direct(&self.runtime.transport, call, options)
             .await
-            .map_err(|error| self.contextualize(operation, error))?;
-        if !response.status().is_success() {
-            return Err(self
-                .contextualize(
-                    operation,
-                    response_error(OpenAiApiMode::ChatCompletions, response),
-                )
-                .into());
-        }
-        let response = decode_chat_response(
-            self.runtime.scope(OpenAiApiMode::ChatCompletions),
-            self.model_id(),
-            response.body(),
-            &official_chat_dialect(),
-        )
-        .map_err(|error| self.contextualize(operation, error))?;
-        Ok(response)
+            .map_err(LanguageCallError::from)
     }
 
     async fn stream(
@@ -498,6 +471,10 @@ impl LanguageModel for OpenAiChatCompletionsModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let merged = self
             .runtime
             .merge_options_for(self, OpenAiApiMode::ChatCompletions, &options)
@@ -509,36 +486,25 @@ impl LanguageModel for OpenAiChatCompletionsModel {
             })?;
         let request = normalize_request(OpenAiApiMode::ChatCompletions, request)
             .map_err(|error| self.contextualize(operation, error))?;
-        let plan = self
-            .plan(&request, true, merged)
+        let body = self
+            .body(&request, true, merged)
             .map_err(|error| self.contextualize(operation, error))?;
         let cancellation = options.cancellation().clone();
-        let response = self
-            .runtime
-            .transport
-            .execute_stream(plan, options)
-            .await
-            .map_err(|error| self.contextualize(operation, error))?;
-        if !response.status().is_success() {
-            let error = stream_response_error(OpenAiApiMode::ChatCompletions, response).await;
-            return Err(self.contextualize(operation, error));
-        }
-        let (status, headers, body) = response.into_parts();
-        let diagnostics = headers.diagnostics().with_status(status.as_u16());
-
-        Ok(decode_sse_stream(
-            cancellation,
+        let call = prepare_call(
+            &self.runtime.transport,
+            OpenAiApiMode::ChatCompletions,
+            CHAT_COMPLETIONS_TARGET,
             body,
-            self.runtime.transport.limits().clone(),
-            ChatCompletionsStreamDecoder::new(
+            self.runtime.replay_safety.clone(),
+            ChatSseDecoder::new(ChatCompletionsStreamDecoder::new(
                 self.runtime.scope(OpenAiApiMode::ChatCompletions).clone(),
                 self.model_id().clone(),
                 official_chat_dialect(),
-            )
-            .with_response_diagnostics(diagnostics),
-            OpenAiApiMode::ChatCompletions,
+            )),
             model_error_context(self, operation),
-        ))
+        )?;
+        let stream = execute_sse(&self.runtime.transport, call, options).await?;
+        Ok(established_stream(cancellation, move |_| stream))
     }
 }
 
@@ -571,220 +537,8 @@ fn normalize_request(
     Ok(request)
 }
 
-fn request_plan(
-    target: &'static str,
-    body: Value,
-    stream: bool,
-    replay_safety: siumai_transport::ReplaySafety,
-    mode: OpenAiApiMode,
-) -> Result<RequestPlan, Error> {
-    let accept = if stream {
-        HeaderValue::from_static("text/event-stream")
-    } else {
-        HeaderValue::from_static("application/json")
-    };
-    let headers = RequestHeaders::new()
-        .try_insert(ACCEPT, accept)
-        .map_err(|source| request_build_error(mode, source))?;
-    RequestPlan::new(
-        Method::POST,
-        RequestTarget::new(target).map_err(|source| request_build_error(mode, source))?,
-    )
-    .with_headers(headers)
-    .with_body(RequestBody::json(&body).map_err(|source| request_build_error(mode, source))?)
-    .with_replay_safety(replay_safety)
-    .map_err(|source| request_build_error(mode, source))
-}
-
 fn contextualize(model: &impl Model, operation: ModelOperation, error: Error) -> Error {
     error.with_context(model_error_context(model, operation))
-}
-
-fn contextualize_call_error(
-    model: &impl Model,
-    operation: ModelOperation,
-    error: LanguageCallError,
-) -> LanguageCallError {
-    let (error, partial) = error.into_parts();
-    LanguageCallError::new(contextualize(model, operation, error), partial)
-}
-
-pub(crate) fn model_error_context(model: &impl Model, operation: ModelOperation) -> ErrorContext {
-    ErrorContext {
-        operation: Some(operation),
-        provider: Some(model.provider_id().clone()),
-        route: None,
-        model: Some(model.model_id().clone()),
-    }
-}
-
-fn decode_responses_sse_stream(
-    cancellation: siumai_core::Cancellation,
-    body: TransportByteStream,
-    limits: TransportLimits,
-    mut protocol: ResponsesStreamDecoder,
-    context: ErrorContext,
-) -> OpenAiResponsesStream {
-    let cancellation_error =
-        Error::cancelled("OpenAI Responses stream was cancelled").with_context(context.clone());
-    let source = async_stream::try_stream! {
-        let mut body = body;
-        let mut framing = SseDecoder::new(&limits);
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.map_err(|error| error.with_context(context.clone()))?;
-            let frames = framing
-                .push(&chunk)
-                .map_err(|source| {
-                    sse_error(OpenAiApiMode::Responses, source).with_context(context.clone())
-                })?;
-            let mut pending_frames = Vec::with_capacity(frames.len());
-            let mut terminal_in_batch = false;
-            for frame in frames {
-                if terminal_in_batch && frame.data().trim() == "[DONE]" {
-                    continue;
-                }
-                let decoded = protocol
-                    .decode_native(frame.data())
-                    .map_err(|error| error.with_context(context.clone()))?;
-                let (native, mut portable_events, replay_status) = decoded.into_parts();
-                let terminal_position = portable_events
-                    .iter()
-                    .position(|event| event.terminal().is_some());
-                if terminal_position.is_some_and(|index| index + 1 != portable_events.len()) {
-                    Err(Error::new(
-                        ErrorKind::Protocol,
-                        "OpenAI Responses decoder emitted events after terminal settlement",
-                    )
-                    .with_context(context.clone()))?;
-                }
-                for event in &mut portable_events {
-                    contextualize_terminal_error(event, &context);
-                }
-                let canonical_terminal_response = portable_events
-                    .iter()
-                    .any(|event| event.terminal().is_some())
-                    .then(|| protocol.terminal_response().cloned())
-                    .flatten();
-                let frame = OpenAiResponsesStreamFrame::new(
-                    native,
-                    portable_events,
-                    canonical_terminal_response,
-                    replay_status,
-                );
-                terminal_in_batch |= frame.is_terminal();
-                pending_frames.push(frame);
-            }
-            for frame in pending_frames {
-                yield frame;
-            }
-            if terminal_in_batch {
-                return;
-            }
-        }
-        framing
-            .finish()
-            .map_err(|source| {
-                sse_error(OpenAiApiMode::Responses, source).with_context(context.clone())
-            })?;
-        let trailing = protocol
-            .finish()
-            .map_err(|error| error.with_context(context.clone()))?;
-        if !trailing.is_empty() {
-            Err(Error::new(
-                ErrorKind::Protocol,
-                "OpenAI Responses decoder produced portable events without a native frame",
-            )
-            .with_context(context.clone()))?;
-        }
-    };
-    OpenAiResponsesStream::established(cancellation, cancellation_error, source)
-}
-
-fn decode_sse_stream<D>(
-    cancellation: siumai_core::Cancellation,
-    body: TransportByteStream,
-    limits: TransportLimits,
-    mut protocol: D,
-    mode: OpenAiApiMode,
-    context: ErrorContext,
-) -> LanguageStream
-where
-    D: LanguageStreamDecoder<ProtocolFrame = str> + Send + 'static,
-{
-    established_stream(cancellation, move |_| {
-        async_stream::try_stream! {
-            let mut body = body;
-            let mut framing = SseDecoder::new(&limits);
-            while let Some(chunk) = body.next().await {
-                let chunk = chunk.map_err(|error| error.with_context(context.clone()))?;
-                let frames = framing
-                    .push(&chunk)
-                    .map_err(|source| sse_error(mode, source).with_context(context.clone()))?;
-                let mut pending_events = Vec::new();
-                let mut terminal_in_batch = false;
-                for frame in frames {
-                    if terminal_in_batch && frame.data().trim() == "[DONE]" {
-                        continue;
-                    }
-                    let events = protocol
-                        .decode(frame.data())
-                        .map_err(|error| error.with_context(context.clone()))?;
-                    let terminal_position = events
-                        .iter()
-                        .position(|event| event.terminal().is_some());
-                    if terminal_position.is_some_and(|index| index + 1 != events.len()) {
-                        Err(Error::new(
-                            ErrorKind::Protocol,
-                            "OpenAI stream decoder emitted events after terminal settlement",
-                        )
-                        .with_context(context.clone()))?;
-                    }
-                    terminal_in_batch |= terminal_position.is_some();
-                    for mut event in events {
-                        contextualize_terminal_error(&mut event, &context);
-                        pending_events.push(event);
-                    }
-                }
-                for event in pending_events {
-                    yield event;
-                }
-                if terminal_in_batch {
-                    return;
-                }
-            }
-            framing
-                .finish()
-                .map_err(|source| sse_error(mode, source).with_context(context.clone()))?;
-            let events = protocol
-                .finish()
-                .map_err(|error| error.with_context(context.clone()))?;
-            for mut event in events {
-                contextualize_terminal_error(&mut event, &context);
-                let terminal = event.terminal().is_some();
-                yield event;
-                if terminal {
-                    return;
-                }
-            }
-        }
-    })
-}
-
-pub(crate) fn contextualize_terminal_error(
-    event: &mut LanguageStreamEvent,
-    context: &ErrorContext,
-) {
-    let LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }) = event else {
-        return;
-    };
-    let original = std::mem::replace(
-        error,
-        Error::new(
-            ErrorKind::Internal,
-            "stream error context replacement failed",
-        ),
-    );
-    *error = original.with_context(context.clone());
 }
 
 fn option_error(mode: OpenAiApiMode, source: ProviderOptionError) -> Error {
@@ -800,70 +554,18 @@ fn option_error(mode: OpenAiApiMode, source: ProviderOptionError) -> Error {
     .with_source(source)
 }
 
-pub(crate) fn request_build_error(
-    mode: OpenAiApiMode,
-    source: siumai_transport::RequestBuildError,
-) -> Error {
-    http_error::request_build_error(
-        match mode {
-            OpenAiApiMode::Responses => "OpenAI Responses request violates the transport contract",
-            OpenAiApiMode::ChatCompletions => {
-                "OpenAI Chat Completions request violates the transport contract"
-            }
-        },
-        source,
-    )
-}
-
-fn sse_error(mode: OpenAiApiMode, source: SseFrameError) -> Error {
-    let kind = match source {
-        SseFrameError::FrameTooLarge
-        | SseFrameError::EventTooLarge
-        | SseFrameError::TooManyEvents => ErrorKind::ResponseLimit,
-        SseFrameError::InvalidUtf8 | SseFrameError::UnexpectedEof => ErrorKind::Protocol,
-        _ => ErrorKind::Protocol,
-    };
-    Error::new(
-        kind,
-        match mode {
-            OpenAiApiMode::Responses => "provider returned an invalid OpenAI Responses SSE stream",
-            OpenAiApiMode::ChatCompletions => {
-                "provider returned an invalid OpenAI Chat Completions SSE stream"
-            }
-        },
-    )
-    .with_source(source)
-}
-
-pub(crate) fn response_error(mode: OpenAiApiMode, response: TransportResponse) -> Error {
-    http_error::response_error(
-        match mode {
-            OpenAiApiMode::Responses => "OpenAI rejected the Responses request",
-            OpenAiApiMode::ChatCompletions => "OpenAI rejected the Chat Completions request",
-        },
-        response,
-    )
-}
-
-async fn stream_response_error(mode: OpenAiApiMode, response: TransportStreamResponse) -> Error {
-    http_error::stream_response_error(
-        match mode {
-            OpenAiApiMode::Responses => "OpenAI rejected the Responses request",
-            OpenAiApiMode::ChatCompletions => "OpenAI rejected the Chat Completions request",
-        },
-        response,
-    )
-    .await
-}
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use futures_util::StreamExt;
     use serde_json::json;
     use siumai_core::{
-        ContentPart, Message, MessagePart, MessageRole, ReplayDomain, ReplayDomainId, ToolSpec,
+        Cancellation, ContentPart, LanguageStreamEvent, Message, MessagePart, MessageRole,
+        ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
     };
     use siumai_protocol_openai::responses::ResponsesWireDialect;
-    use siumai_transport::EndpointConfig;
+    use siumai_transport::{EndpointConfig, TransportEvent, TransportObserver};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -873,9 +575,20 @@ mod tests {
         OpenAiContextManagement, OpenAiCredential, OpenAiFunctionToolOptions,
         OpenAiPromptCacheMode, OpenAiPromptCacheOptions, OpenAiPromptCacheRetention,
         OpenAiPromptCacheTtl, OpenAiProvider, OpenAiReasoning, OpenAiReasoningEffort,
-        OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiTextVerbosity,
-        OpenAiToolNamespace,
+        OpenAiReasoningMode, OpenAiResponsesOptions, OpenAiResponsesTool, OpenAiServiceTier,
+        OpenAiTextVerbosity, OpenAiToolNamespace,
     };
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        events: Mutex<Vec<TransportEvent>>,
+    }
+
+    impl TransportObserver for RecordingObserver {
+        fn observe(&self, event: &TransportEvent) {
+            self.events.lock().unwrap().push(event.clone());
+        }
+    }
 
     fn provider() -> OpenAiProvider {
         OpenAiProvider::builder(OpenAiCredential::unauthenticated())
@@ -912,15 +625,8 @@ mod tests {
             .unwrap()
     }
 
-    fn body_json(plan: &RequestPlan) -> Value {
-        match plan.body() {
-            RequestBody::Bytes { data, .. } => serde_json::from_slice(data).unwrap(),
-            _ => panic!("expected a JSON request body"),
-        }
-    }
-
     #[test]
-    fn neutral_prompt_uses_distinct_native_routes_and_wire_shapes() {
+    fn neutral_prompt_uses_distinct_native_wire_shapes() {
         let provider = provider();
         let responses = provider.responses(GPT_5_6_SOL).unwrap();
         let chat = provider.chat_completions(GPT_5_6_SOL).unwrap();
@@ -940,15 +646,11 @@ mod tests {
                 &CallOptions::default(),
             )
             .unwrap();
-        let responses_plan = responses
-            .plan(&request(), false, responses_options)
+        let responses_body = responses
+            .http_body(&request(), false, responses_options)
             .unwrap();
-        let chat_plan = chat.plan(&request(), false, chat_options).unwrap();
-        let responses_body = body_json(&responses_plan);
-        let chat_body = body_json(&chat_plan);
+        let chat_body = chat.body(&request(), false, chat_options).unwrap();
 
-        assert_eq!(responses_plan.target().as_str(), "responses");
-        assert_eq!(chat_plan.target().as_str(), "chat/completions");
         assert!(responses_body.get("input").is_some());
         assert!(responses_body.get("messages").is_none());
         assert!(chat_body.get("messages").is_some());
@@ -1018,10 +720,9 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let plan = model
-            .plan(&request_with_cache_markers(12), false, merged)
+        let body = model
+            .http_body(&request_with_cache_markers(12), false, merged)
             .unwrap();
-        let body = body_json(&plan);
 
         assert_eq!(body["text"]["verbosity"], "high");
         assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
@@ -1099,10 +800,9 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::ChatCompletions, &call_options)
             .unwrap();
-        let plan = model
-            .plan(&request_with_cache_markers(1), false, merged)
+        let body = model
+            .body(&request_with_cache_markers(1), false, merged)
             .unwrap();
-        let body = body_json(&plan);
 
         assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
@@ -1119,7 +819,14 @@ mod tests {
     fn checked_raw_options_forward_future_values_but_not_canonical_fields() {
         let provider = provider();
         let model = provider.responses(GPT_5_6_SOL).unwrap();
+        let typed = OpenAiResponsesOptions {
+            service_tier: Some(OpenAiServiceTier::Flex),
+            ..OpenAiResponsesOptions::default()
+                .with_prompt_cache(OpenAiPromptCacheOptions::explicit_30_minutes())
+        };
         let call_options = CallOptions::default()
+            .with_provider_options_for(&model, &typed)
+            .unwrap()
             .with_raw_provider_options_for(
                 &model,
                 json!({
@@ -1132,20 +839,28 @@ mod tests {
                     "metadata": {
                         "label": "future",
                         "priority": 2,
-                        "enabled": true
+                        "enabled": true,
+                        "future_nested": {"mode": "provider-defined"}
                     },
-                    "prompt_cache_key": "",
-                    "safety_identifier": "future-user",
+                    "prompt_cache_key": "x".repeat(65),
+                    "prompt_cache_options": {
+                        "mode": "future-adaptive",
+                        "retention": {"policy": "future"}
+                    },
+                    "prompt_cache_retention": "future-retention",
+                    "safety_identifier": "future\nuser",
                     "user": ""
                 }),
             )
             .unwrap();
+        let debug = format!("{call_options:?}");
+        assert!(!debug.contains("future-adaptive"));
+        assert!(!debug.contains("future-retention"));
         let merged = model
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let plan = model.plan(&request(), false, merged).unwrap();
-        let body = body_json(&plan);
+        let body = model.http_body(&request(), false, merged).unwrap();
         assert_eq!(body["future_feature"], json!({"mode": "next"}));
         assert_eq!(body["service_tier"], "future-priority");
         assert_eq!(body["reasoning"]["effort"], "future-max");
@@ -1159,63 +874,43 @@ mod tests {
         assert_eq!(body["metadata"]["label"], "future");
         assert_eq!(body["metadata"]["priority"], 2);
         assert_eq!(body["metadata"]["enabled"], true);
-        assert_eq!(body["prompt_cache_key"], "");
-        assert_eq!(body["safety_identifier"], "future-user");
+        assert_eq!(
+            body["metadata"]["future_nested"]["mode"],
+            "provider-defined"
+        );
+        assert_eq!(body["prompt_cache_key"], "x".repeat(65));
+        assert_eq!(body["prompt_cache_options"]["mode"], "future-adaptive");
+        assert_eq!(
+            body["prompt_cache_options"]["retention"]["policy"],
+            "future"
+        );
+        assert!(body["prompt_cache_options"].get("ttl").is_none());
+        assert_eq!(body["prompt_cache_retention"], "future-retention");
+        assert_eq!(body["safety_identifier"], "future\nuser");
         assert_eq!(body["user"], "");
 
-        for (field, value) in [
-            ("prompt_cache_key", json!("x".repeat(65))),
-            ("safety_identifier", json!("unsafe\nidentifier")),
-            (
-                "metadata",
-                Value::Object(
-                    (0..17)
-                        .map(|index| (format!("key-{index}"), json!("value")))
-                        .collect(),
-                ),
-            ),
-        ] {
-            let mut raw = serde_json::Map::new();
-            raw.insert(field.to_string(), value);
-            let options = CallOptions::default()
-                .with_raw_provider_options_for(&model, Value::Object(raw))
-                .unwrap();
-            let result =
-                model
-                    .runtime
-                    .merge_options_for(&model, OpenAiApiMode::Responses, &options);
-            assert!(
-                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
-                "unbounded raw field {field} reached the request body"
-            );
-        }
-
         for field in [
-            "model",
-            "Model",
-            "MODEL",
-            "input",
-            "text",
-            "tools",
-            "stream",
-            "stream_options",
-            "streamOptions",
-            "background",
-            "prompt_cache_options",
-            "method",
-            "target",
-            "endpoint",
-            "base-url",
-            "authorization",
-            "apiKey",
-            "headers",
-            "retry",
-            "retry_policy",
+            "Mo-De_L",
+            "In-Pu_T",
+            "Te-Xt",
+            "To-Ol_S",
+            "Str-Ea_M",
+            "Stream-Opt_Ions",
+            "Back-Gro_Und",
+            "Prompt-Cache_Breakpoints",
+            "Me-Th_Od",
+            "Tar-Get",
+            "End-Point",
+            "Base-Url",
+            "Authorization",
+            "authorization-token",
+            "API-Key",
+            "Head-Er_S",
             "Retry-Policy",
-            "timeout",
-            "connectTimeout",
-            "read_timeout",
-            "call-timeout",
+            "Time-Out",
+            "Connect-Time_Out",
+            "Read-Time_Out",
+            "Call-Time_Out",
         ] {
             let mut raw = serde_json::Map::new();
             raw.insert(field.to_string(), json!(true));
@@ -1232,14 +927,33 @@ mod tests {
             );
         }
 
+        let chat = provider.chat_completions("future-chat-model").unwrap();
+        for field in ["Mo-De_L", "Mes-Sa_Ges", "To-Ol_S", "Me-Th_Od", "API-Key"] {
+            let mut raw = serde_json::Map::new();
+            raw.insert(field.to_string(), json!(true));
+            let options = CallOptions::default()
+                .with_raw_provider_options_for(&chat, Value::Object(raw))
+                .unwrap();
+            let result =
+                chat.runtime
+                    .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &options);
+            assert!(
+                matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == field),
+                "protected Chat raw field {field} reached the request body"
+            );
+        }
+
         let nested_body_data = CallOptions::default()
             .with_raw_provider_options_for(
                 &model,
                 json!({
                     "future_remote_tool": {
                         "url": "https://provider.example/tool",
-                        "headers": {"Authorization": "provider-body-value"}
-                    }
+                        "headers": {"Authorization": "provider-body-value"},
+                        "authorization_token": "nested-token-value"
+                    },
+                    "request_endpoint": "provider-body-value",
+                    "x-token-count-mode": "provider-defined"
                 }),
             )
             .unwrap();
@@ -1251,18 +965,63 @@ mod tests {
             merged.wire["future_remote_tool"]["headers"]["Authorization"],
             "provider-body-value"
         );
+        assert_eq!(
+            merged.wire["future_remote_tool"]["authorization_token"],
+            "nested-token-value"
+        );
+        assert_eq!(merged.wire["request_endpoint"], "provider-body-value");
+        assert_eq!(merged.wire["x-token-count-mode"], "provider-defined");
 
         let options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({"service_tier": {"future": true}}))
+            .with_raw_provider_options_for(
+                &model,
+                json!({
+                    "future_remote_tool": {
+                        "headers": {"Authorization": "accepted-nested-canary"}
+                    },
+                    "service_tier": {"future": true}
+                }),
+            )
+            .unwrap();
+        let result = model
+            .runtime
+            .merge_options_for(&model, OpenAiApiMode::Responses, &options);
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("invalid raw service tier reached the request body"),
+        };
+        assert!(
+            matches!(&error, ProviderOptionError::Rejected { path, .. } if path == "service_tier")
+        );
+        assert!(!format!("{error:?} {error}").contains("accepted-nested-canary"));
+
+        let options = CallOptions::default()
+            .with_raw_provider_options_for(&model, json!({"prompt_cache_options": "invalid"}))
             .unwrap();
         let result = model
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &options);
         assert!(
-            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "service_tier")
+            matches!(result, Err(ProviderOptionError::Rejected { path, .. }) if path == "prompt_cache_options")
         );
 
-        let chat = provider.chat_completions("future-chat-model").unwrap();
+        let typed_chat = OpenAiChatCompletionsOptions {
+            logprobs: Some(true),
+            top_logprobs: Some(1),
+            ..OpenAiChatCompletionsOptions::default()
+        };
+        let options = CallOptions::default()
+            .with_provider_options_for(&chat, &typed_chat)
+            .unwrap()
+            .with_raw_provider_options_for(&chat, json!({"top_logprobs": 5}))
+            .unwrap();
+        let merged = chat
+            .runtime
+            .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &options)
+            .unwrap();
+        assert_eq!(merged.wire["logprobs"], true);
+        assert_eq!(merged.wire["top_logprobs"], 5);
+
         let options = CallOptions::default()
             .with_raw_provider_options_for(&chat, json!({"top_logprobs": 5}))
             .unwrap();
@@ -1291,7 +1050,7 @@ mod tests {
             .merge_options_for(&responses, OpenAiApiMode::Responses, &responses_call)
             .unwrap();
         let normalized = normalize_request(OpenAiApiMode::Responses, request()).unwrap();
-        let responses_body = body_json(&responses.plan(&normalized, false, merged).unwrap());
+        let responses_body = responses.http_body(&normalized, false, merged).unwrap();
         assert_eq!(responses_body["reasoning"]["effort"], "max");
         assert_eq!(responses_body["reasoning"]["mode"], "deliberate_v2");
         assert!(responses_body["reasoning"].get("summary").is_none());
@@ -1311,7 +1070,7 @@ mod tests {
             .merge_options_for(&chat, OpenAiApiMode::ChatCompletions, &chat_call)
             .unwrap();
         let normalized = normalize_request(OpenAiApiMode::ChatCompletions, request()).unwrap();
-        let chat_body = body_json(&chat.plan(&normalized, false, merged).unwrap());
+        let chat_body = chat.body(&normalized, false, merged).unwrap();
         assert_eq!(chat_body["reasoning_effort"], "max");
     }
 
@@ -1332,7 +1091,7 @@ mod tests {
             .merge_options_for(&responses_5_6, OpenAiApiMode::Responses, &call_options)
             .unwrap();
         let normalized = normalize_request(OpenAiApiMode::Responses, request()).unwrap();
-        let body = body_json(&responses_5_6.plan(&normalized, false, merged).unwrap());
+        let body = responses_5_6.http_body(&normalized, false, merged).unwrap();
         assert_eq!(body["prompt_cache_retention"], "in_memory");
 
         let responses_5_5 = provider.responses(GPT_5_5).unwrap();
@@ -1349,7 +1108,7 @@ mod tests {
             .unwrap();
         let normalized =
             normalize_request(OpenAiApiMode::Responses, request_with_cache_markers(1)).unwrap();
-        let body = body_json(&responses_5_5.plan(&normalized, false, merged).unwrap());
+        let body = responses_5_5.http_body(&normalized, false, merged).unwrap();
         assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
         assert_eq!(
             body["input"][0]["content"][0]["prompt_cache_breakpoint"],
@@ -1385,8 +1144,7 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let plan = model.plan(&request, false, merged).unwrap();
-        let body = body_json(&plan);
+        let body = model.http_body(&request, false, merged).unwrap();
 
         assert_eq!(body["tools"][0]["name"], "get_inventory");
         assert_eq!(body["tools"][0]["allowed_callers"], json!(["programmatic"]));
@@ -1435,7 +1193,7 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let body = body_json(&model.plan(&request, false, merged).unwrap());
+        let body = model.http_body(&request, false, merged).unwrap();
 
         assert_eq!(body["tools"][0]["type"], "namespace");
         assert_eq!(body["tools"][0]["name"], "crm");
@@ -1476,7 +1234,7 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let error = model.plan(&request, false, merged).unwrap_err();
+        let error = model.http_body(&request, false, merged).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
         assert!(!error.to_string().contains("Description A"));
@@ -1500,7 +1258,7 @@ mod tests {
             .runtime
             .merge_options_for(&model, OpenAiApiMode::Responses, &call_options)
             .unwrap();
-        let body = body_json(&model.plan(&request(), false, merged).unwrap());
+        let body = model.http_body(&request(), false, merged).unwrap();
 
         assert_eq!(body["tools"][0]["type"], "local_shell");
         assert_eq!(body["tools"][0]["future_option"]["enabled"], true);
@@ -1514,6 +1272,164 @@ mod tests {
 
         assert_eq!(responses.descriptor().protocol(), Some("openai.responses"));
         assert_eq!(chat.descriptor().protocol(), Some("openai"));
+    }
+
+    #[tokio::test]
+    async fn chat_direct_uses_the_shared_kernel_without_losing_wire_or_usage() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chat-direct",
+                "model": GPT_5_6_SOL,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "direct kernel"},
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 3,
+                    "total_tokens": 5
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server)
+            .await
+            .chat_completions(GPT_5_6_SOL)
+            .unwrap();
+        let response = model
+            .generate(request(), CallOptions::default())
+            .await
+            .unwrap();
+
+        assert!(
+            response
+                .content()
+                .iter()
+                .any(|part| matches!(part, ContentPart::Text { text } if text == "direct kernel"))
+        );
+        assert_eq!(response.usage().input_tokens.value(), Some(2));
+        assert_eq!(response.usage().output_tokens.value(), Some(3));
+
+        let requests = server.received_requests().await.unwrap();
+        let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(body["model"], GPT_5_6_SOL);
+        assert_eq!(body["messages"][0]["content"], "hello");
+        assert_eq!(body.get("stream"), Some(&Value::Bool(false)));
+    }
+
+    #[tokio::test]
+    async fn openai_provider_emits_the_common_attempt_sequence() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chat-observed",
+                "model": GPT_5_6_SOL,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "observed"},
+                    "finish_reason": "stop"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let observer = Arc::new(RecordingObserver::default());
+        let settings = siumai_transport::ProviderHttpTransportSettings::default()
+            .with_observer(observer.clone());
+        let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("openai-observer-test").unwrap(),
+            ))
+            .with_http_transport_settings(settings)
+            .build()
+            .unwrap();
+
+        provider
+            .chat_completions(GPT_5_6_SOL)
+            .unwrap()
+            .generate(request(), CallOptions::default())
+            .await
+            .unwrap();
+
+        let events = observer.events.lock().unwrap();
+        assert_eq!(events.len(), 4);
+        assert!(matches!(
+            events[0],
+            TransportEvent::AttemptBudgetResolved { .. }
+        ));
+        assert!(matches!(events[1], TransportEvent::AttemptStarted { .. }));
+        assert!(matches!(
+            events[2],
+            TransportEvent::ResponseHeadReceived { .. }
+        ));
+        assert!(matches!(
+            events[3],
+            TransportEvent::AttemptLoopFinished { .. }
+        ));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.call_id() == events[0].call_id())
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_keeps_late_usage_before_one_done_terminal() {
+        let server = MockServer::start().await;
+        let body = concat!(
+            "data: {\"id\":\"chat-stream\",\"model\":\"gpt-5.6-sol\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"stream kernel\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":5,\"total_tokens\":9}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(body),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server)
+            .await
+            .chat_completions(GPT_5_6_SOL)
+            .unwrap();
+        let events = model
+            .stream(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.terminal().is_some())
+                .count(),
+            1
+        );
+        assert!(events.iter().any(
+            |event| matches!(event, LanguageStreamEvent::TextDelta { delta, .. } if delta == "stream kernel")
+        ));
+        assert!(matches!(
+            events.last(),
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+                if response.usage().input_tokens.value() == Some(4)
+                    && response.usage().output_tokens.value() == Some(5)
+        ));
+
+        let requests = server.received_requests().await.unwrap();
+        let request_body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(request_body["stream"], true);
+        assert_eq!(request_body["stream_options"]["include_usage"], true);
     }
 
     #[tokio::test]
@@ -1741,6 +1657,156 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn responses_stream_cancellation_preempts_buffered_terminal_frames() {
+        let server = MockServer::start().await;
+        let created = json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_cancelled",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "in_progress",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let completed = json!({
+            "type": "response.completed",
+            "sequence_number": 1,
+            "response": {
+                "id": "resp_cancelled",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "completed",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        let body = format!("data: {created}\n\ndata: {completed}\n\n");
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(body),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+
+        let native_cancellation = Cancellation::new();
+        let mut native = model
+            .stream_native(
+                request(),
+                CallOptions::default().with_cancellation(native_cancellation.clone()),
+            )
+            .await
+            .unwrap();
+        assert!(!native.next().await.unwrap().unwrap().is_terminal());
+        native_cancellation.cancel();
+        let error = native.next().await.unwrap().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Cancelled);
+        assert_eq!(error.message(), "call cancelled");
+        assert!(native.next().await.is_none());
+
+        let portable_cancellation = Cancellation::new();
+        let mut portable = model
+            .stream(
+                request(),
+                CallOptions::default().with_cancellation(portable_cancellation.clone()),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            portable.next().await,
+            Some(LanguageStreamEvent::Started { .. })
+        ));
+        portable_cancellation.cancel();
+        assert!(matches!(
+            portable.next().await,
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled { reason, .. }))
+                if reason == "call cancelled"
+        ));
+        assert!(portable.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn responses_stream_maps_unexpected_eof_for_native_and_portable_routes() {
+        let server = MockServer::start().await;
+        let created = json!({
+            "type": "response.created",
+            "sequence_number": 0,
+            "response": {
+                "id": "resp_eof",
+                "created_at": 1,
+                "model": GPT_5_6_SOL,
+                "status": "in_progress",
+                "output": [],
+                "usage": null,
+                "error": null,
+                "incomplete_details": null,
+                "reasoning": null
+            }
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(format!("data: {created}\n\n")),
+            )
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let model = provider_for(&server).await.responses(GPT_5_6_SOL).unwrap();
+        let native = model
+            .stream_native(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!(native.len(), 2);
+        assert!(!native[0].as_ref().unwrap().is_terminal());
+        assert_eq!(
+            native[1].as_ref().unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+
+        let portable = model
+            .stream(request(), CallOptions::default())
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(matches!(
+            portable.first(),
+            Some(LanguageStreamEvent::Started { .. })
+        ));
+        assert!(matches!(
+            portable.last(),
+            Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, .. }))
+                if error.kind() == ErrorKind::UnexpectedEof
+        ));
+        assert_eq!(
+            portable
+                .iter()
+                .filter(|event| event.terminal().is_some())
+                .count(),
+            1
+        );
+    }
+
     #[test]
     fn responses_preserve_encodable_intent_and_reject_unencodable_fields() {
         let provider = provider();
@@ -1777,11 +1843,9 @@ mod tests {
         let error = normalize_request(OpenAiApiMode::Responses, with_stop).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
-        let body = body_json(
-            &model
-                .plan(&normalized_request, false, merged)
-                .expect("encodable caller intent reaches the Responses request"),
-        );
+        let body = model
+            .http_body(&normalized_request, false, merged)
+            .expect("encodable caller intent reaches the Responses request");
         assert_eq!(body["temperature"], 0.7);
         assert_eq!(body["top_p"], 0.9);
         assert_eq!(body["top_logprobs"], 5);

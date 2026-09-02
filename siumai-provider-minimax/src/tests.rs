@@ -1,11 +1,14 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 use siumai_core::{
-    ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
-    MediaData, MediaPart, Message, MessagePart, MessageRole, Model, ModelFamily, Provider,
-    ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
+    ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, ImageModel, ImageRequest,
+    LanguageModel, LanguageRequest, MediaData, MediaPart, Message, MessagePart, MessageRole, Model,
+    ModelFamily, Provider, ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
 };
-use siumai_transport::{EndpointConfig, OfficialOrigin};
+use siumai_transport::{
+    EndpointConfig, OfficialOrigin, ProviderHttpTransportSettings, TransportLimits,
+};
+use std::time::Duration;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -253,6 +256,44 @@ fn provider_identity_modes_and_credentials_are_rust_first() {
             .scope()
             .shares_replay_domain(chat.descriptor().scope())
     );
+}
+
+#[test]
+fn builder_applies_one_http_settings_snapshot_to_native_branches() {
+    let limits = TransportLimits {
+        max_response_bytes: 96 * 1024,
+        ..TransportLimits::default()
+    };
+    let settings = ProviderHttpTransportSettings::default()
+        .with_limits(limits)
+        .expect("valid settings");
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .with_http_transport_settings(settings)
+        .build()
+        .expect("provider");
+    let (native_limits, responses_limits) = provider.test_http_transport_limits();
+
+    assert_eq!(native_limits.max_response_bytes, 96 * 1024);
+    assert_eq!(responses_limits.max_response_bytes, 96 * 1024);
+}
+
+#[tokio::test]
+async fn portable_image_resolves_relative_deadline_before_request_mapping() {
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .build()
+        .expect("provider");
+    let options = CallOptions::default()
+        .with_timeout(Duration::MAX)
+        .expect("relative timeout is validated at invocation");
+    let error = provider
+        .image("future-image")
+        .unwrap()
+        .generate_image(ImageRequest::new("hello").unwrap(), options)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(error.message(), "invalid call options");
 }
 
 #[tokio::test]

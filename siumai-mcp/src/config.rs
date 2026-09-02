@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use siumai_runtime::tool::{ApprovalPolicy, RecoveryPolicy, ToolConcurrency, ToolEffect};
+use siumai_transport::HttpTransportRoute;
 
 use crate::McpError;
 
@@ -11,9 +12,9 @@ use crate::McpError;
 pub struct McpLimits {
     max_pages: NonZeroUsize,
     max_tools: NonZeroUsize,
+    max_message_bytes: NonZeroUsize,
     max_schema_bytes: NonZeroUsize,
     max_result_bytes: NonZeroUsize,
-    max_notifications: NonZeroUsize,
     progress_queue_capacity: NonZeroUsize,
     close_timeout: Duration,
 }
@@ -23,9 +24,9 @@ impl Default for McpLimits {
         Self {
             max_pages: NonZeroUsize::new(32).expect("constant is non-zero"),
             max_tools: NonZeroUsize::new(256).expect("constant is non-zero"),
+            max_message_bytes: NonZeroUsize::new(8 * 1024 * 1024).expect("constant is non-zero"),
             max_schema_bytes: NonZeroUsize::new(256 * 1024).expect("constant is non-zero"),
             max_result_bytes: NonZeroUsize::new(2 * 1024 * 1024).expect("constant is non-zero"),
-            max_notifications: NonZeroUsize::new(4096).expect("constant is non-zero"),
             progress_queue_capacity: NonZeroUsize::new(128).expect("constant is non-zero"),
             close_timeout: Duration::from_secs(5),
         }
@@ -43,6 +44,12 @@ impl McpLimits {
         Ok(self)
     }
 
+    /// Set the maximum raw size of one JSON-RPC message, HTTP body, or SSE event.
+    pub fn with_max_message_bytes(mut self, value: usize) -> Result<Self, McpError> {
+        self.max_message_bytes = non_zero("max_message_bytes", value)?;
+        Ok(self)
+    }
+
     pub fn with_max_schema_bytes(mut self, value: usize) -> Result<Self, McpError> {
         self.max_schema_bytes = non_zero("max_schema_bytes", value)?;
         Ok(self)
@@ -50,11 +57,6 @@ impl McpLimits {
 
     pub fn with_max_result_bytes(mut self, value: usize) -> Result<Self, McpError> {
         self.max_result_bytes = non_zero("max_result_bytes", value)?;
-        Ok(self)
-    }
-
-    pub fn with_max_notifications(mut self, value: usize) -> Result<Self, McpError> {
-        self.max_notifications = non_zero("max_notifications", value)?;
         Ok(self)
     }
 
@@ -81,16 +83,16 @@ impl McpLimits {
         self.max_tools.get()
     }
 
+    pub(crate) fn max_message_bytes(&self) -> usize {
+        self.max_message_bytes.get()
+    }
+
     pub(crate) fn max_schema_bytes(&self) -> usize {
         self.max_schema_bytes.get()
     }
 
     pub(crate) fn max_result_bytes(&self) -> usize {
         self.max_result_bytes.get()
-    }
-
-    pub(crate) fn max_notifications(&self) -> usize {
-        self.max_notifications.get()
     }
 
     pub(crate) fn progress_queue_capacity(&self) -> usize {
@@ -183,6 +185,7 @@ pub struct McpClientConfig {
     namespace: Option<String>,
     limits: McpLimits,
     endpoint_policy: McpHttpEndpointPolicy,
+    http_transport_route: HttpTransportRoute,
     default_tool_policy: McpToolPolicy,
     tool_policies: BTreeMap<String, McpToolPolicy>,
 }
@@ -209,6 +212,16 @@ impl McpClientConfig {
 
     pub fn with_http_endpoint_policy(mut self, policy: McpHttpEndpointPolicy) -> Self {
         self.endpoint_policy = policy;
+        self
+    }
+
+    /// Select Direct or one explicit trusted CONNECT route for Streamable HTTP MCP.
+    ///
+    /// This changes network reachability only. MCP endpoint policy, bearer
+    /// authentication, message limits, session lifecycle, and replay behavior
+    /// remain owned by this crate. Stdio sessions ignore this value.
+    pub fn with_http_transport_route(mut self, route: HttpTransportRoute) -> Self {
+        self.http_transport_route = route;
         self
     }
 
@@ -242,10 +255,59 @@ impl McpClientConfig {
         self.endpoint_policy
     }
 
+    pub(crate) fn http_transport_route(&self) -> &HttpTransportRoute {
+        &self.http_transport_route
+    }
+
     pub(crate) fn tool_policy(&self, remote_name: &str) -> McpToolPolicy {
         self.tool_policies
             .get(remote_name)
             .copied()
             .unwrap_or(self.default_tool_policy)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use siumai_transport::{HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint};
+
+    use super::*;
+
+    #[test]
+    fn http_route_defaults_to_direct_and_can_be_replaced_explicitly() {
+        let config = McpClientConfig::default();
+        assert!(matches!(
+            config.http_transport_route(),
+            HttpTransportRoute::Direct
+        ));
+
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::local_explicit("http://127.0.0.1:3128").unwrap(),
+        );
+        let config = config.with_http_transport_route(route);
+        assert!(config.http_transport_route().proxy().is_some());
+    }
+
+    #[test]
+    fn http_route_debug_redacts_proxy_endpoint_and_credentials() {
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::https("https://proxy-config-canary.example.test").unwrap(),
+        )
+        .with_basic_auth(
+            ProxyBasicCredential::new("proxy-user-canary", "proxy-secret-canary").unwrap(),
+        )
+        .unwrap();
+        let diagnostics = format!(
+            "{:?}",
+            McpClientConfig::default().with_http_transport_route(route)
+        );
+
+        for secret in [
+            "proxy-config-canary",
+            "proxy-user-canary",
+            "proxy-secret-canary",
+        ] {
+            assert!(!diagnostics.contains(secret));
+        }
     }
 }

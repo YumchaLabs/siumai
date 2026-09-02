@@ -39,7 +39,7 @@ use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
 use crate::annotations::DeepSeekAssistantPrefix;
-use crate::models::{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, is_known_chat, is_known_responses};
+use crate::models::{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO};
 use crate::options::{DeepSeekChatOptions, DeepSeekResponsesOptions};
 
 pub(crate) const PROVIDER_ID: &str = "deepseek";
@@ -52,7 +52,8 @@ pub(crate) const CHAT_SOURCE: &str = "https://api-docs.deepseek.com/api/create-c
 pub(crate) const RESPONSES_SOURCE: &str = "https://api-docs.deepseek.com/guides/responses_api";
 pub(crate) const BETA_SOURCE: &str = "https://api-docs.deepseek.com/guides/tool_calls";
 pub(crate) const MESSAGES_SOURCE: &str = "https://api-docs.deepseek.com/guides/anthropic_api";
-pub(crate) const VERIFIED_ON: &str = "2026-08-05";
+pub(crate) const CHAT_VERIFIED_ON: &str = "2026-08-05";
+pub(crate) const RESPONSES_VERIFIED_ON: &str = "2026-08-14";
 pub(crate) const MESSAGES_VERIFIED_ON: &str = "2026-08-08";
 pub(crate) const MESSAGES_API_VERSION: &str = "2023-06-01";
 
@@ -242,24 +243,29 @@ fn verified_profile(
         ProtocolId::new(OPENAI_RESPONSES_PROTOCOL)?,
         ApiModeId::new(RESPONSES_API_MODE_ID)?,
     );
-    let verified_at = VerificationDate::new(
-        NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
+    let chat_verified_at = VerificationDate::new(
+        NaiveDate::parse_from_str(CHAT_VERIFIED_ON, "%Y-%m-%d")
+            .map_err(|_| DeepSeekProfileError::InvalidVerificationDate)?,
+    );
+    let responses_verified_at = VerificationDate::new(
+        NaiveDate::parse_from_str(RESPONSES_VERIFIED_ON, "%Y-%m-%d")
             .map_err(|_| DeepSeekProfileError::InvalidVerificationDate)?,
     );
     let chat_evidence = VerificationEvidence::new(
         OfficialSource::new(CHAT_SOURCE)?,
-        verified_at,
+        chat_verified_at,
         ProtocolContractId::new("deepseek-v4-openai-chat-2026-08")?,
     );
     let responses_evidence = VerificationEvidence::new(
         OfficialSource::new(RESPONSES_SOURCE)?,
-        verified_at,
+        responses_verified_at,
         ProtocolContractId::new("deepseek-v4-openai-responses-2026-08")?,
     );
     let catalog = ModelCatalog::new([
         model_profile(DEEPSEEK_V4_FLASH, &chat_scope, &chat_evidence)?,
         model_profile(DEEPSEEK_V4_PRO, &chat_scope, &chat_evidence)?,
         model_profile(DEEPSEEK_V4_FLASH, &responses_scope, &responses_evidence)?,
+        model_profile(DEEPSEEK_V4_PRO, &responses_scope, &responses_evidence)?,
     ])?;
     let provider_profile = ProviderProfile::verified(
         ProfileId::new(PROVIDER_ID)?,
@@ -529,20 +535,13 @@ impl ResponsesCodecPolicy for DeepSeekResponsesCodecPolicy {
 
     fn prepare(
         &self,
-        model: &ModelId,
+        _model: &ModelId,
         request: LanguageRequest,
         mut extra: BTreeMap<String, Value>,
     ) -> Result<PreparedResponsesCall, Error> {
         reject_media(&request)?;
         reject_unsupported_responses_fields(&extra)?;
         let options = parse_responses_options(&extra)?;
-        if is_known_chat(model.as_str()) && !is_known_responses(model.as_str()) {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "DeepSeek V4 Pro is not currently supported by the Responses API",
-            ));
-        }
-
         extra.remove("reasoning_effort");
         extra.remove("native_tools");
         if let Some(effort) = options.reasoning_effort {
@@ -1119,6 +1118,24 @@ mod tests {
             };
             assert_eq!(error.kind(), ErrorKind::Unsupported);
         }
+    }
+
+    #[test]
+    fn responses_policy_rejects_unsupported_fields() {
+        let policy = DeepSeekResponsesCodecPolicy;
+        let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "hello")]);
+        let error = policy
+            .prepare(
+                &model("private-deepseek-responses"),
+                request,
+                BTreeMap::from([(
+                    "previous_response_id".to_string(),
+                    Value::String("resp-not-supported".to_string()),
+                )]),
+            )
+            .expect_err("unsupported DeepSeek Responses fields must fail locally");
+
+        assert_eq!(error.kind(), ErrorKind::Unsupported);
     }
 
     #[test]

@@ -163,6 +163,10 @@ impl<T> StructuredOutputRunner<T> {
     where
         T: DeserializeOwned,
     {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(StructuredOutputRunError::Establishment)?;
         if !request.tools.is_empty() || request.tool_choice.is_some() {
             return Err(StructuredOutputRunError::Establishment(Error::new(
                 ErrorKind::InvalidInput,

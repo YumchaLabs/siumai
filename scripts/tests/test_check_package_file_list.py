@@ -19,15 +19,16 @@ class PackageFileListTests(unittest.TestCase):
         payload = b"\n".join(path.encode("utf-8") for path in paths) + b"\n"
         return CHECKER.validate_package_file_list(io.BytesIO(payload))
 
-    def test_normal_package_paths_and_public_env_examples_are_allowed(self) -> None:
+    def test_normal_package_paths_are_allowed(self) -> None:
         self.assertEqual(
-            self.validate("Cargo.toml", "Cargo.toml.orig", "src/lib.rs", ".env.example"),
-            4,
+            self.validate("Cargo.toml", "Cargo.toml.orig", "src/lib.rs"),
+            3,
         )
 
     def test_private_local_and_editor_paths_are_rejected(self) -> None:
         for path in (
             ".env",
+            ".env.example",
             ".env.production",
             "config.local.toml",
             "credentials.json",

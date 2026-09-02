@@ -13,7 +13,7 @@ pub struct IdempotencyHeader(HeaderName);
 
 impl IdempotencyHeader {
     pub fn new(name: HeaderName) -> Result<Self, RequestBuildError> {
-        if is_transport_controlled(&name) || is_authentication_header(&name) {
+        if is_transport_controlled(&name) || is_common_credential_header(&name) {
             return Err(RequestBuildError::InvalidIdempotencyHeader);
         }
         Ok(Self(name))
@@ -58,6 +58,7 @@ pub struct RetryPolicy {
     max_attempts: u8,
     initial_backoff: Duration,
     max_backoff: Duration,
+    max_server_delay: Duration,
     jitter: bool,
 }
 
@@ -70,6 +71,7 @@ impl RetryPolicy {
             max_attempts,
             initial_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(8),
+            max_server_delay: Duration::from_secs(60),
             jitter: true,
         })
     }
@@ -86,6 +88,11 @@ impl RetryPolicy {
         self.max_backoff
     }
 
+    /// Largest standard `Retry-After` delay this policy will honor.
+    pub fn max_server_delay(self) -> Duration {
+        self.max_server_delay
+    }
+
     pub fn uses_jitter(self) -> bool {
         self.jitter
     }
@@ -93,6 +100,12 @@ impl RetryPolicy {
     pub fn with_backoff(mut self, initial: Duration, maximum: Duration) -> Self {
         self.initial_backoff = initial.min(maximum);
         self.max_backoff = maximum;
+        self
+    }
+
+    /// Set the independent ceiling for standard server retry advice.
+    pub fn with_max_server_delay(mut self, maximum: Duration) -> Self {
+        self.max_server_delay = maximum;
         self
     }
 
@@ -141,14 +154,22 @@ pub(crate) fn is_transport_controlled(name: &HeaderName) -> bool {
     )
 }
 
-pub(crate) fn is_authentication_header(name: &HeaderName) -> bool {
+/// Whether a header is part of the small provider-independent credential set.
+///
+/// `HeaderName` already provides ASCII case-insensitive HTTP name semantics.
+/// Provider-specific credential names stay out of this list: the selected
+/// credential applier declares them exactly through its [`crate::CredentialPatch`].
+pub(crate) fn is_common_credential_header(name: &HeaderName) -> bool {
     matches!(
         name.as_str(),
-        "authorization" | "cookie" | "proxy-authenticate" | "set-cookie" | "www-authenticate"
-    ) || name.as_str().contains("api-key")
-        || name.as_str().contains("api_key")
-        || name.as_str().contains("token")
-        || name.as_str().contains("secret")
+        "api-key"
+            | "authorization"
+            | "cookie"
+            | "proxy-authenticate"
+            | "set-cookie"
+            | "www-authenticate"
+            | "x-api-key"
+    )
 }
 
 #[cfg(test)]
@@ -162,11 +183,46 @@ mod tests {
     }
 
     #[test]
+    fn credential_header_matching_is_exact_and_case_insensitive() {
+        for name in ["Authorization", "API-Key", "X-API-Key"] {
+            let name = HeaderName::from_bytes(name.as_bytes()).unwrap();
+            assert!(
+                is_common_credential_header(&name),
+                "{name} must be protected"
+            );
+        }
+
+        for name in [
+            "x-token-count-mode",
+            "x-secret-sampling-mode",
+            "x-api-key-count",
+            "api_key",
+        ] {
+            let name = HeaderName::from_bytes(name.as_bytes()).unwrap();
+            assert!(
+                !is_common_credential_header(&name),
+                "{name} must not be classified by a fuzzy credential heuristic"
+            );
+        }
+    }
+
+    #[test]
     fn backoff_is_capped() {
         let policy = RetryPolicy::new(10)
             .unwrap()
             .with_backoff(Duration::from_millis(100), Duration::from_millis(250));
         assert_eq!(policy.backoff_for(1), Duration::from_millis(100));
         assert_eq!(policy.backoff_for(4), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn server_retry_advice_has_an_independent_ceiling() {
+        let policy = RetryPolicy::new(3)
+            .unwrap()
+            .with_backoff(Duration::from_millis(10), Duration::from_millis(20))
+            .with_max_server_delay(Duration::from_secs(2));
+
+        assert_eq!(policy.max_backoff(), Duration::from_millis(20));
+        assert_eq!(policy.max_server_delay(), Duration::from_secs(2));
     }
 }

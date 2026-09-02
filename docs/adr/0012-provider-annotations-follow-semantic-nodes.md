@@ -32,10 +32,18 @@ Siumai keeps call configuration and durable node annotations as separate contrac
 
 ### Call configuration
 
-`CallOptions` and `ProviderOptions` describe how one invocation is configured. They retain explicit
-provider, route, model, runtime-step, call, and checked-raw precedence layers. The selected provider
-owns validation and deterministic merge behavior. A foreign namespace in call configuration is an
-error because it is ambiguous which provider should execute the option.
+`CallOptions` and `ProviderOptions` describe how one invocation is configured. They retain ordered,
+exact-target typed patches and at most one checked-raw override; host-origin labels such as route,
+model, runtime step, and call remain private assembly concerns. The selected provider owns
+validation and deterministic merge behavior. A foreign namespace in call configuration is an error
+because it is ambiguous which provider should execute the option.
+
+Checked raw call options are a bounded provider-body overlay, not a recursive authority map. The
+selected provider rejects exact top-level canonical request and transport-authority names after
+case and separator normalization. Remaining raw fields are applied after typed options with the
+provider's documented whole-field conflict rule. Nested provider objects may contain names such as
+`url`, `headers`, or `authorization_token`; those values remain request-body data and cannot alter
+the HTTP request plan, credential patch, endpoint, retry policy, or deadline.
 
 ### Durable node annotations
 
@@ -60,8 +68,10 @@ There is no annotation precedence stack and no recursive merge algorithm.
 
 Normal Rust construction is typed-only. Node annotations do not expose the call option system's raw
 override constructor. Deserialization remains possible for durable or dynamic workflows, but it
-reapplies namespace, shape, protected-field, depth, field-count, and byte limits; the selected
-provider then deserializes and validates its exact typed annotation before encoding.
+reapplies namespace, shape, recursively protected authority-field, depth, field-count, and byte
+limits; the selected provider then deserializes and validates its exact typed annotation before
+encoding. This recursive annotation rule is intentionally stricter than checked raw call options:
+an annotation is durable node metadata, not a provider request-body escape hatch.
 
 Byte accounting measures each annotation as an exact single-namespace JSON map, including the
 namespace and erased envelope. Request aggregation sums those single-entry maps, producing an exact
@@ -144,8 +154,9 @@ inert, and the neutral request does not learn provider-specific fields.
   history.
 - Provider crates need separate types for call-level options and node-level annotations when the
   remote API has both.
-- Dynamic callers that previously inserted arbitrary nested JSON must deserialize a validated
-  request shape or use a provider-direct API instead of bypassing typed construction.
+- Dynamic annotation callers must deserialize a validated node-specific shape instead of inserting
+  arbitrary authority-bearing JSON. Dynamic call configuration may use the separately bounded,
+  exact-target checked raw body path without turning nested provider data into transport policy.
 
 ## Migration
 

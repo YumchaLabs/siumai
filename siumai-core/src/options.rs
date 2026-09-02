@@ -2,13 +2,15 @@
 
 use std::fmt;
 use std::io::{self, Write};
-use std::time::Instant;
+use std::num::NonZeroU8;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
+use crate::error::{Error, ErrorKind};
 use crate::model::{Model, ModelFamily};
 use crate::provider::{ApiModeId, ProviderId, ProviderInstanceId, ProviderScope, RouteId};
 
@@ -62,8 +64,36 @@ pub enum RetryIntent {
     /// Apply the configured provider policy only when replay safety is proven.
     #[default]
     ProviderPolicy,
-    /// Do not retry this logical call.
-    Never,
+    /// Apply at most this many total attempts without expanding replay authority.
+    AtMost(NonZeroU8),
+}
+
+impl RetryIntent {
+    /// Optional caller-owned ceiling on total attempts for one provider HTTP call.
+    pub const fn maximum_attempts(self) -> Option<u8> {
+        match self {
+            Self::ProviderPolicy => None,
+            Self::AtMost(maximum) => Some(maximum.get()),
+        }
+    }
+}
+
+/// Invalid request-scoped timing or retry intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum CallOptionsError {
+    #[error("call timeout must be greater than zero")]
+    ZeroTimeout,
+    #[error("call timeout is too large for this platform")]
+    TimeoutTooLarge,
+    #[error("caller attempt cap must allow at least one total attempt")]
+    ZeroAttempts,
+}
+
+impl From<CallOptionsError> for Error {
+    fn from(source: CallOptionsError) -> Self {
+        Self::new(ErrorKind::InvalidInput, "invalid call options").with_source(source)
+    }
 }
 
 /// Provider option validation failure.
@@ -388,7 +418,7 @@ impl ProviderOptionTarget {
     ) -> bool {
         if self.provider != *model.provider_id()
             || self.family != model.family()
-            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+            || !self.matches_api_mode(model.descriptor().scope().api_mode())
         {
             return false;
         }
@@ -406,6 +436,16 @@ impl ProviderOptionTarget {
         }
     }
 
+    fn matches_api_mode(&self, actual: Option<&ApiModeId>) -> bool {
+        match &self.binding {
+            ProviderOptionBinding::Unbound => self
+                .api_mode
+                .as_ref()
+                .is_none_or(|expected| Some(expected) == actual),
+            ProviderOptionBinding::Model { .. } => self.api_mode.as_ref() == actual,
+        }
+    }
+
     fn mismatch_error<M: Model + ?Sized>(&self, model: &M) -> ProviderOptionError {
         if self.provider != *model.provider_id() {
             return ProviderOptionError::NamespaceMismatch {
@@ -414,7 +454,7 @@ impl ProviderOptionTarget {
             };
         }
         if self.family != model.family()
-            || self.api_mode.as_ref() != model.descriptor().scope().api_mode()
+            || !self.matches_api_mode(model.descriptor().scope().api_mode())
         {
             return ProviderOptionError::TargetMismatch {
                 expected_family: model.family(),
@@ -444,7 +484,6 @@ struct ExactProviderOptionEntry {
 pub struct ProviderOptionSelection<'a> {
     typed: Vec<&'a ProviderOptions>,
     raw_override: Option<&'a ProviderOptions>,
-    unconsumed: Vec<&'a ProviderOptionTarget>,
 }
 
 impl fmt::Debug for ProviderOptionSelection<'_> {
@@ -453,7 +492,6 @@ impl fmt::Debug for ProviderOptionSelection<'_> {
             .debug_struct("ProviderOptionSelection")
             .field("typed_count", &self.typed.len())
             .field("has_raw_override", &self.raw_override.is_some())
-            .field("unconsumed_count", &self.unconsumed.len())
             .finish()
     }
 }
@@ -465,16 +503,6 @@ impl<'a> ProviderOptionSelection<'a> {
 
     pub const fn raw_override(&self) -> Option<&'a ProviderOptions> {
         self.raw_override
-    }
-
-    pub fn unconsumed_targets(
-        &self,
-    ) -> impl ExactSizeIterator<Item = &'a ProviderOptionTarget> + '_ {
-        self.unconsumed.iter().copied()
-    }
-
-    pub const fn unconsumed_count(&self) -> usize {
-        self.unconsumed.len()
     }
 }
 
@@ -490,7 +518,8 @@ fn validate_options_target(
     }
 
     if let Some(actual_family) = options.model_family()
-        && (actual_family != target.family() || options.api_mode() != target.api_mode())
+        && (actual_family != target.family()
+            || (options.api_mode().is_some() && options.api_mode() != target.api_mode()))
     {
         return Err(ProviderOptionError::TargetMismatch {
             expected_family: target.family(),
@@ -508,10 +537,60 @@ fn validate_options_target(
     Ok(())
 }
 
+/// Core-owned validated provider-option patch used by higher-layer call assembly.
+///
+/// Ordinary callers should use the typed [`CallOptions`] builders. This
+/// carrier exists so the facade and runtime can retain one validated
+/// target/options pair without duplicating route, scope, family, API-mode, or
+/// configured-instance identity.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ProviderOptionPatch {
+    target: ProviderOptionTarget,
+    options: ProviderOptions,
+}
+
+impl fmt::Debug for ProviderOptionPatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderOptionPatch")
+            .field("target", &self.target)
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
+impl ProviderOptionPatch {
+    /// Create a validated typed patch bound to one configured model.
+    pub fn typed_for_model<M, T>(model: &M, value: &T) -> Result<Self, ProviderOptionError>
+    where
+        M: Model + ?Sized,
+        T: TypedProviderOptions,
+    {
+        let options = ProviderOptions::typed(value)?;
+        let target = ProviderOptionTarget::for_model(model);
+        validate_options_target(&target, &options)?;
+        Ok(Self { target, options })
+    }
+
+    pub fn matches_model<M: Model + ?Sized>(&self, model: &M) -> bool {
+        self.target.matches_model(model, model.route_id())
+    }
+
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.target == other.target
+    }
+
+    fn into_parts(self) -> (ProviderOptionTarget, ProviderOptions) {
+        (self.target, self.options)
+    }
+}
+
 /// Controls shared by all six stable model families.
 #[derive(Clone, Default)]
 pub struct CallOptions {
     deadline: Option<Instant>,
+    timeout: Option<Duration>,
     cancellation: Cancellation,
     retry: RetryIntent,
     selected_route_context: Option<RouteId>,
@@ -523,6 +602,7 @@ impl fmt::Debug for CallOptions {
         formatter
             .debug_struct("CallOptions")
             .field("deadline", &self.deadline)
+            .field("timeout", &self.timeout)
             .field("cancellation", &self.cancellation)
             .field("retry", &self.retry)
             .field("selected_route_context", &self.selected_route_context)
@@ -551,6 +631,11 @@ impl CallOptions {
         self.deadline
     }
 
+    /// Unresolved timeout that starts at the outer logical call boundary.
+    pub fn timeout(&self) -> Option<Duration> {
+        self.timeout
+    }
+
     pub fn cancellation(&self) -> &Cancellation {
         &self.cancellation
     }
@@ -571,14 +656,12 @@ impl CallOptions {
         let selected_route = model.route_id().or(self.selected_route_context.as_ref());
         let mut typed = Vec::new();
         let mut raw_override = None;
-        let mut unconsumed = Vec::new();
 
         for entry in &self.exact_provider_options {
             if !entry.target.matches_model(model, selected_route) {
                 if entry.applicability == ProviderOptionApplicability::Required {
                     return Err(entry.target.mismatch_error(model));
                 }
-                unconsumed.push(&entry.target);
                 continue;
             }
             if entry.options.is_raw() {
@@ -593,7 +676,6 @@ impl CallOptions {
         Ok(ProviderOptionSelection {
             typed,
             raw_override,
-            unconsumed,
         })
     }
 
@@ -716,11 +798,11 @@ impl CallOptions {
     #[doc(hidden)]
     pub fn prepend_provider_options<I>(mut self, patches: I) -> Result<Self, ProviderOptionError>
     where
-        I: IntoIterator<Item = (ProviderOptionTarget, ProviderOptions)>,
+        I: IntoIterator<Item = ProviderOptionPatch>,
     {
         let existing = std::mem::take(&mut self.exact_provider_options);
-        for (target, options) in patches {
-            validate_options_target(&target, &options)?;
+        for patch in patches {
+            let (target, options) = patch.into_parts();
             self.push_exact_provider_option(ExactProviderOptionEntry {
                 applicability: ProviderOptionApplicability::Required,
                 target,
@@ -731,6 +813,33 @@ impl CallOptions {
             self.push_exact_provider_option(entry)?;
         }
         Ok(self)
+    }
+
+    /// Append validated exact-target patches after the existing call entries.
+    ///
+    /// This hidden assembly seam preserves input order and rechecks the full
+    /// candidate sequence against the normal entry, target, raw-target, and
+    /// aggregate bounds. Failure leaves the accepted options unchanged.
+    #[doc(hidden)]
+    pub fn append_provider_options<I>(&mut self, patches: I) -> Result<(), ProviderOptionError>
+    where
+        I: IntoIterator<Item = ProviderOptionPatch>,
+    {
+        let mut candidate = self.clone();
+        let existing = std::mem::take(&mut candidate.exact_provider_options);
+        for entry in existing {
+            candidate.push_exact_provider_option(entry)?;
+        }
+        for patch in patches {
+            let (target, options) = patch.into_parts();
+            candidate.push_exact_provider_option(ExactProviderOptionEntry {
+                applicability: ProviderOptionApplicability::Required,
+                target,
+                options,
+            })?;
+        }
+        self.exact_provider_options = candidate.exact_provider_options;
+        Ok(())
     }
 
     fn push_exact_provider_option(
@@ -796,13 +905,59 @@ impl CallOptions {
         self
     }
 
+    /// Set a relative timeout that starts when [`Self::resolve_deadline`] runs.
+    ///
+    /// Siumai-owned wrappers call the resolution helper at their outer logical
+    /// call boundary. Third-party model implementations should do the same
+    /// before starting work. Resolution is idempotent: it clears the relative
+    /// timeout and keeps the earliest absolute deadline.
+    pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, CallOptionsError> {
+        if timeout.is_zero() {
+            return Err(CallOptionsError::ZeroTimeout);
+        }
+        self.timeout = Some(timeout);
+        Ok(self)
+    }
+
+    /// Resolve a relative timeout exactly once at the current call boundary.
+    pub fn resolve_deadline(self) -> Result<Self, CallOptionsError> {
+        if self.timeout.is_none() {
+            return Ok(self);
+        }
+        self.resolve_deadline_at(Instant::now())
+    }
+
+    fn resolve_deadline_at(mut self, now: Instant) -> Result<Self, CallOptionsError> {
+        let Some(timeout) = self.timeout.take() else {
+            return Ok(self);
+        };
+        let relative_deadline = now
+            .checked_add(timeout)
+            .ok_or(CallOptionsError::TimeoutTooLarge)?;
+        self.deadline = Some(self.deadline.map_or(relative_deadline, |deadline| {
+            deadline.min(relative_deadline)
+        }));
+        Ok(self)
+    }
+
     pub fn with_cancellation(mut self, cancellation: Cancellation) -> Self {
         self.cancellation = cancellation;
         self
     }
 
+    /// Cap total attempts for each logical provider HTTP call.
+    ///
+    /// This can only narrow provider retry policy. Transport replay proof
+    /// remains authoritative and may reduce the effective budget to one.
+    pub fn with_max_attempts(mut self, maximum: u8) -> Result<Self, CallOptionsError> {
+        let maximum = NonZeroU8::new(maximum).ok_or(CallOptionsError::ZeroAttempts)?;
+        self.retry = RetryIntent::AtMost(maximum);
+        Ok(self)
+    }
+
+    /// Convenience for [`Self::with_max_attempts`] with a one-attempt cap.
     pub fn without_retry(mut self) -> Self {
-        self.retry = RetryIntent::Never;
+        self.retry = RetryIntent::AtMost(NonZeroU8::MIN);
         self
     }
 
@@ -1034,6 +1189,8 @@ fn reject_protected_value(value: &Value, path: &str) -> Result<(), ProviderOptio
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::Serialize;
     use serde_json::{Map, Value, json};
 
@@ -1041,6 +1198,66 @@ mod tests {
     use crate::provider::{ModelId, ProviderScope, RouteId};
 
     use super::*;
+
+    #[test]
+    fn relative_timeout_resolves_once_and_uses_the_earliest_deadline() {
+        let started = Instant::now();
+        let absolute = started + Duration::from_millis(100);
+        let relative_wins = CallOptions::default()
+            .with_timeout(Duration::from_millis(50))
+            .unwrap()
+            .with_deadline(absolute)
+            .resolve_deadline_at(started)
+            .unwrap();
+
+        assert_eq!(
+            relative_wins.deadline(),
+            Some(started + Duration::from_millis(50))
+        );
+        assert_eq!(relative_wins.timeout(), None);
+
+        let resolved_again = relative_wins
+            .clone()
+            .resolve_deadline_at(started + Duration::from_millis(25))
+            .unwrap();
+        assert_eq!(resolved_again.deadline(), relative_wins.deadline());
+
+        let absolute_wins = CallOptions::default()
+            .with_timeout(Duration::from_millis(200))
+            .unwrap()
+            .with_deadline(absolute)
+            .resolve_deadline_at(started)
+            .unwrap();
+        assert_eq!(absolute_wins.deadline(), Some(absolute));
+    }
+
+    #[test]
+    fn invalid_call_intent_is_rejected_before_execution() {
+        assert!(matches!(
+            CallOptions::default().with_timeout(Duration::ZERO),
+            Err(CallOptionsError::ZeroTimeout)
+        ));
+        assert!(matches!(
+            CallOptions::default()
+                .with_timeout(Duration::MAX)
+                .unwrap()
+                .resolve_deadline_at(Instant::now()),
+            Err(CallOptionsError::TimeoutTooLarge)
+        ));
+        assert!(matches!(
+            CallOptions::default().with_max_attempts(0),
+            Err(CallOptionsError::ZeroAttempts)
+        ));
+    }
+
+    #[test]
+    fn one_attempt_convenience_uses_the_caller_cap_model() {
+        let capped = CallOptions::default().with_max_attempts(2).unwrap();
+        assert_eq!(capped.retry().maximum_attempts(), Some(2));
+
+        let one_attempt = CallOptions::default().without_retry();
+        assert_eq!(one_attempt.retry().maximum_attempts(), Some(1));
+    }
 
     struct FakeModel {
         descriptor: ModelDescriptor,
@@ -1110,10 +1327,6 @@ mod tests {
         fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
             ProviderOptionBindingRequirement::Reusable
         }
-    }
-
-    fn layer(value: &'static str) -> ProviderOptions {
-        ProviderOptions::typed(&Layer { value }).unwrap()
     }
 
     #[test]
@@ -1248,6 +1461,44 @@ mod tests {
     }
 
     #[test]
+    fn family_wide_typed_options_match_mode_bound_models() {
+        #[derive(Serialize)]
+        struct FamilyWideOptions {
+            value: &'static str,
+        }
+
+        impl TypedProviderOptions for FamilyWideOptions {
+            const NAMESPACE: &'static str = "openai";
+            const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+
+            fn binding_requirement(&self) -> ProviderOptionBindingRequirement {
+                ProviderOptionBindingRequirement::Reusable
+            }
+        }
+
+        let model = fake_model("openai", "responses", None);
+        let reusable = CallOptions::default()
+            .with_provider_options(&FamilyWideOptions { value: "shared" })
+            .unwrap();
+        assert_eq!(
+            reusable
+                .provider_options_for(&model)
+                .unwrap()
+                .typed()
+                .count(),
+            1
+        );
+
+        let exact = CallOptions::default()
+            .with_provider_options_for(&model, &FamilyWideOptions { value: "exact" })
+            .unwrap();
+        assert_eq!(
+            exact.provider_options_for(&model).unwrap().typed().count(),
+            1
+        );
+    }
+
+    #[test]
     fn required_and_optional_targets_have_typed_mismatch_behavior() {
         let first = fake_model("openai", "responses", Some("primary"));
         let second = fake_model("openai", "responses", Some("primary"));
@@ -1265,7 +1516,6 @@ mod tests {
             .unwrap();
         let selection = optional.provider_options_for(&second).unwrap();
         assert_eq!(selection.raw_override(), None);
-        assert_eq!(selection.unconsumed_count(), 1);
     }
 
     #[test]
@@ -1318,13 +1568,12 @@ mod tests {
     #[test]
     fn prepend_runtime_patches_preserve_source_order_before_call_entries() {
         let model = fake_model("openai", "responses", None);
-        let target = ProviderOptionTarget::for_model(&model);
         let call = CallOptions::default()
             .with_provider_options(&Layer { value: "call" })
             .unwrap()
             .prepend_provider_options(vec![
-                (target.clone(), layer("route")),
-                (target, layer("step")),
+                ProviderOptionPatch::typed_for_model(&model, &Layer { value: "route" }).unwrap(),
+                ProviderOptionPatch::typed_for_model(&model, &Layer { value: "step" }).unwrap(),
             ])
             .unwrap();
 
@@ -1335,6 +1584,93 @@ mod tests {
             .map(|options| options.value()["value"].as_str().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(values, vec!["route", "step", "call"]);
+    }
+
+    #[test]
+    fn appended_provider_patches_follow_the_baseline_and_repeat_preflight() {
+        let model = fake_model("openai", "responses", None);
+        let cancellation = Cancellation::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let baseline = CallOptions::default()
+            .with_deadline(deadline)
+            .with_timeout(Duration::from_secs(10))
+            .unwrap()
+            .with_cancellation(cancellation.clone())
+            .without_retry()
+            .with_provider_options(&Layer {
+                value: "baseline-a",
+            })
+            .unwrap()
+            .with_provider_options_for(
+                &model,
+                &Layer {
+                    value: "baseline-b",
+                },
+            )
+            .unwrap();
+        let patches = vec![
+            ProviderOptionPatch::typed_for_model(&model, &Layer { value: "patch-c" }).unwrap(),
+        ];
+
+        let assemble = || {
+            let mut candidate = baseline.clone();
+            candidate.append_provider_options(patches.clone()).unwrap();
+            candidate
+        };
+        let first = assemble();
+        let second = assemble();
+
+        let values = |options: &CallOptions| {
+            options
+                .provider_options_for(&model)
+                .unwrap()
+                .typed()
+                .map(|options| options.value()["value"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            values(&baseline),
+            vec!["baseline-a".to_string(), "baseline-b".to_string()]
+        );
+        assert_eq!(
+            values(&first),
+            vec![
+                "baseline-a".to_string(),
+                "baseline-b".to_string(),
+                "patch-c".to_string()
+            ]
+        );
+        assert_eq!(values(&second), values(&first));
+        assert_eq!(first.deadline(), Some(deadline));
+        assert_eq!(first.timeout(), Some(Duration::from_secs(10)));
+        assert_eq!(first.retry().maximum_attempts(), Some(1));
+        cancellation.cancel();
+        assert!(first.cancellation().is_cancelled());
+    }
+
+    #[test]
+    fn failed_provider_patch_append_does_not_mutate_the_accepted_state() {
+        let model = fake_model("openai", "responses", None);
+        let mut accepted = CallOptions::default();
+        for _ in 0..MAX_PROVIDER_OPTION_ENTRIES {
+            accepted = accepted
+                .with_provider_options(&Layer { value: "accepted" })
+                .unwrap();
+        }
+        let patch =
+            ProviderOptionPatch::typed_for_model(&model, &Layer { value: "overflow" }).unwrap();
+
+        assert!(matches!(
+            accepted.append_provider_options([patch]),
+            Err(ProviderOptionError::TooManyEntries { .. })
+        ));
+        let values = accepted
+            .provider_options_for(&model)
+            .unwrap()
+            .typed()
+            .map(|options| options.value()["value"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values, vec!["accepted"; MAX_PROVIDER_OPTION_ENTRIES]);
     }
 
     #[test]

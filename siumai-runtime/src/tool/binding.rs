@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, btree_map};
+use std::collections::{BTreeMap, BTreeSet, btree_map};
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -15,8 +15,8 @@ use super::execution::{
     ToolIdempotencyKey, ToolIdempotencyKeyError, ToolIdempotencyKeyProvider,
 };
 
-const BINDING_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-binding.v2";
-const CATALOG_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-catalog.v2";
+const BINDING_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-binding.v3";
+const CATALOG_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-catalog.v3";
 const ARGUMENT_FINGERPRINT_VERSION: &[u8] = b"siumai.tool-arguments.v1";
 
 struct ToolBindingInner {
@@ -341,7 +341,8 @@ where
     }
 }
 
-/// Stable, versioned digest of a complete sorted tool catalog.
+/// Stable, versioned digest of one ordered model-visible catalog plus its
+/// trusted local binding identities.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CatalogFingerprint(Arc<str>);
@@ -356,6 +357,37 @@ impl fmt::Display for CatalogFingerprint {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedVisibleToolCatalog {
+    specs: Arc<[ToolSpec]>,
+    fingerprint: CatalogFingerprint,
+}
+
+impl PreparedVisibleToolCatalog {
+    pub(crate) fn specs(&self) -> &[ToolSpec] {
+        &self.specs
+    }
+
+    pub(crate) fn fingerprint(&self) -> &CatalogFingerprint {
+        &self.fingerprint
+    }
+}
+
+pub(crate) enum VisibleToolCatalogSource {
+    Caller(Vec<ToolSpec>),
+    Canonical(Vec<ToolSpec>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(crate) enum VisibleToolCatalogError {
+    #[error("model-visible tool `{name}` is defined more than once")]
+    DuplicateName { name: String },
+    #[error("model-visible tool `{name}` conflicts with a trusted local binding")]
+    TrustedBindingCollision { name: String },
+    #[error("restored model-visible tool catalog does not contain the exact local binding suffix")]
+    LocalCatalogMismatch,
 }
 
 #[derive(Debug)]
@@ -415,6 +447,10 @@ impl ToolSet {
 
     pub fn fingerprint(&self) -> &CatalogFingerprint {
         &self.inner.fingerprint
+    }
+
+    fn fingerprint_visible_catalog(&self, specs: &[ToolSpec]) -> CatalogFingerprint {
+        catalog_fingerprint(specs, self.inner.bindings.values())
     }
 
     /// Resolve a validated local call and freeze the exact selected binding.
@@ -494,7 +530,7 @@ impl ToolSetBuilder {
             .map(|binding| binding.spec().clone())
             .collect::<Vec<_>>()
             .into();
-        let fingerprint = catalog_fingerprint(self.bindings.values());
+        let fingerprint = catalog_fingerprint(&specs, self.bindings.values());
         ToolSet {
             inner: Arc::new(ToolSetInner {
                 bindings: self.bindings,
@@ -503,6 +539,47 @@ impl ToolSetBuilder {
             }),
         }
     }
+}
+
+pub(crate) fn prepare_visible_tool_catalog(
+    source: VisibleToolCatalogSource,
+    tools: &ToolSet,
+) -> Result<PreparedVisibleToolCatalog, VisibleToolCatalogError> {
+    let (mut specs, restored) = match source {
+        VisibleToolCatalogSource::Caller(specs) => (specs, false),
+        VisibleToolCatalogSource::Canonical(specs) => (specs, true),
+    };
+
+    let mut names = BTreeSet::new();
+    for spec in &specs {
+        if !names.insert(spec.name()) {
+            return Err(VisibleToolCatalogError::DuplicateName {
+                name: spec.name().to_owned(),
+            });
+        }
+    }
+
+    if restored {
+        if !specs.ends_with(tools.specs()) {
+            return Err(VisibleToolCatalogError::LocalCatalogMismatch);
+        }
+    } else {
+        for spec in tools.specs() {
+            if names.contains(spec.name()) {
+                return Err(VisibleToolCatalogError::TrustedBindingCollision {
+                    name: spec.name().to_owned(),
+                });
+            }
+        }
+        drop(names);
+        specs.extend_from_slice(tools.specs());
+    }
+
+    let fingerprint = tools.fingerprint_visible_catalog(&specs);
+    Ok(PreparedVisibleToolCatalog {
+        specs: specs.into(),
+        fingerprint,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -523,16 +600,8 @@ fn binding_identity(
 ) -> ToolBindingIdentity {
     let mut digest = Sha256::new();
     digest.update(BINDING_FINGERPRINT_VERSION);
-    update_string(&mut digest, spec.name());
+    update_tool_spec(&mut digest, spec);
     update_string(&mut digest, revision);
-    match spec.description() {
-        Some(description) => {
-            digest.update([1]);
-            update_string(&mut digest, description);
-        }
-        None => digest.update([0]),
-    }
-    CanonicalJson(spec.input_schema()).update_digest(&mut digest);
     update_effect(&mut digest, effect);
     update_concurrency(&mut digest, concurrency);
     update_approval_policy(&mut digest, approval_policy);
@@ -546,15 +615,39 @@ fn binding_identity(
     }
 }
 
-fn catalog_fingerprint<'a>(bindings: impl Iterator<Item = &'a ToolBinding>) -> CatalogFingerprint {
+fn catalog_fingerprint<'a, I>(visible_specs: &[ToolSpec], bindings: I) -> CatalogFingerprint
+where
+    I: ExactSizeIterator<Item = &'a ToolBinding>,
+{
     let mut digest = Sha256::new();
     digest.update(CATALOG_FINGERPRINT_VERSION);
+    update_len(&mut digest, visible_specs.len());
+    for spec in visible_specs {
+        update_tool_spec(&mut digest, spec);
+    }
+    update_len(&mut digest, bindings.len());
     for binding in bindings {
         update_string(&mut digest, &binding.identity().name);
         update_string(&mut digest, &binding.identity().fingerprint);
     }
     let fingerprint = digest.finalize();
     CatalogFingerprint(sha256_string(&fingerprint).into())
+}
+
+fn update_tool_spec(digest: &mut Sha256, spec: &ToolSpec) {
+    update_string(digest, spec.name());
+    match spec.description() {
+        Some(description) => {
+            digest.update([1]);
+            update_string(digest, description);
+        }
+        None => digest.update([0]),
+    }
+    CanonicalJson(spec.input_schema()).update_digest(digest);
+    let annotations = serde_json::to_value(spec.annotations()).expect(
+        "validated provider annotations must retain their infallible JSON serialization contract",
+    );
+    CanonicalJson(&annotations).update_digest(digest);
 }
 
 /// Return the runtime-defined digest used to bind untrusted tool arguments to

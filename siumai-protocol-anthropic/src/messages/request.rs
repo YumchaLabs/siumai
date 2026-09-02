@@ -35,8 +35,11 @@ pub const fn anthropic_tool_anchor_schema() -> Value {
     Value::Bool(false)
 }
 
-/// Return whether a raw protocol option would override codec, provider, or
-/// transport ownership.
+/// Return whether a top-level raw body option would override canonical request
+/// or transport authority.
+///
+/// Matching is exact after ASCII case and separator normalization. Nested
+/// provider-body data is intentionally outside this policy.
 pub fn is_protected_option_field(name: &str) -> bool {
     matches!(
         compact_field(name).as_str(),
@@ -44,35 +47,21 @@ pub fn is_protected_option_field(name: &str) -> bool {
             | "messages"
             | "system"
             | "maxtokens"
+            | "maxoutputtokens"
             | "stream"
             | "tools"
             | "toolchoice"
             | "temperature"
             | "topp"
-            | "topk"
             | "stopsequences"
             | "stopsequence"
-            | "metadata"
-            | "thinking"
-            | "outputconfig"
-            | "outputformat"
-            | "taskbudget"
-            | "fallbacks"
-            | "fallbackcredittoken"
-            | "speed"
-            | "servicetier"
-            | "container"
-            | "contextmanagement"
-            | "mcpservers"
-            | "mcptoolset"
-            | "inferencegeo"
-            | "cachecontrol"
             | "diagnostics"
             | "method"
             | "target"
             | "apikey"
             | "xapikey"
             | "authorization"
+            | "authorizationtoken"
             | "auth"
             | "token"
             | "bearer"

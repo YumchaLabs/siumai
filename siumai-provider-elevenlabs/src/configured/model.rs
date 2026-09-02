@@ -151,6 +151,7 @@ impl SpeechModel for ElevenLabsSpeechModel {
         request: SpeechRequest,
         options: CallOptions,
     ) -> Result<SpeechResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

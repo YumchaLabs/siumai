@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -26,8 +25,8 @@ use siumai_openai_compatible::{
     OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    AuthApplier, EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin,
+    ProviderHttpTransportSettings, ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -48,6 +47,8 @@ use crate::resources::{
 
 const RESOURCE_BASE_URL: &str = "https://api.minimax.io/";
 const RESOURCE_VERIFIED_ON: &str = "2026-08-08";
+const IMAGE_VERIFIED_ON: &str = "2026-08-15";
+const SPEECH_VERIFIED_ON: &str = "2026-08-15";
 const FILES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/file-management-upload";
 const IMAGES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/image-generation-t2i";
 const VIDEO_SOURCE: &str =
@@ -254,6 +255,19 @@ impl MinimaxProvider {
             ),
         ))
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_http_transport_limits(
+        &self,
+    ) -> (
+        &siumai_transport::TransportLimits,
+        &siumai_transport::TransportLimits,
+    ) {
+        (
+            self.native.transport.limits(),
+            self.responses_native.transport.limits(),
+        )
+    }
 }
 
 impl Provider for MinimaxProvider {
@@ -323,11 +337,7 @@ pub struct MinimaxProviderBuilder {
     resource_endpoint: Result<EndpointSelection, EndpointError>,
     messages_replay_domain: Option<ReplayDomain>,
     openai_replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     messages_defaults: MinimaxMessagesOptions,
     chat_defaults: MinimaxChatCompletionsOptions,
     responses_defaults: MinimaxResponsesOptions,
@@ -345,11 +355,7 @@ impl MinimaxProviderBuilder {
                 .map(EndpointSelection::ProviderOwned),
             messages_replay_domain: None,
             openai_replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             messages_defaults: MinimaxMessagesOptions::default(),
             chat_defaults: MinimaxChatCompletionsOptions::default(),
             responses_defaults: MinimaxResponsesOptions::default(),
@@ -425,28 +431,9 @@ impl MinimaxProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -497,11 +484,10 @@ impl MinimaxProviderBuilder {
         }
         let auth = self.credential.into_auth()?;
         let messages_profile = messages_profile(
-            messages_endpoint,
+            messages_endpoint.clone(),
             messages_replay_domain,
             messages_is_verified,
         )?;
-        let responses_endpoint = openai_endpoint.clone();
         let responses_scope = Arc::new(
             ProviderScope::new(ProviderId::new(PROVIDER_ID)?)
                 .with_platform(PlatformId::new("minimax-api")?)
@@ -513,8 +499,11 @@ impl MinimaxProviderBuilder {
                 )?)
                 .with_replay_domain(openai_replay_domain.clone()),
         );
-        let openai_profile =
-            openai_profile(openai_endpoint, openai_replay_domain, openai_is_verified)?;
+        let openai_profile = openai_profile(
+            openai_endpoint.clone(),
+            openai_replay_domain,
+            openai_is_verified,
+        )?;
         let image_scope = Arc::new(media_scope(IMAGE_PROTOCOL_ID, IMAGE_API_MODE_ID)?);
         let speech_scope = Arc::new(media_scope(SPEECH_PROTOCOL_ID, SPEECH_API_MODE_ID)?);
         let image_profile = media_support_profile(
@@ -523,7 +512,8 @@ impl MinimaxProviderBuilder {
             IMAGE_PROTOCOL_ID,
             IMAGE_API_MODE_ID,
             IMAGES_SOURCE,
-            "minimax-images-2026-08",
+            IMAGE_VERIFIED_ON,
+            "minimax-images-2026-08-15",
         )?;
         let speech_profile = media_support_profile(
             resource_is_verified,
@@ -531,7 +521,8 @@ impl MinimaxProviderBuilder {
             SPEECH_PROTOCOL_ID,
             SPEECH_API_MODE_ID,
             SPEECH_SOURCE,
-            "minimax-speech-http-2026-08",
+            SPEECH_VERIFIED_ON,
+            "minimax-speech-http-2026-08-15",
         )?;
         let native_claims = native_support_claims(resource_is_verified, openai_is_verified)?;
         let support_manifest = Arc::new(ProviderSupportManifest::new(
@@ -546,45 +537,36 @@ impl MinimaxProviderBuilder {
         )?);
 
         let instance_id = ProviderInstanceId::new();
-        let mut messages_builder =
-            AnthropicCompatibleProvider::builder_with_auth(messages_profile, auth.clone())
-                .with_provider_instance(instance_id.clone())
-                .with_default_options(self.messages_defaults.to_engine())
-                .with_limits(self.limits.clone())
-                .with_retry_policy(self.retry_policy);
-
-        let mut openai_builder =
-            OpenAiCompatibleProvider::builder_with_auth(openai_profile, auth.clone())
-                .with_provider_instance(instance_id.clone())
-                .with_limits(self.limits.clone())
-                .with_retry_policy(self.retry_policy);
-        let mut responses_resource_builder = ProviderTransport::builder(responses_endpoint)
-            .with_auth(auth.clone())
-            .with_limits(self.limits.clone())
-            .with_retry_policy(self.retry_policy);
-        let mut resource_builder = ProviderTransport::builder(resource_endpoint)
-            .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-
-        if let Some(timeout) = self.connect_timeout {
-            messages_builder = messages_builder.with_connect_timeout(timeout);
-            openai_builder = openai_builder.with_connect_timeout(timeout);
-            responses_resource_builder = responses_resource_builder.with_connect_timeout(timeout);
-            resource_builder = resource_builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            messages_builder = messages_builder.with_call_timeout(timeout);
-            openai_builder = openai_builder.with_call_timeout(timeout);
-            responses_resource_builder = responses_resource_builder.with_call_timeout(timeout);
-            resource_builder = resource_builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            messages_builder = messages_builder.with_read_timeout(timeout);
-            openai_builder = openai_builder.with_read_timeout(timeout);
-            responses_resource_builder = responses_resource_builder.with_read_timeout(timeout);
-            resource_builder = resource_builder.with_read_timeout(timeout);
-        }
+        let mut transports = Vec::new();
+        let messages_transport = shared_provider_transport(
+            &mut transports,
+            messages_endpoint,
+            auth.clone(),
+            &self.http_transport_settings,
+        )?;
+        let openai_transport = shared_provider_transport(
+            &mut transports,
+            openai_endpoint,
+            auth.clone(),
+            &self.http_transport_settings,
+        )?;
+        let resource_transport = shared_provider_transport(
+            &mut transports,
+            resource_endpoint,
+            auth,
+            &self.http_transport_settings,
+        )?;
+        let messages_builder = AnthropicCompatibleProvider::builder_with_transport(
+            messages_profile,
+            messages_transport,
+        )
+        .with_provider_instance(instance_id.clone())
+        .with_default_options(self.messages_defaults.to_engine());
+        let mut openai_builder = OpenAiCompatibleProvider::builder_with_transport(
+            openai_profile,
+            openai_transport.clone(),
+        )
+        .with_provider_instance(instance_id.clone());
 
         for (name, value) in option_map(&self.chat_defaults)? {
             openai_builder = openai_builder.with_default_option(
@@ -600,11 +582,8 @@ impl MinimaxProviderBuilder {
 
         let messages = messages_builder.build()?;
         let openai = openai_builder.build()?;
-        let responses_native = Arc::new(NativeRuntime::new(
-            instance_id.clone(),
-            responses_resource_builder.build()?,
-        ));
-        let native = Arc::new(NativeRuntime::new(instance_id, resource_builder.build()?));
+        let responses_native = Arc::new(NativeRuntime::new(instance_id.clone(), openai_transport));
+        let native = Arc::new(NativeRuntime::new(instance_id, resource_transport));
         let image_registration = ProviderRegistration::from_image(
             image_scope.clone(),
             Arc::new({
@@ -705,6 +684,7 @@ impl LanguageModel for MinimaxLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             MinimaxLanguageModelInner::Messages(model) => model.generate(request, options).await,
             MinimaxLanguageModelInner::OpenAi(model) => model.generate(request, options).await,
@@ -716,6 +696,7 @@ impl LanguageModel for MinimaxLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             MinimaxLanguageModelInner::Messages(model) => model.stream(request, options).await,
             MinimaxLanguageModelInner::OpenAi(model) => model.stream(request, options).await,
@@ -737,6 +718,26 @@ fn official_endpoint(base_url: &str) -> Result<EndpointConfig, EndpointError> {
     EndpointConfig::official(base_url, OfficialOrigin::new(OFFICIAL_ORIGIN)?)
 }
 
+fn shared_provider_transport(
+    transports: &mut Vec<ProviderTransport>,
+    endpoint: EndpointConfig,
+    auth: Arc<dyn AuthApplier>,
+    settings: &ProviderHttpTransportSettings,
+) -> Result<ProviderTransport, TransportConfigError> {
+    if let Some(transport) = transports.iter().find(|transport| {
+        transport.endpoint().expose_base_url() == endpoint.expose_base_url()
+            && transport.endpoint().policy() == endpoint.policy()
+    }) {
+        return Ok(transport.clone());
+    }
+    let transport = ProviderTransport::builder(endpoint)
+        .with_auth(auth)
+        .with_http_transport_settings(settings.clone())
+        .build()?;
+    transports.push(transport.clone());
+    Ok(transport)
+}
+
 fn media_scope(protocol: &str, api_mode: &str) -> Result<ProviderScope, InvalidId> {
     Ok(ProviderScope::new(ProviderId::new(PROVIDER_ID)?)
         .with_platform(PlatformId::new("minimax-api")?)
@@ -750,6 +751,7 @@ fn media_support_profile(
     protocol: &str,
     api_mode: &str,
     source: &str,
+    verified_on: &str,
     contract: &str,
 ) -> Result<ProviderProfile, MinimaxConfigError> {
     let scope = SupportScope::new(
@@ -774,7 +776,7 @@ fn media_support_profile(
             ApiStability::Stable,
             VerificationEvidence::new(
                 OfficialSource::new(source)?,
-                resource_verification_date(),
+                verification_date(verified_on),
                 siumai_core::ProtocolContractId::new(contract)?,
             ),
         )],
@@ -812,6 +814,8 @@ fn native_support_claims(
     let provider = siumai_core::ProviderId::new(PROVIDER_ID)?;
     let platform = siumai_core::PlatformId::new("minimax-api")?;
     let resource_verified_at = resource_verification_date();
+    let image_verified_at = verification_date(IMAGE_VERIFIED_ON);
+    let speech_verified_at = verification_date(SPEECH_VERIFIED_ON);
     let current_surface_verified_at = verification_date(RESPONSES_INPUT_TOKENS_VERIFIED_ON);
     let mut claims = Vec::new();
     if resource_is_verified {
@@ -828,7 +832,7 @@ fn native_support_claims(
                 NativeSurfaceKind::Resource,
                 ApiStability::Stable,
                 IMAGES_SOURCE,
-                resource_verified_at,
+                image_verified_at,
             ),
             (
                 "video-tasks",
@@ -849,7 +853,7 @@ fn native_support_claims(
                 NativeSurfaceKind::Resource,
                 ApiStability::Stable,
                 SPEECH_SOURCE,
-                resource_verified_at,
+                speech_verified_at,
             ),
             (
                 "speech-async-tasks",

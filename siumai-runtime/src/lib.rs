@@ -1,7 +1,8 @@
 //! Provider-neutral high-level execution for Siumai language models.
 //!
-//! Plain [`generate`] and [`stream`] perform exactly one model call. Explicit
-//! multi-step tool execution is owned by the runtime's tool-loop APIs.
+//! [`Runtime::generate`] and [`Runtime::stream`] perform exactly one model
+//! call. Explicit multi-step tool execution is owned by the runtime's
+//! tool-loop APIs.
 
 #![deny(unsafe_code)]
 
@@ -19,6 +20,7 @@ mod engine;
 mod history;
 mod options;
 mod output;
+mod provider_deferred;
 mod run;
 mod selection;
 mod single_step;
@@ -26,9 +28,8 @@ mod structured_run;
 mod tool_loop;
 mod usage;
 
-pub use agent::{Agent, AgentConfigError, AgentInput};
+pub use agent::{Agent, AgentConfigError};
 pub use budget::{BudgetError, BudgetKind, BudgetLedger, RunBudget, RunBudgetBuilder, RunTimeouts};
-pub use call::{generate, stream};
 pub use durable::{
     DurableApproval, DurableResume, DurableRun, DurableRunError, DurableToolLoop,
     IndeterminateRecoveryPolicy,
@@ -48,6 +49,7 @@ pub use output::{
     SchemaValidationError, StructuredOutputAttemptKind, StructuredOutputError,
     StructuredOutputFailureKind, StructuredOutputRepair, StructuredOutputResult,
 };
+pub use provider_deferred::ProviderDeferredObservation;
 pub use run::{
     IndeterminateEffect, ModelTransitionOutcome, ModelTransitionRecord, RunEvent, RunReport,
     RunStopReason, RunStream, RunTerminal, RunTimeoutKind, StepRecord, SuspensionReason,

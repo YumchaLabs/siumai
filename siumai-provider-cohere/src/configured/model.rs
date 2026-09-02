@@ -16,6 +16,7 @@ use siumai_transport::{
 };
 
 use crate::provider_options::CohereEmbeddingInputType;
+use crate::provider_options::cohere::VALID_OUTPUT_DIMENSIONS;
 
 use super::options::{embedding_options, rerank_options};
 use super::provider::CohereRuntime;
@@ -28,7 +29,6 @@ const RERANK_TARGET: &str = "rerank";
 const MAX_EMBEDDING_INPUTS: usize = 96;
 const MAX_RERANK_CANDIDATES: usize = 1000;
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
-const VALID_OUTPUT_DIMENSIONS: &[u32] = &[256, 512, 1024, 1536];
 
 /// Lightweight Cohere v2 embedding model handle.
 #[derive(Clone)]
@@ -90,15 +90,15 @@ impl EmbeddingModel for CohereEmbeddingModel {
         request: EmbeddingRequest,
         options: CallOptions,
     ) -> Result<EmbeddingResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
         let provider_options = embedding_options(&options, self)
             .map_err(option_error)
             .map_err(|error| self.contextualize(error))?;
-        let dimensions =
-            resolve_dimensions(self.model_id(), &request, provider_options.output_dimension)
-                .map_err(|error| self.contextualize(error))?;
+        let dimensions = resolve_dimensions(&request, provider_options.output_dimension)
+            .map_err(|error| self.contextualize(error))?;
         let wire = EmbeddingWireRequest {
             model: self.model_id().as_str(),
             embedding_types: ["float"],
@@ -201,6 +201,7 @@ impl RerankModel for CohereRerankModel {
         request: RerankRequest,
         options: CallOptions,
     ) -> Result<RerankResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -283,7 +284,6 @@ fn json_plan(
 }
 
 fn resolve_dimensions(
-    model: &ModelId,
     request: &EmbeddingRequest,
     option_dimensions: Option<u32>,
 ) -> Result<Option<u32>, Error> {
@@ -297,12 +297,6 @@ fn resolve_dimensions(
         ));
     }
     let dimensions = request_dimensions.or(option_dimensions);
-    if dimensions.is_some() && !crate::models::supports_output_dimension(model.as_str()) {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "Cohere output dimensions are supported only by Embed v4 models",
-        ));
-    }
     if let Some(dimensions) = dimensions
         && !VALID_OUTPUT_DIMENSIONS.contains(&dimensions)
     {
@@ -383,7 +377,7 @@ fn provider_metadata(meta: &serde_json::Value) -> BTreeMap<String, serde_json::V
     BTreeMap::from([("cohere".to_string(), meta.clone())])
 }
 
-fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
+pub(crate) fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
     headers
         .get(&HeaderName::from_static("x-request-id"))
         .and_then(|value| value.to_str().ok())
@@ -391,7 +385,7 @@ fn response_request_id(headers: &ResponseHeaders) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn provider_status_error(response: TransportResponse) -> Error {
+pub(crate) fn provider_status_error(response: TransportResponse) -> Error {
     let (status, headers, body) = response.into_parts();
     let kind = match status {
         StatusCode::UNAUTHORIZED => ErrorKind::Authentication,
@@ -448,16 +442,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn output_dimensions_are_limited_to_embed_v4_models() {
+    fn output_dimensions_use_the_stable_wire_value_domain() {
         let request = EmbeddingRequest::single("hello").expect("embedding request");
-        let v4 = ModelId::new(crate::models::embedding::EMBED_V4).expect("v4 model ID");
-        let v3 = ModelId::new(crate::models::embedding::EMBED_ENGLISH_V3).expect("v3 model ID");
 
-        assert_eq!(
-            resolve_dimensions(&v4, &request, Some(512)).unwrap(),
-            Some(512)
-        );
-        let error = resolve_dimensions(&v3, &request, Some(512)).unwrap_err();
+        assert_eq!(resolve_dimensions(&request, Some(512)).unwrap(), Some(512));
+        let error = resolve_dimensions(&request, Some(2048)).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
     }
 }

@@ -16,12 +16,12 @@ rules below before relying on it.
 | Transport and security | `architecture/transport-contract.md` | Accepted contract; verify implementation status per crate |
 | Provider/host ownership | `adr/0010-provider-plane-and-host-control-plane.md` | Accepted |
 | Provider identity and registration | `adr/0013-provider-identity-and-family-registration.md` | Accepted |
+| Typed Siumai provider hub | `adr/0020-typed-siumai-provider-hub.md` | Accepted; supersedes ADR-0019's rejection of a `Siumai` entry |
 | Provider support claims | `providers/support-policy.md` | Current claim policy |
 | Gemini provider support | `providers/google.md` | Current dated Gemini Interactions and product-surface evidence |
 | MiniMax support | `providers/minimax.md` | Current dated provider/API-mode and resource evidence |
 | Breaking API migration | `migration/siumai-next.md` | User-facing guide for the next breaking release |
-| Hajimi handoff | `migration/hajimi-adapter-handoff.md` | Downstream containment-to-invariant mapping |
-| Release process | `releasing.md` | Maintained, but incomplete until the next release rehearsal |
+| Release process | `releasing.md` | Current manual workflow and known release-plz restart limitation |
 
 Task plans may describe temporary migration work and acceptance criteria. While a plan is active,
 checkpoint notes may be recorded there for traceability. Once a task completes, the plan is a

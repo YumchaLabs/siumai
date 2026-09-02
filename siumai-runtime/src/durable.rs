@@ -1,6 +1,7 @@
 //! Durable orchestration over the shared step engine and snapshot store.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error as StdError;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -22,19 +23,21 @@ use crate::engine::checkpoint::{
 };
 use crate::engine::{EngineResumeError, EngineResumeSeed, StepEngine, ToolHandling};
 use crate::snapshot::{
-    CheckpointId, LineageId, PendingApprovalSnapshot, PendingStepSnapshot, PreparedToolSnapshot,
-    ResumePoint, RunId, RunLease, RunSnapshot, RunSnapshotError, RunStore, RunStoreError,
-    SnapshotCheckpoint, SnapshotEngineVersion, SnapshotFingerprint, SnapshotFingerprints,
-    SnapshotRevision, ToolExecutionEvent, ToolExecutionStatus,
+    CheckpointId, CheckpointIntent, CheckpointWriteError, CheckpointWriter,
+    InitialCheckpointIntent, LineageId, PendingApprovalSnapshot, PendingStepSnapshot, ResumePoint,
+    RunId, RunLease, RunSnapshot, RunSnapshotError, RunSnapshotSuccessorError, RunStore,
+    RunStoreError, SnapshotEngineVersion, SnapshotFingerprint, SnapshotFingerprints,
+    SnapshotRevision, ToolExecutionStatus,
 };
 use crate::tool::{
-    ApprovalPolicy, EffectCertainty, ExternalApprovalDecider, ToolExecutionError,
-    ToolExecutionRequest, ToolSet,
+    EffectCertainty, ExternalApprovalDecider, PreparedVisibleToolCatalog, ToolExecutionError,
+    ToolJournalError, ToolSet, VisibleToolCatalogError, VisibleToolCatalogSource,
+    prepare_visible_tool_catalog,
 };
 use crate::tool_loop::ToolOutcomePolicy;
 use crate::{ModelTarget, ProjectionPolicy, RunReport, Runtime, StepModelSelector, StepOptions};
 
-const DURABLE_ENGINE_VERSION: &str = "siumai-runtime-durable-v5";
+const DURABLE_EXECUTION_ABI: &str = "siumai-runtime-durable-v7";
 const DEFAULT_LEASE_TTL: Duration = Duration::from_secs(300);
 static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -139,6 +142,7 @@ struct ApprovalRuntime {
 
 struct DurableCheckpointPort<'a> {
     owner: &'a DurableToolLoop,
+    fingerprints: SnapshotFingerprints,
     lease: &'a mut RunLease,
     run_id: RunId,
     lineage_id: LineageId,
@@ -149,6 +153,7 @@ struct DurableCheckpointPort<'a> {
 impl<'a> DurableCheckpointPort<'a> {
     fn new(
         owner: &'a DurableToolLoop,
+        fingerprints: SnapshotFingerprints,
         lease: &'a mut RunLease,
         run_id: RunId,
         lineage_id: LineageId,
@@ -157,6 +162,7 @@ impl<'a> DurableCheckpointPort<'a> {
     ) -> Self {
         Self {
             owner,
+            fingerprints,
             lease,
             run_id,
             lineage_id,
@@ -177,49 +183,36 @@ impl<'a> DurableCheckpointPort<'a> {
     ) -> Result<CheckpointControl, DurableRunError> {
         let (boundary, continuation, report, state) = checkpoint.into_parts();
         let (resume_point, can_progress) = self.resume_point(state)?;
-        let (expected, parent, engine_version, fingerprints, deadline_unix_ms) =
-            match self.state.as_ref() {
-                Some(current) => (
-                    current.revision,
-                    Some(current.snapshot.checkpoint_id().clone()),
-                    current.snapshot.engine_version().clone(),
-                    current.snapshot.fingerprints().clone(),
-                    current.snapshot.deadline_unix_ms(),
-                ),
-                None => (
-                    SnapshotRevision::EMPTY,
-                    None,
-                    self.owner.engine_version.clone(),
-                    self.owner.fingerprints.clone(),
-                    self.deadline_unix_ms,
-                ),
-            };
-        let snapshot = RunSnapshot::new(
-            SnapshotCheckpoint::new(
-                engine_version,
-                self.run_id.clone(),
-                self.lineage_id.clone(),
-                next_checkpoint_id()?,
-                parent,
-            )?,
-            fingerprints,
-            continuation,
-            report,
-            deadline_unix_ms,
-            resume_point,
-        )?;
-        let snapshot_bytes = serde_json::to_vec(&snapshot)?.len();
-        snapshot
-            .budget()
-            .check_snapshot_bytes(snapshot_bytes, self.owner.runtime.run_budget())?;
-        self.owner.renew(self.lease).await?;
-        let revision = self
+        let checkpoint_id = next_checkpoint_id()?;
+        let expected = self
+            .state
+            .as_ref()
+            .map_or(SnapshotRevision::EMPTY, DurableRun::revision);
+        let intent = match self.state.as_ref() {
+            Some(current) => CheckpointIntent::successor(
+                &current.snapshot,
+                checkpoint_id,
+                continuation,
+                report,
+                resume_point,
+            ),
+            None => CheckpointIntent::initial(InitialCheckpointIntent {
+                engine_version: self.owner.engine_version.clone(),
+                run_id: self.run_id.clone(),
+                lineage_id: self.lineage_id.clone(),
+                checkpoint_id,
+                fingerprints: self.fingerprints.clone(),
+                continuation,
+                report,
+                deadline_unix_ms: self.deadline_unix_ms,
+                resume_point,
+            }),
+        };
+        let state = self
             .owner
-            .store
-            .compare_and_swap(self.lease, expected, snapshot.clone())
-            .await
-            .map_err(|error| map_store_error_for_run(error, &self.run_id))?;
-        self.state = Some(DurableRun { revision, snapshot });
+            .commit_checkpoint(self.lease, expected, intent)
+            .await?;
+        self.state = Some(state);
 
         let pause = matches!(boundary, CheckpointBoundary::Quiescent) && !can_progress;
         Ok(if pause {
@@ -245,19 +238,19 @@ impl<'a> DurableCheckpointPort<'a> {
                     index, target, response, prepared, completed, approvals,
                 );
                 if step.pending_approvals().is_empty() {
-                    Ok((ResumePoint::ReadyToDispatch(step), can_progress))
+                    Ok((ResumePoint::ready_to_dispatch(step), can_progress))
                 } else {
-                    Ok((ResumePoint::AwaitingApprovals(step), can_progress))
+                    Ok((ResumePoint::awaiting_approvals(step), can_progress))
                 }
             }
             EngineCheckpointState::AwaitingProvider(step) => {
-                Ok((ResumePoint::AwaitingProvider(step), false))
+                Ok((ResumePoint::awaiting_provider(step), false))
             }
             EngineCheckpointState::ReadyForModel { next_step, target } => {
-                Ok((ResumePoint::ReadyForModel { next_step, target }, true))
+                Ok((ResumePoint::ready_for_model(next_step, target), true))
             }
             EngineCheckpointState::Terminal(terminal) => {
-                Ok((ResumePoint::Terminal(terminal), false))
+                Ok((ResumePoint::terminal_state(terminal), false))
             }
         }
     }
@@ -274,7 +267,7 @@ impl<'a> DurableCheckpointPort<'a> {
                 approval.call().id(),
                 approval.binding().fingerprint.as_str(),
                 approval.canonical_arguments_digest(),
-                &self.owner.fingerprints,
+                &self.fingerprints,
             )?,
             expires_at_unix_ms: None,
         })
@@ -351,7 +344,7 @@ impl DurableToolLoop {
             model_selector: None,
             projection_policy: ProjectionPolicy::Strict,
             lease_ttl: DEFAULT_LEASE_TTL,
-            engine_version: SnapshotEngineVersion::new(DURABLE_ENGINE_VERSION)?,
+            engine_version: SnapshotEngineVersion::new(DURABLE_EXECUTION_ABI)?,
             fingerprints: SnapshotFingerprints {
                 options: options_fingerprint,
                 tool_catalog,
@@ -431,6 +424,7 @@ impl DurableToolLoop {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<DurableRun, DurableRunError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let mut lease = self.acquire(&run_id).await?;
         let result = self
             .start_with_lease(&mut lease, run_id, lineage_id, request, options)
@@ -474,8 +468,16 @@ impl DurableToolLoop {
             ToolHandling::Execute,
         )
         .await?;
-        let mut checkpoint =
-            DurableCheckpointPort::new(self, lease, run_id, lineage_id, deadline_unix_ms, None);
+        let fingerprints = self.fingerprints_for_catalog(engine.visible_tool_catalog())?;
+        let mut checkpoint = DurableCheckpointPort::new(
+            self,
+            fingerprints,
+            lease,
+            run_id,
+            lineage_id,
+            deadline_unix_ms,
+            None,
+        );
         engine.drive(&mut checkpoint).await?;
         checkpoint.into_state()
     }
@@ -487,6 +489,7 @@ impl DurableToolLoop {
         resume: DurableResume,
         options: CallOptions,
     ) -> Result<DurableRun, DurableRunError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let mut lease = self.acquire(run_id).await?;
         let result = self
             .resume_with_lease(&mut lease, run_id, resume, options)
@@ -509,7 +512,13 @@ impl DurableToolLoop {
             .ok_or_else(|| DurableRunError::RunNotFound {
                 run_id: run_id.clone(),
             })?;
-        self.ensure_compatible(stored.snapshot())?;
+        let visible_catalog = prepare_visible_tool_catalog(
+            VisibleToolCatalogSource::Canonical(stored.snapshot().continuation().tools.clone()),
+            &self.tools,
+        )
+        .map_err(map_visible_catalog_error)?;
+        let fingerprints = self.fingerprints_for_catalog(&visible_catalog)?;
+        self.ensure_compatible(stored.snapshot(), &fingerprints)?;
 
         let state = DurableRun {
             revision: stored.revision(),
@@ -519,8 +528,9 @@ impl DurableToolLoop {
             .recover_if_needed(lease, state, resume.indeterminate_recovery)
             .await?;
         if matches!(
-            state.snapshot.resume_point(),
-            ResumePoint::Terminal(_) | ResumePoint::AwaitingProvider(_)
+            state.snapshot.resume_point().kind(),
+            crate::snapshot::ResumePointKind::Terminal
+                | crate::snapshot::ResumePointKind::AwaitingProvider
         ) {
             return Ok(state);
         }
@@ -540,6 +550,7 @@ impl DurableToolLoop {
             self.projection_policy,
             EngineResumeSeed {
                 continuation: state.snapshot.continuation().clone(),
+                visible_tools: visible_catalog,
                 report: state.snapshot.report().clone(),
                 resume_point: state.snapshot.resume_point().clone(),
                 verified_approvals,
@@ -548,6 +559,7 @@ impl DurableToolLoop {
         .map_err(map_engine_resume_error)?;
         let mut checkpoint = DurableCheckpointPort::new(
             self,
+            fingerprints,
             lease,
             state.snapshot.run_id().clone(),
             state.snapshot.lineage_id().clone(),
@@ -588,13 +600,17 @@ impl DurableToolLoop {
             if !pending
                 .pending_approvals()
                 .iter()
-                .any(|pending| pending.call.id() == call_id)
+                .any(|pending| pending.call().id() == call_id)
             {
                 return Err(DurableRunError::UnexpectedApproval {
                     call_id: call_id.clone(),
                 });
             }
-            let request = self.restore_request(prepared)?;
+            let request = snapshot
+                .report()
+                .tool_journal()
+                .restore(&self.tools, prepared)
+                .map_err(|error| map_journal_error(prepared.call().id(), error))?;
             let context = TrustContext::builder(approval.identity.clone())
                 .model_target(snapshot.target().clone())
                 .run_id(snapshot.run_id().clone())
@@ -604,8 +620,8 @@ impl DurableToolLoop {
                 .binding_identity(request.binding_identity().clone())
                 .tool_call_id(request.call_id())
                 .canonical_arguments_digest(request.canonical_arguments_digest())
-                .catalog_fingerprint(snapshot.fingerprints().tool_catalog.as_str())
-                .policy_fingerprint(snapshot.fingerprints().approval_policy.as_str())
+                .catalog_fingerprint(snapshot.fingerprints().tool_catalog().as_str())
+                .policy_fingerprint(snapshot.fingerprints().approval_policy().as_str())
                 .build()?;
             batch.push((call_id.clone(), &approval.envelope, context));
         }
@@ -646,85 +662,76 @@ impl DurableToolLoop {
             return Ok(state);
         }
 
-        let recovered = state
-            .snapshot
-            .clone()
-            .recovered_for_resume(unix_millis()?)?;
-        let next = match policy {
-            IndeterminateRecoveryPolicy::Halt => self.successor_snapshot(
+        let mut recovered_report = state.snapshot.report().clone();
+        let recovered_count = recovered_report
+            .tool_journal_mut()
+            .recover_dispatched()
+            .map_err(|error| map_journal_error("<recovered>", error))?;
+        debug_assert!(recovered_count > 0);
+        for _ in state.snapshot.pending_approvals() {
+            recovered_report.budget_mut().release_pending_approval();
+        }
+        let recovered_resume =
+            ResumePoint::terminal_state(crate::snapshot::SnapshotTerminal::indeterminate(
+                crate::snapshot::SnapshotReason::runtime_code("dispatch_outcome_unknown"),
+            ));
+        let (report, resume_point) = match policy {
+            IndeterminateRecoveryPolicy::Halt => (recovered_report, recovered_resume),
+            IndeterminateRecoveryPolicy::RetryStable => self.retry_recovered_state(
                 &state.snapshot,
-                recovered.report().clone(),
-                recovered.resume_point().clone(),
+                recovered_report,
+                recovered_resume,
+                &dispatched,
             )?,
-            IndeterminateRecoveryPolicy::RetryStable => {
-                self.retry_recovered_snapshot(&state.snapshot, recovered, &dispatched)?
-            }
         };
-        self.renew(lease).await?;
-        let revision = self.checkpoint(lease, state.revision, next.clone()).await?;
-        Ok(DurableRun {
-            revision,
-            snapshot: next,
-        })
+        let mut continuation = state.snapshot.continuation().clone();
+        continuation.messages = report.messages().to_vec();
+        let intent = CheckpointIntent::successor(
+            &state.snapshot,
+            next_checkpoint_id()?,
+            continuation,
+            report,
+            resume_point,
+        );
+        self.commit_checkpoint(lease, state.revision, intent).await
     }
 
-    fn retry_recovered_snapshot(
+    fn retry_recovered_state(
         &self,
         previous: &RunSnapshot,
-        recovered: RunSnapshot,
+        recovered_report: RunReport,
+        recovered_resume: ResumePoint,
         dispatched: &BTreeSet<String>,
-    ) -> Result<RunSnapshot, DurableRunError> {
+    ) -> Result<(RunReport, ResumePoint), DurableRunError> {
         let Some(previous_step) = previous.resume_point().pending_step() else {
-            return self.successor_snapshot(
-                previous,
-                recovered.report().clone(),
-                recovered.resume_point().clone(),
-            );
+            return Ok((recovered_report, recovered_resume));
         };
-        let mut report = recovered.report().clone();
         let mut prepared = previous_step.prepared().to_vec();
-        for _ in previous_step.pending_approvals() {
-            report
-                .budget_mut()
-                .reserve_pending_approval(self.runtime.run_budget())?;
-        }
+        let mut journal = recovered_report.tool_journal().clone();
 
         for tool in &mut prepared {
             if !dispatched.contains(tool.call().id()) {
                 continue;
             }
-            let request = self.restore_request(tool)?;
-            if request.approval_policy() == ApprovalPolicy::Required
-                || !request.permits_retry(EffectCertainty::Indeterminate)
-            {
-                return self.successor_snapshot(
-                    previous,
-                    recovered.report().clone(),
-                    recovered.resume_point().clone(),
-                );
-            }
-            let next = request
-                .next_attempt(EffectCertainty::Indeterminate)
-                .map_err(|_| DurableRunError::RecoveryNotPermitted {
-                    call_id: request.call_id().to_string(),
-                })?;
-            *tool = PreparedToolSnapshot::new(
-                tool.ordinal(),
-                next.call().clone(),
-                next.binding_identity().clone(),
-                next.recovery_policy(),
-                next.idempotency_key().cloned(),
-                next.attempt(),
-            );
-            let sequence = report.execution_log().next_sequence();
-            report
-                .execution_log_mut()
-                .append(ToolExecutionEvent::prepared(
-                    sequence,
-                    unix_millis()?,
+            let Some((next_prepared, _request)) = journal
+                .retry(
+                    &self.tools,
                     previous_step.index(),
-                    tool.clone(),
-                ))?;
+                    tool,
+                    EffectCertainty::Indeterminate,
+                )
+                .map_err(|error| map_journal_error(tool.call().id(), error))?
+            else {
+                return Ok((recovered_report, recovered_resume));
+            };
+            *tool = next_prepared;
+        }
+        let mut report = recovered_report;
+        report.replace_tool_journal(journal);
+        for _ in previous_step.pending_approvals() {
+            report
+                .budget_mut()
+                .reserve_pending_approval(self.runtime.run_budget())?;
         }
 
         let step = PendingStepSnapshot::new(
@@ -736,78 +743,32 @@ impl DurableToolLoop {
             previous_step.pending_approvals().to_vec(),
         );
         let resume_point = if step.pending_approvals().is_empty() {
-            ResumePoint::ReadyToDispatch(step)
+            ResumePoint::ready_to_dispatch(step)
         } else {
-            ResumePoint::AwaitingApprovals(step)
+            ResumePoint::awaiting_approvals(step)
         };
-        self.successor_snapshot(previous, report, resume_point)
+        Ok((report, resume_point))
     }
 
-    fn restore_request(
+    async fn commit_checkpoint(
         &self,
-        prepared: &PreparedToolSnapshot,
-    ) -> Result<ToolExecutionRequest, DurableRunError> {
-        let mut request = self
-            .tools
-            .resolve_frozen(prepared.call().clone(), prepared.binding())?;
-        while request.attempt() < prepared.attempt() {
-            request = request
-                .next_attempt(EffectCertainty::Indeterminate)
-                .map_err(|_| DurableRunError::RecoveryNotPermitted {
-                    call_id: request.call_id().to_string(),
-                })?;
-        }
-        if request.attempt() != prepared.attempt()
-            || request.recovery_policy() != prepared.recovery_policy()
-            || request.idempotency_key() != prepared.stable_idempotency_key()
-        {
-            return Err(DurableRunError::FrozenRequestMismatch {
-                call_id: prepared.call().id().to_owned(),
-            });
-        }
-        request.validate()?;
-        Ok(request)
-    }
-
-    fn successor_snapshot(
-        &self,
-        previous: &RunSnapshot,
-        report: RunReport,
-        resume_point: ResumePoint,
-    ) -> Result<RunSnapshot, DurableRunError> {
-        let mut continuation = previous.continuation().clone();
-        continuation.messages = report.messages().to_vec();
-        let checkpoint = SnapshotCheckpoint::new(
-            previous.engine_version().clone(),
-            previous.run_id().clone(),
-            previous.lineage_id().clone(),
-            next_checkpoint_id()?,
-            Some(previous.checkpoint_id().clone()),
-        )?;
-        Ok(RunSnapshot::new(
-            checkpoint,
-            previous.fingerprints().clone(),
-            continuation,
-            report,
-            previous.deadline_unix_ms(),
-            resume_point,
-        )?)
-    }
-
-    async fn checkpoint(
-        &self,
-        lease: &RunLease,
+        lease: &mut RunLease,
         expected: SnapshotRevision,
-        snapshot: RunSnapshot,
-    ) -> Result<SnapshotRevision, DurableRunError> {
-        let snapshot_bytes = serde_json::to_vec(&snapshot)?.len();
-        snapshot
-            .budget()
-            .check_snapshot_bytes(snapshot_bytes, self.runtime.run_budget())?;
-        self.store
-            .compare_and_swap(lease, expected, snapshot)
-            .await
-            .map_err(|error| map_store_error_for_run(error, lease.run_id()))
+        intent: CheckpointIntent<'_>,
+    ) -> Result<DurableRun, DurableRunError> {
+        let run_id = lease.run_id().clone();
+        let committed = CheckpointWriter::new(
+            self.store.as_ref(),
+            lease,
+            self.lease_ttl,
+            self.runtime.run_budget(),
+        )
+        .commit(expected, intent)
+        .await
+        .map_err(|error| map_checkpoint_write_error(error, &run_id))?;
+        let revision = committed.revision();
+        let snapshot = committed.into_snapshot();
+        Ok(DurableRun { revision, snapshot })
     }
 
     async fn acquire(&self, run_id: &RunId) -> Result<RunLease, DurableRunError> {
@@ -815,13 +776,6 @@ impl DurableToolLoop {
             .acquire(run_id, self.lease_ttl)
             .await
             .map_err(map_store_error)
-    }
-
-    async fn renew(&self, lease: &mut RunLease) -> Result<(), DurableRunError> {
-        self.store
-            .renew(lease, self.lease_ttl)
-            .await
-            .map_err(|error| map_store_error_for_run(error, lease.run_id()))
     }
 
     async fn finish_lease<T>(
@@ -845,13 +799,26 @@ impl DurableToolLoop {
         }
     }
 
-    fn ensure_compatible(&self, snapshot: &RunSnapshot) -> Result<(), DurableRunError> {
+    fn fingerprints_for_catalog(
+        &self,
+        catalog: &PreparedVisibleToolCatalog,
+    ) -> Result<SnapshotFingerprints, DurableRunError> {
+        let mut fingerprints = self.fingerprints.clone();
+        fingerprints.tool_catalog = SnapshotFingerprint::new(catalog.fingerprint().as_str())?;
+        Ok(fingerprints)
+    }
+
+    fn ensure_compatible(
+        &self,
+        snapshot: &RunSnapshot,
+        fingerprints: &SnapshotFingerprints,
+    ) -> Result<(), DurableRunError> {
         if snapshot.engine_version() != &self.engine_version {
             return Err(DurableRunError::IncompatibleSnapshot {
                 field: "engine_version",
             });
         }
-        if snapshot.fingerprints() != &self.fingerprints {
+        if snapshot.fingerprints() != fingerprints {
             return Err(DurableRunError::IncompatibleSnapshot {
                 field: "fingerprints",
             });
@@ -859,11 +826,6 @@ impl DurableToolLoop {
         if snapshot.report().initial_target() != &ModelTarget::from_model(self.model.as_ref()) {
             return Err(DurableRunError::IncompatibleSnapshot {
                 field: "model_target",
-            });
-        }
-        if snapshot.continuation().tools != self.tools.specs() {
-            return Err(DurableRunError::IncompatibleSnapshot {
-                field: "continuation_tools",
             });
         }
         Ok(())
@@ -971,6 +933,16 @@ fn map_store_error(error: RunStoreError) -> DurableRunError {
     }
 }
 
+fn map_checkpoint_write_error(error: CheckpointWriteError, run_id: &RunId) -> DurableRunError {
+    match error {
+        CheckpointWriteError::Snapshot(error) => DurableRunError::Snapshot(error),
+        CheckpointWriteError::InvalidSuccessor(error) => DurableRunError::InvalidSuccessor(error),
+        CheckpointWriteError::Budget(error) => DurableRunError::Budget(error),
+        CheckpointWriteError::Serialization(error) => DurableRunError::Serialization(error),
+        CheckpointWriteError::Store(error) => map_store_error_for_run(error, run_id),
+    }
+}
+
 fn map_store_error_for_run(error: RunStoreError, run_id: &RunId) -> DurableRunError {
     match error {
         RunStoreError::LeaseConflict { run_id } => DurableRunError::ResumeConflict { run_id },
@@ -998,6 +970,48 @@ fn map_engine_resume_error(error: EngineResumeError) -> DurableRunError {
     }
 }
 
+fn map_journal_error(call_id: &str, error: ToolJournalError) -> DurableRunError {
+    match error {
+        ToolJournalError::Clock => DurableRunError::Clock,
+        ToolJournalError::RecoveryNotPermitted => DurableRunError::RecoveryNotPermitted {
+            call_id: call_id.to_owned(),
+        },
+        ToolJournalError::FrozenWorkMismatch | ToolJournalError::InvalidRestoredRequest => {
+            DurableRunError::FrozenRequestMismatch {
+                call_id: call_id.to_owned(),
+            }
+        }
+        ToolJournalError::Transition(error) => DurableRunError::ExecutionTransition(error),
+        ToolJournalError::Ordinal => DurableRunError::Invariant {
+            message: "durable tool ordinal cannot be represented",
+        },
+    }
+}
+
+fn map_visible_catalog_error(error: VisibleToolCatalogError) -> DurableRunError {
+    match error {
+        VisibleToolCatalogError::DuplicateName { name } => {
+            let source = VisibleToolCatalogError::DuplicateName { name: name.clone() };
+            DurableRunError::VisibleToolCatalogDuplicateName {
+                name,
+                source: Box::new(source),
+            }
+        }
+        VisibleToolCatalogError::TrustedBindingCollision { name } => {
+            let source = VisibleToolCatalogError::TrustedBindingCollision { name: name.clone() };
+            DurableRunError::VisibleToolCatalogTrustedBindingCollision {
+                name,
+                source: Box::new(source),
+            }
+        }
+        VisibleToolCatalogError::LocalCatalogMismatch => {
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch {
+                source: Box::new(VisibleToolCatalogError::LocalCatalogMismatch),
+            }
+        }
+    }
+}
+
 /// Typed durable orchestration failure.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -1010,6 +1024,23 @@ pub enum DurableRunError {
     ResumeConflict { run_id: RunId },
     #[error("durable run snapshot is incompatible in field `{field}`")]
     IncompatibleSnapshot { field: &'static str },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogDuplicateName {
+        name: String,
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogTrustedBindingCollision {
+        name: String,
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
+    #[error("invalid durable continuation tool catalog: {source}")]
+    VisibleToolCatalogLocalSuffixMismatch {
+        #[source]
+        source: Box<dyn StdError + Send + Sync + 'static>,
+    },
     #[error("durable selector changed the frozen model target from {expected:?} to {actual:?}")]
     SelectedModelTargetChanged {
         expected: Box<ModelTarget>,
@@ -1040,6 +1071,8 @@ pub enum DurableRunError {
     Clock,
     #[error("durable runtime invariant failed: {message}")]
     Invariant { message: &'static str },
+    #[error("invalid durable snapshot successor: {0}")]
+    InvalidSuccessor(#[from] RunSnapshotSuccessorError),
     #[error(transparent)]
     Runtime(#[from] Error),
     #[error("run store failed: {0}")]
@@ -1060,4 +1093,990 @@ pub enum DurableRunError {
     TrustContext(#[from] TrustContextBuildError),
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use siumai_core::{
+        ContentPart, LanguageCallError, LanguageCompletionReason, LanguageResponse, LanguageStream,
+        Message, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
+        ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, ToolBindingIdentity,
+        ToolCall, ToolOutcome, ToolSpec, Usage,
+    };
+
+    use super::*;
+    use crate::snapshot::{
+        InMemoryRunStore, PendingApprovalSnapshot, PendingProviderStepSnapshot,
+        PendingStepSnapshot, PreparedToolSnapshot, SnapshotCheckpoint, SnapshotReason,
+        SnapshotTerminal, StoredRun, ToolExecutionEvent, ToolExecutionLog,
+    };
+    use crate::tool::{RecoveryPolicy, ToolBinding, ToolExecutionAttempt, ToolJournal};
+    use crate::{RunBudget, StepRecord};
+
+    struct TestModel {
+        descriptor: ModelDescriptor,
+    }
+
+    impl TestModel {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                descriptor: ModelDescriptor::new(
+                    ProviderId::new("durable-successor-test").unwrap(),
+                    ModelId::new("test-model").unwrap(),
+                    ModelFamily::Language,
+                )
+                .with_protocol(ProtocolId::new("durable.test").unwrap())
+                .with_replay_domain(ReplayDomain::custom(
+                    ReplayDomainId::new("durable-successor-test").unwrap(),
+                )),
+            })
+        }
+    }
+
+    impl Model for TestModel {
+        fn descriptor(&self) -> &ModelDescriptor {
+            &self.descriptor
+        }
+    }
+
+    #[async_trait]
+    impl LanguageModel for TestModel {
+        async fn generate(
+            &self,
+            _request: LanguageRequest,
+            _options: CallOptions,
+        ) -> Result<siumai_core::LanguageResponse, LanguageCallError> {
+            Err(Error::protocol_violation("test model must not be called").into())
+        }
+
+        async fn stream(
+            &self,
+            _request: LanguageRequest,
+            _options: CallOptions,
+        ) -> Result<LanguageStream, Error> {
+            Err(Error::protocol_violation("test model must not be called"))
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingStore {
+        inner: InMemoryRunStore,
+        cas_calls: AtomicUsize,
+    }
+
+    impl CountingStore {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                inner: InMemoryRunStore::new(),
+                cas_calls: AtomicUsize::new(0),
+            })
+        }
+
+        fn reset_cas_calls(&self) {
+            self.cas_calls.store(0, Ordering::SeqCst);
+        }
+
+        fn cas_calls(&self) -> usize {
+            self.cas_calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl RunStore for CountingStore {
+        fn acquire<'a>(
+            &'a self,
+            run_id: &'a RunId,
+            ttl: Duration,
+        ) -> crate::snapshot::RunStoreFuture<'a, RunLease> {
+            self.inner.acquire(run_id, ttl)
+        }
+
+        fn load<'a>(
+            &'a self,
+            lease: &'a RunLease,
+        ) -> crate::snapshot::RunStoreFuture<'a, Option<StoredRun>> {
+            self.inner.load(lease)
+        }
+
+        fn compare_and_swap<'a>(
+            &'a self,
+            lease: &'a RunLease,
+            expected: SnapshotRevision,
+            snapshot: RunSnapshot,
+        ) -> crate::snapshot::RunStoreFuture<'a, SnapshotRevision> {
+            self.cas_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.compare_and_swap(lease, expected, snapshot)
+        }
+
+        fn renew<'a>(
+            &'a self,
+            lease: &'a mut RunLease,
+            ttl: Duration,
+        ) -> crate::snapshot::RunStoreFuture<'a, ()> {
+            self.inner.renew(lease, ttl)
+        }
+
+        fn release<'a>(&'a self, lease: RunLease) -> crate::snapshot::RunStoreFuture<'a, ()> {
+            self.inner.release(lease)
+        }
+    }
+
+    fn test_loop(store: Arc<dyn RunStore>) -> DurableToolLoop {
+        test_loop_with_tools(store, ToolSet::default())
+    }
+
+    fn test_loop_with_tools(store: Arc<dyn RunStore>, tools: ToolSet) -> DurableToolLoop {
+        DurableToolLoop::new(
+            TestModel::new(),
+            tools,
+            store,
+            SnapshotFingerprint::new("sha256:test-options").unwrap(),
+            SnapshotFingerprint::new("sha256:test-approval").unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn test_binding(name: &str) -> ToolBinding {
+        ToolBinding::from_fn(
+            ToolSpec::new(
+                name,
+                Some(format!("{name} test tool")),
+                serde_json::json!({"type": "object"}),
+            )
+            .unwrap(),
+            "v1",
+            |_| Ok(()),
+            |_| async {
+                Ok(ToolOutcome::Success {
+                    value: serde_json::Value::Null,
+                })
+            },
+        )
+        .unwrap()
+    }
+
+    fn test_snapshot(
+        loop_: &DurableToolLoop,
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+    ) -> RunSnapshot {
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        test_snapshot_with_report(
+            loop_,
+            checkpoint_id,
+            parent_checkpoint_id,
+            RunReport::new(target, vec![Message::user("test")]),
+            ResumePoint::ready_for_model(0, ModelTarget::from_model(loop_.model.as_ref())),
+        )
+    }
+
+    fn test_snapshot_with_report(
+        loop_: &DurableToolLoop,
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+        report: RunReport,
+        resume_point: ResumePoint,
+    ) -> RunSnapshot {
+        test_snapshot_with_report_for_run(
+            loop_,
+            "run-successor-test",
+            checkpoint_id,
+            parent_checkpoint_id,
+            report,
+            resume_point,
+        )
+    }
+
+    fn test_snapshot_with_report_for_run(
+        loop_: &DurableToolLoop,
+        run_id: &str,
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+        report: RunReport,
+        resume_point: ResumePoint,
+    ) -> RunSnapshot {
+        let messages = report.messages().to_vec();
+        RunSnapshot::new(
+            SnapshotCheckpoint::new(
+                loop_.engine_version.clone(),
+                RunId::new(run_id).unwrap(),
+                LineageId::new("lineage-successor-test").unwrap(),
+                CheckpointId::new(checkpoint_id).unwrap(),
+                parent_checkpoint_id.map(|parent| CheckpointId::new(parent).unwrap()),
+            )
+            .unwrap(),
+            loop_.fingerprints.clone(),
+            LanguageRequest::new(messages.clone()),
+            report,
+            None,
+            resume_point,
+        )
+        .unwrap()
+    }
+
+    fn completed_response(total_tokens: u64) -> LanguageResponse {
+        LanguageResponse::completed(
+            vec![ContentPart::Text {
+                text: "done".to_string(),
+            }],
+            LanguageCompletionReason::Stop,
+            Usage::default().with_total_tokens(total_tokens),
+        )
+        .unwrap()
+    }
+
+    fn prepared_tool() -> PreparedToolSnapshot {
+        let call = ToolCall::local("call-1", "write_record", serde_json::json!({})).unwrap();
+        PreparedToolSnapshot::new(
+            0,
+            call,
+            ToolBindingIdentity {
+                name: "write_record".to_string(),
+                fingerprint: "binding-v1".to_string(),
+            },
+            RecoveryPolicy::NeverReplay,
+            None,
+            ToolExecutionAttempt::INITIAL,
+        )
+    }
+
+    fn tool_response() -> LanguageResponse {
+        LanguageResponse::completed(
+            vec![ContentPart::ToolCall(prepared_tool().call().clone())],
+            LanguageCompletionReason::ToolCalls,
+            Usage::default(),
+        )
+        .unwrap()
+    }
+
+    fn prepared_log() -> ToolExecutionLog {
+        let mut log = ToolExecutionLog::new();
+        log.append(ToolExecutionEvent::prepared(0, 1, 0, prepared_tool()))
+            .unwrap();
+        log
+    }
+
+    fn dispatched_log() -> ToolExecutionLog {
+        let mut log = prepared_log();
+        log.append(ToolExecutionEvent::dispatched(
+            1,
+            2,
+            "call-1",
+            ToolExecutionAttempt::INITIAL,
+        ))
+        .unwrap();
+        log
+    }
+
+    fn provider_item(loop_: &DurableToolLoop) -> OpaqueProviderItem {
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        OpaqueProviderItem::new(
+            ProviderProvenance::from_scope(target.scope(), target.model().clone()).unwrap(),
+            "test.deferred",
+            serde_json::json!({"state": true}),
+        )
+        .unwrap()
+    }
+
+    fn observe_provider_state(
+        report: &mut RunReport,
+        target: &ModelTarget,
+        correlation_id: &str,
+        item: &OpaqueProviderItem,
+    ) {
+        let mut step = report.provider_deferred_ledger().begin_step(0, target);
+        step.observe(correlation_id, item);
+        let (ledger, _, _, _) = step
+            .finish_completed(report.provider_deferred_ledger())
+            .unwrap()
+            .into_parts();
+        report.replace_provider_deferred_ledger(ledger);
+    }
+
+    fn successor_intent<'a>(
+        previous: &'a RunSnapshot,
+        candidate: RunSnapshot,
+    ) -> CheckpointIntent<'a> {
+        CheckpointIntent::successor(
+            previous,
+            candidate.checkpoint_id().clone(),
+            candidate.continuation().clone(),
+            candidate.report().clone(),
+            candidate.resume_point().clone(),
+        )
+    }
+
+    fn initial_intent(candidate: RunSnapshot) -> CheckpointIntent<'static> {
+        CheckpointIntent::initial(InitialCheckpointIntent {
+            engine_version: candidate.engine_version().clone(),
+            run_id: candidate.run_id().clone(),
+            lineage_id: candidate.lineage_id().clone(),
+            checkpoint_id: candidate.checkpoint_id().clone(),
+            fingerprints: candidate.fingerprints().clone(),
+            continuation: candidate.continuation().clone(),
+            report: candidate.report().clone(),
+            deadline_unix_ms: candidate.deadline_unix_ms(),
+            resume_point: candidate.resume_point().clone(),
+        })
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum CheckpointCandidateShape {
+        ReadyForModel,
+        AwaitingApproval,
+        AwaitingProvider,
+        RecoveryIndeterminate,
+        TerminalFailure,
+    }
+
+    impl CheckpointCandidateShape {
+        fn checkpoint_id(self) -> &'static str {
+            match self {
+                Self::ReadyForModel => "checkpoint-ready",
+                Self::AwaitingApproval => "checkpoint-approval",
+                Self::AwaitingProvider => "checkpoint-provider",
+                Self::RecoveryIndeterminate => "checkpoint-recovery",
+                Self::TerminalFailure => "checkpoint-terminal",
+            }
+        }
+    }
+
+    fn checkpoint_candidate(
+        loop_: &DurableToolLoop,
+        shape: CheckpointCandidateShape,
+    ) -> RunSnapshot {
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        let messages = vec![Message::user("test")];
+        let mut report = RunReport::new(target.clone(), messages);
+        let resume_point = match shape {
+            CheckpointCandidateShape::ReadyForModel => ResumePoint::ready_for_model(0, target),
+            CheckpointCandidateShape::AwaitingApproval => {
+                report.accumulate_usage(&Usage::default());
+                report.replace_tool_journal(ToolJournal::from_log(prepared_log()));
+                report
+                    .budget_mut()
+                    .reserve_pending_approval(loop_.runtime.run_budget())
+                    .unwrap();
+                let tool = prepared_tool();
+                let approval = PendingApprovalSnapshot {
+                    approval_id: "approval:call-1".to_string(),
+                    call: tool.call().clone(),
+                    binding: tool.binding().clone(),
+                    claim_fingerprint: SnapshotFingerprint::new("sha256:test-claim").unwrap(),
+                    expires_at_unix_ms: None,
+                };
+                ResumePoint::awaiting_approvals(PendingStepSnapshot::new(
+                    0,
+                    target,
+                    tool_response(),
+                    vec![tool],
+                    Vec::new(),
+                    vec![approval],
+                ))
+            }
+            CheckpointCandidateShape::AwaitingProvider => {
+                report.accumulate_usage(&Usage::default());
+                let item = provider_item(loop_);
+                observe_provider_state(&mut report, &target, "provider-state-1", &item);
+                let provider_state = report
+                    .provider_deferred_ledger()
+                    .pending_projection(target.scope())
+                    .unwrap();
+                ResumePoint::awaiting_provider(PendingProviderStepSnapshot::new(
+                    0,
+                    target,
+                    completed_response(0),
+                    provider_state,
+                ))
+            }
+            CheckpointCandidateShape::RecoveryIndeterminate => {
+                report.accumulate_usage(&Usage::default());
+                let mut journal = ToolJournal::from_log(dispatched_log());
+                journal.recover_dispatched().unwrap();
+                report.replace_tool_journal(journal);
+                ResumePoint::terminal_state(SnapshotTerminal::indeterminate(
+                    SnapshotReason::runtime_code("dispatch_outcome_unknown"),
+                ))
+            }
+            CheckpointCandidateShape::TerminalFailure => ResumePoint::terminal_state(
+                SnapshotTerminal::failed(SnapshotReason::runtime_code("worker_failed"), None),
+            ),
+        };
+
+        test_snapshot_with_report(loop_, shape.checkpoint_id(), None, report, resume_point)
+    }
+
+    #[test]
+    fn visible_catalog_errors_remain_typed_and_source_preserving() {
+        let duplicate = map_visible_catalog_error(VisibleToolCatalogError::DuplicateName {
+            name: "duplicate".to_string(),
+        });
+        assert!(matches!(
+            &duplicate,
+            DurableRunError::VisibleToolCatalogDuplicateName { name, .. }
+                if name == "duplicate"
+        ));
+        assert_eq!(
+            std::error::Error::source(&duplicate).unwrap().to_string(),
+            "model-visible tool `duplicate` is defined more than once"
+        );
+
+        let collision =
+            map_visible_catalog_error(VisibleToolCatalogError::TrustedBindingCollision {
+                name: "collision".to_string(),
+            });
+        assert!(matches!(
+            &collision,
+            DurableRunError::VisibleToolCatalogTrustedBindingCollision { name, .. }
+                if name == "collision"
+        ));
+        assert_eq!(
+            std::error::Error::source(&collision).unwrap().to_string(),
+            "model-visible tool `collision` conflicts with a trusted local binding"
+        );
+
+        let mismatch = map_visible_catalog_error(VisibleToolCatalogError::LocalCatalogMismatch);
+        assert!(matches!(
+            &mismatch,
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch { .. }
+        ));
+        assert_eq!(
+            std::error::Error::source(&mismatch).unwrap().to_string(),
+            "restored model-visible tool catalog does not contain the exact local binding suffix"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_preserves_the_typed_visible_catalog_mismatch() {
+        let store = CountingStore::new();
+        let tools = ToolSet::from_bindings([test_binding("write_record")]).unwrap();
+        let loop_ = test_loop_with_tools(store.clone(), tools);
+        let previous = test_snapshot(&loop_, "checkpoint-1", None);
+        let lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.release(lease).await.unwrap();
+        store.reset_cas_calls();
+
+        let error = loop_
+            .resume(
+                previous.run_id(),
+                DurableResume::new(),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            &error,
+            DurableRunError::VisibleToolCatalogLocalSuffixMismatch { .. }
+        ));
+        assert_eq!(
+            std::error::Error::source(&error).unwrap().to_string(),
+            "restored model-visible tool catalog does not contain the exact local binding suffix"
+        );
+        assert_eq!(store.cas_calls(), 0);
+    }
+
+    #[tokio::test]
+    async fn checkpoint_writer_owns_parent_identity() {
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let previous = test_snapshot(&loop_, "checkpoint-1", None);
+        let mut lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+        let invalid = test_snapshot(&loop_, "checkpoint-2", None);
+
+        let previous = DurableRun {
+            revision,
+            snapshot: previous,
+        };
+        let intent = successor_intent(&previous.snapshot, invalid);
+        let committed = loop_
+            .commit_checkpoint(&mut lease, previous.revision, intent)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            committed.snapshot.parent_checkpoint_id(),
+            Some(previous.snapshot.checkpoint_id())
+        );
+        assert_eq!(store.cas_calls(), 1);
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn checkpoint_writer_accepts_the_exact_limit_and_rejects_one_byte_less_before_cas() {
+        let exact_store = CountingStore::new();
+        let mut exact_loop = test_loop(exact_store.clone());
+        let candidate = test_snapshot(&exact_loop, "checkpoint-exact", None);
+        let encoded_bytes = serde_json::to_vec(&candidate).unwrap().len();
+        exact_loop.runtime = Runtime::builder()
+            .with_run_budget(
+                RunBudget::builder()
+                    .max_snapshot_bytes(encoded_bytes)
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+        let mut lease = exact_store
+            .acquire(candidate.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let committed = exact_loop
+            .commit_checkpoint(
+                &mut lease,
+                SnapshotRevision::EMPTY,
+                initial_intent(candidate),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(committed.snapshot()).unwrap().len(),
+            encoded_bytes
+        );
+        assert_eq!(exact_store.cas_calls(), 1);
+        exact_store.release(lease).await.unwrap();
+
+        let bounded_store = CountingStore::new();
+        let mut bounded_loop = test_loop(bounded_store.clone());
+        let candidate = test_snapshot(&bounded_loop, "checkpoint-bound", None);
+        let encoded_bytes = serde_json::to_vec(&candidate).unwrap().len();
+        bounded_loop.runtime = Runtime::builder()
+            .with_run_budget(
+                RunBudget::builder()
+                    .max_snapshot_bytes(encoded_bytes - 1)
+                    .build()
+                    .unwrap(),
+            )
+            .build();
+        let mut lease = bounded_store
+            .acquire(candidate.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let error = bounded_loop
+            .commit_checkpoint(
+                &mut lease,
+                SnapshotRevision::EMPTY,
+                initial_intent(candidate),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            DurableRunError::Budget(crate::BudgetError::Exceeded {
+                kind: crate::BudgetKind::SnapshotBytes,
+                ..
+            })
+        ));
+        assert_eq!(bounded_store.cas_calls(), 0);
+        bounded_store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn checkpoint_writer_rejects_every_candidate_shape_before_store_cas() {
+        for shape in [
+            CheckpointCandidateShape::ReadyForModel,
+            CheckpointCandidateShape::AwaitingApproval,
+            CheckpointCandidateShape::AwaitingProvider,
+            CheckpointCandidateShape::RecoveryIndeterminate,
+            CheckpointCandidateShape::TerminalFailure,
+        ] {
+            let store = CountingStore::new();
+            let mut loop_ = test_loop(store.clone());
+            loop_.runtime = Runtime::builder()
+                .with_run_budget(RunBudget::builder().max_snapshot_bytes(1).build().unwrap())
+                .build();
+            let candidate = checkpoint_candidate(&loop_, shape);
+            let mut lease = store
+                .acquire(candidate.run_id(), Duration::from_secs(30))
+                .await
+                .unwrap();
+
+            let error = loop_
+                .commit_checkpoint(
+                    &mut lease,
+                    SnapshotRevision::EMPTY,
+                    initial_intent(candidate),
+                )
+                .await
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    error,
+                    DurableRunError::Budget(crate::BudgetError::Exceeded {
+                        kind: crate::BudgetKind::SnapshotBytes,
+                        ..
+                    })
+                ),
+                "{shape:?}: expected the shared snapshot-size gate, got {error:?}"
+            );
+            assert_eq!(store.cas_calls(), 0, "{shape:?}");
+            store.release(lease).await.unwrap();
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum SuccessorRegression {
+        Step,
+        History,
+        Budget,
+        Usage,
+        Provider,
+        ExecutionLog,
+    }
+
+    impl SuccessorRegression {
+        fn expected(self) -> RunSnapshotSuccessorError {
+            match self {
+                Self::Step => RunSnapshotSuccessorError::StepHistoryRegression,
+                Self::History => RunSnapshotSuccessorError::MessageHistoryRegression,
+                Self::Budget => RunSnapshotSuccessorError::BudgetRegression {
+                    dimension: "model_steps",
+                    previous: 1,
+                    next: 0,
+                },
+                Self::Usage => RunSnapshotSuccessorError::UsageRegression {
+                    dimension: "total_tokens",
+                    previous: 10,
+                    next: 5,
+                },
+                Self::Provider => RunSnapshotSuccessorError::ProviderHistoryRegression,
+                Self::ExecutionLog => RunSnapshotSuccessorError::ExecutionLogRegression,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn runtime_rejects_representative_successor_regressions_before_store_cas() {
+        let cases = [
+            SuccessorRegression::Step,
+            SuccessorRegression::History,
+            SuccessorRegression::Budget,
+            SuccessorRegression::Usage,
+            SuccessorRegression::Provider,
+            SuccessorRegression::ExecutionLog,
+        ];
+
+        for case in cases {
+            let store = CountingStore::new();
+            let loop_ = test_loop(store.clone());
+            let target = ModelTarget::from_model(loop_.model.as_ref());
+            let base_messages = vec![Message::user("test")];
+            let mut previous_report = RunReport::new(target.clone(), base_messages.clone());
+            let mut next_report = RunReport::new(target.clone(), base_messages.clone());
+
+            match case {
+                SuccessorRegression::Step => {
+                    previous_report.accumulate_usage(&Usage::default());
+                    previous_report.steps_mut().push(StepRecord::new(
+                        0,
+                        target.clone(),
+                        completed_response(0),
+                        Vec::new(),
+                    ));
+                }
+                SuccessorRegression::History => {
+                    previous_report
+                        .messages_mut()
+                        .push(Message::user("later message"));
+                }
+                SuccessorRegression::Budget => previous_report
+                    .budget_mut()
+                    .charge_model_step(loop_.runtime.run_budget())
+                    .unwrap(),
+                SuccessorRegression::Usage => {
+                    previous_report.accumulate_usage(&Usage::default().with_total_tokens(10));
+                    next_report.accumulate_usage(&Usage::default().with_total_tokens(5));
+                }
+                SuccessorRegression::Provider => {
+                    let item = provider_item(&loop_);
+                    observe_provider_state(
+                        &mut previous_report,
+                        &target,
+                        "provider-state-1",
+                        &item,
+                    );
+                    previous_report.accumulate_usage(&Usage::default());
+                }
+                SuccessorRegression::ExecutionLog => {
+                    previous_report.replace_tool_journal(ToolJournal::from_log(prepared_log()));
+                }
+            }
+
+            let previous_next_step = u32::try_from(previous_report.steps().len()).unwrap();
+            let next_step = u32::try_from(next_report.steps().len()).unwrap();
+            let previous_resume = if matches!(case, SuccessorRegression::Provider) {
+                let provider_state = previous_report
+                    .provider_deferred_ledger()
+                    .pending_projection(target.scope())
+                    .unwrap();
+                ResumePoint::awaiting_provider(PendingProviderStepSnapshot::new(
+                    previous_next_step,
+                    target.clone(),
+                    completed_response(0),
+                    provider_state,
+                ))
+            } else {
+                ResumePoint::ready_for_model(previous_next_step, target.clone())
+            };
+            let previous = test_snapshot_with_report(
+                &loop_,
+                "checkpoint-1",
+                None,
+                previous_report,
+                previous_resume,
+            );
+            let candidate = test_snapshot_with_report(
+                &loop_,
+                "checkpoint-2",
+                Some("checkpoint-1"),
+                next_report,
+                ResumePoint::ready_for_model(next_step, target),
+            );
+            let mut lease = store
+                .acquire(previous.run_id(), Duration::from_secs(30))
+                .await
+                .unwrap();
+            let revision = store
+                .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+                .await
+                .unwrap();
+            store.reset_cas_calls();
+            let state = DurableRun {
+                revision,
+                snapshot: previous,
+            };
+
+            let intent = successor_intent(&state.snapshot, candidate);
+            let error = loop_
+                .commit_checkpoint(&mut lease, state.revision, intent)
+                .await
+                .unwrap_err();
+
+            let DurableRunError::InvalidSuccessor(actual) = error else {
+                panic!("{case:?}: expected invalid successor, got {error:?}");
+            };
+            assert_eq!(actual, case.expected(), "{case:?}");
+            assert_eq!(store.cas_calls(), 0, "{case:?}");
+            store.release(lease).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_commits_a_nonterminal_dispatch_through_the_shared_gate() {
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        let messages = vec![Message::user("test")];
+        let mut report = RunReport::new(target.clone(), messages);
+        report.accumulate_usage(&Usage::default());
+        report.replace_tool_journal(ToolJournal::from_log(dispatched_log()));
+        let pending = PendingStepSnapshot::new(
+            0,
+            target,
+            tool_response(),
+            vec![prepared_tool()],
+            Vec::new(),
+            Vec::new(),
+        );
+        let previous = test_snapshot_with_report(
+            &loop_,
+            "checkpoint-1",
+            None,
+            report,
+            ResumePoint::ready_to_dispatch(pending),
+        );
+        let mut lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+        let state = DurableRun {
+            revision,
+            snapshot: previous,
+        };
+
+        let recovered = loop_
+            .recover_if_needed(&mut lease, state, IndeterminateRecoveryPolicy::Halt)
+            .await
+            .unwrap();
+
+        assert_eq!(store.cas_calls(), 1);
+        assert_eq!(
+            recovered.snapshot.resume_point().terminal().unwrap().kind(),
+            crate::snapshot::SnapshotTerminalKind::Indeterminate
+        );
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn recovery_rejects_a_tampered_successor_before_store_cas() {
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        let mut report = RunReport::new(target.clone(), vec![Message::user("test")]);
+        report.accumulate_usage(&Usage::default());
+        report.replace_tool_journal(ToolJournal::from_log(dispatched_log()));
+        let pending = PendingStepSnapshot::new(
+            0,
+            target,
+            tool_response(),
+            vec![prepared_tool()],
+            Vec::new(),
+            Vec::new(),
+        );
+        let previous = test_snapshot_with_report(
+            &loop_,
+            "checkpoint-1",
+            None,
+            report,
+            ResumePoint::ready_to_dispatch(pending),
+        );
+        let mut lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+
+        let state = DurableRun {
+            revision,
+            snapshot: previous.clone(),
+        };
+        let mut recovered_report = previous.report().clone();
+        recovered_report
+            .tool_journal_mut()
+            .recover_dispatched()
+            .unwrap();
+        recovered_report.messages_mut().clear();
+        let resume_point = ResumePoint::terminal_state(SnapshotTerminal::indeterminate(
+            SnapshotReason::runtime_code("dispatch_outcome_unknown"),
+        ));
+        let intent = CheckpointIntent::successor(
+            &state.snapshot,
+            next_checkpoint_id().unwrap(),
+            LanguageRequest::new(Vec::new()),
+            recovered_report,
+            resume_point,
+        );
+
+        let error = loop_
+            .commit_checkpoint(&mut lease, state.revision, intent)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            DurableRunError::InvalidSuccessor(RunSnapshotSuccessorError::MessageHistoryRegression)
+        ));
+        assert_eq!(store.cas_calls(), 0);
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn checkpoint_writer_owns_identity_and_store_rejects_terminal_updates() {
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let previous = test_snapshot(&loop_, "checkpoint-1", None);
+        let mut lease = store
+            .acquire(previous.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, previous.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+        let candidate = test_snapshot_with_report_for_run(
+            &loop_,
+            "another-run",
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            previous.report().clone(),
+            previous.resume_point().clone(),
+        );
+        let state = DurableRun {
+            revision,
+            snapshot: previous,
+        };
+
+        let intent = successor_intent(&state.snapshot, candidate);
+        let committed = loop_
+            .commit_checkpoint(&mut lease, state.revision, intent)
+            .await
+            .unwrap();
+        assert_eq!(committed.snapshot.run_id(), state.snapshot.run_id());
+        assert_eq!(store.cas_calls(), 1);
+        store.release(lease).await.unwrap();
+
+        let store = CountingStore::new();
+        let loop_ = test_loop(store.clone());
+        let target = ModelTarget::from_model(loop_.model.as_ref());
+        let terminal = test_snapshot_with_report(
+            &loop_,
+            "checkpoint-terminal",
+            None,
+            RunReport::new(target, vec![Message::user("test")]),
+            ResumePoint::terminal_state(SnapshotTerminal::failed(
+                SnapshotReason::new("worker_failed", None).unwrap(),
+                None,
+            )),
+        );
+        let mut lease = store
+            .acquire(terminal.run_id(), Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(&lease, SnapshotRevision::EMPTY, terminal.clone())
+            .await
+            .unwrap();
+        store.reset_cas_calls();
+        let candidate = test_snapshot(
+            &loop_,
+            "checkpoint-after-terminal",
+            Some("checkpoint-terminal"),
+        );
+        let state = DurableRun {
+            revision,
+            snapshot: terminal,
+        };
+
+        let intent = successor_intent(&state.snapshot, candidate);
+        let error = loop_
+            .commit_checkpoint(&mut lease, state.revision, intent)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                DurableRunError::Store(RunStoreError::RunAlreadyTerminal)
+            ),
+            "unexpected terminal successor error: {error:?}"
+        );
+        assert_eq!(store.cas_calls(), 1);
+        store.release(lease).await.unwrap();
+    }
 }

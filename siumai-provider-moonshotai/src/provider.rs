@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -23,8 +22,8 @@ use siumai_openai_compatible::{
     OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, RetryPolicy,
-    TransportConfigError, TransportLimits,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, TransportConfigError,
 };
 use thiserror::Error as ThisError;
 
@@ -151,11 +150,7 @@ pub struct MoonshotProviderBuilder {
     endpoint: Result<EndpointConfig, EndpointError>,
     provider_selected_endpoint: bool,
     replay_domain: Option<ReplayDomain>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     language_defaults: KimiLanguageOptions,
 }
 
@@ -166,11 +161,7 @@ impl MoonshotProviderBuilder {
             endpoint: official_endpoint(),
             provider_selected_endpoint: true,
             replay_domain: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             language_defaults: KimiLanguageOptions::default(),
         }
     }
@@ -200,28 +191,9 @@ impl MoonshotProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -257,33 +229,20 @@ impl MoonshotProviderBuilder {
             native_claims,
         )?);
         let instance_id = ProviderInstanceId::new();
-        let mut builder = OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
-            .with_provider_instance(instance_id)
-            .with_limits(self.limits.clone())
-            .with_retry_policy(self.retry_policy);
-        let mut native_builder = ProviderTransport::builder(endpoint)
+        let transport = ProviderTransport::builder(endpoint)
             .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            builder = builder.with_connect_timeout(timeout);
-            native_builder = native_builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            builder = builder.with_call_timeout(timeout);
-            native_builder = native_builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            builder = builder.with_read_timeout(timeout);
-            native_builder = native_builder.with_read_timeout(timeout);
-        }
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
+        let mut builder =
+            OpenAiCompatibleProvider::builder_with_transport(profile, transport.clone())
+                .with_provider_instance(instance_id);
         for (name, value) in option_map(&self.language_defaults)? {
             builder =
                 builder.with_default_option(OpenAiCompatibleApiMode::ChatCompletions, name, value);
         }
 
         let language = builder.build()?;
-        let native = Arc::new(MoonshotNativeRuntime::new(native_builder.build()?));
+        let native = Arc::new(MoonshotNativeRuntime::new(transport));
         let registration = language
             .chat_completions_registration()
             .ok_or(MoonshotConfigError::MissingChatMode)?;
@@ -315,6 +274,7 @@ impl LanguageModel for MoonshotLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.generate(request, options).await
     }
 
@@ -323,6 +283,7 @@ impl LanguageModel for MoonshotLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.stream(request, options).await
     }
 }
@@ -408,6 +369,14 @@ mod tests {
         let debug = format!("{:?}", MoonshotCredential::api_key("canary-secret"));
         assert!(!debug.contains("canary-secret"));
         assert!(debug.contains("REDACTED"));
+    }
+
+    #[test]
+    fn builder_accepts_one_http_transport_settings_snapshot() {
+        MoonshotProvider::builder(MoonshotCredential::api_key("test-key"))
+            .with_http_transport_settings(ProviderHttpTransportSettings::default())
+            .build()
+            .expect("provider");
     }
 
     #[test]

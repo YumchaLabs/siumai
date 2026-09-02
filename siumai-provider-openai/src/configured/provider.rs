@@ -1,6 +1,11 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
+#[cfg(any(
+    test,
+    feature = "openai-realtime",
+    feature = "openai-responses-websocket"
+))]
 use std::time::Duration;
 
 use chrono::NaiveDate;
@@ -18,9 +23,15 @@ use siumai_core::{
     VerificationDate, VerifiedFidelity, VerifiedNativeSupportClaim,
 };
 use siumai_protocol_openai::responses::{FunctionToolEncodingOptions, ResponsesWireDialect};
+#[cfg(any(
+    test,
+    feature = "openai-realtime",
+    feature = "openai-responses-websocket"
+))]
+use siumai_transport::TransportLimits;
 use siumai_transport::{
-    EndpointConfig, EndpointError, OfficialOrigin, ProviderTransport, ReplaySafety, RetryPolicy,
-    TransportConfigError, TransportLimits, TransportObserver,
+    EndpointConfig, EndpointError, OfficialOrigin, ProviderHttpTransportSettings,
+    ProviderTransport, ReplaySafety, TransportConfigError,
 };
 #[cfg(feature = "openai-responses-websocket")]
 use siumai_transport::{WebSocketEndpoint, WebSocketTransport};
@@ -446,22 +457,25 @@ pub struct OpenAiProviderBuilder {
     replay_domain: Option<ReplayDomain>,
     organization: Option<String>,
     project: Option<String>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
-    observer: Option<Arc<dyn TransportObserver>>,
+    http_transport_settings: ProviderHttpTransportSettings,
     #[cfg(feature = "openai-realtime")]
     realtime_endpoint: Option<OpenAiRealtimeEndpoint>,
     #[cfg(feature = "openai-realtime")]
     translation_endpoint: Option<OpenAiRealtimeEndpoint>,
+    #[cfg(feature = "openai-realtime")]
+    realtime_limits: TransportLimits,
+    #[cfg(feature = "openai-realtime")]
+    realtime_connect_timeout: Option<Duration>,
     #[cfg(feature = "openai-realtime")]
     realtime_session_timeout: Option<Duration>,
     #[cfg(feature = "openai-realtime")]
     realtime_io_timeout: Option<Duration>,
     #[cfg(feature = "openai-responses-websocket")]
     responses_websocket_endpoint: Option<WebSocketEndpoint>,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_limits: TransportLimits,
+    #[cfg(feature = "openai-responses-websocket")]
+    responses_websocket_connect_timeout: Option<Duration>,
     #[cfg(feature = "openai-responses-websocket")]
     responses_websocket_session_timeout: Option<Duration>,
     #[cfg(feature = "openai-responses-websocket")]
@@ -487,22 +501,25 @@ impl OpenAiProviderBuilder {
             replay_domain: None,
             organization: None,
             project: None,
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
-            observer: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             #[cfg(feature = "openai-realtime")]
             realtime_endpoint: None,
             #[cfg(feature = "openai-realtime")]
             translation_endpoint: None,
+            #[cfg(feature = "openai-realtime")]
+            realtime_limits: TransportLimits::default(),
+            #[cfg(feature = "openai-realtime")]
+            realtime_connect_timeout: None,
             #[cfg(feature = "openai-realtime")]
             realtime_session_timeout: None,
             #[cfg(feature = "openai-realtime")]
             realtime_io_timeout: None,
             #[cfg(feature = "openai-responses-websocket")]
             responses_websocket_endpoint: None,
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_limits: TransportLimits::default(),
+            #[cfg(feature = "openai-responses-websocket")]
+            responses_websocket_connect_timeout: None,
             #[cfg(feature = "openai-responses-websocket")]
             responses_websocket_session_timeout: None,
             #[cfg(feature = "openai-responses-websocket")]
@@ -544,34 +561,9 @@ impl OpenAiProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
-        self
-    }
-
-    /// Observe sanitized HTTP transport lifecycle events without exposing request payloads.
-    pub fn with_transport_observer(mut self, observer: Arc<dyn TransportObserver>) -> Self {
-        self.observer = Some(observer);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -586,6 +578,20 @@ impl OpenAiProviderBuilder {
     #[cfg(feature = "openai-realtime")]
     pub fn with_translation_endpoint(mut self, endpoint: OpenAiRealtimeEndpoint) -> Self {
         self.translation_endpoint = Some(endpoint);
+        self
+    }
+
+    /// Configure limits for Realtime conversation and translation WebSocket transports.
+    #[cfg(feature = "openai-realtime")]
+    pub fn with_realtime_transport_limits(mut self, limits: TransportLimits) -> Self {
+        self.realtime_limits = limits;
+        self
+    }
+
+    /// Configure connection establishment timeout for Realtime WebSocket transports.
+    #[cfg(feature = "openai-realtime")]
+    pub fn with_realtime_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.realtime_connect_timeout = Some(timeout);
         self
     }
 
@@ -609,6 +615,20 @@ impl OpenAiProviderBuilder {
     #[cfg(feature = "openai-responses-websocket")]
     pub fn with_responses_websocket_endpoint(mut self, endpoint: WebSocketEndpoint) -> Self {
         self.responses_websocket_endpoint = Some(endpoint);
+        self
+    }
+
+    /// Configure limits for persistent Responses WebSocket connections.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_transport_limits(mut self, limits: TransportLimits) -> Self {
+        self.responses_websocket_limits = limits;
+        self
+    }
+
+    /// Configure connection establishment timeout for Responses WebSocket.
+    #[cfg(feature = "openai-responses-websocket")]
+    pub fn with_responses_websocket_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.responses_websocket_connect_timeout = Some(timeout);
         self
     }
 
@@ -721,9 +741,9 @@ impl OpenAiProviderBuilder {
         #[cfg(feature = "openai-realtime")]
         let realtime_project = self.project.clone();
         #[cfg(feature = "openai-realtime")]
-        let realtime_limits = self.limits.clone();
+        let realtime_limits = self.realtime_limits;
         #[cfg(feature = "openai-realtime")]
-        let realtime_connect_timeout = self.connect_timeout;
+        let realtime_connect_timeout = self.realtime_connect_timeout;
         #[cfg(feature = "openai-realtime")]
         let realtime_session_timeout = self.realtime_session_timeout;
         #[cfg(feature = "openai-realtime")]
@@ -735,9 +755,9 @@ impl OpenAiProviderBuilder {
         #[cfg(feature = "openai-responses-websocket")]
         let responses_websocket_project = self.project.clone();
         #[cfg(feature = "openai-responses-websocket")]
-        let responses_websocket_limits = self.limits.clone();
+        let responses_websocket_limits = self.responses_websocket_limits;
         #[cfg(feature = "openai-responses-websocket")]
-        let responses_websocket_connect_timeout = self.connect_timeout;
+        let responses_websocket_connect_timeout = self.responses_websocket_connect_timeout;
         #[cfg(feature = "openai-responses-websocket")]
         let responses_websocket_session_timeout = self.responses_websocket_session_timeout;
         #[cfg(feature = "openai-responses-websocket")]
@@ -849,23 +869,10 @@ impl OpenAiProviderBuilder {
             native_claims,
         )?);
         let auth = self.credential.into_auth(self.organization, self.project)?;
-        let mut transport = ProviderTransport::builder(endpoint)
+        let transport = ProviderTransport::builder(endpoint)
             .with_auth(auth)
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            transport = transport.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            transport = transport.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            transport = transport.with_read_timeout(timeout);
-        }
-        if let Some(observer) = self.observer {
-            transport = transport.with_observer(observer);
-        }
-        let transport = transport.build()?;
+            .with_http_transport_settings(self.http_transport_settings)
+            .build()?;
         #[cfg(feature = "openai-responses-websocket")]
         let responses_websocket = if let Some(endpoint) = responses_websocket_endpoint {
             let auth = responses_websocket_credential.into_auth(
@@ -945,12 +952,7 @@ impl fmt::Debug for OpenAiProviderBuilder {
                 &self.organization.as_ref().map(|_| "[REDACTED]"),
             )
             .field("project", &self.project.as_ref().map(|_| "[REDACTED]"))
-            .field("limits", &self.limits)
-            .field("retry_policy", &self.retry_policy)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("call_timeout", &self.call_timeout)
-            .field("read_timeout", &self.read_timeout)
-            .field("has_transport_observer", &self.observer.is_some())
+            .field("http_transport_settings", &self.http_transport_settings)
             .field("has_realtime_endpoint", &{
                 #[cfg(feature = "openai-realtime")]
                 {
@@ -1145,16 +1147,23 @@ impl OpenAiOptionMerger {
     }
 
     fn validate_raw(&self, value: &Map<String, Value>) -> Result<(), ProviderOptionError> {
-        if let Some(field) = value
-            .keys()
-            .find(|field| is_protected_field(self.mode, field))
-        {
-            return Err(ProviderOptionError::Rejected {
-                path: field.clone(),
-                reason: "field is owned by the canonical language request".to_string(),
-            });
+        for field in value.keys() {
+            if field.trim().is_empty() || field.chars().any(char::is_control) {
+                return Err(ProviderOptionError::Rejected {
+                    path: field.clone(),
+                    reason:
+                        "raw body field names must be non-empty and contain no control characters"
+                            .to_string(),
+                });
+            }
+            if is_protected_field(self.mode, field) {
+                return Err(ProviderOptionError::Rejected {
+                    path: field.clone(),
+                    reason: "field is owned by the canonical request or transport".to_string(),
+                });
+            }
         }
-        validate_forward_compatible_wire(self.mode, value)
+        Ok(())
     }
 
     fn merge_selected(
@@ -1191,13 +1200,15 @@ impl OpenAiOptionMerger {
             }
         };
         if let Some(raw) = raw {
+            // Checked raw options are the explicit final body overlay. Conflicts replace the
+            // complete typed top-level field; nested values are never recursively merged.
             wire.extend(
                 raw.iter()
                     .map(|(name, value)| (name.clone(), value.clone())),
             );
         }
         let validation_wire = wire.clone().into_iter().collect::<Map<_, _>>();
-        validate_forward_compatible_wire(self.mode, &validation_wire)?;
+        validate_raw_wire_shape(self.mode, &validation_wire)?;
         Ok(OpenAiMergedOptions {
             wire,
             native_tools,
@@ -1261,34 +1272,47 @@ fn merge_typed_layer(base: &mut Map<String, Value>, higher: &Map<String, Value>)
     }
 }
 
-fn validate_forward_compatible_wire(
+fn validate_raw_wire_shape(
     mode: OptionMode,
     wire: &Map<String, Value>,
 ) -> Result<(), ProviderOptionError> {
     // Raw options are a forward-compatibility escape hatch. Keep this validator limited to
-    // stable JSON shapes, fixed numeric bounds, and cross-field relationships; unknown fields
-    // and future string enum values intentionally pass through.
+    // stable JSON shapes and cross-field relationships; provider product limits, unknown fields,
+    // nested additions, and future string enum values intentionally pass through.
     match mode {
-        OptionMode::Responses => validate_forward_compatible_responses_wire(wire),
-        OptionMode::ChatCompletions => validate_forward_compatible_chat_wire(wire),
+        OptionMode::Responses => validate_raw_responses_wire_shape(wire),
+        OptionMode::ChatCompletions => validate_raw_chat_wire_shape(wire),
     }
 }
 
-fn validate_forward_compatible_responses_wire(
-    wire: &Map<String, Value>,
-) -> Result<(), ProviderOptionError> {
+fn validate_raw_responses_wire_shape(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
+    validate_string_field(wire, "conversation")?;
+    validate_string_field(wire, "previous_response_id")?;
     validate_string_field(wire, "instructions")?;
     validate_string_field(wire, "user")?;
     validate_string_field(wire, "service_tier")?;
-    validate_bounded_string_field(wire, "prompt_cache_key", 64, false)?;
-    validate_bounded_string_field(wire, "safety_identifier", 64, true)?;
-    validate_metadata_field(wire)?;
-    validate_unsigned_field(wire, "max_tool_calls", Some(0), Some(u32::MAX as u64))?;
-    validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
+    validate_string_field(wire, "prompt_cache_key")?;
+    validate_object_field(wire, "prompt_cache_options")?;
+    validate_string_field(wire, "prompt_cache_retention")?;
+    validate_string_field(wire, "safety_identifier")?;
+    validate_string_field(wire, "text_verbosity")?;
+    validate_string_field(wire, "truncation")?;
+    validate_object_field(wire, "metadata")?;
+    validate_unsigned_field(wire, "max_tool_calls")?;
+    validate_unsigned_field(wire, "top_logprobs")?;
     validate_string_array_field(wire, "include")?;
+    validate_array_field(wire, "context_management")?;
+    validate_bool_field(wire, "parallel_tool_calls")?;
+    validate_bool_field(wire, "store")?;
     validate_reasoning_field(wire)?;
 
-    if wire.contains_key("conversation") && wire.contains_key("previous_response_id") {
+    if wire
+        .get("conversation")
+        .is_some_and(|value| !value.is_null())
+        && wire
+            .get("previous_response_id")
+            .is_some_and(|value| !value.is_null())
+    {
         return Err(rejected_wire(
             "conversation",
             "conversation and previous_response_id are mutually exclusive",
@@ -1297,20 +1321,25 @@ fn validate_forward_compatible_responses_wire(
     Ok(())
 }
 
-fn validate_forward_compatible_chat_wire(
-    wire: &Map<String, Value>,
-) -> Result<(), ProviderOptionError> {
+fn validate_raw_chat_wire_shape(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
     validate_string_field(wire, "user")?;
     validate_string_field(wire, "service_tier")?;
-    validate_bounded_string_field(wire, "prompt_cache_key", 64, false)?;
-    validate_bounded_string_field(wire, "safety_identifier", 64, true)?;
-    validate_metadata_field(wire)?;
+    validate_string_field(wire, "prompt_cache_key")?;
+    validate_object_field(wire, "prompt_cache_options")?;
+    validate_string_field(wire, "prompt_cache_retention")?;
+    validate_string_field(wire, "safety_identifier")?;
+    validate_string_field(wire, "verbosity")?;
+    validate_object_field(wire, "metadata")?;
     validate_bool_field(wire, "logprobs")?;
+    validate_bool_field(wire, "parallel_tool_calls")?;
+    validate_bool_field(wire, "store")?;
     validate_string_field(wire, "reasoning_effort")?;
-    validate_unsigned_field(wire, "top_logprobs", Some(0), Some(20))?;
+    validate_unsigned_field(wire, "top_logprobs")?;
     validate_logit_bias_field(wire)?;
 
-    if wire.contains_key("top_logprobs")
+    if wire
+        .get("top_logprobs")
+        .is_some_and(|value| !value.is_null())
         && wire.get("logprobs").and_then(Value::as_bool) != Some(true)
     {
         return Err(rejected_wire(
@@ -1328,67 +1357,34 @@ fn validate_string_field(
     let Some(value) = wire.get(field) else {
         return Ok(());
     };
-    if !value.is_string() {
+    if !value.is_null() && !value.is_string() {
         return Err(rejected_wire(field, "field must be a JSON string"));
     }
     Ok(())
 }
 
-fn validate_bounded_string_field(
+fn validate_object_field(
     wire: &Map<String, Value>,
     field: &'static str,
-    maximum_chars: usize,
-    require_trimmed_nonempty: bool,
 ) -> Result<(), ProviderOptionError> {
     let Some(value) = wire.get(field) else {
         return Ok(());
     };
-    let Some(value) = value.as_str() else {
-        return Err(rejected_wire(field, "field must be a JSON string"));
-    };
-    if value.chars().count() > maximum_chars
-        || value.chars().any(char::is_control)
-        || (require_trimmed_nonempty && (value.trim().is_empty() || value != value.trim()))
-    {
-        return Err(rejected_wire(
-            field,
-            "string value violates the documented length or identifier bounds",
-        ));
+    if !value.is_null() && !value.is_object() {
+        return Err(rejected_wire(field, "field must be a JSON object"));
     }
     Ok(())
 }
 
-fn validate_metadata_field(wire: &Map<String, Value>) -> Result<(), ProviderOptionError> {
-    let Some(value) = wire.get("metadata") else {
-        return Ok(());
-    };
-    let Some(metadata) = value.as_object() else {
-        return Err(rejected_wire("metadata", "metadata must be a JSON object"));
-    };
-    if metadata.len() > 16 {
-        return Err(rejected_wire(
-            "metadata",
-            "metadata must not exceed 16 entries",
-        ));
-    }
-    for (key, value) in metadata {
-        if key.is_empty() || key.chars().count() > 64 || key.chars().any(char::is_control) {
-            return Err(rejected_wire(
-                "metadata",
-                "metadata keys must contain 1..=64 non-control characters",
-            ));
-        }
-        match value {
-            Value::String(value)
-                if value.chars().count() <= 512 && !value.chars().any(char::is_control) => {}
-            Value::Bool(_) | Value::Number(_) => {}
-            _ => {
-                return Err(rejected_wire(
-                    format!("metadata.{key}"),
-                    "metadata values must be bounded strings, numbers, or booleans",
-                ));
-            }
-        }
+fn validate_array_field(
+    wire: &Map<String, Value>,
+    field: &'static str,
+) -> Result<(), ProviderOptionError> {
+    if wire
+        .get(field)
+        .is_some_and(|value| !value.is_null() && !value.is_array())
+    {
+        return Err(rejected_wire(field, "field must be a JSON array"));
     }
     Ok(())
 }
@@ -1397,7 +1393,10 @@ fn validate_bool_field(
     wire: &Map<String, Value>,
     field: &'static str,
 ) -> Result<(), ProviderOptionError> {
-    if wire.get(field).is_some_and(|value| !value.is_boolean()) {
+    if wire
+        .get(field)
+        .is_some_and(|value| !value.is_null() && !value.is_boolean())
+    {
         return Err(rejected_wire(field, "field must be a JSON boolean"));
     }
     Ok(())
@@ -1406,24 +1405,14 @@ fn validate_bool_field(
 fn validate_unsigned_field(
     wire: &Map<String, Value>,
     field: &'static str,
-    minimum: Option<u64>,
-    maximum: Option<u64>,
 ) -> Result<(), ProviderOptionError> {
     let Some(value) = wire.get(field) else {
         return Ok(());
     };
-    let Some(value) = value.as_u64() else {
+    if !value.is_null() && value.as_u64().is_none() {
         return Err(rejected_wire(
             field,
             "field must be an unsigned JSON integer",
-        ));
-    };
-    if minimum.is_some_and(|minimum| value < minimum)
-        || maximum.is_some_and(|maximum| value > maximum)
-    {
-        return Err(rejected_wire(
-            field,
-            "numeric value is outside the supported structural bounds",
         ));
     }
     Ok(())
@@ -1436,6 +1425,9 @@ fn validate_string_array_field(
     let Some(value) = wire.get(field) else {
         return Ok(());
     };
+    if value.is_null() {
+        return Ok(());
+    }
     let Some(values) = value.as_array() else {
         return Err(rejected_wire(field, "field must be a JSON array"));
     };
@@ -1451,6 +1443,9 @@ fn validate_reasoning_field(wire: &Map<String, Value>) -> Result<(), ProviderOpt
     let Some(value) = wire.get("reasoning") else {
         return Ok(());
     };
+    if value.is_null() {
+        return Ok(());
+    }
     let Some(reasoning) = value.as_object() else {
         return Err(rejected_wire(
             "reasoning",
@@ -1472,20 +1467,19 @@ fn validate_logit_bias_field(wire: &Map<String, Value>) -> Result<(), ProviderOp
     let Some(value) = wire.get("logit_bias") else {
         return Ok(());
     };
+    if value.is_null() {
+        return Ok(());
+    }
     let Some(logit_bias) = value.as_object() else {
         return Err(rejected_wire(
             "logit_bias",
             "logit_bias must be a JSON object",
         ));
     };
-    if logit_bias.values().any(|value| {
-        value
-            .as_i64()
-            .is_none_or(|value| !(-100..=100).contains(&value))
-    }) {
+    if logit_bias.values().any(|value| value.as_i64().is_none()) {
         return Err(rejected_wire(
             "logit_bias",
-            "logit bias values must be integers between -100 and 100",
+            "logit bias values must be JSON integers",
         ));
     }
     Ok(())
@@ -1515,22 +1509,34 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
         "seed",
         "tools",
         "toolchoice",
-        "promptcacheoptions",
-        "promptcacheretention",
         "promptcachebreakpoints",
+        "diagnostics",
         "method",
         "target",
         "endpoint",
         "baseurl",
+        "url",
+        "host",
         "authorization",
+        "authorizationtoken",
+        "auth",
         "apikey",
+        "xapikey",
+        "token",
+        "bearer",
+        "credential",
+        "credentials",
         "headers",
+        "header",
         "retry",
         "retrypolicy",
         "timeout",
         "connecttimeout",
         "readtimeout",
         "calltimeout",
+        "proxy",
+        "tls",
+        "audience",
     ]
     .contains(&field.as_str());
     common
@@ -1551,6 +1557,7 @@ fn is_protected_field(mode: OptionMode, field: &str) -> bool {
                 "streamoptions",
                 "maxtokens",
                 "maxcompletiontokens",
+                "n",
             ]
             .contains(&field.as_str()),
         }
@@ -1665,7 +1672,11 @@ pub enum OpenAiConfigError {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use siumai_core::{ApiStability, Model, ModelLifecycle};
+    use siumai_core::{
+        ApiStability, EmbeddingModel, EmbeddingRequest, ImageModel, ImageRequest, LanguageModel,
+        Model, ModelLifecycle, SpeechModel, SpeechRequest, TranscriptionModel,
+        TranscriptionRequest,
+    };
 
     use super::*;
     use crate::configured::{
@@ -1732,6 +1743,89 @@ mod tests {
                 .descriptor()
                 .instance_id()
         );
+    }
+
+    #[test]
+    fn provider_applies_one_http_transport_settings_snapshot() {
+        let limits = TransportLimits {
+            max_response_bytes: 80 * 1024,
+            ..TransportLimits::default()
+        };
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits)
+            .unwrap();
+        let provider = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:43191/v1").unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("http-settings-test").unwrap(),
+            ))
+            .with_http_transport_settings(settings)
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            provider.runtime.transport.limits().max_response_bytes,
+            80 * 1024
+        );
+    }
+
+    #[tokio::test]
+    async fn every_openai_family_resolves_relative_timeout_before_planning() {
+        let provider = provider();
+        let options = CallOptions::default().with_timeout(Duration::MAX).unwrap();
+        let language_request =
+            || siumai_core::LanguageRequest::new(vec![siumai_core::Message::user("hello")]);
+
+        let responses_error = provider
+            .responses(GPT_5_6_SOL)
+            .unwrap()
+            .generate(language_request(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(responses_error.message(), "invalid call options");
+
+        let chat_error = provider
+            .chat_completions(GPT_5_6_SOL)
+            .unwrap()
+            .generate(language_request(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(chat_error.message(), "invalid call options");
+
+        let embedding_error = provider
+            .embedding(TEXT_EMBEDDING_3_SMALL)
+            .unwrap()
+            .embed(EmbeddingRequest::single("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(embedding_error.message(), "invalid call options");
+
+        let image_error = provider
+            .image(GPT_IMAGE_1)
+            .unwrap()
+            .generate_image(ImageRequest::new("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(image_error.message(), "invalid call options");
+
+        let speech_error = provider
+            .speech(GPT_4O_MINI_TTS)
+            .unwrap()
+            .synthesize(SpeechRequest::new("hello").unwrap(), options.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(speech_error.message(), "invalid call options");
+
+        let transcription_error = provider
+            .transcription(GPT_4O_MINI_TRANSCRIBE)
+            .unwrap()
+            .transcribe(
+                TranscriptionRequest::new(vec![1_u8], "audio/wav").unwrap(),
+                options,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(transcription_error.message(), "invalid call options");
     }
 
     #[test]
@@ -1824,17 +1918,17 @@ mod tests {
             .find(|claim| claim.scope().family() == ModelFamily::Image)
             .unwrap()
             .scope();
-        let deprecated = ModelId::new(DALL_E_2).unwrap();
+        let retired = ModelId::new(DALL_E_2).unwrap();
         assert!(matches!(
             profile
                 .catalog()
                 .unwrap()
-                .get(image_scope, &deprecated)
+                .get(image_scope, &retired)
                 .unwrap()
                 .lifecycle(),
-            ModelLifecycle::Deprecated { .. }
+            ModelLifecycle::Retired { .. }
         ));
-        assert!(provider.registration().image_model(deprecated).is_ok());
+        assert!(provider.registration().image_model(retired).is_ok());
     }
 
     #[test]
@@ -1990,6 +2084,54 @@ mod tests {
         assert!(translation.validate().is_ok());
         assert!(!format!("{conversation:?}").contains("canary-secret"));
         assert!(!format!("{translation:?}").contains("canary-secret"));
+    }
+
+    #[cfg(all(feature = "openai-realtime", feature = "openai-responses-websocket"))]
+    #[test]
+    fn provider_http_and_session_transport_controls_are_independent() {
+        let http_limits = TransportLimits {
+            max_response_bytes: 64 * 1024,
+            ..TransportLimits::default()
+        };
+        let realtime_limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let responses_websocket_limits = TransportLimits {
+            max_response_bytes: 128 * 1024,
+            ..TransportLimits::default()
+        };
+        let http_settings = ProviderHttpTransportSettings::default()
+            .with_limits(http_limits.clone())
+            .unwrap()
+            .with_connect_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        let builder = OpenAiProvider::builder(OpenAiCredential::unauthenticated())
+            .with_http_transport_settings(http_settings)
+            .with_realtime_transport_limits(realtime_limits.clone())
+            .with_realtime_connect_timeout(Duration::from_secs(2))
+            .with_responses_websocket_transport_limits(responses_websocket_limits.clone())
+            .with_responses_websocket_connect_timeout(Duration::from_secs(3));
+
+        assert_eq!(builder.http_transport_settings.limits(), &http_limits);
+        assert_eq!(
+            builder.http_transport_settings.connect_timeout(),
+            Duration::from_secs(1)
+        );
+        assert_eq!(builder.realtime_limits, realtime_limits);
+        assert_eq!(
+            builder.realtime_connect_timeout,
+            Some(Duration::from_secs(2))
+        );
+        assert_eq!(
+            builder.responses_websocket_limits,
+            responses_websocket_limits
+        );
+        assert_eq!(
+            builder.responses_websocket_connect_timeout,
+            Some(Duration::from_secs(3))
+        );
     }
 
     #[cfg(feature = "openai-realtime")]

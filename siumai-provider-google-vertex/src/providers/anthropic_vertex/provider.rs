@@ -1,6 +1,5 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use siumai_anthropic_compatible::{
@@ -13,7 +12,7 @@ use siumai_core::{
     ProviderInstanceId, ProviderOptionError, ProviderRegistration, ReplayDomain,
     TypedProviderOptions,
 };
-use siumai_transport::{AuthApplier, EndpointConfig, RetryPolicy, TransportLimits};
+use siumai_transport::{AuthApplier, EndpointConfig, ProviderHttpTransportSettings};
 use thiserror::Error as ThisError;
 
 use super::annotations::GoogleVertexAnthropicAnnotationResolver;
@@ -115,11 +114,7 @@ pub struct GoogleVertexAnthropicProviderBuilder {
     endpoint: Result<EndpointSelection, GoogleVertexAnthropicEndpointError>,
     replay_domain: Option<ReplayDomain>,
     defaults: GoogleVertexAnthropicMessagesOptions,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
 }
 
 impl GoogleVertexAnthropicProviderBuilder {
@@ -151,11 +146,7 @@ impl GoogleVertexAnthropicProviderBuilder {
             endpoint: official_endpoint(&project, &location).map(EndpointSelection::Official),
             replay_domain: None,
             defaults: GoogleVertexAnthropicMessagesOptions::default(),
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
         }
     }
 
@@ -179,28 +170,9 @@ impl GoogleVertexAnthropicProviderBuilder {
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -239,20 +211,10 @@ impl GoogleVertexAnthropicProviderBuilder {
         };
         let resolver = Arc::new(GoogleVertexAnthropicAnnotationResolver);
         let profile = profile(endpoint, verified_endpoint, replay_domain, resolver)?;
-        let mut builder = AnthropicCompatibleProvider::builder_with_auth(profile, auth)
+        let builder = AnthropicCompatibleProvider::builder_with_auth(profile, auth)
             .with_provider_instance(ProviderInstanceId::new())
             .with_default_options(self.defaults.to_engine())
-            .with_limits(self.limits)
-            .with_retry_policy(self.retry_policy);
-        if let Some(timeout) = self.connect_timeout {
-            builder = builder.with_connect_timeout(timeout);
-        }
-        if let Some(timeout) = self.call_timeout {
-            builder = builder.with_call_timeout(timeout);
-        }
-        if let Some(timeout) = self.read_timeout {
-            builder = builder.with_read_timeout(timeout);
-        }
+            .with_http_transport_settings(self.http_transport_settings);
         Ok(GoogleVertexAnthropicProvider {
             language: builder.build()?,
         })
@@ -278,6 +240,7 @@ impl LanguageModel for GoogleVertexAnthropicLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.generate(request, options).await
     }
 
@@ -286,6 +249,7 @@ impl LanguageModel for GoogleVertexAnthropicLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         self.inner.stream(request, options).await
     }
 }

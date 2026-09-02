@@ -2164,7 +2164,7 @@ impl MessagesTokenCountOptions {
 }
 
 /// Protocol-owned shaping for one Anthropic Messages create request.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct MessagesRequestOptions {
     pub(crate) stream: bool,
     pub(crate) metadata: Option<MessagesMetadata>,
@@ -2181,6 +2181,29 @@ pub struct MessagesRequestOptions {
     pub(crate) context_management: Option<ContextManagement>,
     pub(crate) mcp_servers: Option<Vec<McpServer>>,
     pub(crate) extra: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for MessagesRequestOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesRequestOptions")
+            .field("stream", &self.stream)
+            .field("has_metadata", &self.metadata.is_some())
+            .field("has_thinking", &self.thinking.is_some())
+            .field("has_output_effort", &self.output_effort.is_some())
+            .field("has_task_budget", &self.task_budget.is_some())
+            .field("has_fallbacks", &self.fallbacks.is_some())
+            .field("has_top_k", &self.top_k.is_some())
+            .field("has_service_tier", &self.service_tier.is_some())
+            .field("has_cache_control", &self.cache_control.is_some())
+            .field("has_speed", &self.speed.is_some())
+            .field("has_inference_geo", &self.inference_geo.is_some())
+            .field("has_container", &self.container.is_some())
+            .field("has_context_management", &self.context_management.is_some())
+            .field("mcp_server_count", &self.mcp_servers.as_ref().map(Vec::len))
+            .field("extra_field_count", &self.extra.len())
+            .finish()
+    }
 }
 
 impl MessagesRequestOptions {
@@ -2616,19 +2639,24 @@ fn validate_extra(extra: &BTreeMap<String, Value>) -> Result<(), MessagesCodecEr
 
     let mut fields = 0usize;
     for (name, value) in extra {
-        if is_protected_option_field(name) {
+        if name.trim().is_empty() || name.chars().any(char::is_control) {
+            return Err(MessagesCodecError::InvalidOption {
+                field: "extra",
+                reason: "field names must be non-empty and contain no control characters",
+            });
+        }
+        if is_protected_option_field(name) || is_codec_owned_option_field(name) {
             return Err(MessagesCodecError::ProtectedOptionField {
                 path: safe_path(name),
             });
         }
-        validate_extra_value(value, name, 1, &mut fields)?;
+        validate_extra_value(value, 1, &mut fields)?;
     }
     Ok(())
 }
 
 fn validate_extra_value(
     value: &Value,
-    path: &str,
     depth: usize,
     fields: &mut usize,
 ) -> Result<(), MessagesCodecError> {
@@ -2640,7 +2668,7 @@ fn validate_extra_value(
     }
     match value {
         Value::Object(object) => {
-            for (name, child) in object {
+            for child in object.values() {
                 *fields = fields.saturating_add(1);
                 if *fields > MAX_EXTRA_FIELDS {
                     return Err(MessagesCodecError::InvalidOption {
@@ -2648,23 +2676,12 @@ fn validate_extra_value(
                         reason: "JSON object exceeds 1024 fields",
                     });
                 }
-                let child_path = format!("{path}.{name}");
-                if is_sensitive_nested_field(name) {
-                    return Err(MessagesCodecError::ProtectedOptionField {
-                        path: safe_path(&child_path),
-                    });
-                }
-                validate_extra_value(child, &child_path, depth.saturating_add(1), fields)?;
+                validate_extra_value(child, depth.saturating_add(1), fields)?;
             }
         }
         Value::Array(values) => {
-            for (index, child) in values.iter().enumerate() {
-                validate_extra_value(
-                    child,
-                    &format!("{path}[{index}]"),
-                    depth.saturating_add(1),
-                    fields,
-                )?;
+            for child in values {
+                validate_extra_value(child, depth.saturating_add(1), fields)?;
             }
         }
         _ => {}
@@ -2672,25 +2689,28 @@ fn validate_extra_value(
     Ok(())
 }
 
-fn is_sensitive_nested_field(name: &str) -> bool {
+// Known typed codec fields cannot be duplicated through `MessagesRequestOptions::extra`.
+// Checked raw overlays are applied by the compatible engine and intentionally do not use this
+// list, so future enum strings remain representable without weakening canonical authority.
+fn is_codec_owned_option_field(name: &str) -> bool {
     matches!(
         compact_field(name).as_str(),
-        "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "credential"
-            | "credentials"
-            | "endpoint"
-            | "baseurl"
-            | "host"
-            | "headers"
-            | "header"
-            | "proxy"
-            | "tls"
-            | "audience"
+        "topk"
+            | "metadata"
+            | "thinking"
+            | "outputconfig"
+            | "outputformat"
+            | "taskbudget"
+            | "fallbacks"
+            | "fallbackcredittoken"
+            | "speed"
+            | "servicetier"
+            | "container"
+            | "contextmanagement"
+            | "mcpservers"
+            | "mcptoolset"
+            | "inferencegeo"
+            | "cachecontrol"
     )
 }
 
@@ -2718,4 +2738,25 @@ fn safe_path(path: &str) -> String {
         safe.push_str("...");
     }
     safe
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn request_options_debug_redacts_extra_values() {
+        let options = MessagesRequestOptions::new(true).with_extra(BTreeMap::from([(
+            "future_feature".to_string(),
+            json!({"authorization_token": "protocol-anthropic-canary"}),
+        )]));
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("stream: true"));
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(!debug.contains("protocol-anthropic-canary"));
+        assert!(!debug.contains("authorization_token"));
+    }
 }

@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -23,7 +24,7 @@ use siumai_protocol_anthropic::messages::{
 };
 use siumai_transport::{
     AuthApplier, AuthContext, AuthRefresh, CredentialPatch, EndpointConfig, OfficialOrigin,
-    RequestHeaders, RequestTarget,
+    RequestHeaders, RequestTarget, TransportEvent, TransportObserver,
 };
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -38,6 +39,17 @@ use crate::{
 const PROVIDER_ID: &str = "test-compatible";
 const PLATFORM_ID: &str = "test-platform";
 const API_VERSION: &str = "2023-06-01";
+
+#[derive(Default)]
+struct RecordingObserver {
+    events: Mutex<Vec<TransportEvent>>,
+}
+
+impl TransportObserver for RecordingObserver {
+    fn observe(&self, event: &TransportEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+}
 
 fn local_profile(server: &MockServer) -> AnthropicCompatibleProfile {
     AnthropicCompatibleProfile::local_explicit(
@@ -108,6 +120,66 @@ fn credentials_and_configured_runtime_debug_are_secret_safe() {
     let debug = format!("{provider:?}");
     assert!(!debug.contains("api-key-canary"));
     assert!(!debug.contains("compatible.example"));
+}
+
+#[test]
+fn prebuilt_transport_requires_the_exact_profile_endpoint() {
+    let profile = AnthropicCompatibleProfile::local_explicit(
+        ProfileId::new("prebuilt-endpoint-test").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "http://127.0.0.1:43191/v1",
+        ReplayDomainId::new("prebuilt-endpoint-test").unwrap(),
+        API_VERSION,
+    )
+    .unwrap();
+    let transport = siumai_transport::ProviderTransport::builder(
+        EndpointConfig::local_explicit("http://127.0.0.1:43192/v1").unwrap(),
+    )
+    .build()
+    .unwrap();
+
+    let error = AnthropicCompatibleProvider::builder_with_transport(profile, transport)
+        .build()
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        crate::AnthropicCompatibleConfigError::PrebuiltTransportEndpointMismatch
+    ));
+}
+
+#[test]
+fn provider_applies_one_http_transport_settings_snapshot() {
+    let profile = AnthropicCompatibleProfile::local_explicit(
+        ProfileId::new("settings-snapshot-test").unwrap(),
+        ProviderId::new(PROVIDER_ID).unwrap(),
+        PlatformId::new(PLATFORM_ID).unwrap(),
+        "http://127.0.0.1:43191/v1",
+        ReplayDomainId::new("settings-snapshot-test").unwrap(),
+        API_VERSION,
+    )
+    .unwrap();
+    let limits = siumai_transport::TransportLimits {
+        max_response_bytes: 48 * 1024,
+        ..siumai_transport::TransportLimits::default()
+    };
+    let settings = siumai_transport::ProviderHttpTransportSettings::default()
+        .with_limits(limits)
+        .unwrap();
+
+    let provider = AnthropicCompatibleProvider::builder(
+        profile,
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .with_http_transport_settings(settings)
+    .build()
+    .unwrap();
+
+    assert_eq!(
+        provider.runtime.transport.limits().max_response_bytes,
+        48 * 1024
+    );
 }
 
 #[test]
@@ -241,6 +313,92 @@ async fn direct_and_erased_models_have_identical_api_key_wire_behavior() {
         .unwrap();
     assert_eq!(direct_response.content(), erased_response.content());
     assert!(direct_response.warnings().is_empty());
+}
+
+#[tokio::test]
+async fn direct_trait_call_starts_relative_timeout_at_invocation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(200))
+                .set_body_json(response("future-model-v9", "msg_delayed", "late")),
+        )
+        .mount(&server)
+        .await;
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .build()
+    .unwrap();
+    let model = provider.language("future-model-v9").unwrap();
+    let options = CallOptions::default()
+        .with_timeout(Duration::from_millis(60))
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let started = Instant::now();
+    let error = model
+        .generate(request("hello", 64), options)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Timeout);
+    assert!(started.elapsed() >= Duration::from_millis(20));
+}
+
+#[tokio::test]
+async fn compatible_provider_emits_the_common_attempt_sequence() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response(
+            "future-model-v9",
+            "msg_observed",
+            "ok",
+        )))
+        .mount(&server)
+        .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let provider = AnthropicCompatibleProvider::builder(
+        local_profile(&server),
+        AnthropicCompatibleCredential::unauthenticated(),
+    )
+    .with_http_transport_settings(
+        siumai_transport::ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+    )
+    .build()
+    .unwrap();
+
+    provider
+        .language("future-model-v9")
+        .unwrap()
+        .generate(request("hello", 64), CallOptions::default())
+        .await
+        .unwrap();
+
+    let events = observer.events.lock().unwrap();
+    assert_eq!(events.len(), 4);
+    assert!(matches!(
+        events[0],
+        TransportEvent::AttemptBudgetResolved { .. }
+    ));
+    assert!(matches!(events[1], TransportEvent::AttemptStarted { .. }));
+    assert!(matches!(
+        events[2],
+        TransportEvent::ResponseHeadReceived { .. }
+    ));
+    assert!(matches!(
+        events[3],
+        TransportEvent::AttemptLoopFinished { .. }
+    ));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.call_id() == events[0].call_id())
+    );
 }
 
 struct BodyVersionProjection;
@@ -601,7 +759,14 @@ async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
                 "content": [{"type": "text", "text": "tier"}]
             }],
             "stream": false,
-            "service_tier": "priority_v2"
+            "service_tier": "priority_v2",
+            "future_remote_mcp": {
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            },
+            "request_endpoint": "provider-body-value",
+            "x-token-count-mode": "provider-defined"
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "tier-model",
@@ -633,8 +798,23 @@ async fn typed_service_tier_precedence_and_raw_future_values_reach_wire() {
         .unwrap();
 
     let raw_options = CallOptions::default()
-        .with_raw_provider_options_for(&model, json!({"service_tier": "priority_v2"}))
+        .with_raw_provider_options_for(
+            &model,
+            json!({
+                "service_tier": "priority_v2",
+                "future_remote_mcp": {
+                    "url": "https://provider.example/mcp",
+                    "headers": {"Authorization": "provider-body-canary"},
+                    "authorization_token": "nested-token-canary"
+                },
+                "request_endpoint": "provider-body-value",
+                "x-token-count-mode": "provider-defined"
+            }),
+        )
         .unwrap();
+    let debug = format!("{raw_options:?}");
+    assert!(!debug.contains("provider-body-canary"));
+    assert!(!debug.contains("nested-token-canary"));
     model
         .generate(request("tier", 64), raw_options)
         .await
@@ -729,7 +909,7 @@ async fn current_typed_request_controls_survive_the_compatible_merge() {
 }
 
 #[tokio::test]
-async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
+async fn exact_top_level_authority_fields_fail_before_network() {
     let server = MockServer::start().await;
     let provider = AnthropicCompatibleProvider::builder(
         local_profile(&server),
@@ -739,17 +919,22 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
     .unwrap();
     let model = provider.language("model").unwrap();
     for field in [
-        "anthropicVersion",
-        "requestEndpoint",
-        "credentialToken",
-        "apiKey",
-        "base-url",
-        "method",
-        "target",
+        "Anthropic-Version",
+        "Mo-De_L",
+        "Mes-Sa_Ges",
+        "To-Ol_S",
+        "End-Point",
+        "Authorization",
+        "authorization-token",
+        "API-Key",
+        "Base-Url",
+        "Head-Er_S",
+        "Me-Th_Od",
+        "Tar-Get",
         "Retry-Policy",
-        "connectTimeout",
-        "read_timeout",
-        "call-timeout",
+        "Connect-Time_Out",
+        "Read-Time_Out",
+        "Call-Time_Out",
     ] {
         let mut value = serde_json::Map::new();
         value.insert(field.to_string(), json!("canary-secret"));
@@ -763,6 +948,24 @@ async fn protected_version_endpoint_and_auth_fields_fail_before_network() {
         assert_eq!(error.kind(), ErrorKind::InvalidInput);
         assert!(!format!("{error:?}").contains("canary-secret"));
     }
+
+    let options = CallOptions::default()
+        .with_raw_provider_options_for(
+            &model,
+            json!({
+                "future_remote_mcp": {
+                    "headers": {"Authorization": "accepted-nested-canary"}
+                },
+                "model": "override"
+            }),
+        )
+        .unwrap();
+    let error = model
+        .generate(request("hello", 32), options)
+        .await
+        .unwrap_err();
+    let public = format!("{error:?} {error}");
+    assert!(!public.contains("accepted-nested-canary"));
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 

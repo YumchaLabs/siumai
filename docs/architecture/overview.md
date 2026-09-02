@@ -1,20 +1,25 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-10
+- Updated: 2026-08-19
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
-  `docs/adr/0015-validation-ownership-and-forward-compatibility.md`
+  `docs/adr/0015-validation-ownership-and-forward-compatibility.md`,
+  `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
+  `docs/adr/0018-openai-configured-execution-kernel.md`,
+  `docs/adr/0020-typed-siumai-provider-hub.md` (supersedes ADR-0019)
 
 ## Product shape
 
-Siumai is a Rust-first workspace for connecting applications to AI model providers. It offers two
-complementary paths over the same underlying model contracts:
+Siumai is a Rust-first workspace for connecting applications to AI model providers. Its public
+surface has three ordered, complementary paths over the same underlying model contracts:
 
-- provider-owned APIs expose faithful protocol modes, typed options, metadata, and resources;
-- provider-neutral family traits, Registry, runtime helpers, and the `siumai` facade provide
-  portability where the behavior is genuinely shared.
+- typed `Siumai<P>` provider hubs and family clients provide concise direct application calls;
+- provider-neutral root family modules serve generic, dependency-injected, trait-object, and
+  Registry-resolved code;
+- concrete providers and models expose faithful protocol modes, typed options, metadata, resources,
+  sessions, and native responses.
 
 The unified interface is an ergonomic assembly layer. It is not a universal client, a capability
 bag, a remote model catalog, or a replacement for provider-specific APIs.
@@ -37,6 +42,47 @@ and asynchronous media jobs have distinct lifecycle semantics and remain explici
 provider-owned resources. Files, batches, skills, assistants, hosted applications, and remote model
 catalogs are resources rather than model families.
 
+## Canonical facade boundary
+
+The primary direct path starts at `Siumai::builder()`. A zero-argument provider selector enters
+provider-specific required-input stages, the credential transition creates the real provider
+builder, and synchronous `.build()` returns a typed `Siumai<P>` hub. The hub retains one concrete
+configured provider and no model slots, Registry, route table, capability matrix, provider enum, or
+`Any`. Family selectors exist only when `P` implements the corresponding provider trait.
+
+Binding `.language(model)`, `.embedding(model)`, `.rerank(model)`, `.image(model)`,
+`.speech(model)`, or `.transcription(model)` returns one family-specific client that retains the
+same provider instance and exact provider-owned model. Method-style operations delegate the root
+family modules and return the existing complete response or stream types. One hub can bind multiple
+models and families without rebuilding its provider.
+
+The `language`, `embedding`, `rerank`, `image`, `speech`, and `transcription` root modules remain the
+canonical generic path. Each module exposes its default operation and a single-use `call` builder
+for explicit `CallOptions` and typed provider options. A typed family client, concrete provider
+model, and Registry-resolved family trait object therefore follow the same generic application path
+without provider matching.
+
+Language input normalizes a string, one message, a message list, or a complete request through the
+core-owned `LanguageInput` adapter. The other families keep their honest request types and operation
+names. Every terminal operation returns the existing complete family response or stream type; the
+facade does not introduce a universal result enum or text-only response.
+
+Typed provider options bind to the exact live model through the same call builder. Typed annotations
+remain on the message, content part, or tool they modify. `hub.provider()` and each family client's
+`provider()`/`model()` accessors preserve concrete native access before erasure. Provider-native
+files, batches, catalogs, sessions, hosted tools, media jobs, and mode-specific responses remain on
+those owners; the facade does not forward or enumerate them. Registry is an explicit one-way
+erasure boundary and cannot recover concrete APIs through downcasting.
+
+OpenAI `.language(model)` is fixed to Responses and `.chat_completions(model)` is the explicit
+alternative. Gemini `.language(model)` is fixed to Interactions and `.generate_content(model)` is
+the explicit alternative. No facade selector chooses a mode or capability from model-name patterns.
+
+`LanguageResponse::output_text()` is a display projection over canonical text parts, not a semantic
+replacement for the response. Complete content, termination, usage, warnings, metadata, reasoning,
+tools, citations, media, and provider-native state stay available, and assistant continuation uses
+`project_assistant_history()`.
+
 ## Workspace layers
 
 | Layer | Ownership |
@@ -44,13 +90,13 @@ catalogs are resources rather than model families.
 | `siumai-core` | provider-neutral identities, family traits, requests, responses, usage, errors, options, and canonical stream lifecycle |
 | `siumai-transport` | HTTP/WebSocket execution, endpoint policy, authentication application, redirects, replay safety, retries, deadlines, cancellation, and resource bounds |
 | `siumai-protocol-*` | wire schemas, request/response codecs, SSE or WebSocket state machines, and protocol-owned metadata projection |
-| `siumai-openai-compatible` | one configured generic OpenAI-compatible execution engine, explicit custom-compatible escape hatches, and a bounded versioned provider-composition seam |
+| `siumai-openai-compatible` | one configured generic OpenAI-compatible engine plus a bounded, versioned, stateless OpenAI-family HTTP/SSE execution kernel for provider authors |
 | `siumai-provider-*` | provider construction, credentials, technical endpoints, API modes, typed options, model advisories, provider codecs, and native resources |
 | `siumai-registry` | immutable, network-free lookup from host-owned route IDs to configured provider registrations |
 | `siumai-runtime` | provider-neutral tool loops, structured output, approvals, budgets, and durable multi-step execution |
 | `siumai-mcp` | MCP client/server integration and MCP-specific lifecycle/security policy |
 | `siumai-server` | server and gateway adapters over runtime, core, and protocol contracts |
-| `siumai` | curated facade, feature aggregation, prelude, Registry adapters, and primary ergonomic entry points |
+| `siumai` | curated facade, feature aggregation, prelude, provider HTTP transport configuration, Registry adapters, and primary ergonomic entry points |
 
 Dependency direction flows from facade and integrations toward provider/runtime/registry, then into
 core, protocol, and transport owners. Provider crates do not depend on the facade or Registry, and
@@ -65,8 +111,10 @@ working integrations, remain canonical-only, and make loss and resource bounds e
 ## Configured providers and model handles
 
 A configured provider owns long-lived shared runtime state: credentials, endpoint policy,
-transport, retry policy, concurrency limits, protocol profiles, and provider resources. Provider
-construction is synchronous and model-independent.
+transport, one stateless HTTP settings snapshot, protocol profiles, and provider resources.
+Provider construction is synchronous and model-independent. Branches share a `ProviderTransport`
+only when endpoint, credential audience, auth/signing owner, settings, and network mechanism are
+identical; a difference in any dimension requires a separate transport.
 
 The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, API mode, and
 provider-native replay domain belong to an exact executable `ProviderScope` carried by model
@@ -91,6 +139,44 @@ project a combined registration to one family before assigning a route. Alternat
 the same family remain separate registrations so the host chooses them explicitly.
 Provider-owned profiles and support manifests describe dated evidence; Registry does not treat that
 metadata as an execution allowlist and exposes no generic policy-evaluation callback.
+
+## HTTP transport ergonomics
+
+`siumai-transport` owns `ProviderHttpTransportSettings`, and facade-only applications reach its
+curated configuration and observation types through `siumai::transport`. Every configured provider
+and both compatibility engines consume the same value through `with_http_transport_settings(...)`.
+Endpoint, credentials/signing, retry classification, and operation replay proof remain outside the
+value and cannot be overridden by provider options.
+
+Relative `CallOptions` timeouts resolve once when the outer public family call or runtime run begins
+and then propagate as one absolute deadline. Caller attempt caps only narrow provider retry policy;
+replay safety remains authoritative. A payload-free observer reports attempt budgeting, starts,
+response heads, retry scheduling or decline, and one final buffered-response-returned,
+stream-established, failed, cancelled, or timed-out outcome. Host wrappers provide attribution.
+
+The default network route is Direct: environment/system proxies, redirects, referer forwarding,
+and reqwest retry remain disabled. A custom endpoint is a reverse gateway, not a forward proxy.
+The alternative is one explicit trusted CONNECT route from the curated `siumai::transport`
+namespace. It tunnels only public HTTPS provider origins through a separately validated proxy and
+does not expose a raw client, custom fetch, request interceptor, or environment-discovery hook.
+
+Direct mode validates provider DNS and peer addresses locally. Trusted CONNECT mode validates the
+proxy endpoint and peer, then explicitly trusts that proxy for destination DNS/peer selection while
+retaining the logical provider URL, inner TLS hostname/certificate, provider credential audience,
+replay proof, deadlines, and bounds. Optional `ProxyBasicCredential` authentication belongs only to
+the proxy negotiation phase; provider authentication is applied only inside the tunnel. Proxy
+credentials are immutable snapshots and rotate by rebuilding the configured provider.
+
+Streamable HTTP MCP reuses only `HttpTransportRoute` through its own `McpClientConfig`; its endpoint
+policy, bearer authentication, bounds, lifecycle, and never-replay semantics remain MCP-owned.
+Provider WebSocket/Realtime sessions, provider-returned downloads, jobs, media sessions, and stdio
+MCP do not inherit provider HTTP settings or routes and remain Direct-only outside the CONNECT
+surface.
+
+Environment proxy discovery, SOCKS/PAC, named proxy-product certification, opaque proxy
+authentication, URL-userinfo credentials, raw client/custom-fetch injection, custom proxy CA or
+mTLS configuration, WebSocket/Realtime proxying, provider-returned external-download proxying, and
+arbitrary-URL proxy routing remain intentionally unsupported.
 
 ## Provider plane and host control plane
 
@@ -123,6 +209,10 @@ Portable language requests use direction-aware role validation. Prefer `Message:
 `LanguageRequest` before transport, so response-only citations and refusals, misplaced tool results,
 and unsupported request content cannot be silently accepted.
 
+Ergonomic language entry points accept `LanguageInput`. Its string conversion creates exactly one
+user message and performs no trimming, inference, route selection, or validation; complete requests
+remain authoritative and are validated at the execution boundary.
+
 A portable `ToolCall` is always caller-executed and contains one bounded parsed JSON `ToolInput`.
 Encoded function argument text is normalized exactly once by the protocol decoder. Provider-hosted
 programs, custom-text calls, MCP operations, computer actions, and other provider-executed
@@ -148,6 +238,21 @@ fixtures. The shared engine exposes only a versioned provider-neutral codec seam
 generic/custom construction. Provider-specific dialect and codec behavior remains in the branded
 provider package even when execution is delegated to that shared engine.
 
+The `extension::v2` execution kernel is lower-level than the configured compatible provider. A
+provider passes it an already selected `ProviderTransport`, a bounded JSON body, a relative target,
+non-credential headers, replay safety, diagnostics context, and provider-owned direct or SSE
+decoders. The kernel constructs and executes the immutable request plan, bounds non-success bodies,
+frames SSE bytes, enforces terminal ordering and unexpected-EOF behavior, and cancels its child
+operation when an established stream is dropped. It cannot select credentials, endpoints, retry or
+timeout policy, provider identity, support evidence, or wire semantics.
+
+The official OpenAI provider consumes this kernel directly for stateless Chat Completions and
+Responses calls. It does not wrap itself in `OpenAiCompatibleProvider`: official typed options,
+annotations, native Responses carriers, replay status, resources, background operations, Realtime,
+Responses WebSocket, and support evidence remain owned by `siumai-provider-openai`. This downward
+crate dependency is an implementation detail and does not activate or re-export the facade's
+`openai-compatible` feature.
+
 A caller-controlled endpoint policy never proves named-provider fidelity. The generic compatible
 profile may preserve a validated `EndpointConfig`, including an explicit private/shared-address
 grant, but it keeps generic claims and a caller-declared custom replay audience. Responses begins
@@ -172,6 +277,32 @@ bounded sensitive diagnostics.
 
 Usage events state whether they are cumulative snapshots or deltas. Runtime reconciles observations
 per provider call, treats the terminal usage as the final snapshot, and charges budgets exactly once.
+
+Runtime commits a completed model step through one private planner. The planner freezes and validates
+every caller-owned tool call and the provider-deferred terminal batch before semantic state changes.
+Consumed model attempts and provider-reported usage settle exactly once, even when later semantic
+planning fails. The durable tool journal is the only writer of prepared, dispatched, completed, and
+indeterminate execution transitions; it owns sequence numbers, timestamps, attempts, recovery, and
+retry eligibility. A separate provider-deferred ledger owns exact `ProviderScope + correlation_id`
+identity, stable first-observation order, in-place updates, and monotonic resolution. Stream
+observations remain call-local until an authoritative completed terminal commits them.
+
+Durable snapshot schema version and durable execution ABI are independent contracts. Snapshot v8
+serializes the validated journal and provider-deferred ledger, removes the unused tool
+`dispatch_id`, and exposes snapshot state through read-only kinds and accessors. Snapshot v7 and
+future versions are rejected at the version envelope before typed payload decoding; the runtime does
+not guess or migrate authority-bearing state. The durable execution ABI is
+`siumai-runtime-durable-v7`.
+
+One private checkpoint writer assembles initial, ordinary, approval, provider-suspension, recovery,
+and terminal candidates. It validates the candidate and predecessor transition, measures bounded
+compact-JSON bytes, enforces `RunBudget::max_snapshot_bytes`, renews the lease, and only then calls
+`RunStore::compare_and_swap`. A `RunStore` owns lease fencing, run identity, revisions,
+terminal-write rejection, and atomic replacement; it does not implement a second runtime state
+machine. External stores must bound serialized input before deserialization and provide
+confidentiality, integrity and authenticity, tenant/run isolation, access control, and rollback or
+revision protection. Explicit snapshot serialization and provider-state payload access are
+sensitive replay interfaces, not sanitized diagnostics.
 
 When an executable item appears in both stable stream events and the terminal response, both views
 must agree on item kind, identity, ownership, tool name, and normalized JSON input. A protocol may

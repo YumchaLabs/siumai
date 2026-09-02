@@ -5,8 +5,10 @@
 - Primary language mode: stable-v1 Interactions
 - Secondary language mode: stable-v1 Generate Content, upstream `Legacy`
 - Portable families: Language, Embedding, Image, and buffered Speech
-- Provider-native surfaces: Files metadata lifecycle and Veo long-running jobs
+- Provider-native surfaces: v1beta multimodal embedding, Files metadata lifecycle, and Veo long-running jobs
 - Evidence verified: 2026-08-08
+- Image and Veo option evidence reverified: 2026-08-14
+- Multimodal embedding evidence verified: 2026-08-15
 - Facade feature: `google`
 - Provider crate: `siumai-provider-gemini`
 - Protocol crate: `siumai-protocol-gemini`
@@ -30,10 +32,11 @@ let provider = GeminiProvider::builder(GeminiCredential::api_key(
 let language = provider.language(GEMINI_3_6_FLASH)?;
 let legacy_generate_content = provider.generate_content(GEMINI_3_6_FLASH)?;
 let embedding = provider.embedding(GEMINI_EMBEDDING_001)?;
+let multimodal_embedding = provider.multimodal_embedding("gemini-embedding-2")?;
 let image = provider.image(GEMINI_3_1_FLASH_IMAGE)?;
 let files = provider.files();
 let veo = provider.veo();
-# let _ = (language, legacy_generate_content, embedding, image, files, veo);
+# let _ = (language, legacy_generate_content, embedding, multimodal_embedding, image, files, veo);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -71,13 +74,25 @@ Provider-owned controls remain typed:
 
 Text embedding uses stable-v1 `embedContent` and `batchEmbedContents`. Requests use the nested
 `embedContentConfig` shape, default `autoTruncate` to `false`, preserve input ordering, and reject
-known unsupported combinations before transport. The current claim is text embedding only; it is
-not a claim for Gemini's complete multimodal embedding product surface.
+known unsupported combinations before transport.
+
+`provider.multimodal_embedding(model)` is a separate provider-native v1beta handle for Gemini
+Embedding 2. It preserves the caller's ordered mixture of text, inline image/audio/video/PDF data,
+and Files API URIs, supports the documented 128–3072 output dimensionality range, explicitly
+disables silent truncation by default, and uses a separate exact-target API mode. Inline data is
+checked against a 20 MB encoded-input budget before JSON/base64 materialization. The native
+request and response Debug implementations expose only structural sizes, never caller text, bytes,
+or file URIs. The response retains the provider's embedding shape and per-modality token counts. It
+intentionally remains outside the portable text-only `EmbeddingModel` and Registry registration.
 
 Image generation uses stable-v1 Interactions. Requests encode the current polymorphic
 `response_format` object and never send deprecated `outputs` or `response_mime_type` fields.
 `GeminiImageOptions` exposes documented aspect ratio and image-size controls while the portable
-adapter retains bounded inline or URI image outputs.
+adapter retains bounded inline or URI image outputs. The provider validates the exact wire enums,
+the explicit JPEG output contract, and whether portable pixel dimensions can be represented by the
+typed tier interface. It does not reject an explicit aspect ratio or image-size tier because the
+selected model is absent from, or differs from, today's documented product matrix.
+Google remains authoritative for product availability and may reject an unsupported combination.
 
 Buffered speech uses the current v1beta Interactions audio response path. The portable
 `SpeechModel` slice requires an explicit voice and currently accepts Gemini's default raw 24 kHz PCM
@@ -85,7 +100,7 @@ output. Numeric speed, explicit format, and language override fail before transp
 implemented upstream path does not expose equivalent controls. Preview upstream maturity is
 recorded independently from Siumai's experimental public stability.
 
-## Provider-native Files and Veo
+## Provider-native multimodal embedding, Files, and Veo
 
 `provider.files()` implements stable-v1 File metadata `get`, `list`, and `delete`. Upload and GCS
 registration remain deferred because they have distinct upload/OAuth lifecycle and credential
@@ -102,6 +117,12 @@ requirements. Download URIs and provider error details are redacted from default
 Submit requests are never automatically replayed because duplicate submission may create another
 billable job. Status reads are semantically idempotent. Operation references cannot be reused across
 different replay audiences.
+
+Veo keeps the documented duration value set and the structural requirement that 1080p, 4K, and
+first/last-frame interpolation use an eight-second duration. Model-specific availability such as
+the current Veo 3.1 Lite 4K limitation remains dated product guidance rather than an SDK execution
+allowlist; explicit typed resolution intent is encoded for known, private, and future model IDs.
+Google remains authoritative for whether a selected model currently offers that resolution.
 
 ## Endpoint ownership and replay
 
@@ -120,6 +141,7 @@ The current provider does not claim:
 
 - stored/background Interactions lifecycle resources;
 - Live sessions or ephemeral tokens;
+- multimodal batch embedding;
 - File upload or GCS registration;
 - Veo automatic polling, download, extension, seed, or broad reference-image workflows;
 - a provider-neutral video-job trait;
@@ -134,7 +156,7 @@ retain aliases for retired product paths.
 |---|---|
 | Stable Interactions request, response, status, step, usage, and response format | [Interactions v1 API reference](https://ai.google.dev/api/interactions-api) |
 | Stable-v1 Generate Content operations and current Legacy product posture | [Generate Content API (Legacy)](https://ai.google.dev/gemini-api/docs/generate-content/text-generation) |
-| Stable-v1 text embedding | [Gemini embeddings](https://ai.google.dev/gemini-api/docs/embeddings) |
+| Stable-v1 text embedding and v1beta Gemini Embedding 2 multimodal input | [Gemini embeddings](https://ai.google.dev/gemini-api/docs/embeddings) |
 | Stable Interactions image generation | [Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation) |
 | Interactions speech generation | [Gemini speech generation](https://ai.google.dev/gemini-api/docs/speech-generation) |
 | File metadata lifecycle | [Gemini Files](https://ai.google.dev/gemini-api/docs/files) |
@@ -142,6 +164,10 @@ retain aliases for retired product paths.
 | Stable-v1 operation discovery, including Generate Content and Files | [Gemini API v1 discovery](https://generativelanguage.googleapis.com/$discovery/rest?version=v1) |
 
 Deterministic offline fixtures cover direct and streaming language settlement, trailing usage,
-canonical tool arguments, replay parity, text embedding, image generation, buffered speech, Files
-get/list/delete, Veo submit/status, endpoint provenance, replay isolation, resource bounds, and
-sanitized diagnostics. They do not perform live, credentialed, or billable calls.
+canonical tool arguments, replay parity, text and ordered multimodal embedding, image generation,
+buffered speech, Files get/list/delete, Veo submit/status, endpoint provenance, replay isolation,
+resource bounds, and sanitized diagnostics. They do not perform live, credentialed, or billable
+calls.
+
+The image response-format and Veo option boundaries were reverified on 2026-08-14 against the
+official Interactions API, image-generation guide, and Veo guide linked above.

@@ -1,12 +1,9 @@
 use std::collections::BTreeMap;
 
-use futures_util::StreamExt;
 use http::StatusCode;
 use siumai_core::{Error, ErrorKind, PublicDiagnosticText, SensitiveResponse};
 use siumai_protocol_openai::openai_error::{classify_http_error, decode_error_metadata};
-use siumai_transport::{
-    RequestBuildError, ResponseHeaders, TransportResponse, TransportStreamResponse,
-};
+use siumai_transport::{RequestBuildError, ResponseHeaders, TransportResponse};
 
 const ERROR_CAPTURE_BYTES: usize = 64 * 1024;
 
@@ -19,33 +16,6 @@ pub(crate) fn response_error(message: &'static str, response: TransportResponse)
     let truncated = body.len() > ERROR_CAPTURE_BYTES;
     let captured = body[..body.len().min(ERROR_CAPTURE_BYTES)].to_vec();
     provider_status_error(message, status, headers, captured, truncated)
-}
-
-pub(crate) async fn stream_response_error(
-    message: &'static str,
-    response: TransportStreamResponse,
-) -> Error {
-    let (status, headers, mut body) = response.into_parts();
-    let mut bytes = Vec::new();
-    let mut truncated = false;
-    while let Some(chunk) = body.next().await {
-        match chunk {
-            Ok(chunk) => {
-                let remaining = ERROR_CAPTURE_BYTES.saturating_sub(bytes.len());
-                if remaining == 0 {
-                    truncated = true;
-                    break;
-                }
-                bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
-                if chunk.len() > remaining {
-                    truncated = true;
-                    break;
-                }
-            }
-            Err(error) => return error,
-        }
-    }
-    provider_status_error(message, status, headers, bytes, truncated)
 }
 
 fn provider_status_error(

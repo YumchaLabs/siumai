@@ -34,7 +34,7 @@ use super::speech::{
 };
 use super::transcription::{
     GPT_4O_MINI_TRANSCRIBE, GPT_4O_MINI_TRANSCRIBE_2025_03_20, GPT_4O_MINI_TRANSCRIBE_2025_12_15,
-    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, WHISPER_1,
+    GPT_4O_TRANSCRIBE, GPT_4O_TRANSCRIBE_DIARIZE, GPT_TRANSCRIBE, WHISPER_1,
 };
 
 pub(crate) const PROVIDER_ID: &str = "openai";
@@ -54,9 +54,9 @@ const MODEL_GUIDANCE_CONTRACT: &str = "openai-model-guidance-2026-08-04";
 const RESPONSES_CONTRACT: &str = "openai-responses-2026-08-11";
 const CHAT_COMPLETIONS_CONTRACT: &str = "openai-chat-completions-2026-08-11";
 const EMBEDDING_CONTRACT: &str = "openai-embeddings-2026-08-08";
-const IMAGE_CONTRACT: &str = "openai-image-generations-2026-08-08";
-const SPEECH_CONTRACT: &str = "openai-audio-speech-2026-08-08";
-const TRANSCRIPTION_CONTRACT: &str = "openai-audio-transcriptions-2026-08-08";
+const IMAGE_CONTRACT: &str = "openai-image-generations-2026-08-15";
+const SPEECH_CONTRACT: &str = "openai-audio-speech-2026-08-15";
+const TRANSCRIPTION_CONTRACT: &str = "openai-audio-transcriptions-2026-08-15";
 
 /// Evidence-backed OpenAI profile for the stable portable families and explicit language modes.
 #[derive(Debug, Clone)]
@@ -150,10 +150,10 @@ impl OpenAiProfile {
             11,
         )?;
         let embedding_evidence = evidence(EMBEDDING_SOURCE, EMBEDDING_CONTRACT, 2026, 8, 8)?;
-        let image_evidence = evidence(IMAGE_SOURCE, IMAGE_CONTRACT, 2026, 8, 8)?;
-        let speech_evidence = evidence(SPEECH_SOURCE, SPEECH_CONTRACT, 2026, 8, 8)?;
+        let image_evidence = evidence(IMAGE_SOURCE, IMAGE_CONTRACT, 2026, 8, 15)?;
+        let speech_evidence = evidence(SPEECH_SOURCE, SPEECH_CONTRACT, 2026, 8, 15)?;
         let transcription_evidence =
-            evidence(TRANSCRIPTION_SOURCE, TRANSCRIPTION_CONTRACT, 2026, 8, 8)?;
+            evidence(TRANSCRIPTION_SOURCE, TRANSCRIPTION_CONTRACT, 2026, 8, 15)?;
 
         let claims = vec![
             verified_claim(responses_scope.clone(), responses_evidence.clone()),
@@ -163,7 +163,7 @@ impl OpenAiProfile {
             verified_claim(speech_scope.clone(), speech_evidence.clone()),
             verified_claim(transcription_scope.clone(), transcription_evidence.clone()),
         ];
-        let mut models = Vec::with_capacity(31);
+        let mut models = Vec::with_capacity(32);
         extend_models(
             &mut models,
             &responses_scope,
@@ -457,19 +457,34 @@ fn image_models() -> Result<Vec<(&'static str, ModelLifecycle)>, OpenAiConfigErr
     let gpt_image_2 = ModelId::new(GPT_IMAGE_2)?;
     Ok(vec![
         (GPT_IMAGE_1, ModelLifecycle::Active),
-        (GPT_IMAGE_1_MINI, ModelLifecycle::Active),
-        (GPT_IMAGE_1_5, ModelLifecycle::Active),
-        (GPT_IMAGE_2, ModelLifecycle::Active),
-        (CHATGPT_IMAGE_LATEST, ModelLifecycle::RollingAlias),
         (
-            DALL_E_2,
+            GPT_IMAGE_1_MINI,
             ModelLifecycle::Deprecated {
                 replacement: Some(gpt_image_2.clone()),
             },
         ),
         (
-            DALL_E_3,
+            GPT_IMAGE_1_5,
             ModelLifecycle::Deprecated {
+                replacement: Some(gpt_image_2.clone()),
+            },
+        ),
+        (GPT_IMAGE_2, ModelLifecycle::Active),
+        (
+            CHATGPT_IMAGE_LATEST,
+            ModelLifecycle::Deprecated {
+                replacement: Some(gpt_image_2.clone()),
+            },
+        ),
+        (
+            DALL_E_2,
+            ModelLifecycle::Retired {
+                replacement: Some(gpt_image_2.clone()),
+            },
+        ),
+        (
+            DALL_E_3,
+            ModelLifecycle::Retired {
                 replacement: Some(gpt_image_2),
             },
         ),
@@ -496,6 +511,7 @@ fn transcription_models() -> impl IntoIterator<Item = (&'static str, ModelLifecy
         (GPT_4O_MINI_TRANSCRIBE_2025_12_15, ModelLifecycle::Active),
         (GPT_4O_TRANSCRIBE, ModelLifecycle::Active),
         (GPT_4O_TRANSCRIBE_DIARIZE, ModelLifecycle::Active),
+        (GPT_TRANSCRIBE, ModelLifecycle::Active),
     ]
 }
 
@@ -515,7 +531,7 @@ mod tests {
         }));
         assert_eq!(
             profile.provider_profile().catalog().unwrap().iter().count(),
-            31
+            32
         );
     }
 
@@ -535,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn deprecated_dall_e_models_point_to_gpt_image_2() {
+    fn image_lifecycle_advisories_point_to_gpt_image_2() {
         let profile = OpenAiProfile::current().unwrap();
         let scope = profile
             .provider_profile()
@@ -548,6 +564,18 @@ mod tests {
         let catalog = profile.provider_profile().catalog().unwrap();
 
         for model in [DALL_E_2, DALL_E_3] {
+            assert_eq!(
+                catalog
+                    .get(scope, &ModelId::new(model).unwrap())
+                    .unwrap()
+                    .lifecycle(),
+                &ModelLifecycle::Retired {
+                    replacement: Some(ModelId::new(GPT_IMAGE_2).unwrap()),
+                }
+            );
+        }
+
+        for model in [GPT_IMAGE_1_MINI, GPT_IMAGE_1_5, CHATGPT_IMAGE_LATEST] {
             assert_eq!(
                 catalog
                     .get(scope, &ModelId::new(model).unwrap())

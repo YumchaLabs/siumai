@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
@@ -10,14 +11,15 @@ use siumai_core::stream::{StreamTerminal, established_stream};
 use siumai_core::{
     ApiModeId, CallOptions, ContentAnnotationTarget, EmbeddingLimits, EmbeddingModel,
     EmbeddingRequest, EmbeddingResponse, Error, ImageArtifact, ImageLimits, ImageModel,
-    ImageRequest, ImageResponse, LanguageCallError, LanguageCompletionReason, LanguageModel,
-    LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart,
-    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, ProtocolId, ProviderId,
-    ProviderOptionBindingRequirement, ProviderRegistration, ProviderScope, RerankCandidate,
-    RerankLimits, RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata,
-    SpeechLimits, SpeechModel, SpeechRequest, SpeechResponse, TranscriptionLimits,
-    TranscriptionModel, TranscriptionRequest, TranscriptionResponse, TypedProviderAnnotation,
-    TypedProviderOptions, Usage,
+    ImageRequest, ImageResponse, LanguageCallError, LanguageCompletionReason, LanguageInput,
+    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
+    MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, PartialLanguageOutput,
+    PartialLanguageOutputPart, ProtocolId, ProviderId, ProviderOptionBindingRequirement,
+    ProviderOptionPatch, ProviderRegistration, ProviderScope, RerankCandidate, RerankLimits,
+    RerankModel, RerankRequest, RerankResponse, RerankResult, ResponseMetadata, SpeechLimits,
+    SpeechModel, SpeechRequest, SpeechResponse, TranscriptionLimits, TranscriptionModel,
+    TranscriptionRequest, TranscriptionResponse, TypedProviderAnnotation, TypedProviderOptions,
+    Usage,
 };
 
 fn descriptor(family: ModelFamily, model: &str) -> ModelDescriptor {
@@ -73,8 +75,12 @@ impl LanguageModel for FakeLanguage {
     async fn generate(
         &self,
         _request: LanguageRequest,
-        _options: CallOptions,
+        options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let _options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(LanguageCallError::from)?;
         Ok(language_response(self.model_id().as_str()))
     }
 
@@ -289,6 +295,76 @@ fn prompt() -> LanguageRequest {
 }
 
 #[test]
+fn language_input_and_text_projections_are_public_provider_neutral_contracts() {
+    fn into_request(input: impl Into<LanguageInput>) -> LanguageRequest {
+        input.into().into_request()
+    }
+
+    let prompt = into_request("  hello  ");
+    assert!(matches!(
+        prompt.messages[0].content()[0].content(),
+        siumai_core::ContentPart::Text { text } if text == "  hello  "
+    ));
+    assert_eq!(
+        into_request(Message::developer("policy")).messages[0].role(),
+        MessageRole::Developer
+    );
+    assert_eq!(
+        into_request(vec![Message::user("one"), Message::user("two")])
+            .messages
+            .len(),
+        2
+    );
+    assert_eq!(into_request(prompt.clone()), prompt);
+
+    let response = LanguageResponse::completed(
+        vec![
+            siumai_core::ContentPart::Reasoning {
+                text: "hidden".to_string(),
+            },
+            siumai_core::ContentPart::Text {
+                text: "visible".to_string(),
+            },
+        ],
+        LanguageCompletionReason::Stop,
+        Usage::default(),
+    )
+    .unwrap();
+    assert_eq!(response.text_parts().collect::<Vec<_>>(), vec!["visible"]);
+    assert_eq!(response.output_text(), Some("visible".to_string()));
+
+    let partial = PartialLanguageOutput::new(
+        vec![PartialLanguageOutputPart::Text {
+            text: String::new(),
+        }],
+        Usage::default(),
+    )
+    .unwrap();
+    assert_eq!(partial.text_parts().collect::<Vec<_>>(), vec![""]);
+    assert_eq!(partial.output_text(), Some(String::new()));
+}
+
+#[test]
+fn provider_option_patches_can_be_appended_by_downstream_assemblers() {
+    let model = FakeLanguage::new("language-test");
+    let mut options = CallOptions::default()
+        .with_provider_options_for(&model, &CustomOptions { strict: false })
+        .unwrap();
+    let patch =
+        ProviderOptionPatch::typed_for_model(&model, &CustomOptions { strict: true }).unwrap();
+
+    options.append_provider_options([patch]).unwrap();
+
+    let values = options
+        .provider_options_for(&model)
+        .unwrap()
+        .typed()
+        .map(|options| options.value()["strict"].as_bool().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(values, vec![false, true]);
+}
+
+#[test]
 fn external_provider_annotations_are_target_typed_and_decodable() {
     let expected = CustomContentAnnotation { cache: true };
     let part = MessagePart::text("hello")
@@ -315,6 +391,10 @@ where
 #[tokio::test]
 async fn external_models_are_object_safe_callable_and_task_safe() {
     let call_options = CallOptions::default()
+        .with_timeout(Duration::from_secs(30))
+        .unwrap()
+        .with_max_attempts(2)
+        .unwrap()
         .with_provider_options(&CustomOptions { strict: true })
         .unwrap();
 

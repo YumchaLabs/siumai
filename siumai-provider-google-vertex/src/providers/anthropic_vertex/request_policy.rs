@@ -6,21 +6,17 @@ use siumai_core::{
 };
 use siumai_protocol_anthropic::messages::{OutputEffort, ThinkingConfig};
 
-use super::annotations::{
-    GoogleVertexAnthropicCacheTtl, GoogleVertexAnthropicContentCache,
-    GoogleVertexAnthropicMessageCache, GoogleVertexAnthropicToolOptions,
-};
 use super::models::{
     CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5_20251001, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_5_20251101,
     CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_4_20250514, CLAUDE_OPUS_5,
     CLAUDE_SONNET_4_5_20250929, CLAUDE_SONNET_4_6, CLAUDE_SONNET_4_20250514, CLAUDE_SONNET_5,
-    supports_one_hour_cache, supports_structured_outputs, uses_strict_sampling,
+    uses_strict_sampling,
 };
 
 const MAX_OUTPUT_TOKENS_128K: u64 = 128_000;
 const MAX_OUTPUT_TOKENS_64K: u64 = 64_000;
 
-/// Verified request restrictions for Claude models served through Vertex AI.
+/// Structural and exact-model request restrictions for Claude models served through Vertex AI.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct GoogleVertexAnthropicRequestPolicy;
 
@@ -36,22 +32,6 @@ impl MessagesRequestPolicy for GoogleVertexAnthropicRequestPolicy {
         reject_url_media(request)?;
         reject_unverified_options(options)?;
 
-        let uses_structured_output = request.structured_output.is_some();
-        let uses_strict_tools = request.tools.iter().try_fold(false, |used, tool| {
-            let options = tool
-                .annotations()
-                .decode::<GoogleVertexAnthropicToolOptions>()
-                .map_err(invalid_annotation)?;
-            Ok::<_, Error>(used || options.as_ref().and_then(|value| value.strict()) == Some(true))
-        })?;
-        if (uses_structured_output || uses_strict_tools)
-            && !supports_structured_outputs(model.as_str())
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "structured outputs and strict tools are not verified for this Vertex Claude model",
-            ));
-        }
         if request
             .structured_output
             .as_ref()
@@ -60,12 +40,6 @@ impl MessagesRequestPolicy for GoogleVertexAnthropicRequestPolicy {
             return Err(Error::new(
                 ErrorKind::Unsupported,
                 "Claude on Vertex AI requires strict structured output",
-            ));
-        }
-        if uses_one_hour_cache(request)? && !supports_one_hour_cache(model.as_str()) {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "one-hour prompt caching is not verified for this Vertex Claude model",
             ));
         }
         Ok(MessagesRequestRequirements::new())
@@ -246,49 +220,6 @@ fn reject_xhigh_effort(effort: Option<OutputEffort>) -> Result<(), Error> {
         ));
     }
     Ok(())
-}
-
-fn uses_one_hour_cache(request: &LanguageRequest) -> Result<bool, Error> {
-    for message in &request.messages {
-        if message
-            .annotations()
-            .decode::<GoogleVertexAnthropicMessageCache>()
-            .map_err(invalid_annotation)?
-            .is_some_and(|cache| cache.ttl() == GoogleVertexAnthropicCacheTtl::OneHour)
-        {
-            return Ok(true);
-        }
-        for part in message.content() {
-            if part
-                .annotations()
-                .decode::<GoogleVertexAnthropicContentCache>()
-                .map_err(invalid_annotation)?
-                .is_some_and(|cache| cache.ttl() == GoogleVertexAnthropicCacheTtl::OneHour)
-            {
-                return Ok(true);
-            }
-        }
-    }
-    for tool in &request.tools {
-        if tool
-            .annotations()
-            .decode::<GoogleVertexAnthropicToolOptions>()
-            .map_err(invalid_annotation)?
-            .and_then(|options| options.cache_ttl())
-            == Some(GoogleVertexAnthropicCacheTtl::OneHour)
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn invalid_annotation(source: siumai_core::ProviderAnnotationError) -> Error {
-    Error::new(
-        ErrorKind::InvalidInput,
-        "Google Vertex Anthropic annotation is invalid",
-    )
-    .with_source(source)
 }
 
 fn invalid(message: &'static str) -> Error {

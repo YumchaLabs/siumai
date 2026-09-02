@@ -9,15 +9,17 @@ Run the maintained release gates serially from a clean release candidate:
 ```text
 cargo fmt --all -- --check
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
-python3 -B scripts/check_workspace_boundaries.py
 python3 -B scripts/test-workspace.py flagship --runner nextest
 python3 -B scripts/test-workspace.py full --runner nextest
 cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings
 cargo check -p siumai --no-default-features --lib -j 1
+cargo check -p siumai --no-default-features --features registry --lib -j 1
 cargo check -p siumai --no-default-features --features all-providers --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
+cargo run -p siumai --no-default-features --features openai,anthropic,registry --example provider_switching -j 1
+cargo nextest run -p siumai --no-default-features --features openai,anthropic,registry --test facade_contract --test-threads 1
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 cargo doc --workspace --all-features --no-deps -j 1
 cargo test --doc --workspace --all-features -j 1
@@ -31,11 +33,17 @@ version. These checks are deterministic and offline; credentialed provider tests
 prerequisite unless a maintainer explicitly authorizes the external calls.
 
 Pull requests run the fast suite followed by the exact OpenAI/Anthropic flagship package suite.
-They also compile the facade without default features for bare, OpenAI, Anthropic, all-provider,
+They also compile the facade without default features for bare, Registry-only, OpenAI, Anthropic, all-provider,
 and combined Responses WebSocket/Realtime feature ownership paths. The OpenAI and Anthropic
-flagship examples are each compiled with only their exact provider feature. This remains a small
-fixed gate rather than a provider-by-feature matrix. The documentation lane builds the OpenAI
-provider with all optional modules enabled before the workspace docs pass.
+flagship examples are each compiled with only their exact provider feature. The
+`provider_switching` example is executed offline with exactly OpenAI, Anthropic, and Registry, and
+the same exact feature set runs the facade contract test. Together they protect the canonical
+concrete-to-erased construction path and provider-backed dispatch behavior. This remains a small
+fixed Cargo-native gate rather than a provider-by-feature matrix or a custom public-symbol policy
+script. Pull requests also run
+the documentation lane, which builds the OpenAI provider with all optional modules enabled before
+workspace docs and doctests pass. Deterministic nextest failures are not retried, and the workspace
+has a finite global test timeout.
 
 The `flagship` lane validates a bounded OpenAI and Anthropic package slice. Passing it means
 `claimed slice complete` for those deterministic gates; it is not a `provider platform complete`
@@ -60,6 +68,20 @@ README/rustdoc entry point. The facade's documented feature set must match its `
 configuration. A breaking release updates the root changelog and migration guide together. The first
 published version after this API reset becomes the new semver baseline; do not hide intentional
 breaks behind compatibility aliases merely to satisfy the previous beta baseline.
+
+The compatibility boundary established by
+[ADR 0019](adr/0019-facade-family-call-ownership.md) includes the six root family modules, their
+default operations, their bound `call` entry points and public call types, complete family response
+types, and typed provider-option ownership. A later beta release that breaks this boundary must not
+enter the standard release flow until review confirms all of the following:
+
+- an architecture rationale names every affected canonical symbol;
+- the migration guide contains an exact old-symbol-to-new-symbol map and behavioral notes;
+- the root README, facade rustdoc, and compile-checked examples teach the replacement path;
+- the changelog identifies the break, and Cargo-native no-default/provider/Registry gates cover it.
+
+Compatibility aliases are not required, but migration evidence is. Release review should stop on a
+canonical rename or ownership move that lacks any item above.
 
 ## What gets released
 
@@ -92,7 +114,21 @@ Fallback (not recommended):
 Do **not** create or push release tags manually.
 
 In this repository, release tags are an output of `release-plz release`, not the trigger for publishing.
-This keeps crates.io publishing, the `v{{ version }}` git tag, and the GitHub Release synchronized.
+The workflow keeps publication order, tag creation, and GitHub Release creation inside that one
+pinned native command rather than maintaining a second publication or tag engine.
+
+The pinned `release-plz` 0.3.157 release command is not a general repair tool for partially created
+repository releases. It treats any local tag with the expected name as already handled before it
+checks the tag target or GitHub Release state. If a run leaves an exact tag without a GitHub Release,
+or a same-name tag points at the wrong commit, stop and inspect the repository state instead of
+rerunning or wrapping the command. Do not pre-create, move, or delete release tags as an automated
+workaround.
+
+The manual job therefore runs only from `refs/heads/main`, verifies that the checkout still equals
+the current remote `main` commit, and rejects any pre-existing tag for the workspace version before
+installing release tooling or using publish credentials. Partially published crates can converge on
+a later run while that tag is absent. A tag-only state is intentionally a visible manual stop, not
+an automated recovery path.
 
 The release PR is the preferred way to prepare version and changelog changes, but it is not a
 publishing authorization boundary. The actual publish job is manually dispatched from `main`, and
@@ -121,7 +157,8 @@ fix or another normal PR landed after the release PR.
    - the `siumai` tag exists in the repository
    - the GitHub Release exists and uses the expected changelog section
 
-This runs `release-plz release` to publish crates to crates.io and create the `siumai` tag + GitHub Release.
+This runs the preflight above and then one pinned `release-plz release` command to publish crates to
+crates.io and create the `siumai` tag + GitHub Release.
 
 ## Manual dry run
 
@@ -144,7 +181,9 @@ to avoid accidentally enabling dry-run due to string input handling.
 
 When publishing many new crates (common during a workspace split), crates.io can return `429 Too Many Requests`.
 
-The release workflow retries automatically on 429 by waiting until the timestamp suggested by crates.io and then re-running `release-plz release`.
+The release workflow retries automatically on 429 by waiting until the timestamp suggested by
+crates.io and then re-running the same `release-plz release`. Only a bounded diagnostic suffix is
+retained for classification; non-429 failures stop immediately.
 
 ## Why there may be no release PR
 

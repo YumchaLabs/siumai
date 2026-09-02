@@ -254,7 +254,7 @@ impl GeminiVeoRequest {
     }
 
     pub fn with_config(mut self, config: GeminiVeoConfig) -> Result<Self, Error> {
-        validate_model_config(&self.model, &self.source, &config)?;
+        validate_config(&self.source, &config)?;
         self.config = config;
         Ok(self)
     }
@@ -416,7 +416,7 @@ impl GeminiVeo {
         options: CallOptions,
     ) -> Result<GeminiVeoOperation, Error> {
         reject_provider_options(&options)?;
-        validate_model_config(request.model(), request.source(), request.config())?;
+        validate_config(request.source(), request.config())?;
         let body = encode_request(&request)?;
         let target = RequestTarget::new(format!(
             "v1beta/models/{}:predictLongRunning",
@@ -726,19 +726,7 @@ fn decode_result(response: OperationResponseWire) -> Result<GeminiVeoResult, Err
     })
 }
 
-fn validate_model_config(
-    model: &ModelId,
-    source: &GeminiVeoSource,
-    config: &GeminiVeoConfig,
-) -> Result<(), Error> {
-    if model.as_str() == VEO_3_1_LITE_GENERATE_PREVIEW
-        && config.resolution == Some(GeminiVeoResolution::FourK)
-    {
-        return Err(Error::new(
-            ErrorKind::Unsupported,
-            "Veo 3.1 Lite does not support 4K output",
-        ));
-    }
+fn validate_config(source: &GeminiVeoSource, config: &GeminiVeoConfig) -> Result<(), Error> {
     if matches!(
         config.resolution,
         Some(GeminiVeoResolution::Hd1080 | GeminiVeoResolution::FourK)
@@ -939,6 +927,131 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn structural_duration_and_frame_relationships_fail_closed() {
+        assert!(GeminiVeoConfig::new().with_duration_seconds(5).is_err());
+
+        let duration_error = GeminiVeoRequest::text(
+            ModelId::new("private-veo-next").expect("future model ID"),
+            "A paper boat",
+        )
+        .expect("Veo request")
+        .with_config(
+            GeminiVeoConfig::new()
+                .with_resolution(GeminiVeoResolution::FourK)
+                .with_duration_seconds(6)
+                .expect("supported duration value"),
+        )
+        .unwrap_err();
+        assert_eq!(duration_error.kind(), ErrorKind::InvalidInput);
+
+        let first_frame = GeminiVeoImage::new("image/png", vec![1_u8]).expect("first frame");
+        let last_frame = GeminiVeoImage::new("image/png", vec![2_u8]).expect("last frame");
+        let interpolation_error = GeminiVeoRequest::image(
+            ModelId::new("private-veo-next").expect("future model ID"),
+            None,
+            first_frame,
+            Some(last_frame),
+        )
+        .expect("Veo image request")
+        .with_config(
+            GeminiVeoConfig::new()
+                .with_duration_seconds(6)
+                .expect("supported duration value"),
+        )
+        .unwrap_err();
+        assert_eq!(interpolation_error.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[tokio::test]
+    async fn known_and_future_model_configs_reach_the_exact_veo_wire() {
+        const FUTURE_MODEL: &str = "private-veo-next";
+
+        let mut server = mockito::Server::new_async().await;
+        let known_operation = format!("models/{VEO_3_1_LITE_GENERATE_PREVIEW}/operations/known-op");
+        let known = server
+            .mock(
+                "POST",
+                "/v1beta/models/veo-3.1-lite-generate-preview:predictLongRunning",
+            )
+            .match_body(mockito::Matcher::Json(json!({
+                "instances": [{"prompt": "A paper boat"}],
+                "parameters": {
+                    "aspectRatio": "9:16",
+                    "resolution": "4k",
+                    "durationSeconds": 8
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"name": known_operation, "done": false}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let future_operation = format!("models/{FUTURE_MODEL}/operations/future-op");
+        let future = server
+            .mock("POST", "/v1beta/models/private-veo-next:predictLongRunning")
+            .match_body(mockito::Matcher::Json(json!({
+                "instances": [{"prompt": "A paper boat"}],
+                "parameters": {
+                    "resolution": "1080p",
+                    "durationSeconds": 8,
+                    "enhancePrompt": true
+                }
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"name": future_operation, "done": false}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let veo = provider(server.url()).veo();
+
+        let known_request = GeminiVeoRequest::text(
+            ModelId::new(VEO_3_1_LITE_GENERATE_PREVIEW).expect("known model ID"),
+            "A paper boat",
+        )
+        .expect("known-model request")
+        .with_config(
+            GeminiVeoConfig::new()
+                .with_aspect_ratio(GeminiVeoAspectRatio::Portrait)
+                .with_resolution(GeminiVeoResolution::FourK)
+                .with_duration_seconds(8)
+                .expect("supported duration"),
+        )
+        .expect("known-model config");
+        let known_result = veo.submit(known_request).await.expect("known-model submit");
+        assert!(matches!(
+            known_result.state,
+            GeminiVeoOperationState::Pending
+        ));
+
+        let future_request = GeminiVeoRequest::text(
+            ModelId::new(FUTURE_MODEL).expect("future model ID"),
+            "A paper boat",
+        )
+        .expect("future-model request")
+        .with_config(
+            GeminiVeoConfig::new()
+                .with_resolution(GeminiVeoResolution::Hd1080)
+                .with_duration_seconds(8)
+                .expect("supported duration")
+                .with_enhance_prompt(true),
+        )
+        .expect("future-model config");
+        let future_result = veo
+            .submit(future_request)
+            .await
+            .expect("future-model submit");
+        assert!(matches!(
+            future_result.state,
+            GeminiVeoOperationState::Pending
+        ));
+
+        known.assert_async().await;
+        future.assert_async().await;
     }
 
     #[test]

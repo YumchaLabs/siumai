@@ -54,13 +54,34 @@ repository script:
 
 ```text
 cargo check -p siumai --no-default-features --lib -j 1
-cargo check -p siumai --no-default-features --features all-providers --lib -j 1
+cargo check -p siumai --no-default-features --features registry --lib -j 1
+cargo check -p siumai --no-default-features --features runtime --lib -j 1
+cargo nextest run -p siumai --all-features --test siumai_builder_contract --test-threads 1
+cargo nextest run -p siumai-runtime --all-features --test runtime_contract --test-threads 1
+cargo nextest run -p siumai --no-default-features --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+cargo check -p siumai --no-default-features --features <provider> --test siumai_builder_contract -j 1
+cargo check -p siumai --no-default-features --features all-providers,openai-compatible --lib -j 1
 cargo check -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib -j 1
 cargo check -p siumai --no-default-features --features openai --example openai_flagship -j 1
 cargo check -p siumai --no-default-features --features anthropic --example anthropic_flagship -j 1
+cargo check -p siumai --no-default-features --features openai,anthropic,google --example provider_switching -j 1
+cargo check -p siumai --no-default-features --features openai,registry --example registry_switching -j 1
+cargo nextest run -p siumai --no-default-features --features openai,registry --test facade_contract --test siumai_builder_contract --test-threads 1
+cargo test -p siumai --doc --all-features -j 1
+cargo metadata --format-version 1 --locked > /dev/null
 cargo doc -p siumai-provider-openai --all-features --no-deps -j 1
 python3 -B scripts/check_package_file_list.py
 ```
+
+The typed builder contract is part of the fast PR lane. CI compiles it once for every provider
+feature declared by `siumai/Cargo.toml`; `<provider>` above denotes one entry in that Cargo-owned
+matrix rather than a second feature inventory. Cargo manifests and metadata remain authoritative
+for feature dependency ownership; CI does not maintain a second dependency-closure checker.
+`provider_switching` checks direct typed provider selection, while `registry_switching` teaches
+explicit Registry erasure; the focused `openai,registry` nextest lane executes the corresponding
+identity and route assertions. The flagship examples keep typed provider options, annotations,
+complete responses, and concrete native resources nameable. Keep these as fixed Cargo targets; do
+not mirror their public symbols or feature graph in a repository policy script.
 
 The package checker invokes `cargo package --workspace --list --locked` and rejects a small set of
 credential, private configuration, repository-local, editor-state, and live-canary artifact paths.
@@ -68,25 +89,24 @@ It does not parse source, inspect file contents, or reproduce Cargo membership a
 semantics. Pass `--allow-dirty` only for a local dirty-worktree inspection. Cargo and release-plz
 remain authoritative for the package graph and publication order.
 
-## Architecture checks
+## Repository script tests
 
 ```text
-python3 -B scripts/check_workspace_boundaries.py
 python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
 ```
 
-The boundary check reads Cargo metadata directly and rejects only stable dependency-direction
-violations: foundation back-edges, provider-neutral packages depending on branded providers,
-provider-to-provider dependencies, and facade or host-layer back-edges. Cargo remains the sole
-authority for workspace membership, package versions, MSRV, features, and dependency resolution.
-Protocol fixtures live beside their owning crate and are exercised directly by Rust tests; there
-is no separate inventory of unused snapshots. The scripts intentionally do not parse Rust source
-or attempt to infer compiler semantics.
+The script suite covers only maintained bounded tooling. Dependency direction is reviewed in the
+affected manifests and Cargo metadata instead of being mirrored in a partial policy graph. Cargo
+remains the sole authority for workspace membership, package versions, MSRV, features, and
+dependency resolution. Protocol fixtures live beside their owning crate and are exercised directly
+by Rust tests; there is no separate inventory of unused snapshots.
 
 ## Release retry
 
 `release_plz_release_with_retry.py` is the release-only retry wrapper used by GitHub Actions. It
 streams `release-plz` output, recognizes crates.io rate limiting, parses the retry timestamp with
-the Python standard library, and applies bounded retries without depending on Bash or GNU `date`.
-The workflow also uses `--dry-run` on this same Python entry point. Credentials remain in the
-environment consumed by release-plz and are never copied into process arguments.
+the Python standard library, retains only a bounded output suffix for retry classification, and
+applies bounded retries without depending on Bash or GNU `date`. The workflow also uses `--dry-run`
+on this same Python entry point. Credentials remain in the environment consumed by release-plz and
+are never copied into process arguments. Main/SHA/tag preflights remain in the workflow; this script
+does not implement repository release repair or publication ordering.

@@ -8,7 +8,7 @@ use http::Method;
 use http::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::Serialize;
 
-use crate::replay::{is_authentication_header, is_transport_controlled};
+use crate::replay::{is_common_credential_header, is_transport_controlled};
 use crate::{ReplaySafety, RequestBuildError, TransportLimits};
 
 const MAX_TARGET_BYTES: usize = 8 * 1024;
@@ -103,6 +103,10 @@ impl fmt::Debug for RequestTarget {
 }
 
 /// Non-credential headers supplied by protocol code.
+///
+/// Common credential and transport headers are rejected immediately. Any
+/// provider-specific header emitted by the selected credential applier is
+/// rejected on exact collision before network submission.
 #[derive(Clone, Default)]
 pub struct RequestHeaders(HeaderMap);
 
@@ -116,7 +120,7 @@ impl RequestHeaders {
         name: HeaderName,
         value: HeaderValue,
     ) -> Result<Self, RequestBuildError> {
-        if is_transport_controlled(&name) || is_authentication_header(&name) {
+        if is_transport_controlled(&name) || is_common_credential_header(&name) {
             return Err(RequestBuildError::ProtectedHeader);
         }
         self.0.insert(name, value);
@@ -657,16 +661,25 @@ mod tests {
     }
 
     #[test]
-    fn request_headers_cannot_supply_credentials() {
-        assert_eq!(
-            RequestHeaders::new()
-                .try_insert(
-                    http::header::AUTHORIZATION,
-                    HeaderValue::from_static("Bearer secret")
-                )
-                .unwrap_err(),
-            RequestBuildError::ProtectedHeader
-        );
+    fn request_headers_protect_only_exact_common_credentials() {
+        for name in ["Authorization", "API-Key", "X-API-Key"] {
+            assert_eq!(
+                RequestHeaders::new()
+                    .try_insert(
+                        HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                        HeaderValue::from_static("credential")
+                    )
+                    .unwrap_err(),
+                RequestBuildError::ProtectedHeader
+            );
+        }
+
+        RequestHeaders::new()
+            .try_insert(
+                HeaderName::from_static("x-token-count-mode"),
+                HeaderValue::from_static("enabled"),
+            )
+            .unwrap();
     }
 
     #[test]

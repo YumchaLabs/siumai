@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -17,9 +18,10 @@ use siumai_protocol_anthropic::messages::{
 /// This type intentionally does not implement `TypedProviderOptions`: branded providers
 /// own their namespaces and may expose their own typed option structs. After exact-target
 /// selection, the engine applies provider-owned typed patches in order over configured defaults.
-/// At most one checked raw patch is retained as the final body overlay; canonical request fields
-/// and provider or transport security fields remain protected.
-#[derive(Debug, Clone, Default)]
+/// At most one checked raw patch is retained as the final body overlay. It replaces whole
+/// top-level fields after canonical encoding; exact canonical request and transport-authority
+/// names remain protected, while nested provider-body data is inert to transport.
+#[derive(Clone, Default)]
 pub struct MessagesCallOptions {
     metadata: Option<MessagesMetadata>,
     thinking: Option<ThinkingConfig>,
@@ -36,6 +38,29 @@ pub struct MessagesCallOptions {
     mcp_servers: Option<Vec<McpServer>>,
     extra: BTreeMap<String, Value>,
     raw_body_overlay: BTreeMap<String, Value>,
+}
+
+impl fmt::Debug for MessagesCallOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MessagesCallOptions")
+            .field("has_metadata", &self.metadata.is_some())
+            .field("has_thinking", &self.thinking.is_some())
+            .field("has_output_effort", &self.output_effort.is_some())
+            .field("has_task_budget", &self.task_budget.is_some())
+            .field("has_fallbacks", &self.fallbacks.is_some())
+            .field("has_top_k", &self.top_k.is_some())
+            .field("has_service_tier", &self.service_tier.is_some())
+            .field("has_cache_control", &self.cache_control.is_some())
+            .field("has_speed", &self.speed.is_some())
+            .field("has_inference_geo", &self.inference_geo.is_some())
+            .field("has_container", &self.container.is_some())
+            .field("has_context_management", &self.context_management.is_some())
+            .field("mcp_server_count", &self.mcp_servers.as_ref().map(Vec::len))
+            .field("extra_field_count", &self.extra.len())
+            .field("raw_overlay_field_count", &self.raw_body_overlay.len())
+            .finish()
+    }
 }
 
 impl MessagesCallOptions {
@@ -342,7 +367,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
     let mut patch = OptionsPatch::default();
     for (name, value) in options.value() {
         if options.is_raw() {
-            validate_raw_body_field(name, value, name)?;
+            validate_body_field(name, name)?;
             insert_extra(&mut patch.raw_body_overlay, name, value)?;
             continue;
         }
@@ -394,7 +419,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                     )
                 })?;
                 for (extra_name, extra_value) in object {
-                    validate_extra_field(extra_name, extra_value, extra_name)?;
+                    validate_body_field(extra_name, extra_name)?;
                     insert_extra(&mut patch.extra, extra_name, extra_value)?;
                 }
             }
@@ -405,7 +430,7 @@ fn parse_patch(options: &ProviderOptions) -> Result<OptionsPatch, ProviderOption
                 ));
             }
             _ => {
-                validate_extra_field(name, value, name)?;
+                validate_body_field(name, name)?;
                 insert_extra(&mut patch.extra, name, value)?;
             }
         }
@@ -490,164 +515,20 @@ fn parse_typed<T: DeserializeOwned>(
         .map_err(|_| rejected(field, "must use the canonical typed option shape"))
 }
 
-fn validate_extra_field(name: &str, value: &Value, path: &str) -> Result<(), ProviderOptionError> {
-    if is_engine_protected(name) || is_protected_option_field(name) || is_security_sensitive(name) {
+fn validate_body_field(name: &str, path: &str) -> Result<(), ProviderOptionError> {
+    if name.trim().is_empty() || name.chars().any(char::is_control) {
         return Err(rejected(
             path,
-            "field is owned by the engine or canonical codec",
+            "body field names must be non-empty and contain no control characters",
         ));
     }
-    validate_nested_extra(value, path)
-}
-
-fn validate_raw_body_field(
-    name: &str,
-    value: &Value,
-    path: &str,
-) -> Result<(), ProviderOptionError> {
-    if is_canonical_body_field(name) || is_security_sensitive(name) {
+    if is_protected_option_field(name) {
         return Err(rejected(
             path,
-            "field is owned by the canonical request, provider, or transport",
+            "field is owned by the canonical request or transport",
         ));
-    }
-    validate_nested_extra(value, path)
-}
-
-fn is_canonical_body_field(name: &str) -> bool {
-    matches!(
-        compact_name(name).as_str(),
-        "model"
-            | "messages"
-            | "system"
-            | "maxtokens"
-            | "maxoutputtokens"
-            | "stream"
-            | "tools"
-            | "toolchoice"
-            | "temperature"
-            | "topp"
-            | "stopsequence"
-            | "stopsequences"
-            | "diagnostics"
-    )
-}
-
-fn validate_nested_extra(value: &Value, path: &str) -> Result<(), ProviderOptionError> {
-    match value {
-        Value::Object(object) => {
-            for (name, child) in object {
-                let child_path = format!("{path}.{name}");
-                if is_security_sensitive(name) {
-                    return Err(rejected(
-                        &child_path,
-                        "credentials, endpoints, versions, and headers are protected",
-                    ));
-                }
-                validate_nested_extra(child, &child_path)?;
-            }
-        }
-        Value::Array(values) => {
-            for (index, child) in values.iter().enumerate() {
-                validate_nested_extra(child, &format!("{path}[{index}]"))?;
-            }
-        }
-        _ => {}
     }
     Ok(())
-}
-
-fn is_engine_protected(name: &str) -> bool {
-    matches!(
-        compact_name(name).as_str(),
-        "model"
-            | "messages"
-            | "system"
-            | "maxtokens"
-            | "maxoutputtokens"
-            | "stream"
-            | "tools"
-            | "toolchoice"
-            | "temperature"
-            | "topp"
-            | "topk"
-            | "stopsequence"
-            | "stopsequences"
-            | "outputconfig"
-            | "taskbudget"
-            | "servicetier"
-            | "cachecontrol"
-            | "speed"
-            | "inferencegeo"
-            | "container"
-            | "contextmanagement"
-            | "mcpservers"
-            | "mcptoolset"
-            | "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "endpoint"
-            | "baseurl"
-            | "url"
-            | "host"
-            | "headers"
-            | "header"
-            | "anthropicversion"
-            | "anthropicbeta"
-            | "proxy"
-            | "tls"
-            | "audience"
-            | "method"
-            | "target"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
-    )
-}
-
-fn is_security_sensitive(name: &str) -> bool {
-    let name = compact_name(name);
-    matches!(
-        name.as_str(),
-        "apikey"
-            | "xapikey"
-            | "authorization"
-            | "auth"
-            | "token"
-            | "bearer"
-            | "endpoint"
-            | "baseurl"
-            | "url"
-            | "host"
-            | "headers"
-            | "header"
-            | "anthropicversion"
-            | "anthropicbeta"
-            | "proxy"
-            | "tls"
-            | "audience"
-            | "method"
-            | "target"
-            | "retry"
-            | "retrypolicy"
-            | "timeout"
-            | "connecttimeout"
-            | "readtimeout"
-            | "calltimeout"
-    ) || name.ends_with("apikey")
-        || name.ends_with("token")
-        || name.ends_with("credential")
-        || name.ends_with("credentials")
-        || name.ends_with("authorization")
-        || name.ends_with("endpoint")
-        || name.ends_with("baseurl")
-        || name.ends_with("headers")
 }
 
 fn compact_name(name: &str) -> String {
@@ -734,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_provider_values_cannot_override_canonical_or_security_fields() {
+    fn raw_provider_values_protect_top_level_authority_and_allow_nested_provider_data() {
         let canonical = ProviderOptions::checked_raw(
             ProviderId::new("anthropic").expect("provider"),
             json!({"model": "override"}),
@@ -744,9 +625,51 @@ mod tests {
 
         let nested_secret = ProviderOptions::checked_raw(
             ProviderId::new("anthropic").expect("provider"),
-            json!({"future_feature": {"authorization_token": "secret"}}),
+            json!({
+                "future_feature": {
+                    "url": "https://provider.example/mcp",
+                    "headers": {"Authorization": "provider-body-canary"},
+                    "authorization_token": "nested-token-canary"
+                },
+                "x-token-count-mode": "provider-defined"
+            }),
         )
         .expect("bounded raw options");
-        assert!(parse_patch(&nested_secret).is_err());
+        let mut options = MessagesCallOptions::new();
+        options.apply(parse_patch(&nested_secret).expect("nested provider data"));
+        let mut body = json!({"model": "future-model", "messages": []});
+        options
+            .apply_raw_body_overlay(&mut body)
+            .expect("raw overlay");
+        assert_eq!(
+            body["future_feature"]["headers"]["Authorization"],
+            "provider-body-canary"
+        );
+        assert_eq!(
+            body["future_feature"]["authorization_token"],
+            "nested-token-canary"
+        );
+        assert_eq!(body["x-token-count-mode"], "provider-defined");
+    }
+
+    #[test]
+    fn debug_redacts_typed_extra_and_raw_overlay_values() {
+        let mut options = MessagesCallOptions::new().with_extra(BTreeMap::from([(
+            "typed_extra".to_string(),
+            json!({"token": "typed-extra-canary"}),
+        )]));
+        let raw = ProviderOptions::checked_raw(
+            ProviderId::new("anthropic").expect("provider"),
+            json!({"future_feature": {"authorization_token": "raw-overlay-canary"}}),
+        )
+        .expect("bounded raw options");
+        options.apply(parse_patch(&raw).expect("raw patch"));
+
+        let debug = format!("{options:?}");
+        assert!(debug.contains("extra_field_count: 1"));
+        assert!(debug.contains("raw_overlay_field_count: 1"));
+        assert!(!debug.contains("typed-extra-canary"));
+        assert!(!debug.contains("raw-overlay-canary"));
+        assert!(!debug.contains("authorization_token"));
     }
 }

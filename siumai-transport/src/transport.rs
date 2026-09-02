@@ -16,20 +16,41 @@ use reqwest::dns::{Addrs, Name, Resolve as ReqwestResolve, Resolving};
 use reqwest::redirect;
 use siumai_core::{
     CallOptions, Cancellation, Error, ErrorKind, PublicDiagnosticText, ResponseDiagnostics,
-    RetryIntent, SensitiveResponse,
+    SensitiveResponse,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::{AuthApplier, AuthContext, AuthRefresh, NoAuth, append_credential_query};
 use crate::endpoint::{EndpointConfig, Resolver as ProviderResolver, SystemResolver};
+use crate::settings::ProviderHttpTransportSettings;
 use crate::{
-    ReplaySafety, RequestBuildError, RequestPlan, RetryPolicy, TransportConfigError,
-    TransportLimits,
+    EndpointError, HttpTransportRoute, ReplaySafety, RequestBuildError, RequestPlan,
+    TransportConfigError, TransportLimits,
 };
 
 const ERROR_BODY_CAPTURE_BYTES: usize = 64 * 1024;
-const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// Opaque correlation token for one provider HTTP transport execution.
+///
+/// The token carries no provider, model, account, route, URL, or payload
+/// identity. It remains stable across retries within one execution.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TransportCallId(uuid::Uuid);
+
+impl TransportCallId {
+    fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+}
+
+impl fmt::Debug for TransportCallId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("TransportCallId")
+            .field(&self.0)
+            .finish()
+    }
+}
 
 /// Sanitized reason for consuming another attempt from the logical-call budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,31 +62,98 @@ pub enum RetryReason {
     ServerUnavailable,
 }
 
+/// Structural authority that limits whether another attempt may occur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RetryLimit {
+    ReplaySafety,
+    ProviderPolicy,
+    CallerCap,
+    ServerDelayPolicy,
+    CallDeadline,
+}
+
+/// Payload-free result of the transport-owned attempt loop.
+///
+/// A buffered call ends when its response is ready to return. A streaming call
+/// ends when its byte stream is established; later body or protocol events are
+/// intentionally outside this observation boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AttemptLoopOutcome {
+    ResponseReturned { status: StatusCode },
+    StreamEstablished { status: StatusCode },
+    Failed { kind: ErrorKind },
+    Cancelled,
+    TimedOut,
+}
+
 /// Read-only, payload-free transport observation.
+///
+/// Events expose only bounded structural retry and lifecycle data. They never
+/// contain URLs, headers, credentials, bodies, prompts, provider error bodies,
+/// or provider/model/account identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransportEvent {
+    AttemptBudgetResolved {
+        call_id: TransportCallId,
+        provider_maximum_attempts: u8,
+        caller_maximum_attempts: Option<u8>,
+        effective_maximum_attempts: u8,
+        limiting_authority: RetryLimit,
+    },
     AttemptStarted {
+        call_id: TransportCallId,
         method: Method,
         attempt: u8,
         maximum_attempts: u8,
     },
-    ResponseReceived {
+    ResponseHeadReceived {
+        call_id: TransportCallId,
         status: StatusCode,
         attempt: u8,
+        retry_reason: Option<RetryReason>,
+        server_retry_after: Option<Duration>,
     },
     RetryScheduled {
+        call_id: TransportCallId,
         reason: RetryReason,
         completed_attempts: u8,
         delay: Duration,
     },
-    Completed {
-        status: StatusCode,
+    RetryDeclined {
+        call_id: TransportCallId,
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Option<Duration>,
+        limiting_authority: RetryLimit,
+    },
+    AttemptLoopFinished {
+        call_id: TransportCallId,
         attempts: u8,
+        outcome: AttemptLoopOutcome,
     },
 }
 
+impl TransportEvent {
+    /// Return the payload-free correlation token for this execution.
+    pub fn call_id(&self) -> TransportCallId {
+        match self {
+            Self::AttemptBudgetResolved { call_id, .. }
+            | Self::AttemptStarted { call_id, .. }
+            | Self::ResponseHeadReceived { call_id, .. }
+            | Self::RetryScheduled { call_id, .. }
+            | Self::RetryDeclined { call_id, .. }
+            | Self::AttemptLoopFinished { call_id, .. } => *call_id,
+        }
+    }
+}
+
 /// Observer that cannot inspect or mutate URLs, headers, or bodies.
+///
+/// Observation runs synchronously on the transport execution task. Implementors
+/// should perform bounded work and hand off any blocking export asynchronously.
 pub trait TransportObserver: Send + Sync {
     fn observe(&self, event: &TransportEvent);
 }
@@ -85,25 +173,13 @@ impl RetryClassifier for NoAdditionalRetryClassifier {
     }
 }
 
-#[derive(Debug, Default)]
-struct NoopObserver;
-
-impl TransportObserver for NoopObserver {
-    fn observe(&self, _event: &TransportEvent) {}
-}
-
 /// Builder for one provider-runtime-level transport.
 pub struct ProviderTransportBuilder {
     endpoint: EndpointConfig,
     resolver: Arc<dyn ProviderResolver>,
     auth: Arc<dyn AuthApplier>,
-    observer: Arc<dyn TransportObserver>,
     retry_classifier: Arc<dyn RetryClassifier>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Duration,
-    call_timeout: Duration,
-    read_timeout: Duration,
+    http_transport_settings: ProviderHttpTransportSettings,
 }
 
 impl ProviderTransportBuilder {
@@ -112,13 +188,8 @@ impl ProviderTransportBuilder {
             endpoint,
             resolver: Arc::new(SystemResolver),
             auth: Arc::new(NoAuth),
-            observer: Arc::new(NoopObserver),
             retry_classifier: Arc::new(NoAdditionalRetryClassifier),
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: Duration::from_secs(10),
-            call_timeout: DEFAULT_CALL_TIMEOUT,
-            read_timeout: DEFAULT_READ_TIMEOUT,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
         }
     }
 
@@ -132,81 +203,51 @@ impl ProviderTransportBuilder {
         self
     }
 
-    pub fn with_observer(mut self, observer: Arc<dyn TransportObserver>) -> Self {
-        self.observer = observer;
-        self
-    }
-
     pub fn with_retry_classifier(mut self, classifier: Arc<dyn RetryClassifier>) -> Self {
         self.retry_classifier = classifier;
         self
     }
 
-    pub fn with_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = timeout;
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = timeout;
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = timeout;
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    ///
+    /// Endpoint, authentication, DNS resolution, provider retry
+    /// classification, and per-request replay proof remain separate inputs.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
     /// Validate static settings without performing DNS, I/O, or credential work.
     pub fn build(self) -> Result<ProviderTransport, TransportConfigError> {
-        self.limits.validate()?;
-        for (name, timeout) in [
-            ("connect_timeout", self.connect_timeout),
-            ("call_timeout", self.call_timeout),
-            ("read_timeout", self.read_timeout),
-        ] {
-            if timeout.is_zero() {
-                return Err(TransportConfigError::ZeroTimeout { name });
-            }
-            if Instant::now().checked_add(timeout).is_none() {
-                return Err(TransportConfigError::TimeoutTooLarge { name });
-            }
-        }
-        let admission_capacity = self
-            .limits
+        self.http_transport_settings.validate()?;
+        self.http_transport_settings
+            .route()
+            .validate_for_endpoint(&self.endpoint)?;
+        let limits = self.http_transport_settings.limits();
+        let admission_capacity = limits
             .max_in_flight_requests
-            .checked_add(self.limits.max_queued_requests)
+            .checked_add(limits.max_queued_requests)
             .ok_or(TransportConfigError::CapacityOverflow)?;
-        let client = build_guarded_client(
-            &self.endpoint,
+        let maximum_in_flight = limits.max_in_flight_requests;
+        let client = HttpRouteReqwestClient::build(
+            self.http_transport_settings.route(),
+            guarded_client_builder(
+                self.http_transport_settings.connect_timeout(),
+                self.http_transport_settings.read_timeout(),
+                limits,
+            ),
+            Some(&self.endpoint),
             self.resolver,
-            self.connect_timeout,
-            self.read_timeout,
-            &self.limits,
-        )
-        .map_err(|_| TransportConfigError::ClientBuild)?;
+        )?;
         Ok(ProviderTransport {
             inner: Arc::new(TransportInner {
                 endpoint: self.endpoint,
                 auth: self.auth,
-                observer: self.observer,
                 retry_classifier: self.retry_classifier,
-                limits: self.limits.clone(),
-                retry_policy: self.retry_policy,
-                call_timeout: self.call_timeout,
+                http_transport_settings: self.http_transport_settings,
                 client,
                 admission: Arc::new(Semaphore::new(admission_capacity)),
-                in_flight: Arc::new(Semaphore::new(self.limits.max_in_flight_requests)),
+                in_flight: Arc::new(Semaphore::new(maximum_in_flight)),
             }),
         })
     }
@@ -228,7 +269,7 @@ impl ProviderTransport {
     }
 
     pub fn limits(&self) -> &TransportLimits {
-        &self.inner.limits
+        self.inner.http_transport_settings.limits()
     }
 
     /// Execute and buffer one response within the configured decompressed-byte limit.
@@ -237,55 +278,73 @@ impl ProviderTransport {
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<TransportResponse, Error> {
-        let pending = self.begin(plan, options).await?;
+        let call_id = TransportCallId::new();
+        let pending = self.begin(call_id, plan, options).await?;
         let PendingResponse {
             response,
             attempts,
             controls,
             permits: _permits,
         } = pending;
-        let status = response.status();
-        let headers = ResponseHeaders::checked(response.headers().clone(), &self.inner.limits)
-            .map_err(|error| response_limit_error(status, response.headers(), Vec::new(), error))?;
-        if let Some(length) = response.content_length()
-            && length > self.inner.limits.max_response_bytes as u64
-        {
-            return Err(response_limit_error(
-                status,
-                response.headers(),
-                Vec::new(),
-                "response Content-Length exceeds the configured limit",
-            ));
-        }
-
-        let mut body = BytesMut::new();
-        let mut stream = response.bytes_stream();
-        loop {
-            let next =
-                run_controlled(stream.next(), &controls.cancellation, controls.deadline).await?;
-            let Some(chunk) = next else {
-                break;
-            };
-            let chunk = chunk.map_err(transport_source_error)?;
-            if body.len().saturating_add(chunk.len()) > self.inner.limits.max_response_bytes {
+        let result = async {
+            let limits = self.inner.http_transport_settings.limits();
+            let status = response.status();
+            let headers =
+                ResponseHeaders::checked(response.headers().clone(), limits).map_err(|error| {
+                    response_limit_error(status, response.headers(), Vec::new(), error)
+                })?;
+            if let Some(length) = response.content_length()
+                && length > limits.max_response_bytes as u64
+            {
                 return Err(response_limit_error(
                     status,
-                    headers.expose(),
-                    bounded_body_prefix(&body, Some(&chunk), self.inner.limits.max_response_bytes),
-                    "response body exceeds the configured limit",
+                    response.headers(),
+                    Vec::new(),
+                    "response Content-Length exceeds the configured limit",
                 ));
             }
-            body.extend_from_slice(&chunk);
+
+            let mut body = BytesMut::new();
+            let mut stream = response.bytes_stream();
+            loop {
+                let next = run_controlled(stream.next(), &controls.cancellation, controls.deadline)
+                    .await?;
+                let Some(chunk) = next else {
+                    break;
+                };
+                let chunk = chunk.map_err(transport_source_error)?;
+                if body.len().saturating_add(chunk.len()) > limits.max_response_bytes {
+                    return Err(response_limit_error(
+                        status,
+                        headers.expose(),
+                        bounded_body_prefix(&body, Some(&chunk), limits.max_response_bytes),
+                        "response body exceeds the configured limit",
+                    ));
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(TransportResponse {
+                status,
+                headers,
+                body: body.freeze(),
+                attempts,
+            })
         }
-        self.inner
-            .observer
-            .observe(&TransportEvent::Completed { status, attempts });
-        Ok(TransportResponse {
-            status,
-            headers,
-            body: body.freeze(),
-            attempts,
-        })
+        .await;
+
+        match result {
+            Ok(response) => {
+                self.finish_attempt_loop(
+                    call_id,
+                    attempts,
+                    AttemptLoopOutcome::ResponseReturned {
+                        status: response.status(),
+                    },
+                );
+                Ok(response)
+            }
+            Err(error) => Err(self.finish_attempt_loop_error(call_id, attempts, error)),
+        }
     }
 
     /// Establish a response byte stream. Once returned, no transport replay occurs.
@@ -294,63 +353,107 @@ impl ProviderTransport {
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<TransportStreamResponse, Error> {
-        let pending = self.begin(plan, options).await?;
-        let status = pending.response.status();
-        let headers =
-            ResponseHeaders::checked(pending.response.headers().clone(), &self.inner.limits)
+        let call_id = TransportCallId::new();
+        let pending = self.begin(call_id, plan, options).await?;
+        let attempts = pending.attempts;
+        let result = (|| {
+            let limits = self.inner.http_transport_settings.limits();
+            let status = pending.response.status();
+            let headers = ResponseHeaders::checked(pending.response.headers().clone(), limits)
                 .map_err(|error| {
                     response_limit_error(status, pending.response.headers(), Vec::new(), error)
                 })?;
-        if let Some(length) = pending.response.content_length()
-            && length > self.inner.limits.max_response_bytes as u64
-        {
-            return Err(response_limit_error(
+            if let Some(length) = pending.response.content_length()
+                && length > limits.max_response_bytes as u64
+            {
+                return Err(response_limit_error(
+                    status,
+                    pending.response.headers(),
+                    Vec::new(),
+                    "response Content-Length exceeds the configured limit",
+                ));
+            }
+            let body = TransportByteStream::new(
+                pending.response.bytes_stream(),
+                pending.controls,
+                pending.permits,
+                limits.max_response_bytes,
                 status,
-                pending.response.headers(),
-                Vec::new(),
-                "response Content-Length exceeds the configured limit",
-            ));
+                headers.clone(),
+            );
+            Ok(TransportStreamResponse {
+                status,
+                headers,
+                body,
+                attempts,
+            })
+        })();
+
+        match result {
+            Ok(response) => {
+                self.finish_attempt_loop(
+                    call_id,
+                    attempts,
+                    AttemptLoopOutcome::StreamEstablished {
+                        status: response.status(),
+                    },
+                );
+                Ok(response)
+            }
+            Err(error) => Err(self.finish_attempt_loop_error(call_id, attempts, error)),
         }
-        self.inner.observer.observe(&TransportEvent::Completed {
-            status,
-            attempts: pending.attempts,
-        });
-        let body = TransportByteStream::new(
-            pending.response.bytes_stream(),
-            pending.controls,
-            pending.permits,
-            self.inner.limits.max_response_bytes,
-            status,
-            headers.clone(),
-        );
-        Ok(TransportStreamResponse {
-            status,
-            headers,
-            body,
-            attempts: pending.attempts,
-        })
     }
 
     async fn begin(
         &self,
+        call_id: TransportCallId,
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<PendingResponse, Error> {
         let controls = CallControls {
-            deadline: effective_deadline(options.deadline(), self.inner.call_timeout),
+            deadline: effective_deadline(
+                options.deadline(),
+                self.inner.http_transport_settings.call_timeout(),
+            ),
             cancellation: options.cancellation().child(),
         };
-        let permits = self.acquire(&controls).await?;
+        let provider_maximum_attempts = self
+            .inner
+            .http_transport_settings
+            .retry_policy()
+            .max_attempts();
+        let caller_maximum_attempts = options.retry().maximum_attempts();
+        let (maximum_attempts, budget_limit) = if !plan.replay_safety().permits_replay() {
+            (1, RetryLimit::ReplaySafety)
+        } else {
+            match caller_maximum_attempts {
+                Some(maximum) if maximum < provider_maximum_attempts => {
+                    (maximum, RetryLimit::CallerCap)
+                }
+                _ => (provider_maximum_attempts, RetryLimit::ProviderPolicy),
+            }
+        };
+        self.observe(TransportEvent::AttemptBudgetResolved {
+            call_id,
+            provider_maximum_attempts,
+            caller_maximum_attempts,
+            effective_maximum_attempts: maximum_attempts,
+            limiting_authority: budget_limit,
+        });
+        let permits = self
+            .acquire(&controls)
+            .await
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let prepared = plan
-            .prepare(&self.inner.limits)
-            .map_err(request_build_error)?;
+            .prepare(self.inner.http_transport_settings.limits())
+            .map_err(request_build_error)
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let url = self
             .inner
             .endpoint
             .request_url(plan.target())
-            .map_err(endpoint_runtime_error)?;
-        let retry_allowed =
-            options.retry() != RetryIntent::Never && plan.replay_safety().permits_replay();
+            .map_err(endpoint_runtime_error)
+            .map_err(|error| self.finish_attempt_loop_error(call_id, 0, error))?;
         let idempotency = match plan.replay_safety() {
             ReplaySafety::IdempotencyKey(header) => Some((
                 header.name().clone(),
@@ -359,24 +462,18 @@ impl ProviderTransport {
             )),
             ReplaySafety::Never | ReplaySafety::SemanticallyIdempotent => None,
         };
-        let maximum_attempts = if retry_allowed {
-            self.inner.retry_policy.max_attempts()
-        } else {
-            1
-        };
         let mut attempts = 0_u8;
         let mut refresh = AuthRefresh::Current;
         let mut refreshed_once = false;
 
         loop {
             attempts = attempts.saturating_add(1);
-            self.inner
-                .observer
-                .observe(&TransportEvent::AttemptStarted {
-                    method: plan.method().clone(),
-                    attempt: attempts,
-                    maximum_attempts,
-                });
+            self.observe(TransportEvent::AttemptStarted {
+                call_id,
+                method: plan.method().clone(),
+                attempt: attempts,
+                maximum_attempts,
+            });
             let attempt = self
                 .send_attempt(AttemptRequest {
                     plan: &plan,
@@ -391,47 +488,123 @@ impl ProviderTransport {
             let (response, credential_revision) = match attempt {
                 Ok(response) => response,
                 Err(failure) => {
-                    if attempts >= maximum_attempts || !failure.is_retryable() {
-                        return Err(failure.into_error());
+                    let retryable = failure.is_retryable();
+                    if attempts >= maximum_attempts || !retryable {
+                        if retryable {
+                            self.observe_retry_declined(
+                                call_id,
+                                RetryReason::Transport,
+                                attempts,
+                                None,
+                                budget_limit,
+                            );
+                        }
+                        let error = failure.into_error();
+                        return Err(self.finish_attempt_loop_error(call_id, attempts, error));
                     }
-                    self.backoff(RetryReason::Transport, attempts, None, &controls)
-                        .await?;
+                    let delay = match self.retry_delay(attempts, None, &controls) {
+                        RetryDelay::Schedule(delay) => delay,
+                        RetryDelay::Decline { .. } => {
+                            return Err(self.finish_attempt_loop_error(
+                                call_id,
+                                attempts,
+                                Error::new(
+                                    ErrorKind::Internal,
+                                    "local retry delay was declined unexpectedly",
+                                ),
+                            ));
+                        }
+                        RetryDelay::DeadlineExceeded => {
+                            self.observe_retry_declined(
+                                call_id,
+                                RetryReason::Transport,
+                                attempts,
+                                None,
+                                RetryLimit::CallDeadline,
+                            );
+                            return Err(self.finish_attempt_loop_error(
+                                call_id,
+                                attempts,
+                                Error::new(
+                                    ErrorKind::Timeout,
+                                    "provider retry delay exceeds the call deadline",
+                                ),
+                            ));
+                        }
+                    };
+                    if let Err(error) = self
+                        .wait_before_retry(
+                            call_id,
+                            RetryReason::Transport,
+                            attempts,
+                            delay,
+                            &controls,
+                        )
+                        .await
+                    {
+                        return Err(self.finish_attempt_loop_error(call_id, attempts, error));
+                    }
                     refresh = AuthRefresh::Current;
                     continue;
                 }
             };
 
-            if let Some(remote) = response.remote_addr()
-                && self.inner.endpoint.validate_remote(remote).is_err()
-            {
-                return Err(Error::new(
-                    ErrorKind::Transport,
-                    "connected peer does not match the validated endpoint",
+            if self.inner.client.validate_response_peer(&response).is_err() {
+                return Err(self.finish_attempt_loop_error(
+                    call_id,
+                    attempts,
+                    Error::new(
+                        ErrorKind::Transport,
+                        "connected peer does not match the validated endpoint",
+                    ),
                 ));
             }
-            ResponseHeaders::validate(response.headers(), &self.inner.limits).map_err(|error| {
-                response_limit_error(response.status(), response.headers(), Vec::new(), error)
-            })?;
-            self.inner
-                .observer
-                .observe(&TransportEvent::ResponseReceived {
-                    status: response.status(),
-                    attempt: attempts,
-                });
-
+            if let Err(error) = ResponseHeaders::validate(
+                response.headers(),
+                self.inner.http_transport_settings.limits(),
+            ) {
+                let error =
+                    response_limit_error(response.status(), response.headers(), Vec::new(), error);
+                return Err(self.finish_attempt_loop_error(call_id, attempts, error));
+            }
+            let can_refresh = response.status() == StatusCode::UNAUTHORIZED
+                && self.inner.auth.supports_refresh()
+                && !refreshed_once
+                && credential_revision.is_some();
             let retry_reason = standard_retry_reason(response.status()).or_else(|| {
                 self.inner
                     .retry_classifier
                     .classify_status(response.status())
             });
-            let can_refresh = response.status() == StatusCode::UNAUTHORIZED
-                && self.inner.auth.supports_refresh()
-                && !refreshed_once
-                && credential_revision.is_some();
-            let should_retry = attempts < maximum_attempts
-                && retry_reason.is_some()
-                && (response.status() != StatusCode::UNAUTHORIZED || can_refresh);
-            if !should_retry {
+            let retry_reason = match retry_reason {
+                Some(RetryReason::Unauthorized) if !can_refresh => None,
+                reason => reason,
+            };
+            let server_retry_after = retry_reason.and_then(|_| retry_after(response.headers()));
+            self.observe(TransportEvent::ResponseHeadReceived {
+                call_id,
+                status: response.status(),
+                attempt: attempts,
+                retry_reason,
+                server_retry_after,
+            });
+
+            let Some(reason) = retry_reason else {
+                return Ok(PendingResponse {
+                    response,
+                    attempts,
+                    controls,
+                    permits,
+                });
+            };
+            if attempts >= maximum_attempts {
+                self.observe_retry_declined(
+                    call_id,
+                    reason,
+                    attempts,
+                    server_retry_after,
+                    budget_limit,
+                );
                 return Ok(PendingResponse {
                     response,
                     attempts,
@@ -439,17 +612,64 @@ impl ProviderTransport {
                     permits,
                 });
             }
-
-            let reason = retry_reason.expect("retry reason was checked");
-            let retry_after = retry_after(response.headers());
+            let delay = match self.retry_delay(attempts, server_retry_after, &controls) {
+                RetryDelay::Schedule(delay) => delay,
+                RetryDelay::Decline {
+                    delay,
+                    limiting_authority,
+                } => {
+                    self.observe_retry_declined(
+                        call_id,
+                        reason,
+                        attempts,
+                        Some(delay),
+                        limiting_authority,
+                    );
+                    return Ok(PendingResponse {
+                        response,
+                        attempts,
+                        controls,
+                        permits,
+                    });
+                }
+                RetryDelay::DeadlineExceeded => {
+                    self.observe_retry_declined(
+                        call_id,
+                        reason,
+                        attempts,
+                        None,
+                        RetryLimit::CallDeadline,
+                    );
+                    return Err(self.finish_attempt_loop_error(
+                        call_id,
+                        attempts,
+                        Error::new(
+                            ErrorKind::Timeout,
+                            "provider retry delay exceeds the call deadline",
+                        ),
+                    ));
+                }
+            };
             drop(response);
-            self.backoff(reason, attempts, retry_after, &controls)
-                .await?;
+            if let Err(error) = self
+                .wait_before_retry(call_id, reason, attempts, delay, &controls)
+                .await
+            {
+                return Err(self.finish_attempt_loop_error(call_id, attempts, error));
+            }
             if can_refresh {
-                refreshed_once = true;
-                refresh = AuthRefresh::AfterUnauthorized {
-                    rejected_revision: credential_revision.expect("refresh requires a revision"),
+                let Some(rejected_revision) = credential_revision else {
+                    return Err(self.finish_attempt_loop_error(
+                        call_id,
+                        attempts,
+                        Error::new(
+                            ErrorKind::Internal,
+                            "credential refresh revision was unavailable",
+                        ),
+                    ));
                 };
+                refreshed_once = true;
+                refresh = AuthRefresh::AfterUnauthorized { rejected_revision };
             } else {
                 refresh = AuthRefresh::Current;
             }
@@ -503,10 +723,11 @@ impl ProviderTransport {
             }
             headers.insert(name.clone(), value.clone());
         }
-        if headers.len() > self.inner.limits.max_header_count
+        let limits = self.inner.http_transport_settings.limits();
+        if headers.len() > limits.max_header_count
             || headers
                 .values()
-                .any(|value| value.as_bytes().len() > self.inner.limits.max_header_value_bytes)
+                .any(|value| value.as_bytes().len() > limits.max_header_value_bytes)
         {
             return Err(AttemptFailure::Fatal(request_build_error(
                 RequestBuildError::TooManyHeaders,
@@ -554,40 +775,76 @@ impl ProviderTransport {
         })
     }
 
-    async fn backoff(
+    fn retry_delay(
         &self,
-        reason: RetryReason,
         completed_attempts: u8,
         retry_after: Option<Duration>,
         controls: &CallControls,
-    ) -> Result<(), Error> {
+    ) -> RetryDelay {
         let delay = if let Some(retry_after) = retry_after {
             retry_after
         } else {
-            let upper = self.inner.retry_policy.backoff_for(completed_attempts);
-            if upper.is_zero() || !self.inner.retry_policy.uses_jitter() {
+            let retry_policy = self.inner.http_transport_settings.retry_policy();
+            let upper = retry_policy.backoff_for(completed_attempts);
+            if upper.is_zero() || !retry_policy.uses_jitter() {
                 upper
             } else {
                 let upper_millis = upper.as_millis().min(u128::from(u64::MAX)) as u64;
                 Duration::from_millis(rand::random_range(0..=upper_millis))
             }
         };
-        if let Some(deadline) = controls.deadline {
-            let retry_at = Instant::now().checked_add(delay);
-            if retry_at.is_none_or(|retry_at| retry_at >= deadline) {
-                return Err(Error::new(
-                    ErrorKind::Timeout,
-                    "provider retry delay exceeds the call deadline",
-                ));
-            }
-        }
-        self.inner
-            .observer
-            .observe(&TransportEvent::RetryScheduled {
-                reason,
-                completed_attempts,
+        if retry_after.is_some()
+            && delay
+                > self
+                    .inner
+                    .http_transport_settings
+                    .retry_policy()
+                    .max_server_delay()
+        {
+            return RetryDelay::Decline {
                 delay,
-            });
+                limiting_authority: RetryLimit::ServerDelayPolicy,
+            };
+        }
+        let retry_at = Instant::now().checked_add(delay);
+        if let Some(deadline) = controls.deadline {
+            if retry_at.is_none_or(|retry_at| retry_at >= deadline) {
+                return if retry_after.is_some() {
+                    RetryDelay::Decline {
+                        delay,
+                        limiting_authority: RetryLimit::CallDeadline,
+                    }
+                } else {
+                    RetryDelay::DeadlineExceeded
+                };
+            }
+        } else if retry_at.is_none() {
+            return if retry_after.is_some() {
+                RetryDelay::Decline {
+                    delay,
+                    limiting_authority: RetryLimit::ServerDelayPolicy,
+                }
+            } else {
+                RetryDelay::DeadlineExceeded
+            };
+        }
+        RetryDelay::Schedule(delay)
+    }
+
+    async fn wait_before_retry(
+        &self,
+        call_id: TransportCallId,
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Duration,
+        controls: &CallControls,
+    ) -> Result<(), Error> {
+        self.observe(TransportEvent::RetryScheduled {
+            call_id,
+            reason,
+            completed_attempts,
+            delay,
+        });
         if !delay.is_zero() {
             run_controlled(
                 tokio::time::sleep(delay),
@@ -598,6 +855,67 @@ impl ProviderTransport {
         }
         Ok(())
     }
+
+    fn observe_retry_declined(
+        &self,
+        call_id: TransportCallId,
+        reason: RetryReason,
+        completed_attempts: u8,
+        delay: Option<Duration>,
+        limiting_authority: RetryLimit,
+    ) {
+        self.observe(TransportEvent::RetryDeclined {
+            call_id,
+            reason,
+            completed_attempts,
+            delay,
+            limiting_authority,
+        });
+    }
+
+    fn observe(&self, event: TransportEvent) {
+        self.inner
+            .http_transport_settings
+            .observer()
+            .observe(&event);
+    }
+
+    fn finish_attempt_loop(
+        &self,
+        call_id: TransportCallId,
+        attempts: u8,
+        outcome: AttemptLoopOutcome,
+    ) {
+        self.observe(TransportEvent::AttemptLoopFinished {
+            call_id,
+            attempts,
+            outcome,
+        });
+    }
+
+    fn finish_attempt_loop_error(
+        &self,
+        call_id: TransportCallId,
+        attempts: u8,
+        error: Error,
+    ) -> Error {
+        let outcome = match error.kind() {
+            ErrorKind::Cancelled => AttemptLoopOutcome::Cancelled,
+            ErrorKind::Timeout => AttemptLoopOutcome::TimedOut,
+            kind => AttemptLoopOutcome::Failed { kind },
+        };
+        self.finish_attempt_loop(call_id, attempts, outcome);
+        error
+    }
+}
+
+enum RetryDelay {
+    Schedule(Duration),
+    Decline {
+        delay: Duration,
+        limiting_authority: RetryLimit,
+    },
+    DeadlineExceeded,
 }
 
 impl fmt::Debug for ProviderTransport {
@@ -605,8 +923,10 @@ impl fmt::Debug for ProviderTransport {
         formatter
             .debug_struct("ProviderTransport")
             .field("endpoint", &self.inner.endpoint)
-            .field("limits", &self.inner.limits)
-            .field("retry_policy", &self.inner.retry_policy)
+            .field(
+                "http_transport_settings",
+                &self.inner.http_transport_settings,
+            )
             .finish()
     }
 }
@@ -614,12 +934,9 @@ impl fmt::Debug for ProviderTransport {
 struct TransportInner {
     endpoint: EndpointConfig,
     auth: Arc<dyn AuthApplier>,
-    observer: Arc<dyn TransportObserver>,
     retry_classifier: Arc<dyn RetryClassifier>,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    call_timeout: Duration,
-    client: reqwest::Client,
+    http_transport_settings: ProviderHttpTransportSettings,
+    client: HttpRouteReqwestClient,
     admission: Arc<Semaphore>,
     in_flight: Arc<Semaphore>,
 }
@@ -627,6 +944,71 @@ struct TransportInner {
 struct GuardedDnsResolver {
     endpoint: EndpointConfig,
     resolver: Arc<dyn ProviderResolver>,
+}
+
+#[derive(Clone)]
+struct HttpRouteReqwestClient {
+    client: reqwest::Client,
+    network_endpoint: Option<EndpointConfig>,
+    require_remote_peer: bool,
+}
+
+impl HttpRouteReqwestClient {
+    /// Build one route-aware client from caller-owned lifecycle settings.
+    ///
+    /// `direct_endpoint` is supplied by provider transport so Direct keeps its
+    /// existing DNS and peer guard. MCP passes `None` so Direct keeps its
+    /// existing origin-resolution behavior; a trusted CONNECT route always
+    /// guards the proxy endpoint instead. The caller still owns validation of
+    /// the logical request destination; this adapter owns only the selected
+    /// network route and peer.
+    fn build(
+        route: &HttpTransportRoute,
+        builder: reqwest::ClientBuilder,
+        direct_endpoint: Option<&EndpointConfig>,
+        resolver: Arc<dyn ProviderResolver>,
+    ) -> Result<Self, TransportConfigError> {
+        let network_endpoint = route
+            .proxy()
+            .map(|proxy| proxy.endpoint().clone())
+            .or_else(|| direct_endpoint.cloned());
+        let mut builder = builder
+            .redirect(redirect::Policy::none())
+            .referer(false)
+            .no_proxy()
+            .retry(reqwest::retry::never());
+        if let Some(endpoint) = &network_endpoint {
+            builder = builder.dns_resolver(GuardedDnsResolver {
+                endpoint: endpoint.clone(),
+                resolver,
+            });
+        }
+        if let Some(proxy_config) = route.build_reqwest_proxy()? {
+            builder = builder.proxy(proxy_config);
+        }
+        let client = builder
+            .build()
+            .map_err(|_| TransportConfigError::ClientBuild)?;
+        Ok(Self {
+            client,
+            network_endpoint,
+            require_remote_peer: route.proxy().is_some(),
+        })
+    }
+
+    /// Start one request without exposing the configured reqwest client.
+    fn request(&self, method: Method, url: impl reqwest::IntoUrl) -> reqwest::RequestBuilder {
+        self.client.request(method, url)
+    }
+
+    /// Validate the connected network peer selected for this route.
+    fn validate_response_peer(&self, response: &reqwest::Response) -> Result<(), EndpointError> {
+        match (&self.network_endpoint, response.remote_addr()) {
+            (Some(endpoint), Some(remote)) => endpoint.validate_remote(remote),
+            (Some(_), None) if self.require_remote_peer => Err(EndpointError::AddressNotAllowed),
+            (Some(_) | None, None) | (None, Some(_)) => Ok(()),
+        }
+    }
 }
 
 impl ReqwestResolve for GuardedDnsResolver {
@@ -653,6 +1035,19 @@ pub(crate) fn build_guarded_client(
     read_timeout: Duration,
     limits: &TransportLimits,
 ) -> Result<reqwest::Client, reqwest::Error> {
+    guarded_client_builder(connect_timeout, read_timeout, limits)
+        .dns_resolver(GuardedDnsResolver {
+            endpoint: endpoint.clone(),
+            resolver,
+        })
+        .build()
+}
+
+fn guarded_client_builder(
+    connect_timeout: Duration,
+    read_timeout: Duration,
+    limits: &TransportLimits,
+) -> reqwest::ClientBuilder {
     let maximum_header_bytes = limits
         .max_header_count
         .saturating_mul(limits.max_header_value_bytes)
@@ -662,17 +1057,12 @@ pub(crate) fn build_guarded_client(
         .referer(false)
         .no_proxy()
         .retry(reqwest::retry::never())
-        .dns_resolver(GuardedDnsResolver {
-            endpoint: endpoint.clone(),
-            resolver,
-        })
         .connect_timeout(connect_timeout)
         .read_timeout(read_timeout)
         .http2_max_header_list_size(maximum_header_bytes)
         .pool_max_idle_per_host(limits.max_connections)
         .tcp_nodelay(true)
         .user_agent(concat!("siumai-transport/", env!("CARGO_PKG_VERSION")))
-        .build()
 }
 
 struct PendingResponse {
@@ -1223,5 +1613,368 @@ mod call_control_tests {
             .unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::Cancelled);
+    }
+}
+
+#[cfg(test)]
+mod trusted_connect_tls_tests {
+    use super::*;
+    use std::net::SocketAddr;
+
+    use async_trait::async_trait;
+    use base64::Engine as _;
+    use http::header::AUTHORIZATION;
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::rustls::ServerConfig;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+
+    use crate::{
+        CredentialPatch, EndpointError, HttpTransportRoute, ProxyBasicCredential, ProxyEndpoint,
+        Resolver,
+    };
+
+    // Offline `.example.test` certificate fixtures; these are not credentials.
+    const TEST_CA_DER: &str = "MIIBpzCCAU2gAwIBAgIUbTYlr1376Yr/+ZGcs/7LTVRAn9owCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCExHzAdBgNVBAMMFlNpdW1haSBPZmZsaW5lIFRlc3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATS9UwJf41omyTuG43+oHO6FXHq3G1Msddvu66IHfd3+PDaPqSiY8XDX+Ey5d3EAgKWxzILQUfOPT0QCt9RacK6o2MwYTAdBgNVHQ4EFgQUEpo8dhQlLwIWZeaCSQlAUGUGuu0wHwYDVR0jBBgwFoAUEpo8dhQlLwIWZeaCSQlAUGUGuu0wDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwIDSAAwRQIhAO8iTQUm3hTksiBftChN8ziP91dYm3pH5iYJyqa4e5pOAiBbPFSbx5UM0wSdVkmEYs7+B2Dw7gZBCoB1OwphmBlrLg==";
+    const PROXY_CERT_DER: &str = "MIIB1zCCAXygAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGYwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMB0xGzAZBgNVBAMMEnByb3h5LmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJOBb+14giMbsCKDztTFG65FCL39GGl9sIl8C/I8AkR5aqjzEB1U9XtFjTHUeabjyodO5JTv3ZB/MhF+EQV6K/WjgZUwgZIwHQYDVR0RBBYwFIIScHJveHkuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBRFpAwYyf389PxKkdIFuETkW59wIzAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEArYfyumOCRVrLAJosZ9O0ecknTdbOe3aCRbcthT7s58sCIQDuq995l+HAm+PoJsx0DhVeKpjPDDkJLuxT8/eOXLEMcg==";
+    const PROXY_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgYlViovjr5cdWq8MDvDUlYGhAPFNKp5+ExoX0wpYHyCqhRANCAASTgW/teIIjG7Aig87UxRuuRQi9/RhpfbCJfAvyPAJEeWqo8xAdVPV7RY0x1Hmm48qHTuSU792QfzIRfhEFeiv1";
+    const PROVIDER_CERT_DER: &str = "MIIB3TCCAYKgAwIBAgIUeauQEUJf7Pl280FQrQf3FSHAFGcwCgYIKoZIzj0EAwIwITEfMB0GA1UEAwwWU2l1bWFpIE9mZmxpbmUgVGVzdCBDQTAeFw0yNjA4MTcwNTQ5MzZaFw0zNjA4MTQwNTQ5MzZaMCAxHjAcBgNVBAMMFXByb3ZpZGVyLmV4YW1wbGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABNrtKG7bQ83W+iw+kj39Wuwp5mE01ezAJbR+9NZeCTvg2YYMSmXnXwDniIviSyJwK3dh8MfSbUIx2GEs81eobQWjgZgwgZUwIAYDVR0RBBkwF4IVcHJvdmlkZXIuZXhhbXBsZS50ZXN0MAwGA1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMB0GA1UdDgQWBBQ2L3md9NSIZIaY4RUoxlP0eziwaTAfBgNVHSMEGDAWgBQSmjx2FCUvAhZl5oJJCUBQZQa67TAKBggqhkjOPQQDAgNJADBGAiEAiU7zCZp7WT9f1w2OJ6z84Cj4Lo3yASg0RbqGucZTzrkCIQC9Q+REa8I+UT2EVXZl5JobOhaFxYvDrZmyKGZxBEdtiQ==";
+    const PROVIDER_KEY_DER: &str = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgw91aPqnWKZ/kNPOkZC8uPc/RncGLJZDegIMETxlFlTihRANCAATa7Shu20PN1vosPpI9/VrsKeZhNNXswCW0fvTWXgk74NmGDEpl518A54iL4ksicCt3YfDH0m1CMdhhLPNXqG0F";
+
+    struct FixtureResolver(SocketAddr);
+
+    #[async_trait]
+    impl Resolver for FixtureResolver {
+        async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>, EndpointError> {
+            Ok(vec![self.0])
+        }
+    }
+
+    struct ProviderBearerAuth;
+
+    #[async_trait]
+    impl AuthApplier for ProviderBearerAuth {
+        async fn apply(
+            &self,
+            _context: AuthContext<'_>,
+            _refresh: AuthRefresh,
+        ) -> Result<CredentialPatch, Error> {
+            CredentialPatch::new()
+                .try_insert(
+                    AUTHORIZATION,
+                    HeaderValue::from_static("Bearer provider-secret"),
+                )
+                .and_then(|patch| patch.try_insert_query("key", "provider-query-secret"))
+                .map_err(|_| {
+                    Error::new(
+                        ErrorKind::Authentication,
+                        "provider credential construction failed",
+                    )
+                })
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_nested_tls_and_credential_phases() {
+        let (proxy_address, server) = spawn_nested_tls_proxy(b"ok").await;
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "https://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let route = HttpTransportRoute::trusted_connect(proxy)
+            .with_basic_auth(ProxyBasicCredential::new("proxy-user", "proxy-secret").unwrap())
+            .unwrap();
+        let transport = test_transport(
+            proxy_address,
+            route,
+            TransportLimits::default(),
+            Arc::new(ProviderBearerAuth),
+        );
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            transport.execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response.body(), &Bytes::from_static(b"ok"));
+
+        let (connect, provider_request) = server.await.unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+        assert_eq!(
+            header(&connect, "proxy-authorization"),
+            Some("Basic cHJveHktdXNlcjpwcm94eS1zZWNyZXQ=")
+        );
+        assert!(header(&connect, "authorization").is_none());
+        assert!(!connect.contains("provider-query-secret"));
+
+        assert!(
+            provider_request.starts_with("GET /v1/models?key=provider-query-secret HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            header(&provider_request, "authorization"),
+            Some("Bearer provider-secret")
+        );
+        assert!(header(&provider_request, "proxy-authorization").is_none());
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_provider_response_bounds() {
+        let (proxy_address, server) = spawn_nested_tls_proxy(b"provider-response-secret").await;
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "https://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let route = HttpTransportRoute::trusted_connect(proxy);
+        let transport = test_transport(
+            proxy_address,
+            route,
+            TransportLimits {
+                max_response_bytes: 4,
+                ..TransportLimits::default()
+            },
+            Arc::new(NoAuth),
+        );
+        let error = transport
+            .execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ResponseLimit);
+        for surface in [format!("{error:?}"), error.to_string()] {
+            assert!(!surface.contains("provider-response-secret"));
+            assert!(!surface.contains("provider.example.test"));
+            assert!(!surface.contains("proxy.example.test"));
+        }
+
+        let (connect, provider_request) = server.await.unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+        assert!(provider_request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn trusted_connect_preserves_the_shared_admission_bound() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let (connect_sender, connect_receiver) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let connect = read_http_head(&mut socket).await;
+            let _ = connect_sender.send(connect);
+            let mut byte = [0_u8; 1];
+            while socket.read(&mut byte).await.unwrap_or(0) != 0 {}
+        });
+        let proxy = ProxyEndpoint::local_explicit(format!(
+            "http://proxy.example.test:{}",
+            proxy_address.port()
+        ))
+        .unwrap();
+        let limits = TransportLimits {
+            max_connections: 1,
+            max_in_flight_requests: 1,
+            max_queued_requests: 1,
+            ..TransportLimits::default()
+        };
+        let transport = ProviderTransport::builder(
+            EndpointConfig::public_custom("https://provider.example.test/v1").unwrap(),
+        )
+        .with_resolver(Arc::new(FixtureResolver(proxy_address)))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_limits(limits)
+                .unwrap()
+                .with_route(HttpTransportRoute::trusted_connect(proxy))
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+
+        let first_cancellation = Cancellation::new();
+        let first = {
+            let transport = transport.clone();
+            let cancellation = first_cancellation.clone();
+            tokio::spawn(async move {
+                transport
+                    .execute(
+                        RequestPlan::new(Method::GET, crate::RequestTarget::new("first").unwrap()),
+                        CallOptions::default().with_cancellation(cancellation),
+                    )
+                    .await
+            })
+        };
+        let connect = tokio::time::timeout(Duration::from_secs(1), connect_receiver)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(connect.starts_with("CONNECT provider.example.test:443 HTTP/1.1\r\n"));
+
+        let second_cancellation = Cancellation::new();
+        let second = {
+            let transport = transport.clone();
+            let cancellation = second_cancellation.clone();
+            tokio::spawn(async move {
+                transport
+                    .execute(
+                        RequestPlan::new(Method::GET, crate::RequestTarget::new("second").unwrap()),
+                        CallOptions::default().with_cancellation(cancellation),
+                    )
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while transport.inner.admission.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the queued call must consume the only queue permit");
+
+        let error = transport
+            .execute(
+                RequestPlan::new(Method::GET, crate::RequestTarget::new("third").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(error.message(), "transport request queue is full");
+        for surface in [format!("{error:?}"), error.to_string()] {
+            assert!(!surface.contains("provider.example.test"));
+            assert!(!surface.contains("proxy.example.test"));
+        }
+
+        second_cancellation.cancel();
+        assert_eq!(
+            second.await.unwrap().unwrap_err().kind(),
+            ErrorKind::Cancelled
+        );
+        first_cancellation.cancel();
+        assert_eq!(
+            first.await.unwrap().unwrap_err().kind(),
+            ErrorKind::Cancelled
+        );
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    async fn spawn_nested_tls_proxy(
+        provider_body: &'static [u8],
+    ) -> (SocketAddr, tokio::task::JoinHandle<(String, String)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let proxy_acceptor = tls_acceptor(PROXY_CERT_DER, PROXY_KEY_DER);
+        let provider_acceptor = tls_acceptor(PROVIDER_CERT_DER, PROVIDER_KEY_DER);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut proxy_tls = proxy_acceptor.accept(socket).await.unwrap();
+            let connect = read_http_head(&mut proxy_tls).await;
+            proxy_tls
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .unwrap();
+
+            let mut provider_tls = provider_acceptor.accept(proxy_tls).await.unwrap();
+            let provider_request = read_http_head(&mut provider_tls).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                provider_body.len()
+            );
+            provider_tls.write_all(response.as_bytes()).await.unwrap();
+            provider_tls.write_all(provider_body).await.unwrap();
+            (connect, provider_request)
+        });
+        (proxy_address, server)
+    }
+
+    fn test_transport(
+        proxy_address: SocketAddr,
+        route: HttpTransportRoute,
+        limits: TransportLimits,
+        auth: Arc<dyn AuthApplier>,
+    ) -> ProviderTransport {
+        let settings = ProviderHttpTransportSettings::default()
+            .with_limits(limits.clone())
+            .unwrap()
+            .with_route(route)
+            .unwrap();
+        let builder =
+            guarded_client_builder(Duration::from_secs(2), Duration::from_secs(2), &limits)
+                .tls_certs_only([reqwest::Certificate::from_der(&decode(TEST_CA_DER)).unwrap()]);
+        let client = HttpRouteReqwestClient::build(
+            settings.route(),
+            builder,
+            Some(&EndpointConfig::public_custom("https://provider.example.test/v1").unwrap()),
+            Arc::new(FixtureResolver(proxy_address)),
+        )
+        .unwrap();
+        ProviderTransport {
+            inner: Arc::new(TransportInner {
+                endpoint: EndpointConfig::public_custom("https://provider.example.test/v1")
+                    .unwrap(),
+                auth,
+                retry_classifier: Arc::new(NoAdditionalRetryClassifier),
+                http_transport_settings: settings,
+                client,
+                admission: Arc::new(Semaphore::new(
+                    limits.max_in_flight_requests + limits.max_queued_requests,
+                )),
+                in_flight: Arc::new(Semaphore::new(limits.max_in_flight_requests)),
+            }),
+        }
+    }
+
+    fn tls_acceptor(certificate: &str, private_key: &str) -> TlsAcceptor {
+        let certificate = CertificateDer::from(decode(certificate));
+        let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(decode(private_key)));
+        let config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![certificate], private_key)
+            .unwrap();
+        TlsAcceptor::from(Arc::new(config))
+    }
+
+    fn decode(value: &str) -> Vec<u8> {
+        base64::engine::general_purpose::STANDARD
+            .decode(value)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(value))
+            .unwrap()
+    }
+
+    async fn read_http_head<S>(stream: &mut S) -> String
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let mut bytes = Vec::new();
+        loop {
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                return String::from_utf8(bytes[..end + 4].to_vec()).unwrap();
+            }
+            assert!(
+                bytes.len() <= 16 * 1024,
+                "fixture HTTP head exceeded its bound"
+            );
+            let mut chunk = [0_u8; 1024];
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0, "fixture connection ended before the HTTP head");
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+    }
+
+    fn header<'a>(head: &'a str, expected: &str) -> Option<&'a str> {
+        head.lines().skip(1).find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case(expected).then(|| value.trim())
+        })
     }
 }

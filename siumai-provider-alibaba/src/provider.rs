@@ -25,8 +25,9 @@ use siumai_openai_compatible::{
     OpenAiCompatibleProvider,
 };
 use siumai_transport::{
-    AuthApplier, EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin, ProviderTransport,
-    ReplaySafety, ResourceDownloader, RetryPolicy, TransportConfigError, TransportLimits,
+    AuthApplier, EndpointConfig, EndpointError, EndpointPolicy, OfficialOrigin,
+    ProviderHttpTransportSettings, ProviderTransport, ReplaySafety, ResourceDownloader,
+    TransportConfigError, TransportLimits,
 };
 use thiserror::Error as ThisError;
 
@@ -365,11 +366,11 @@ pub struct AlibabaProviderBuilder {
     embedding_endpoint: Option<Result<ConfiguredEndpoint, EndpointError>>,
     video_endpoint: Option<Result<ConfiguredEndpoint, EndpointError>>,
     video_download_policy: AlibabaVideoDownloadPolicy,
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
+    video_download_limits: TransportLimits,
+    video_download_connect_timeout: Option<Duration>,
+    video_download_timeout: Option<Duration>,
+    video_download_read_timeout: Option<Duration>,
+    http_transport_settings: ProviderHttpTransportSettings,
     chat_defaults: AlibabaChatOptions,
     responses_defaults: AlibabaResponsesOptions,
     messages_defaults: AlibabaMessagesOptions,
@@ -387,11 +388,11 @@ impl AlibabaProviderBuilder {
             embedding_endpoint: None,
             video_endpoint: None,
             video_download_policy: AlibabaVideoDownloadPolicy::default(),
-            limits: TransportLimits::default(),
-            retry_policy: RetryPolicy::default(),
-            connect_timeout: None,
-            call_timeout: None,
-            read_timeout: None,
+            video_download_limits: TransportLimits::default(),
+            video_download_connect_timeout: None,
+            video_download_timeout: None,
+            video_download_read_timeout: None,
+            http_transport_settings: ProviderHttpTransportSettings::default(),
             chat_defaults: AlibabaChatOptions::default(),
             responses_defaults: AlibabaResponsesOptions::default(),
             messages_defaults: AlibabaMessagesOptions::default(),
@@ -511,28 +512,9 @@ impl AlibabaProviderBuilder {
         self
     }
 
-    pub fn with_transport_limits(mut self, limits: TransportLimits) -> Self {
-        self.limits = limits;
-        self
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_call_timeout(mut self, timeout: Duration) -> Self {
-        self.call_timeout = Some(timeout);
-        self
-    }
-
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(timeout);
+    /// Apply the complete provider stateless-HTTP infrastructure settings.
+    pub fn with_http_transport_settings(mut self, settings: ProviderHttpTransportSettings) -> Self {
+        self.http_transport_settings = settings;
         self
     }
 
@@ -606,36 +588,25 @@ impl AlibabaProviderBuilder {
                 Ok(replay_domain)
             })
             .transpose()?;
-        let native_transport_settings = NativeTransportSettings {
-            limits: self.limits.clone(),
-            retry_policy: self.retry_policy,
-            connect_timeout: self.connect_timeout,
-            call_timeout: self.call_timeout,
-            read_timeout: self.read_timeout,
-        };
         self.credential.0.validate_static()?;
         let auth = self.credential.0.into_auth();
         let instance_id = ProviderInstanceId::new();
+        let mut transports = Vec::new();
         let language = language_endpoint
             .zip(language_replay_domain)
             .map(|(configured, replay_domain)| {
                 let verified_endpoint = configured.source == EndpointSource::ProviderOwned;
                 let endpoint = configured.endpoint;
+                let transport = shared_provider_transport(
+                    &mut transports,
+                    endpoint.clone(),
+                    auth.clone(),
+                    &self.http_transport_settings,
+                )?;
                 let profile = profile(endpoint, verified_endpoint, replay_domain)?;
                 let mut builder =
-                    OpenAiCompatibleProvider::builder_with_auth(profile, auth.clone())
-                        .with_provider_instance(instance_id.clone())
-                        .with_limits(self.limits.clone())
-                        .with_retry_policy(self.retry_policy);
-                if let Some(timeout) = self.connect_timeout {
-                    builder = builder.with_connect_timeout(timeout);
-                }
-                if let Some(timeout) = self.call_timeout {
-                    builder = builder.with_call_timeout(timeout);
-                }
-                if let Some(timeout) = self.read_timeout {
-                    builder = builder.with_read_timeout(timeout);
-                }
+                    OpenAiCompatibleProvider::builder_with_transport(profile, transport)
+                        .with_provider_instance(instance_id.clone());
                 for (name, value) in option_map(&self.chat_defaults)? {
                     builder = builder.with_default_option(
                         OpenAiCompatibleApiMode::ChatCompletions,
@@ -657,23 +628,18 @@ impl AlibabaProviderBuilder {
             .zip(messages_replay_domain)
             .map(|(configured, replay_domain)| {
                 let verified_endpoint = configured.source == EndpointSource::ProviderOwned;
-                let profile =
-                    messages_profile(configured.endpoint, verified_endpoint, replay_domain)?;
-                let mut builder =
-                    AnthropicCompatibleProvider::builder_with_auth(profile, auth.clone())
+                let endpoint = configured.endpoint;
+                let transport = shared_provider_transport(
+                    &mut transports,
+                    endpoint.clone(),
+                    auth.clone(),
+                    &self.http_transport_settings,
+                )?;
+                let profile = messages_profile(endpoint, verified_endpoint, replay_domain)?;
+                let builder =
+                    AnthropicCompatibleProvider::builder_with_transport(profile, transport)
                         .with_provider_instance(instance_id.clone())
-                        .with_default_options(self.messages_defaults.to_engine())
-                        .with_limits(self.limits.clone())
-                        .with_retry_policy(self.retry_policy);
-                if let Some(timeout) = self.connect_timeout {
-                    builder = builder.with_connect_timeout(timeout);
-                }
-                if let Some(timeout) = self.call_timeout {
-                    builder = builder.with_call_timeout(timeout);
-                }
-                if let Some(timeout) = self.read_timeout {
-                    builder = builder.with_read_timeout(timeout);
-                }
+                        .with_default_options(self.messages_defaults.to_engine());
                 Ok::<_, AlibabaConfigError>(builder.build()?)
             })
             .transpose()?;
@@ -688,8 +654,12 @@ impl AlibabaProviderBuilder {
                     verified_endpoint,
                 )?);
                 let profile = support_profile(&scope, verified_endpoint)?;
-                let transport =
-                    build_native_transport(endpoint, auth.clone(), &native_transport_settings)?;
+                let transport = shared_provider_transport(
+                    &mut transports,
+                    endpoint,
+                    auth.clone(),
+                    &self.http_transport_settings,
+                )?;
                 Ok::<_, AlibabaConfigError>((
                     Arc::new(AlibabaEmbeddingRuntime {
                         scope,
@@ -712,16 +682,21 @@ impl AlibabaProviderBuilder {
                     VIDEO_API_MODE_ID,
                     verified_endpoint,
                 )?);
-                let transport =
-                    build_native_transport(endpoint, auth.clone(), &native_transport_settings)?;
-                let mut downloader = ResourceDownloader::builder().with_limits(self.limits.clone());
-                if let Some(timeout) = self.connect_timeout {
+                let transport = shared_provider_transport(
+                    &mut transports,
+                    endpoint,
+                    auth.clone(),
+                    &self.http_transport_settings,
+                )?;
+                let mut downloader =
+                    ResourceDownloader::builder().with_limits(self.video_download_limits.clone());
+                if let Some(timeout) = self.video_download_connect_timeout {
                     downloader = downloader.with_connect_timeout(timeout);
                 }
-                if let Some(timeout) = self.call_timeout {
+                if let Some(timeout) = self.video_download_timeout {
                     downloader = downloader.with_download_timeout(timeout);
                 }
-                if let Some(timeout) = self.read_timeout {
+                if let Some(timeout) = self.video_download_read_timeout {
                     downloader = downloader.with_read_timeout(timeout);
                 }
                 Ok::<_, AlibabaConfigError>((
@@ -813,6 +788,14 @@ pub trait AlibabaVideoProviderBuilderExt: Sized {
     /// Opt into the provider-owned historical Singapore video endpoint.
     fn with_legacy_singapore_video(self) -> Self;
     fn with_video_download_policy(self, policy: AlibabaVideoDownloadPolicy) -> Self;
+    /// Configure bounds for downloading provider-returned video materialization URLs.
+    fn with_video_download_limits(self, limits: TransportLimits) -> Self;
+    /// Configure the direct video materialization connection timeout.
+    fn with_video_download_connect_timeout(self, timeout: Duration) -> Self;
+    /// Configure the total direct video materialization download timeout.
+    fn with_video_download_timeout(self, timeout: Duration) -> Self;
+    /// Configure the direct video materialization socket read timeout.
+    fn with_video_download_read_timeout(self, timeout: Duration) -> Self;
 }
 
 impl AlibabaVideoProviderBuilderExt for AlibabaProviderBuilder {
@@ -844,6 +827,26 @@ impl AlibabaVideoProviderBuilderExt for AlibabaProviderBuilder {
 
     fn with_video_download_policy(mut self, policy: AlibabaVideoDownloadPolicy) -> Self {
         self.video_download_policy = policy;
+        self
+    }
+
+    fn with_video_download_limits(mut self, limits: TransportLimits) -> Self {
+        self.video_download_limits = limits;
+        self
+    }
+
+    fn with_video_download_connect_timeout(mut self, timeout: Duration) -> Self {
+        self.video_download_connect_timeout = Some(timeout);
+        self
+    }
+
+    fn with_video_download_timeout(mut self, timeout: Duration) -> Self {
+        self.video_download_timeout = Some(timeout);
+        self
+    }
+
+    fn with_video_download_read_timeout(mut self, timeout: Duration) -> Self {
+        self.video_download_read_timeout = Some(timeout);
         self
     }
 }
@@ -896,6 +899,7 @@ impl LanguageModel for AlibabaLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             AlibabaLanguageModelInner::OpenAi(model) => model.generate(request, options).await,
             AlibabaLanguageModelInner::Messages(model) => model.generate(request, options).await,
@@ -907,6 +911,7 @@ impl LanguageModel for AlibabaLanguageModel {
         request: LanguageRequest,
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         match &self.inner {
             AlibabaLanguageModelInner::OpenAi(model) => model.stream(request, options).await,
             AlibabaLanguageModelInner::Messages(model) => model.stream(request, options).await,
@@ -988,33 +993,24 @@ fn embedding_registration(runtime: Arc<AlibabaEmbeddingRuntime>) -> ProviderRegi
     )
 }
 
-struct NativeTransportSettings {
-    limits: TransportLimits,
-    retry_policy: RetryPolicy,
-    connect_timeout: Option<Duration>,
-    call_timeout: Option<Duration>,
-    read_timeout: Option<Duration>,
-}
-
-fn build_native_transport(
+fn shared_provider_transport(
+    transports: &mut Vec<ProviderTransport>,
     endpoint: EndpointConfig,
     auth: Arc<dyn AuthApplier>,
-    settings: &NativeTransportSettings,
+    settings: &ProviderHttpTransportSettings,
 ) -> Result<ProviderTransport, TransportConfigError> {
-    let mut builder = ProviderTransport::builder(endpoint)
+    if let Some(transport) = transports.iter().find(|transport| {
+        transport.endpoint().expose_base_url() == endpoint.expose_base_url()
+            && transport.endpoint().policy() == endpoint.policy()
+    }) {
+        return Ok(transport.clone());
+    }
+    let transport = ProviderTransport::builder(endpoint)
         .with_auth(auth)
-        .with_limits(settings.limits.clone())
-        .with_retry_policy(settings.retry_policy);
-    if let Some(timeout) = settings.connect_timeout {
-        builder = builder.with_connect_timeout(timeout);
-    }
-    if let Some(timeout) = settings.call_timeout {
-        builder = builder.with_call_timeout(timeout);
-    }
-    if let Some(timeout) = settings.read_timeout {
-        builder = builder.with_read_timeout(timeout);
-    }
-    builder.build()
+        .with_http_transport_settings(settings.clone())
+        .build()?;
+    transports.push(transport.clone());
+    Ok(transport)
 }
 
 fn option_map(options: &impl Serialize) -> Result<Map<String, Value>, AlibabaConfigError> {
@@ -1067,4 +1063,88 @@ pub enum AlibabaConfigError {
     DefaultOptions(#[from] serde_json::Error),
     #[error("Alibaba default options must serialize to an object")]
     InvalidDefaultsShape,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn native_provider(http_settings: ProviderHttpTransportSettings) -> AlibabaProviderBuilder {
+        let endpoint =
+            EndpointConfig::local_explicit("http://127.0.0.1:9/api/v1").expect("local endpoint");
+        AlibabaProvider::builder(AlibabaCredential::unauthenticated())
+            .with_embedding_endpoint(endpoint.clone())
+            .with_video_endpoint(endpoint)
+            .with_http_transport_settings(http_settings)
+    }
+
+    #[test]
+    fn exact_native_endpoint_reuses_one_transport_and_endpoint_change_isolates_it() {
+        let settings = ProviderHttpTransportSettings::default();
+        let auth = AlibabaCredential::unauthenticated().0.into_auth();
+        let endpoint =
+            EndpointConfig::local_explicit("http://127.0.0.1:9/api/v1").expect("local endpoint");
+        let other_endpoint = EndpointConfig::local_explicit("http://127.0.0.1:10/api/v1")
+            .expect("other local endpoint");
+        let mut transports = Vec::new();
+
+        shared_provider_transport(&mut transports, endpoint.clone(), auth.clone(), &settings)
+            .expect("first transport");
+        shared_provider_transport(&mut transports, endpoint, auth.clone(), &settings)
+            .expect("shared transport");
+        assert_eq!(transports.len(), 1);
+
+        shared_provider_transport(&mut transports, other_endpoint, auth, &settings)
+            .expect("isolated transport");
+        assert_eq!(transports.len(), 2);
+    }
+
+    #[test]
+    fn provider_http_settings_and_video_download_controls_are_independent() {
+        let baseline = native_provider(ProviderHttpTransportSettings::default())
+            .build()
+            .expect("baseline provider");
+        let baseline_download = format!(
+            "{:?}",
+            baseline.video.as_ref().expect("video runtime").downloader
+        );
+
+        let http_limits = TransportLimits {
+            max_response_bytes: 96 * 1024,
+            ..TransportLimits::default()
+        };
+        let http_settings = ProviderHttpTransportSettings::default()
+            .with_limits(http_limits)
+            .expect("valid HTTP settings");
+        let configured = native_provider(http_settings.clone())
+            .build()
+            .expect("configured provider");
+        let embedding = configured.embedding.as_ref().expect("embedding runtime");
+        let video = configured.video.as_ref().expect("video runtime");
+        assert_eq!(embedding.transport.limits().max_response_bytes, 96 * 1024);
+        assert_eq!(video.transport.limits().max_response_bytes, 96 * 1024);
+        assert_eq!(format!("{:?}", video.downloader), baseline_download);
+
+        let download_limits = TransportLimits {
+            max_response_bytes: 32 * 1024,
+            ..TransportLimits::default()
+        };
+        let dedicated = native_provider(http_settings)
+            .with_video_download_limits(download_limits)
+            .with_video_download_connect_timeout(Duration::from_secs(2))
+            .with_video_download_timeout(Duration::from_secs(3))
+            .with_video_download_read_timeout(Duration::from_secs(4))
+            .build()
+            .expect("provider with dedicated downloader settings");
+        let download_debug = format!(
+            "{:?}",
+            dedicated.video.as_ref().expect("video runtime").downloader
+        );
+        assert!(download_debug.contains("max_response_bytes: 32768"));
+        assert!(download_debug.contains("connect_timeout: 2s"));
+        assert!(download_debug.contains("download_timeout: 3s"));
+        assert!(download_debug.contains("read_timeout: 4s"));
+        assert!(download_debug.contains("proxy: \"disabled\""));
+        assert!(download_debug.contains("authentication: \"disabled\""));
+    }
 }

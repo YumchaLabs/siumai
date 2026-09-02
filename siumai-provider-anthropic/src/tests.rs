@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::StreamExt;
 use serde_json::json;
 use siumai_core::{
@@ -8,7 +10,9 @@ use siumai_core::{
 use siumai_protocol_anthropic::messages::{
     MessagesCodecError, MessagesRequestOptions, encode_request_with_resolver,
 };
-use siumai_transport::{EndpointConfig, OfficialOrigin};
+use siumai_transport::{
+    EndpointConfig, OfficialOrigin, ProviderHttpTransportSettings, TransportLimits,
+};
 use wiremock::matchers::{body_json, body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -104,7 +108,14 @@ async fn future_raw_provider_values_reach_the_request_body() {
             }],
             "stream": false,
             "service_tier": "priority_v2",
-            "output_config": {"effort": "ultra"}
+            "output_config": {"effort": "ultra"},
+            "future_remote_mcp": {
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            },
+            "request_endpoint": "provider-body-value",
+            "x-token-count-mode": "provider-defined"
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(response(
             "future-model",
@@ -116,15 +127,33 @@ async fn future_raw_provider_values_reach_the_request_body() {
         .await;
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
     let model = provider.language("future-model").expect("model");
+    let typed = AnthropicMessagesOptions::new()
+        .try_with_extra(
+            "future_remote_mcp",
+            json!({
+                "url": "https://provider.example/mcp",
+                "headers": {"Authorization": "provider-body-canary"},
+                "authorization_token": "nested-token-canary"
+            }),
+        )
+        .expect("nested provider body data")
+        .try_with_extra("request_endpoint", json!("provider-body-value"))
+        .expect("exact non-authority field");
     let call_options = CallOptions::default()
+        .with_provider_options_for(&model, &typed)
+        .expect("typed provider options")
         .with_raw_provider_options_for(
             &model,
             json!({
                 "service_tier": "priority_v2",
-                "output_config": {"effort": "ultra"}
+                "output_config": {"effort": "ultra"},
+                "x-token-count-mode": "provider-defined"
             }),
         )
         .expect("bounded raw options");
+    let debug = format!("{call_options:?}");
+    assert!(!debug.contains("provider-body-canary"));
+    assert!(!debug.contains("nested-token-canary"));
 
     model
         .generate(request("future values", 64), call_options)
@@ -1078,6 +1107,94 @@ async fn native_resources_share_auth_transport_and_canonical_message_encoding() 
 }
 
 #[tokio::test]
+async fn messages_and_resources_share_one_admission_budget() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(250))
+                .set_body_json(response("future-model", "msg_slow", "ok")),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/files/file_slow"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(250))
+                .set_body_json(json!({
+                    "id": "file_slow",
+                    "type": "file",
+                    "filename": "slow.txt"
+                })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/files/file_third"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "file_third",
+            "type": "file",
+            "filename": "third.txt"
+        })))
+        .mount(&server)
+        .await;
+    let limits = TransportLimits {
+        max_connections: 1,
+        max_in_flight_requests: 1,
+        max_queued_requests: 1,
+        ..TransportLimits::default()
+    };
+    let provider = AnthropicProvider::builder(AnthropicCredential::unauthenticated())
+        .with_endpoint(
+            EndpointConfig::local_explicit(format!("{}/v1/", server.uri()))
+                .expect("local endpoint"),
+        )
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new("shared-admission-test").expect("replay domain"),
+        ))
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default()
+                .with_limits(limits)
+                .expect("transport limits"),
+        )
+        .build()
+        .expect("provider");
+
+    let language_provider = provider.clone();
+    let language = tokio::spawn(async move {
+        language_provider
+            .language("future-model")
+            .expect("model")
+            .generate(request("slow", 64), CallOptions::default())
+            .await
+            .expect("language response");
+    });
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    let resource_provider = provider.clone();
+    let resource = tokio::spawn(async move {
+        resource_provider
+            .files()
+            .retrieve("file_slow")
+            .await
+            .expect("file response");
+    });
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let error = provider
+        .files()
+        .retrieve("file_third")
+        .await
+        .expect_err("the shared provider queue should be full");
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(error.message(), "transport request queue is full");
+
+    language.await.expect("language task");
+    resource.await.expect("resource task");
+}
+
+#[tokio::test]
 async fn scoped_file_references_encode_messages_blocks_and_files_beta_once() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -1216,16 +1333,26 @@ async fn protected_raw_options_fail_before_network() {
     let provider = local_provider(&server, AnthropicCredential::unauthenticated());
     let model = provider.language("future-model").expect("model");
     for field in [
-        "credential_token",
-        "apiKey",
-        "base-url",
-        "method",
-        "target",
+        "Mo-De_L",
+        "Mes-Sa_Ges",
+        "To-Ol_S",
+        "End-Point",
+        "Authorization",
+        "authorization-token",
+        "API-Key",
+        "Base-Url",
+        "Head-Er_S",
+        "Me-Th_Od",
+        "Tar-Get",
         "Retry-Policy",
-        "connectTimeout",
+        "Connect-Time_Out",
+        "Read-Time_Out",
+        "Call-Time_Out",
     ] {
+        let mut raw = serde_json::Map::new();
+        raw.insert(field.to_string(), json!("canary-secret"));
         let call_options = CallOptions::default()
-            .with_raw_provider_options_for(&model, json!({field: "canary-secret"}))
+            .with_raw_provider_options_for(&model, serde_json::Value::Object(raw))
             .expect("checked raw layer");
         let error = model
             .generate(request("hello", 64), call_options)

@@ -1,9 +1,10 @@
 //! The ergonomic Siumai facade.
 //!
-//! The facade exposes six stable provider-neutral model families, optional
-//! immutable routing, and curated provider APIs under explicit namespaces.
-//! Native provider extensions remain provider-owned and are not flattened into
-//! a least-common-denominator client.
+//! The facade exposes typed [`Siumai::builder`] provider construction for direct
+//! application calls, six root provider-neutral model families for generic and
+//! Registry code, and concrete provider/model access for native capabilities.
+//! Optional routing and runtime integrations remain explicit. Native provider
+//! extensions are not flattened into a least-common-denominator client.
 //!
 //! The facade README is included below so the published crate remains
 //! self-contained and its maintained Rust examples stay in the doctest lane.
@@ -11,39 +12,89 @@
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 
-pub mod families;
+mod call;
+pub mod embedding;
+pub mod image;
+pub mod language;
 pub mod prelude;
 pub mod providers;
 #[cfg(feature = "registry")]
 pub mod registry;
+pub mod rerank;
 #[cfg(feature = "runtime")]
 pub mod runtime;
+mod siumai;
+pub mod speech;
+pub mod transcription;
+#[cfg(feature = "transport")]
+pub mod transport;
 
+#[cfg(feature = "alibaba")]
+pub use self::siumai::{AlibabaConfigurationStage, AlibabaCredentialStage, AlibabaProviderStage};
+#[cfg(feature = "anthropic")]
+pub use self::siumai::{AnthropicCredentialStage, AnthropicProviderStage};
+#[cfg(feature = "cohere")]
+pub use self::siumai::{CohereApiKeyStage, CohereProviderStage};
+#[cfg(feature = "deepseek")]
+pub use self::siumai::{DeepSeekCredentialStage, DeepSeekProviderStage};
+#[cfg(feature = "deepgram")]
+pub use self::siumai::{DeepgramCredentialStage, DeepgramProviderStage};
+#[cfg(feature = "elevenlabs")]
+pub use self::siumai::{
+    ElevenLabsCredentialStage, ElevenLabsProfileStage, ElevenLabsProviderStage,
+};
+pub use self::siumai::{
+    EmbeddingClient, ImageClient, LanguageClient, RerankClient, Siumai, SiumaiBuilder,
+    SpeechClient, TranscriptionClient,
+};
+#[cfg(feature = "google")]
+pub use self::siumai::{GeminiCredentialStage, GeminiProviderStage};
+#[cfg(feature = "groq")]
+pub use self::siumai::{GroqCredentialStage, GroqProviderStage};
+#[cfg(feature = "minimax")]
+pub use self::siumai::{MinimaxCredentialStage, MinimaxProviderStage};
+#[cfg(feature = "moonshotai")]
+pub use self::siumai::{MoonshotCredentialStage, MoonshotProviderStage};
+#[cfg(feature = "openai-compatible")]
+pub use self::siumai::{
+    OpenAiCompatibleCredentialStage, OpenAiCompatibleProfileStage, OpenAiCompatibleProviderStage,
+};
+#[cfg(feature = "openai")]
+pub use self::siumai::{OpenAiCredentialStage, OpenAiProviderStage};
+#[cfg(feature = "google-vertex-anthropic")]
+pub use self::siumai::{
+    VertexAnthropicCredentialStage, VertexAnthropicLocationStage, VertexAnthropicProjectStage,
+    VertexAnthropicProviderStage,
+};
+#[cfg(feature = "volcengine")]
+pub use self::siumai::{VolcengineCredentialStage, VolcengineProviderStage};
+#[cfg(feature = "xai")]
+pub use self::siumai::{XaiCredentialStage, XaiProviderStage};
+#[cfg(feature = "runtime")]
+pub use runtime::{
+    BudgetError, ModelTarget, RunBudget, RunBudgetBuilder, RunTimeouts, Runtime, RuntimeBuilder,
+    RuntimeConfigError, StepOptions,
+};
 pub use siumai_core as core;
 pub use siumai_core::{
     AssistantHistoryOmission, AssistantHistoryOmissionKind, AssistantHistoryProjection,
-    CallOptions, Cancellation, Citation, ContentPart, EmbeddingLimits, EmbeddingModel,
-    EmbeddingModelProvider, EmbeddingRequest, EmbeddingResponse, Error, ErrorKind,
+    CallOptions, CallOptionsError, Cancellation, Citation, ContentPart, EmbeddingLimits,
+    EmbeddingModel, EmbeddingModelProvider, EmbeddingRequest, EmbeddingResponse, Error, ErrorKind,
     GenerationConfig, GenerationConfigError, ImageArtifact, ImageLimits, ImageModel,
     ImageModelProvider, ImageRequest, ImageResponse, ImageSize, InvalidId, InvalidToolCall,
     InvalidToolInput, InvalidToolSpec, LanguageCallError, LanguageCompletionReason,
-    LanguageIncompleteReason, LanguageModel, LanguageModelProvider, LanguageRequest,
+    LanguageIncompleteReason, LanguageInput, LanguageModel, LanguageModelProvider, LanguageRequest,
     LanguageRequestError, LanguageResponse, LanguageResponseError, LanguageStream,
-    LanguageStreamEvent, LanguageTermination, MediaData, MediaPart, Message, MessageRole,
-    MessageValidationError, Model, ModelDescriptor, ModelFamily, ModelId, ModelLookupError,
-    OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputBudget,
+    LanguageStreamEvent, LanguageTermination, MediaData, MediaPart, Message, MessagePart,
+    MessageRole, MessageValidationError, Model, ModelDescriptor, ModelFamily, ModelId,
+    ModelLookupError, OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputBudget,
     PartialLanguageOutputError, PartialLanguageOutputPart, PartialStructuredOutput, Provider,
     ProviderId, ProviderOptionError, ProviderOptions, ProviderProvenanceError, ReplayAudience,
     ReplayDomain, ReplayDomainId, RerankCandidate, RerankLimits, RerankModel, RerankModelProvider,
     RerankRequest, RerankResponse, RerankResult, ResponseDiagnostics, ResponseMetadata,
-    SpeechLimits, SpeechModel, SpeechModelProvider, SpeechRequest, SpeechResponse, StreamTerminal,
-    StructuredOutputSpec, ToolCall, ToolCallParts, ToolChoice, ToolInput, ToolOutcome, ToolResult,
-    ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
+    RetryIntent, SpeechLimits, SpeechModel, SpeechModelProvider, SpeechRequest, SpeechResponse,
+    StreamTerminal, StructuredOutputSpec, ToolCall, ToolCallParts, ToolChoice, ToolInput,
+    ToolOutcome, ToolResult, ToolSpec, TranscriptSegment, TranscriptionLimits, TranscriptionModel,
     TranscriptionModelProvider, TranscriptionRequest, TranscriptionResponse, TypedProviderOptions,
     Usage, UsageUpdate, UsageUpdateKind, UsageValue, Warning, WarningKind,
-};
-
-#[cfg(feature = "runtime")]
-pub use runtime::{
-    ModelTarget, Runtime, RuntimeBuilder, RuntimeConfigError, StepOptions, generate, stream,
 };

@@ -2,7 +2,7 @@ use siumai_core::{InvalidId, ModelLookupError, RouteId};
 use thiserror::Error;
 
 use crate::ModelReferenceError;
-use crate::middleware::RegistryModelContext;
+use crate::route::RegistryModelContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RegistryBuildError {

@@ -121,6 +121,10 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageResponse, LanguageCallError> {
         let operation = ModelOperation::Generate;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let mut call_options = self
             .runtime
             .merge_options_for(self, &options)
@@ -171,6 +175,10 @@ impl LanguageModel for AnthropicCompatibleLanguageModel {
         options: CallOptions,
     ) -> Result<LanguageStream, Error> {
         let operation = ModelOperation::Stream;
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(operation, error))?;
         let mut call_options = self
             .runtime
             .merge_options_for(self, &options)

@@ -39,17 +39,18 @@ jobs:
         with:
           tool: nextest
 
-      - name: Check repository contracts
-        run: |
-          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
-          python3 -B scripts/check_workspace_boundaries.py
+      - name: Run repository script tests
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Inspect package file lists
         run: python3 -B scripts/check_package_file_list.py
 
       - name: Run focused PR tests
         if: ${{ github.event_name == 'pull_request' }}
-        run: python3 -B scripts/test-workspace.py fast --runner nextest
+        run: |
+          python3 -B scripts/test-workspace.py fast --runner nextest
+          cargo nextest run -p siumai --all-features --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai-runtime --all-features --test runtime_contract --test-threads 1
 
       - name: Run flagship PR tests
         if: ${{ github.event_name == 'pull_request' }}
@@ -62,16 +63,56 @@ jobs:
           cargo clippy -j 1 -p siumai --no-default-features --features runtime,registry,openai,anthropic,google,google-vertex-anthropic,minimax --all-targets -- -D warnings
           cargo check -j 1 -p siumai-runtime --no-default-features --features json-schema
 
-      - name: Check facade feature ownership
+      - name: Check facade features, contracts, and examples
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           cargo check -j 1 -p siumai --no-default-features --lib
-          cargo check -j 1 -p siumai --no-default-features --features openai --lib
-          cargo check -j 1 -p siumai --no-default-features --features anthropic --lib
-          cargo check -j 1 -p siumai --no-default-features --features all-providers --lib
+          cargo check -j 1 -p siumai --no-default-features --features registry --lib
+          cargo check -j 1 -p siumai --no-default-features --features runtime --lib
+          cargo nextest run -p siumai --no-default-features --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features registry --test facade_contract --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features runtime --test facade_contract --test facade_migration_contract --test siumai_builder_contract --test-threads 1
+          cargo nextest run -p siumai --no-default-features --features openai,registry --test facade_contract --test siumai_builder_contract --test-threads 1
+          provider_features="$(
+            python3 - <<'PY'
+          import json
+          import subprocess
+
+          facade_metadata = json.loads(
+              subprocess.check_output(
+                  ["cargo", "metadata", "--format-version", "1", "--locked", "--no-deps"],
+                  text=True,
+              )
+          )
+          package = next(
+              package for package in facade_metadata["packages"] if package["name"] == "siumai"
+          )
+          features = [
+              name
+              for name, members in package["features"].items()
+              if any(
+                  member.startswith("dep:siumai-provider-")
+                  or member == "dep:siumai-openai-compatible"
+                  for member in members
+              )
+          ]
+          if not features:
+              raise SystemExit("no facade provider features found in Cargo metadata")
+
+          print("\n".join(sorted(features)))
+          PY
+          )" || exit $?
+          while IFS= read -r feature
+          do
+            cargo check -j 1 -p siumai --no-default-features --features "${feature}" --test siumai_builder_contract
+          done <<< "${provider_features}"
+          cargo check -j 1 -p siumai --no-default-features --features all-providers,openai-compatible --lib
           cargo check -j 1 -p siumai --no-default-features --features openai-responses-websocket,openai-realtime --lib
           cargo check -j 1 -p siumai --no-default-features --features openai --example openai_flagship
           cargo check -j 1 -p siumai --no-default-features --features anthropic --example anthropic_flagship
+          cargo check -j 1 -p siumai --no-default-features --features openai,anthropic,google --example provider_switching
+          cargo check -j 1 -p siumai --no-default-features --features openai,registry --example registry_switching
+          cargo metadata --format-version 1 --locked > /dev/null
 
       - name: Run release-level tests
         if: ${{ github.event_name != 'pull_request' }}
@@ -118,7 +159,6 @@ jobs:
 
   docs:
     name: Documentation
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

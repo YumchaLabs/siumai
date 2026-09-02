@@ -145,6 +145,7 @@ impl TranscriptionModel for GroqTranscriptionModel {
         request: TranscriptionRequest,
         call: CallOptions,
     ) -> Result<TranscriptionResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

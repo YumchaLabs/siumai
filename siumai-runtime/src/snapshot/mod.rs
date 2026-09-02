@@ -1,7 +1,18 @@
 //! Versioned durable run snapshots and lease/CAS persistence hooks.
+//!
+//! Snapshot values are read-only public inspection models. Runtime-private
+//! planners, journals, ledgers, and the checkpoint writer are the only state
+//! constructors. Serialized snapshots retain sensitive replay authority and
+//! must be protected by external stores before typed deserialization.
 
+mod checkpoint;
 mod model;
 mod store;
+
+pub(crate) use checkpoint::{
+    CheckpointIntent, CheckpointWriteError, CheckpointWriter, InitialCheckpointIntent,
+};
+pub(crate) use model::ResumePointState;
 
 pub use model::{
     CheckpointId, CompletedToolSnapshot, IndeterminateReason, InvalidSnapshotId, LineageId,
@@ -9,8 +20,8 @@ pub use model::{
     PreparedToolSnapshot, ProviderStateSnapshot, RUN_SNAPSHOT_SCHEMA_VERSION, ResumePoint,
     ResumePointKind, RunId, RunSnapshot, RunSnapshotError, RunSnapshotSuccessorError,
     SnapshotCheckpoint, SnapshotEngineVersion, SnapshotFingerprint, SnapshotFingerprints,
-    SnapshotReason, SnapshotTerminal, ToolExecutionEvent, ToolExecutionLog, ToolExecutionStatus,
-    ToolExecutionTransitionError, ToolReplayDisposition,
+    SnapshotReason, SnapshotTerminal, SnapshotTerminalKind, ToolExecutionEvent, ToolExecutionLog,
+    ToolExecutionStatus, ToolExecutionTransitionError, ToolReplayDisposition,
 };
 pub use store::{
     InMemoryRunStore, RunLease, RunStore, RunStoreError, RunStoreFuture, SnapshotRevision,
@@ -19,21 +30,25 @@ pub use store::{
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{Duration, Instant};
 
     use serde::{Deserialize, Serialize};
     use serde_json::json;
     use siumai_core::{
-        ContentAnnotationTarget, ContentPart, LanguageCompletionReason, LanguageIncompleteReason,
-        LanguageRequest, LanguageResponse, LanguageTermination, Message, MessageAnnotationTarget,
-        MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem,
-        PartialLanguageOutput, PartialLanguageOutputPart, ProtocolId, ProviderId,
-        ProviderProvenance, ReplayDomain, ReplayDomainId, RouteId, ToolAnnotationTarget,
-        ToolBindingIdentity, ToolCall, ToolOutcome, ToolSpec, TypedProviderAnnotation, Usage,
+        ApiModeId, ContentAnnotationTarget, ContentPart, LanguageCompletionReason,
+        LanguageIncompleteReason, LanguageRequest, LanguageResponse, LanguageTermination, Message,
+        MessageAnnotationTarget, MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily,
+        ModelId, OpaqueProviderItem, PartialLanguageOutput, PartialLanguageOutputPart, PlatformId,
+        ProtocolId, ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, RouteId,
+        ToolAnnotationTarget, ToolBindingIdentity, ToolCall, ToolOutcome, ToolSpec,
+        TypedProviderAnnotation, Usage,
     };
 
     use super::*;
-    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt, ToolIdempotencyKey};
+    use crate::tool::{RecoveryPolicy, ToolExecutionAttempt, ToolIdempotencyKey, ToolJournal};
     use crate::{
         ModelTarget, ModelTransitionOutcome, ModelTransitionRecord, ProjectionPolicy,
         ProjectionScope, RunBudget, RunReport, StepModelSelectorIdentity, StepRecord,
@@ -89,9 +104,13 @@ mod tests {
     }
 
     fn checkpoint(id: &str, parent: Option<&str>) -> SnapshotCheckpoint {
+        checkpoint_for_run("run-1", id, parent)
+    }
+
+    fn checkpoint_for_run(run_id: &str, id: &str, parent: Option<&str>) -> SnapshotCheckpoint {
         SnapshotCheckpoint::new(
             SnapshotEngineVersion::new("runtime-test-v2").unwrap(),
-            RunId::new("run-1").unwrap(),
+            RunId::new(run_id).unwrap(),
             LineageId::new("lineage-1").unwrap(),
             CheckpointId::new(id).unwrap(),
             parent.map(|parent| CheckpointId::new(parent).unwrap()),
@@ -135,13 +154,20 @@ mod tests {
         .unwrap()
     }
 
-    fn report_with_log(log: ToolExecutionLog) -> RunReport {
+    fn report_with_log_for_target(initial_target: ModelTarget, log: ToolExecutionLog) -> RunReport {
         let mut report = RunReport::new(
-            target(),
+            initial_target,
             vec![Message::text(MessageRole::User, "history-secret")],
         );
-        *report.execution_log_mut() = log;
+        if !log.events().is_empty() {
+            report.accumulate_usage(&Usage::default());
+        }
+        report.replace_tool_journal(ToolJournal::from_log(log));
         report
+    }
+
+    fn report_with_log(log: ToolExecutionLog) -> RunReport {
+        report_with_log_for_target(target(), log)
     }
 
     fn prepared_log() -> ToolExecutionLog {
@@ -158,7 +184,6 @@ mod tests {
             20,
             "call-1",
             ToolExecutionAttempt::INITIAL,
-            Some("dispatch-1".to_string()),
         ))
         .unwrap();
         log.append(ToolExecutionEvent::completed(
@@ -197,6 +222,149 @@ mod tests {
         report_with_log(ToolExecutionLog::new())
     }
 
+    fn deferred_item(status: &str) -> OpaqueProviderItem {
+        deferred_item_in_scope(
+            status,
+            "deferred-platform",
+            "deferred-mode",
+            "snapshot-deferred",
+        )
+    }
+
+    fn deferred_item_in_scope(
+        status: &str,
+        platform: &str,
+        api_mode: &str,
+        replay_domain: &str,
+    ) -> OpaqueProviderItem {
+        let target = deferred_target(platform, api_mode, replay_domain);
+        OpaqueProviderItem::new(
+            ProviderProvenance::from_scope(target.scope(), target.model().clone()).unwrap(),
+            "provider.deferred",
+            json!({"status": status}),
+        )
+        .unwrap()
+    }
+
+    fn deferred_target(platform: &str, api_mode: &str, replay_domain: &str) -> ModelTarget {
+        ModelTarget::new(
+            ProviderId::new("deferred-provider").unwrap(),
+            ModelId::new("deferred-model").unwrap(),
+        )
+        .with_platform(PlatformId::new(platform).unwrap())
+        .with_protocol(ProtocolId::new("deferred.protocol").unwrap())
+        .with_api_mode(ApiModeId::new(api_mode).unwrap())
+        .with_replay_domain(ReplayDomain::custom(
+            ReplayDomainId::new(replay_domain).unwrap(),
+        ))
+    }
+
+    fn provider_state(item: &OpaqueProviderItem, correlation_id: &str) -> ProviderStateSnapshot {
+        let scope = item.provenance().scope();
+        let protocol = scope.protocol().expect("deferred scope has a protocol");
+        ProviderStateSnapshot::new(
+            format!("provider-deferred:{}:{protocol}", scope.provider_id()),
+            scope.clone(),
+            correlation_id.to_string(),
+            "application/json".to_string(),
+            serde_json::to_vec(item).unwrap(),
+        )
+    }
+
+    fn report_with_provider_state(
+        target: &ModelTarget,
+        item: &OpaqueProviderItem,
+        correlation_id: &str,
+        log: ToolExecutionLog,
+    ) -> RunReport {
+        let mut report = report_with_log_for_target(target.clone(), log);
+        let mut step = report.provider_deferred_ledger().begin_step(0, target);
+        step.observe(correlation_id, item);
+        let (ledger, _, _, _) = step
+            .finish_completed(report.provider_deferred_ledger())
+            .unwrap()
+            .into_parts();
+        report.replace_provider_deferred_ledger(ledger);
+        report
+    }
+
+    fn observe_provider_deferred(
+        report: &mut RunReport,
+        correlation_id: &str,
+        item: &OpaqueProviderItem,
+    ) {
+        let target = provider_target_for_item(item);
+        let mut step = report.provider_deferred_ledger().begin_step(0, &target);
+        step.observe(correlation_id, item);
+        let (ledger, _, _, _) = step
+            .finish_completed(report.provider_deferred_ledger())
+            .unwrap()
+            .into_parts();
+        report.replace_provider_deferred_ledger(ledger);
+    }
+
+    fn provider_target_for_item(item: &OpaqueProviderItem) -> ModelTarget {
+        let provenance = item.provenance();
+        let scope = provenance.scope();
+        let mut target = ModelTarget::new(scope.provider_id().clone(), provenance.model().clone());
+        if let Some(platform) = scope.platform() {
+            target = target.with_platform(platform.clone());
+        }
+        if let Some(protocol) = scope.protocol() {
+            target = target.with_protocol(protocol.clone());
+        }
+        if let Some(api_mode) = scope.api_mode() {
+            target = target.with_api_mode(api_mode.clone());
+        }
+        if let Some(replay_domain) = scope.replay_domain() {
+            target = target.with_replay_domain(replay_domain.clone());
+        }
+        target
+    }
+
+    fn provider_snapshot(
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+        mut report: RunReport,
+        deadline_unix_ms: Option<u64>,
+    ) -> RunSnapshot {
+        if !report.usage_is_settled() {
+            report.accumulate_usage(&Usage::default());
+        }
+        let observation = report
+            .provider_deferred()
+            .iter()
+            .find(|observation| !observation.is_resolved())
+            .expect("provider snapshot requires unresolved state");
+        let target = provider_target_for_item(observation.item());
+        let provider_state = report
+            .provider_deferred_ledger()
+            .pending_projection(target.scope())
+            .unwrap();
+        let step = PendingProviderStepSnapshot::new(
+            u32::try_from(report.steps().len()).unwrap(),
+            target,
+            LanguageResponse::completed(
+                Vec::new(),
+                LanguageCompletionReason::Stop,
+                Usage::default(),
+            )
+            .unwrap(),
+            provider_state,
+        );
+        snapshot(
+            checkpoint_id,
+            parent_checkpoint_id,
+            report,
+            deadline_unix_ms,
+            ResumePoint::awaiting_provider(step),
+        )
+    }
+
+    fn provider_report(item: &OpaqueProviderItem) -> RunReport {
+        report_with_log_for_target(provider_target_for_item(item), ToolExecutionLog::new())
+    }
+
     fn report_with_refusal_step() -> RunReport {
         let mut report = ready_report();
         let response = LanguageResponse::completed(
@@ -207,6 +375,7 @@ mod tests {
             Usage::default(),
         )
         .unwrap();
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, target(), response, Vec::new()));
@@ -243,11 +412,252 @@ mod tests {
             parent_checkpoint_id,
             report,
             deadline_unix_ms,
-            ResumePoint::ReadyForModel {
-                next_step: 0,
-                target: target(),
-            },
+            ResumePoint::ready_for_model(0, target()),
         )
+    }
+
+    fn ready_snapshot_for_run(
+        run_id: &str,
+        checkpoint_id: &str,
+        parent_checkpoint_id: Option<&str>,
+    ) -> RunSnapshot {
+        let report = ready_report();
+        RunSnapshot::new(
+            checkpoint_for_run(run_id, checkpoint_id, parent_checkpoint_id),
+            fingerprints(),
+            LanguageRequest::new(report.messages().to_vec()),
+            report,
+            Some(DEADLINE),
+            ResumePoint::ready_for_model(0, target()),
+        )
+        .unwrap()
+    }
+
+    static NEXT_JSON_STORE_ID: AtomicU64 = AtomicU64::new(1);
+    const JSON_STORE_MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
+
+    #[derive(Debug)]
+    struct JsonRoundTripStore {
+        store_id: u64,
+        state: Mutex<JsonRoundTripState>,
+        decode_calls: AtomicU64,
+    }
+
+    #[derive(Debug, Default)]
+    struct JsonRoundTripState {
+        next_lease_token: u64,
+        leases: BTreeMap<RunId, JsonLeaseRecord>,
+        runs: BTreeMap<RunId, JsonStoredRun>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JsonLeaseToken {
+        store_id: u64,
+        run_id: RunId,
+        token: u64,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct JsonLeaseRecord {
+        token: u64,
+        expires_at: Instant,
+    }
+
+    #[derive(Debug, Clone)]
+    struct JsonStoredRun {
+        revision: u64,
+        snapshot: Vec<u8>,
+    }
+
+    impl Default for JsonRoundTripStore {
+        fn default() -> Self {
+            Self {
+                store_id: NEXT_JSON_STORE_ID.fetch_add(1, Ordering::Relaxed),
+                state: Mutex::new(JsonRoundTripState {
+                    next_lease_token: 1,
+                    ..JsonRoundTripState::default()
+                }),
+                decode_calls: AtomicU64::new(0),
+            }
+        }
+    }
+
+    impl JsonRoundTripStore {
+        fn lock(&self) -> Result<MutexGuard<'_, JsonRoundTripState>, RunStoreError> {
+            self.state.lock().map_err(|_| RunStoreError::Unavailable)
+        }
+
+        fn validate_lease(
+            &self,
+            state: &mut JsonRoundTripState,
+            lease: &RunLease,
+        ) -> Result<(), RunStoreError> {
+            let token = lease
+                .store_token::<JsonLeaseToken>()
+                .ok_or(RunStoreError::ForeignLease)?;
+            if token.store_id != self.store_id || &token.run_id != lease.run_id() {
+                return Err(RunStoreError::ForeignLease);
+            }
+            let Some(record) = state.leases.get(lease.run_id()).copied() else {
+                return Err(RunStoreError::LeaseLost);
+            };
+            if record.token != token.token {
+                return Err(RunStoreError::LeaseLost);
+            }
+            if Instant::now() >= record.expires_at {
+                state.leases.remove(lease.run_id());
+                return Err(RunStoreError::LeaseExpired);
+            }
+            Ok(())
+        }
+
+        fn decode_snapshot(&self, encoded: &[u8]) -> Result<RunSnapshot, RunStoreError> {
+            if encoded.len() > JSON_STORE_MAX_SNAPSHOT_BYTES {
+                return Err(RunStoreError::SerializedSnapshotTooLarge {
+                    actual: encoded.len(),
+                    maximum: JSON_STORE_MAX_SNAPSHOT_BYTES,
+                });
+            }
+            self.decode_calls.fetch_add(1, Ordering::Relaxed);
+            serde_json::from_slice(encoded).map_err(|_| RunStoreError::Unavailable)
+        }
+
+        fn decode_calls(&self) -> u64 {
+            self.decode_calls.load(Ordering::Relaxed)
+        }
+    }
+
+    impl RunStore for JsonRoundTripStore {
+        fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease> {
+            Box::pin(async move {
+                let expires_at = Instant::now()
+                    .checked_add(ttl)
+                    .filter(|_| !ttl.is_zero())
+                    .ok_or(RunStoreError::InvalidLeaseDuration)?;
+                let mut state = self.lock()?;
+                if state
+                    .leases
+                    .get(run_id)
+                    .is_some_and(|record| Instant::now() < record.expires_at)
+                {
+                    return Err(RunStoreError::LeaseConflict {
+                        run_id: run_id.clone(),
+                    });
+                }
+                state.leases.remove(run_id);
+                let token = state.next_lease_token;
+                state.next_lease_token = token
+                    .checked_add(1)
+                    .ok_or(RunStoreError::LeaseTokenExhausted)?;
+                state
+                    .leases
+                    .insert(run_id.clone(), JsonLeaseRecord { token, expires_at });
+                Ok(RunLease::from_store_token(
+                    run_id.clone(),
+                    expires_at,
+                    JsonLeaseToken {
+                        store_id: self.store_id,
+                        run_id: run_id.clone(),
+                        token,
+                    },
+                ))
+            })
+        }
+
+        fn load<'a>(&'a self, lease: &'a RunLease) -> RunStoreFuture<'a, Option<StoredRun>> {
+            Box::pin(async move {
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                state
+                    .runs
+                    .get(lease.run_id())
+                    .map(|stored| {
+                        let snapshot = self.decode_snapshot(&stored.snapshot)?;
+                        Ok(StoredRun::new(
+                            SnapshotRevision::from_value(stored.revision),
+                            snapshot,
+                        ))
+                    })
+                    .transpose()
+            })
+        }
+
+        fn compare_and_swap<'a>(
+            &'a self,
+            lease: &'a RunLease,
+            expected: SnapshotRevision,
+            snapshot: RunSnapshot,
+        ) -> RunStoreFuture<'a, SnapshotRevision> {
+            Box::pin(async move {
+                if snapshot.run_id() != lease.run_id() {
+                    return Err(RunStoreError::RunIdMismatch {
+                        leased_run_id: lease.run_id().clone(),
+                        snapshot_run_id: snapshot.run_id().clone(),
+                    });
+                }
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                let actual = state.runs.get(lease.run_id()).map_or(0, |run| run.revision);
+                if actual != expected.value() {
+                    return Err(RunStoreError::CasConflict {
+                        expected,
+                        actual: SnapshotRevision::from_value(actual),
+                    });
+                }
+                if let Some(current) = state.runs.get(lease.run_id()) {
+                    let current = self.decode_snapshot(&current.snapshot)?;
+                    if current.resume_point().is_terminal() {
+                        return Err(RunStoreError::RunAlreadyTerminal);
+                    }
+                }
+                let revision = actual
+                    .checked_add(1)
+                    .ok_or(RunStoreError::RevisionExhausted)?;
+                let encoded =
+                    serde_json::to_vec(&snapshot).map_err(|_| RunStoreError::Unavailable)?;
+                if encoded.len() > JSON_STORE_MAX_SNAPSHOT_BYTES {
+                    return Err(RunStoreError::SerializedSnapshotTooLarge {
+                        actual: encoded.len(),
+                        maximum: JSON_STORE_MAX_SNAPSHOT_BYTES,
+                    });
+                }
+                state.runs.insert(
+                    lease.run_id().clone(),
+                    JsonStoredRun {
+                        revision,
+                        snapshot: encoded,
+                    },
+                );
+                Ok(SnapshotRevision::from_value(revision))
+            })
+        }
+
+        fn renew<'a>(&'a self, lease: &'a mut RunLease, ttl: Duration) -> RunStoreFuture<'a, ()> {
+            Box::pin(async move {
+                let expires_at = Instant::now()
+                    .checked_add(ttl)
+                    .filter(|_| !ttl.is_zero())
+                    .ok_or(RunStoreError::InvalidLeaseDuration)?;
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, lease)?;
+                state
+                    .leases
+                    .get_mut(lease.run_id())
+                    .ok_or(RunStoreError::LeaseLost)?
+                    .expires_at = expires_at;
+                lease.set_expires_at(expires_at);
+                Ok(())
+            })
+        }
+
+        fn release<'a>(&'a self, lease: RunLease) -> RunStoreFuture<'a, ()> {
+            Box::pin(async move {
+                let mut state = self.lock()?;
+                self.validate_lease(&mut state, &lease)?;
+                state.leases.remove(lease.run_id());
+                Ok(())
+            })
+        }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -320,10 +730,7 @@ mod tests {
             continuation,
             report,
             Some(DEADLINE),
-            ResumePoint::ReadyForModel {
-                next_step: 0,
-                target: target(),
-            },
+            ResumePoint::ready_for_model(0, target()),
         )
         .unwrap();
 
@@ -354,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    fn version_six_round_trip_preserves_language_termination() {
+    fn version_eight_round_trip_preserves_language_termination() {
         let mut report = ready_report();
         let response = LanguageResponse::incomplete(
             vec![ContentPart::Text {
@@ -364,6 +771,7 @@ mod tests {
             Usage::default().with_total_tokens(9_u64),
         )
         .unwrap();
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, target(), response, Vec::new()));
@@ -372,14 +780,11 @@ mod tests {
             None,
             report,
             Some(DEADLINE),
-            ResumePoint::ReadyForModel {
-                next_step: 1,
-                target: target(),
-            },
+            ResumePoint::ready_for_model(1, target()),
         );
 
         let encoded = serde_json::to_value(&snapshot).unwrap();
-        assert_eq!(encoded["snapshot_version"], json!(6));
+        assert_eq!(encoded["snapshot_version"], json!(8));
         let restored: RunSnapshot = serde_json::from_value(encoded).unwrap();
 
         assert!(matches!(
@@ -389,55 +794,137 @@ mod tests {
     }
 
     #[test]
-    fn version_six_round_trip_preserves_partial_terminals() {
+    fn version_eight_requires_explicit_usage_settlement_state() {
+        let base_snapshot = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
+        let encoded = serde_json::to_value(base_snapshot).unwrap();
+        let mut missing = encoded.clone();
+        missing["report"]
+            .as_object_mut()
+            .unwrap()
+            .remove("usage_settled");
+
+        let error = serde_json::from_value::<RunSnapshot>(missing).unwrap_err();
+        assert!(error.to_string().contains("missing field `usage_settled`"));
+
+        let mut wrong_kind = encoded;
+        wrong_kind["report"]["usage_settled"] = json!("not-a-boolean");
+        let error = serde_json::from_value::<RunSnapshot>(wrong_kind).unwrap_err();
+        assert!(error.to_string().contains("invalid type"));
+
+        let usage = Usage::default().with_output_tokens(4_u64);
+        let mut report = ready_report();
+        report.accumulate_usage(&usage);
         let partial = PartialLanguageOutput::new(
             vec![PartialLanguageOutputPart::Text {
                 text: "partial output".to_string(),
             }],
-            Usage::default().with_output_tokens(4_u64),
+            usage,
+        )
+        .unwrap();
+        let snapshot = snapshot(
+            "checkpoint-partial",
+            None,
+            report,
+            Some(DEADLINE),
+            ResumePoint::terminal_state(SnapshotTerminal::failed(
+                SnapshotReason::new("provider_failed", None).unwrap(),
+                Some(partial),
+            )),
+        );
+        let mut encoded = serde_json::to_value(snapshot).unwrap();
+        encoded["report"]["usage_settled"] = json!(false);
+        let error = serde_json::from_value::<RunSnapshot>(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("snapshot usage observations require settled report usage state")
+        );
+    }
+
+    #[test]
+    fn version_eight_rejects_unsettled_unknown_usage_after_a_completed_call() {
+        let snapshot = snapshot(
+            "checkpoint-settled-unknown",
+            None,
+            report_with_refusal_step(),
+            Some(DEADLINE),
+            ResumePoint::ready_for_model(1, target()),
+        );
+        assert_eq!(snapshot.usage(), &Usage::default());
+
+        let mut encoded = serde_json::to_value(&snapshot).unwrap();
+        encoded["report"]["usage_settled"] = json!(false);
+
+        let error = serde_json::from_value::<RunSnapshot>(encoded).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("snapshot usage observations require settled report usage state")
+        );
+
+        let mut resumed_report = snapshot.report().clone();
+        resumed_report.accumulate_usage(&Usage::default().with_total_tokens(7_u64));
+        assert_eq!(resumed_report.usage(), &Usage::default());
+    }
+
+    #[test]
+    fn version_eight_round_trip_preserves_partial_terminals() {
+        let usage = Usage::default().with_output_tokens(4_u64);
+        let partial = PartialLanguageOutput::new(
+            vec![PartialLanguageOutputPart::Text {
+                text: "partial output".to_string(),
+            }],
+            usage.clone(),
         )
         .unwrap();
         let terminals = [
-            ResumePoint::Terminal(SnapshotTerminal::Failed {
-                reason: SnapshotReason::new("provider_failed", None).unwrap(),
-                partial: Some(partial.clone()),
-            }),
-            ResumePoint::Terminal(SnapshotTerminal::Cancelled {
-                reason: SnapshotReason::new("call_cancelled", None).unwrap(),
-                partial: Some(partial.clone()),
-            }),
-            ResumePoint::Terminal(SnapshotTerminal::Exhausted {
-                reason: SnapshotReason::new("runtime_timed_out", None).unwrap(),
-                partial: Some(partial),
-            }),
+            (
+                SnapshotTerminalKind::Failed,
+                ResumePoint::terminal_state(SnapshotTerminal::failed(
+                    SnapshotReason::new("provider_failed", None).unwrap(),
+                    Some(partial.clone()),
+                )),
+            ),
+            (
+                SnapshotTerminalKind::Cancelled,
+                ResumePoint::terminal_state(SnapshotTerminal::cancelled(
+                    SnapshotReason::new("call_cancelled", None).unwrap(),
+                    Some(partial.clone()),
+                )),
+            ),
+            (
+                SnapshotTerminalKind::Exhausted,
+                ResumePoint::terminal_state(SnapshotTerminal::exhausted(
+                    SnapshotReason::new("runtime_timed_out", None).unwrap(),
+                    Some(partial),
+                )),
+            ),
         ];
 
-        for (index, resume_point) in terminals.into_iter().enumerate() {
+        for (index, (expected_kind, resume_point)) in terminals.into_iter().enumerate() {
+            let mut report = ready_report();
+            report.accumulate_usage(&usage);
             let snapshot = snapshot(
                 &format!("checkpoint-terminal-{index}"),
                 None,
-                ready_report(),
+                report,
                 Some(DEADLINE),
                 resume_point,
             );
             let restored: RunSnapshot =
                 serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap();
-            let ResumePoint::Terminal(terminal) = restored.resume_point() else {
-                panic!("expected terminal resume point");
-            };
-            match terminal {
-                SnapshotTerminal::Failed { partial, .. }
-                | SnapshotTerminal::Cancelled { partial, .. }
-                | SnapshotTerminal::Exhausted { partial, .. } => {
-                    assert_eq!(
-                        partial
-                            .as_ref()
-                            .and_then(|value| value.usage().output_tokens.value()),
-                        Some(4)
-                    );
-                }
-                _ => panic!("expected a partial terminal"),
-            }
+            assert_eq!(restored.resume_point().kind(), ResumePointKind::Terminal);
+            let terminal = restored
+                .resume_point()
+                .terminal()
+                .expect("expected terminal resume point");
+            assert_eq!(terminal.kind(), expected_kind);
+            assert_eq!(
+                terminal
+                    .partial()
+                    .and_then(|value| value.usage().output_tokens.value()),
+                Some(4)
+            );
         }
     }
 
@@ -455,8 +942,50 @@ mod tests {
             parent_checkpoint_id,
             report,
             Some(DEADLINE),
-            ResumePoint::AwaitingApprovals(pending_step(vec![approval()])),
+            ResumePoint::awaiting_approvals(pending_step(vec![approval()])),
         )
+    }
+
+    #[test]
+    fn version_eight_round_trip_preserves_every_resume_kind() {
+        let ready = ready_snapshot("checkpoint-ready", None, ready_report(), Some(DEADLINE));
+        let awaiting_approval = awaiting_approval_snapshot("checkpoint-approval", None);
+        let ready_to_dispatch = snapshot(
+            "checkpoint-dispatch",
+            None,
+            report_with_log(prepared_log()),
+            Some(DEADLINE),
+            ResumePoint::ready_to_dispatch(pending_step(Vec::new())),
+        );
+        let deferred = deferred_item("queued");
+        let target = provider_target_for_item(&deferred);
+        let mut provider_report = provider_report(&deferred);
+        observe_provider_deferred(&mut provider_report, "provider-state-1", &deferred);
+        let awaiting_provider =
+            provider_snapshot("checkpoint-provider", None, provider_report, Some(DEADLINE));
+        assert_eq!(awaiting_provider.target(), &target);
+        let mut terminal_report = ready_report();
+        terminal_report.accumulate_usage(&Usage::default());
+        let terminal = snapshot(
+            "checkpoint-terminal",
+            None,
+            terminal_report,
+            Some(DEADLINE),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
+        );
+
+        for (snapshot, expected) in [
+            (ready, ResumePointKind::ReadyForModel),
+            (awaiting_approval, ResumePointKind::AwaitingApprovals),
+            (ready_to_dispatch, ResumePointKind::ReadyToDispatch),
+            (awaiting_provider, ResumePointKind::AwaitingProvider),
+            (terminal, ResumePointKind::Terminal),
+        ] {
+            let restored: RunSnapshot =
+                serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap();
+            assert_eq!(restored.resume_point().kind(), expected);
+            assert_eq!(restored, snapshot);
+        }
     }
 
     #[test]
@@ -477,7 +1006,7 @@ mod tests {
             LanguageRequest::new(report.messages().to_vec()),
             report,
             Some(DEADLINE),
-            ResumePoint::AwaitingApprovals(pending_step(vec![mismatched_approval])),
+            ResumePoint::awaiting_approvals(pending_step(vec![mismatched_approval])),
         )
         .unwrap_err();
 
@@ -506,7 +1035,7 @@ mod tests {
             LanguageRequest::new(report_with_log(prepared_log()).messages().to_vec()),
             report_with_log(prepared_log()),
             Some(DEADLINE),
-            ResumePoint::ReadyToDispatch(pending),
+            ResumePoint::ready_to_dispatch(pending),
         )
         .unwrap_err();
 
@@ -564,7 +1093,6 @@ mod tests {
             20,
             "call-1",
             ToolExecutionAttempt::INITIAL,
-            None,
         ))
         .unwrap();
         log.append(ToolExecutionEvent::indeterminate(
@@ -597,7 +1125,6 @@ mod tests {
                 20,
                 "call-1",
                 second_attempt,
-                None,
             ))
             .unwrap_err();
 
@@ -650,6 +1177,123 @@ mod tests {
         );
     }
 
+    async fn assert_atomic_store_contract(store: &dyn RunStore) {
+        let run_id = RunId::new("run-1").unwrap();
+        let lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let revision = store
+            .compare_and_swap(
+                &lease,
+                SnapshotRevision::EMPTY,
+                ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    revision,
+                    ready_snapshot_for_run("another-run", "checkpoint-other", None),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::RunIdMismatch {
+                leased_run_id: run_id.clone(),
+                snapshot_run_id: RunId::new("another-run").unwrap(),
+            }
+        );
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    SnapshotRevision::EMPTY,
+                    ready_snapshot(
+                        "checkpoint-stale",
+                        Some("checkpoint-1"),
+                        ready_report(),
+                        Some(DEADLINE),
+                    ),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::CasConflict {
+                expected: SnapshotRevision::EMPTY,
+                actual: revision,
+            }
+        );
+
+        let mut terminal_report = ready_report();
+        terminal_report.accumulate_usage(&Usage::default());
+        let terminal = snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            terminal_report,
+            Some(DEADLINE),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
+        );
+        let terminal_revision = store
+            .compare_and_swap(&lease, revision, terminal)
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .compare_and_swap(
+                    &lease,
+                    terminal_revision,
+                    ready_snapshot(
+                        "checkpoint-3",
+                        Some("checkpoint-2"),
+                        ready_report(),
+                        Some(DEADLINE),
+                    ),
+                )
+                .await
+                .unwrap_err(),
+            RunStoreError::RunAlreadyTerminal
+        );
+        store.release(lease).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn built_in_and_external_store_share_atomic_cas_contract() {
+        let built_in = InMemoryRunStore::new();
+        assert_atomic_store_contract(&built_in).await;
+
+        let external = JsonRoundTripStore::default();
+        assert_atomic_store_contract(&external).await;
+    }
+
+    #[tokio::test]
+    async fn external_store_rejects_oversized_input_before_typed_decode() {
+        let store = JsonRoundTripStore::default();
+        let run_id = RunId::new("bounded-json-store").unwrap();
+        let lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        store.lock().unwrap().runs.insert(
+            run_id,
+            JsonStoredRun {
+                revision: 1,
+                snapshot: vec![b'{'; JSON_STORE_MAX_SNAPSHOT_BYTES + 1],
+            },
+        );
+
+        assert_eq!(
+            store.load(&lease).await.unwrap_err(),
+            RunStoreError::SerializedSnapshotTooLarge {
+                actual: JSON_STORE_MAX_SNAPSHOT_BYTES + 1,
+                maximum: JSON_STORE_MAX_SNAPSHOT_BYTES,
+            }
+        );
+        assert_eq!(store.decode_calls(), 0);
+        store.release(lease).await.unwrap();
+    }
+
     #[tokio::test]
     async fn one_run_cannot_have_two_live_leases() {
         let store = InMemoryRunStore::new();
@@ -676,6 +1320,63 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn expired_lease_is_fenced_after_a_new_owner_acquires() {
+        let store = InMemoryRunStore::new();
+        let run_id = RunId::new("run-1").unwrap();
+        let mut old_lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let initial = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
+        let revision = store
+            .compare_and_swap(&old_lease, SnapshotRevision::EMPTY, initial)
+            .await
+            .unwrap();
+
+        store.expire_lease_for_test(&old_lease).unwrap();
+        let new_lease = store
+            .acquire(&run_id, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            store.load(&old_lease).await.unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store
+                .compare_and_swap(&old_lease, revision, successor.clone())
+                .await
+                .unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store
+                .renew(&mut old_lease, Duration::from_secs(30))
+                .await
+                .unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+        assert_eq!(
+            store.release(old_lease).await.unwrap_err(),
+            RunStoreError::LeaseLost
+        );
+
+        let next_revision = store
+            .compare_and_swap(&new_lease, revision, successor)
+            .await
+            .unwrap();
+        assert_eq!(next_revision.value(), revision.value() + 1);
+        store.release(new_lease).await.unwrap();
+    }
+
     #[test]
     fn deserialization_rejects_unknown_snapshot_version() {
         let snapshot = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
@@ -691,19 +1392,16 @@ mod tests {
     }
 
     #[test]
-    fn deserialization_rejects_real_version_five_before_payload_decode() {
+    fn deserialization_rejects_version_seven_before_payload_decode() {
         let snapshot = snapshot(
             "checkpoint-1",
             None,
             report_with_refusal_step(),
             Some(DEADLINE),
-            ResumePoint::ReadyForModel {
-                next_step: 1,
-                target: target(),
-            },
+            ResumePoint::ready_for_model(1, target()),
         );
         let mut value = serde_json::to_value(snapshot).unwrap();
-        value["snapshot_version"] = json!(5);
+        value["snapshot_version"] = json!(7);
         let response = value["report"]["steps"][0]["response"]
             .as_object_mut()
             .unwrap();
@@ -713,10 +1411,38 @@ mod tests {
 
         let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
         let public = error.to_string();
-        assert!(public.contains("unsupported run snapshot version 5"));
+        assert!(public.contains("unsupported run snapshot version 7"));
         assert!(!public.contains("missing field `termination`"));
         assert!(!public.contains("history-secret"));
         assert!(!public.contains("tool-secret"));
+    }
+
+    #[test]
+    fn version_eight_rejects_legacy_dispatch_id() {
+        let mut log = prepared_log();
+        log.append(ToolExecutionEvent::dispatched(
+            1,
+            20,
+            "call-1",
+            ToolExecutionAttempt::INITIAL,
+        ))
+        .unwrap();
+        let snapshot = snapshot(
+            "checkpoint-dispatch-id",
+            None,
+            report_with_log(log),
+            Some(DEADLINE),
+            ResumePoint::terminal_state(SnapshotTerminal::failed(
+                SnapshotReason::new("worker_crashed", None).unwrap(),
+                None,
+            )),
+        );
+        let mut value = serde_json::to_value(snapshot).unwrap();
+        value["report"]["tool_journal"]["events"][1]["Dispatched"]["dispatch_id"] =
+            json!("legacy-dispatch-id");
+
+        let error = serde_json::from_value::<RunSnapshot>(value).unwrap_err();
+        assert!(error.to_string().contains("unknown field `dispatch_id`"));
     }
 
     #[test]
@@ -726,10 +1452,7 @@ mod tests {
             None,
             report_with_refusal_step(),
             Some(DEADLINE),
-            ResumePoint::ReadyForModel {
-                next_step: 1,
-                target: target(),
-            },
+            ResumePoint::ready_for_model(1, target()),
         );
         let mut value = serde_json::to_value(snapshot).unwrap();
         value["report"]["steps"][0]["assistant_history_omissions"] = json!([]);
@@ -750,7 +1473,6 @@ mod tests {
             20,
             "call-1",
             ToolExecutionAttempt::INITIAL,
-            Some("dispatch-1".to_string()),
         ))
         .unwrap();
         let snapshot = snapshot(
@@ -758,10 +1480,10 @@ mod tests {
             None,
             report_with_log(log),
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Failed {
-                reason: SnapshotReason::new("worker_crashed", None).unwrap(),
-                partial: None,
-            }),
+            ResumePoint::terminal_state(SnapshotTerminal::failed(
+                SnapshotReason::new("worker_crashed", None).unwrap(),
+                None,
+            )),
         );
         let expected = snapshot.clone();
         let store = InMemoryRunStore::new();
@@ -783,37 +1505,46 @@ mod tests {
     }
 
     #[test]
-    fn recovery_is_explicit_and_marks_dispatch_indeterminate() {
+    fn journal_recovery_is_explicit_and_marks_dispatch_indeterminate() {
         let mut log = prepared_log();
         log.append(ToolExecutionEvent::dispatched(
             1,
             20,
             "call-1",
             ToolExecutionAttempt::INITIAL,
-            None,
         ))
         .unwrap();
+        let mut journal = ToolJournal::from_log(log);
+        journal.recover_dispatched().unwrap();
+        let mut report = RunReport::new(
+            target(),
+            vec![Message::text(MessageRole::User, "history-secret")],
+        );
+        report.accumulate_usage(&Usage::default());
+        report.replace_tool_journal(journal);
         let recovered = snapshot(
             "checkpoint-1",
             None,
-            report_with_log(log),
+            report,
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Failed {
-                reason: SnapshotReason::new("worker_crashed", None).unwrap(),
-                partial: None,
-            }),
-        )
-        .recovered_for_resume(30)
-        .unwrap();
+            ResumePoint::terminal_state(SnapshotTerminal::indeterminate(
+                SnapshotReason::new("dispatched_tool_indeterminate", None).unwrap(),
+            )),
+        );
 
         assert_eq!(
             recovered.execution_log().status("call-1"),
             Some(ToolExecutionStatus::Indeterminate)
         );
-        assert!(matches!(
-            recovered.resume_point(),
-            ResumePoint::Terminal(SnapshotTerminal::Indeterminate { .. })
-        ));
+        assert_eq!(recovered.resume_point().kind(), ResumePointKind::Terminal);
+        assert_eq!(
+            recovered
+                .resume_point()
+                .terminal()
+                .expect("expected terminal resume point")
+                .kind(),
+            SnapshotTerminalKind::Indeterminate
+        );
     }
 
     async fn store_current(
@@ -832,27 +1563,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cas_rejects_wrong_parent_checkpoint() {
+    async fn store_cas_does_not_own_successor_semantics() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
         let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot("checkpoint-2", None, ready_report(), Some(DEADLINE));
 
-        assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::ParentCheckpointMismatch {
-                expected: CheckpointId::new("checkpoint-1").unwrap(),
-                actual: None,
-            })
-        );
+        let next_revision = store
+            .compare_and_swap(&lease, revision, successor)
+            .await
+            .unwrap();
+        assert_eq!(next_revision.value(), revision.value() + 1);
     }
 
-    #[tokio::test]
-    async fn cas_rejects_message_history_regression() {
+    #[test]
+    fn successor_rejects_message_history_regression() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor_report = RunReport::new(target(), Vec::new());
         let successor = ready_snapshot(
             "checkpoint-2",
@@ -862,16 +1587,13 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::MessageHistoryRegression)
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::MessageHistoryRegression
         );
     }
 
-    #[tokio::test]
-    async fn cas_accepts_only_an_exact_reprojection_for_history_regression() {
+    #[test]
+    fn successor_accepts_only_an_exact_reprojection_for_history_regression() {
         let source = ModelTarget::new(
             ProviderId::new("source-provider").unwrap(),
             ModelId::new("source-model").unwrap(),
@@ -908,6 +1630,7 @@ mod tests {
             ),
         ];
         let mut previous_report = RunReport::new(source.clone(), source_messages.clone());
+        previous_report.accumulate_usage(source_response.usage());
         previous_report.steps_mut().push(StepRecord::new(
             0,
             source.clone(),
@@ -926,10 +1649,7 @@ mod tests {
             LanguageRequest::new(source_messages),
             previous_report,
             Some(DEADLINE),
-            ResumePoint::ReadyForModel {
-                next_step: 1,
-                target: destination.clone(),
-            },
+            ResumePoint::ready_for_model(1, destination.clone()),
         )
         .unwrap();
         let projected = project_history(
@@ -959,6 +1679,7 @@ mod tests {
                 .map(MessagePart::from),
         ));
         let mut successor_report = previous.report().clone();
+        successor_report.accumulate_usage(final_response.usage());
         successor_report.replace_messages(continuation.messages.clone());
         successor_report
             .model_transitions_mut()
@@ -988,7 +1709,7 @@ mod tests {
             tampered_continuation,
             tampered_report,
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
         )
         .unwrap();
         assert_eq!(
@@ -1001,16 +1722,10 @@ mod tests {
             continuation,
             successor_report,
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
         )
         .unwrap();
-        let (store, lease, revision) = store_current(previous).await;
-
-        let next_revision = store
-            .compare_and_swap(&lease, revision, successor)
-            .await
-            .unwrap();
-        assert_eq!(next_revision.value(), revision.value() + 1);
+        previous.validate_successor(&successor).unwrap();
     }
 
     #[test]
@@ -1034,6 +1749,7 @@ mod tests {
         .unwrap();
         let messages = vec![Message::text(MessageRole::User, "continue")];
         let mut report = RunReport::new(source.clone(), messages.clone());
+        report.accumulate_usage(response.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, source, response, Vec::new()));
@@ -1055,7 +1771,7 @@ mod tests {
             LanguageRequest::new(messages),
             report,
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
         )
         .unwrap_err();
 
@@ -1090,6 +1806,7 @@ mod tests {
         .unwrap();
         let messages = vec![Message::text(MessageRole::User, "continue")];
         let mut report = RunReport::new(source.clone(), messages.clone());
+        report.accumulate_usage(first.usage());
         report
             .steps_mut()
             .push(StepRecord::new(0, source.clone(), first, Vec::new()));
@@ -1104,6 +1821,7 @@ mod tests {
                 ModelTransitionOutcome::Applied,
                 Vec::new(),
             ));
+        report.accumulate_usage(second.usage());
         report
             .steps_mut()
             .push(StepRecord::new(1, destination.clone(), second, Vec::new()));
@@ -1113,22 +1831,21 @@ mod tests {
             LanguageRequest::new(messages),
             report,
             Some(DEADLINE),
-            ResumePoint::Terminal(SnapshotTerminal::Completed { reason: None }),
+            ResumePoint::terminal_state(SnapshotTerminal::completed(None)),
         )
         .unwrap();
 
         assert_eq!(snapshot.target(), &destination);
     }
 
-    #[tokio::test]
-    async fn cas_rejects_budget_regression() {
+    #[test]
+    fn successor_rejects_budget_regression() {
         let mut current_report = ready_report();
         current_report
             .budget_mut()
             .charge_model_step(&RunBudget::default())
             .unwrap();
         let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1137,22 +1854,214 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::BudgetRegression {
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::BudgetRegression {
                 dimension: "model_steps",
                 previous: 1,
                 next: 0,
-            })
+            }
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_deadline_extension() {
+    #[test]
+    fn successor_rejects_usage_settlement_regression_with_unknown_usage() {
+        let mut current_report = ready_report();
+        current_report.accumulate_usage(&Usage::default());
+        let current = ready_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+        let successor = ready_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            ready_report(),
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::UsageSettlementRegression
+        );
+    }
+
+    #[test]
+    fn provider_deferred_successor_accepts_same_key_payload_update() {
+        let queued = deferred_item("queued");
+        let mut current_report = provider_report(&queued);
+        observe_provider_deferred(&mut current_report, "provider-state-1", &queued);
+        let current = provider_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let mut successor_report = current.report().clone();
+        let in_progress = deferred_item("in_progress");
+        observe_provider_deferred(&mut successor_report, "provider-state-1", &in_progress);
+        let successor = provider_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            successor_report,
+            Some(DEADLINE),
+        );
+
+        current.validate_successor(&successor).unwrap();
+        assert_eq!(
+            successor.report().provider_deferred()[0].item().data()["status"],
+            "in_progress"
+        );
+    }
+
+    #[test]
+    fn provider_deferred_identity_includes_complete_replay_scope() {
+        let observations = [
+            deferred_item_in_scope("platform", "platform-a", "mode-a", "domain-a"),
+            deferred_item_in_scope("api-mode", "platform-b", "mode-b", "domain-a"),
+            deferred_item_in_scope("replay-domain", "platform-b", "mode-a", "domain-b"),
+            deferred_item_in_scope("baseline", "platform-b", "mode-a", "domain-a"),
+        ];
+        let mut report = ready_report();
+        for item in &observations {
+            observe_provider_deferred(&mut report, "shared-correlation", item);
+        }
+
+        assert_eq!(report.provider_deferred().len(), observations.len());
+        let round_trip: RunReport = serde_json::from_value(serde_json::to_value(&report).unwrap())
+            .expect("distinct replay scopes remain valid after serialization");
+        assert_eq!(round_trip.provider_deferred().len(), observations.len());
+    }
+
+    #[test]
+    fn provider_deferred_successor_rejects_scope_substitution() {
+        let current_item = deferred_item_in_scope("queued", "platform-a", "mode-a", "domain-a");
+        let mut current_report = provider_report(&current_item);
+        observe_provider_deferred(&mut current_report, "shared-correlation", &current_item);
+        let current = provider_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let substituted_item = deferred_item_in_scope("queued", "platform-a", "mode-a", "domain-b");
+        let mut successor_report = provider_report(&substituted_item);
+        observe_provider_deferred(
+            &mut successor_report,
+            "shared-correlation",
+            &substituted_item,
+        );
+        let successor = provider_snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            successor_report,
+            Some(DEADLINE),
+        );
+
+        assert_eq!(
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::InitialTargetChanged
+        );
+    }
+
+    #[test]
+    fn provider_deferred_successor_rejects_key_deletion_reorder_and_substitution() {
+        let first = deferred_item("first");
+        let second = deferred_item("second");
+        let provider_target = provider_target_for_item(&first);
+        let mut current_report = provider_report(&first);
+        observe_provider_deferred(&mut current_report, "provider-state-1", &first);
+        observe_provider_deferred(&mut current_report, "provider-state-2", &second);
+        let current = provider_snapshot("checkpoint-1", None, current_report, Some(DEADLINE));
+
+        let deletion_report =
+            report_with_log_for_target(provider_target.clone(), ToolExecutionLog::new());
+        let deletion = snapshot(
+            "checkpoint-2",
+            Some("checkpoint-1"),
+            deletion_report,
+            Some(DEADLINE),
+            ResumePoint::ready_for_model(0, provider_target.clone()),
+        );
+        assert_eq!(
+            current.validate_successor(&deletion).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+
+        let mut reordered_report =
+            report_with_log_for_target(provider_target.clone(), ToolExecutionLog::new());
+        observe_provider_deferred(&mut reordered_report, "provider-state-2", &second);
+        observe_provider_deferred(&mut reordered_report, "provider-state-1", &first);
+        let reordered = provider_snapshot(
+            "checkpoint-3",
+            Some("checkpoint-1"),
+            reordered_report,
+            Some(DEADLINE),
+        );
+        assert_eq!(
+            current.validate_successor(&reordered).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+
+        let mut substituted_report =
+            report_with_log_for_target(provider_target, ToolExecutionLog::new());
+        observe_provider_deferred(&mut substituted_report, "provider-state-3", &first);
+        observe_provider_deferred(&mut substituted_report, "provider-state-2", &second);
+        let substituted = provider_snapshot(
+            "checkpoint-4",
+            Some("checkpoint-1"),
+            substituted_report,
+            Some(DEADLINE),
+        );
+        assert_eq!(
+            current.validate_successor(&substituted).unwrap_err(),
+            RunSnapshotSuccessorError::ProviderHistoryRegression
+        );
+    }
+
+    #[test]
+    fn deserialization_rejects_duplicate_provider_deferred_keys_and_unbounded_ids() {
+        let item = deferred_item("queued");
+        let mut report = provider_report(&item);
+        observe_provider_deferred(&mut report, "provider-state-1", &item);
+        let snapshot = provider_snapshot("checkpoint-1", None, report, Some(DEADLINE));
+        let encoded = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(
+            encoded["report"]["provider_deferred"]["observations"][0]["correlation_id"],
+            "provider-state-1"
+        );
+        assert!(encoded["report"]["provider_deferred"]["observations"][0]["item"].is_object());
+
+        let mut duplicate = encoded.clone();
+        let observation = duplicate["report"]["provider_deferred"]["observations"][0].clone();
+        duplicate["report"]["provider_deferred"]["observations"] =
+            json!([observation.clone(), observation]);
+        let report_error =
+            serde_json::from_value::<RunReport>(duplicate["report"].clone()).unwrap_err();
+        assert!(
+            report_error
+                .to_string()
+                .contains("provider-deferred durable keys must be unique")
+        );
+        let error = serde_json::from_value::<RunSnapshot>(duplicate).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("provider-deferred durable keys must be unique")
+        );
+
+        let mut oversized = encoded;
+        oversized["report"]["provider_deferred"]["observations"][0]["correlation_id"] =
+            json!("x".repeat(1_025));
+        let error = serde_json::from_value::<RunSnapshot>(oversized).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("provider-deferred correlation identifier is invalid")
+        );
+    }
+
+    #[test]
+    fn provider_deferred_observation_debug_redacts_identity_and_payload() {
+        let mut report = ready_report();
+        let item = deferred_item("private-payload");
+        observe_provider_deferred(&mut report, "correlation-secret", &item);
+
+        let debug = format!("{:?}", report.provider_deferred()[0]);
+        assert!(!debug.contains("correlation-secret"));
+        assert!(!debug.contains("private-payload"));
+    }
+
+    #[test]
+    fn successor_rejects_deadline_extension() {
         let current = ready_snapshot("checkpoint-1", None, ready_report(), Some(DEADLINE));
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1161,26 +2070,22 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::DeadlineRegression {
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::DeadlineRegression {
                 previous: Some(DEADLINE),
                 next: Some(DEADLINE + 1),
-            })
+            }
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_execution_log_regression() {
+    #[test]
+    fn successor_rejects_execution_log_regression() {
         let current = ready_snapshot(
             "checkpoint-1",
             None,
             report_with_log(completed_log()),
             Some(DEADLINE),
         );
-        let (store, lease, revision) = store_current(current).await;
         let successor = ready_snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
@@ -1189,57 +2094,58 @@ mod tests {
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::ExecutionLogRegression)
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::ExecutionLogRegression
         );
     }
 
-    #[tokio::test]
-    async fn cas_rejects_illegal_resume_transition() {
+    #[test]
+    fn successor_rejects_illegal_resume_transition() {
+        let provider_target =
+            deferred_target("deferred-platform", "deferred-mode", "snapshot-deferred");
+        let item = deferred_item("queued");
+        let current_step = PendingStepSnapshot::new(
+            0,
+            provider_target.clone(),
+            tool_response(),
+            vec![prepared_tool()],
+            Vec::new(),
+            Vec::new(),
+        );
         let current = snapshot(
             "checkpoint-1",
             None,
-            report_with_log(prepared_log()),
+            report_with_log_for_target(provider_target.clone(), prepared_log()),
             Some(DEADLINE),
-            ResumePoint::ReadyToDispatch(pending_step(Vec::new())),
+            ResumePoint::ready_to_dispatch(current_step),
         );
-        let (store, lease, revision) = store_current(current).await;
         let provider_step = PendingProviderStepSnapshot::new(
             0,
-            target(),
+            provider_target.clone(),
             tool_response(),
-            vec![ProviderStateSnapshot {
-                namespace: "test.provider".to_string(),
-                correlation_id: Some("correlation-secret".to_string()),
-                encoding: "application/json".to_string(),
-                payload: b"provider-secret".to_vec(),
-            }],
+            vec![provider_state(&item, "correlation-secret")],
         );
         let successor = snapshot(
             "checkpoint-2",
             Some("checkpoint-1"),
-            report_with_log(prepared_log()),
+            report_with_provider_state(
+                &provider_target,
+                &item,
+                "correlation-secret",
+                prepared_log(),
+            ),
             Some(DEADLINE),
-            ResumePoint::AwaitingProvider(provider_step),
+            ResumePoint::awaiting_provider(provider_step),
         );
 
         assert_eq!(
-            store
-                .compare_and_swap(&lease, revision, successor)
-                .await
-                .unwrap_err(),
-            RunStoreError::InvalidSuccessor(RunSnapshotSuccessorError::InvalidResumeTransition {
-                from: ResumePointKind::ReadyToDispatch,
-                to: ResumePointKind::AwaitingProvider,
-            })
+            current.validate_successor(&successor).unwrap_err(),
+            RunSnapshotSuccessorError::PendingLocalWorkIncomplete
         );
     }
 
-    #[tokio::test]
-    async fn cas_accepts_approval_resolution_to_ready_to_dispatch() {
+    #[test]
+    fn successor_accepts_approval_resolution_to_ready_to_dispatch() {
         let current = awaiting_approval_snapshot("checkpoint-1", None);
         let mut successor_report = current.report().clone();
         successor_report.budget_mut().release_pending_approval();
@@ -1248,37 +2154,44 @@ mod tests {
             Some("checkpoint-1"),
             successor_report,
             Some(DEADLINE),
-            ResumePoint::ReadyToDispatch(pending_step(Vec::new())),
+            ResumePoint::ready_to_dispatch(pending_step(Vec::new())),
         );
-        let (store, lease, revision) = store_current(current).await;
-
-        let next_revision = store
-            .compare_and_swap(&lease, revision, successor)
-            .await
-            .unwrap();
-        assert_eq!(next_revision.value(), revision.value() + 1);
+        current.validate_successor(&successor).unwrap();
     }
 
     #[test]
     fn snapshot_debug_redacts_payloads() {
+        let provider_target =
+            deferred_target("deferred-platform", "deferred-mode", "snapshot-deferred");
+        let item = deferred_item("provider-secret");
         let provider_step = PendingProviderStepSnapshot::new(
             0,
-            target(),
+            provider_target.clone(),
             tool_response(),
-            vec![ProviderStateSnapshot {
-                namespace: "test.provider".to_string(),
-                correlation_id: Some("correlation-secret".to_string()),
-                encoding: "application/octet-stream".to_string(),
-                payload: b"provider-secret".to_vec(),
-            }],
+            vec![provider_state(&item, "correlation-secret")],
         );
         let snapshot = snapshot(
             "checkpoint-1",
             None,
-            report_with_log(prepared_log()),
+            report_with_provider_state(
+                &provider_target,
+                &item,
+                "correlation-secret",
+                prepared_log(),
+            ),
             Some(DEADLINE),
-            ResumePoint::AwaitingProvider(provider_step),
+            ResumePoint::awaiting_provider(provider_step),
         );
+
+        let state = &snapshot.provider_state()[0];
+        assert_eq!(
+            state.namespace(),
+            "provider-deferred:deferred-provider:deferred.protocol"
+        );
+        assert_eq!(state.scope(), provider_target.scope());
+        assert_eq!(state.correlation_id(), "correlation-secret");
+        assert_eq!(state.encoding(), "application/json");
+        assert!(!state.payload().is_empty());
 
         let debug = format!("{snapshot:?}");
         for secret in [

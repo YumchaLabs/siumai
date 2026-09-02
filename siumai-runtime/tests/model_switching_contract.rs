@@ -4,14 +4,17 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use serde::Serialize;
 use serde_json::json;
 use siumai_core::stream::established_stream;
 use siumai_core::{
-    CallOptions, ContentPart, Error, ErrorKind, LanguageCallError, LanguageCompletionReason,
-    LanguageModel, LanguageRequest, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
-    MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem, ProtocolId,
-    ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal, ToolCall,
-    ToolOutcome, ToolSpec, Usage,
+    CallOptions, ContentAnnotationTarget, ContentPart, Error, ErrorKind, GenerationConfig,
+    LanguageCallError, LanguageCompletionReason, LanguageInput, LanguageModel, LanguageRequest,
+    LanguageRequestError, LanguageResponse, LanguageStream, LanguageStreamEvent, Message,
+    MessagePart, MessageRole, Model, ModelDescriptor, ModelFamily, ModelId, OpaqueProviderItem,
+    ProtocolId, ProviderId, ProviderProvenance, ReplayDomain, ReplayDomainId, StreamTerminal,
+    StructuredOutputSpec, ToolCall, ToolChoice, ToolOutcome, ToolSpec, TypedProviderAnnotation,
+    Usage,
 };
 use siumai_runtime::snapshot::SnapshotFingerprint;
 use siumai_runtime::tool::{ApprovalPolicy, ToolBinding, ToolSet};
@@ -109,6 +112,38 @@ fn request() -> LanguageRequest {
     LanguageRequest::new(vec![Message::text(MessageRole::User, "research rust")])
 }
 
+struct LocalAgentInput(LanguageRequest);
+
+impl From<LocalAgentInput> for LanguageInput {
+    fn from(input: LocalAgentInput) -> Self {
+        input.0.into()
+    }
+}
+
+#[derive(Serialize)]
+struct AgentContentAnnotation {
+    cache: bool,
+}
+
+impl TypedProviderAnnotation for AgentContentAnnotation {
+    type Target = ContentAnnotationTarget;
+
+    const NAMESPACE: &'static str = "agent-test";
+}
+
+fn request_with_caller_tool() -> LanguageRequest {
+    let mut request = request();
+    request.tools.push(
+        ToolSpec::new(
+            "client_search",
+            Some("provider-visible search".to_string()),
+            json!({"type": "object"}),
+        )
+        .expect("valid caller-visible tool"),
+    );
+    request
+}
+
 fn local_call() -> ToolCall {
     ToolCall::local("call-1", "lookup", json!({"query": "rust"})).expect("valid tool call")
 }
@@ -130,6 +165,51 @@ fn opaque(provider: &str, protocol: &str, model: &str, kind: &str) -> OpaqueProv
         json!({"id": "native-state"}),
     )
     .expect("valid opaque item")
+}
+
+fn rich_agent_request() -> LanguageRequest {
+    let annotated_user = Message::new(
+        MessageRole::User,
+        [MessagePart::text("research rust")
+            .with_provider_annotation(&AgentContentAnnotation { cache: true })
+            .expect("valid content annotation")],
+    );
+    let replay = Message::new(
+        MessageRole::Assistant,
+        [ContentPart::ProviderOpaque(opaque(
+            "agent",
+            "agent.messages",
+            "model",
+            "response.output",
+        ))],
+    );
+    LanguageRequest {
+        messages: vec![annotated_user, replay],
+        generation: GenerationConfig {
+            max_output_tokens: Some(321),
+            temperature: Some(0.25),
+            top_p: Some(0.8),
+            stop_sequences: vec!["STOP".to_string()],
+            seed: Some(42),
+        },
+        tools: vec![
+            ToolSpec::new(
+                "client_search",
+                Some("provider-visible search".to_string()),
+                json!({"type": "object"}),
+            )
+            .expect("valid caller-visible tool"),
+        ],
+        tool_choice: Some(ToolChoice::Named {
+            name: "client_search".to_string(),
+        }),
+        structured_output: Some(StructuredOutputSpec {
+            name: "agent_result".to_string(),
+            description: Some("Structured agent result".to_string()),
+            schema: json!({"type": "object"}),
+            strict: true,
+        }),
+    }
 }
 
 fn tool_response(native: Option<OpaqueProviderItem>) -> LanguageResponse {
@@ -207,7 +287,7 @@ async fn strict_portable_switch_uses_one_engine_and_records_the_transition() {
         [final_response("done")],
     );
     let mut stream = switching_loop(source.clone(), target.clone(), ProjectionPolicy::Strict)
-        .stream(request(), CallOptions::default())
+        .stream(request_with_caller_tool(), CallOptions::default())
         .await
         .expect("run establishes");
     let mut events = Vec::new();
@@ -238,6 +318,22 @@ async fn strict_portable_switch_uses_one_engine_and_records_the_transition() {
     assert_eq!(target.stream_calls.load(Ordering::SeqCst), 1);
     assert_eq!(source.generate_calls.load(Ordering::SeqCst), 0);
     assert_eq!(target.generate_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        source.requests()[0]
+            .tools
+            .iter()
+            .map(ToolSpec::name)
+            .collect::<Vec<_>>(),
+        vec!["client_search", "lookup"]
+    );
+    assert_eq!(
+        target.requests()[0]
+            .tools
+            .iter()
+            .map(ToolSpec::name)
+            .collect::<Vec<_>>(),
+        vec!["client_search", "lookup"]
+    );
 }
 
 #[tokio::test]
@@ -426,6 +522,105 @@ async fn agent_reuses_instructions_without_sharing_run_history() {
         assert_eq!(request.messages[0].role(), MessageRole::System);
         assert_eq!(request.messages[1].role(), MessageRole::User);
     }
+}
+
+#[tokio::test]
+async fn agent_accepts_downstream_wrappers_converted_into_language_input() {
+    let model = ScriptedModel::new("agent", "agent.messages", "model", [final_response("done")]);
+    let shared: Arc<dyn LanguageModel> = model.clone();
+    let request = rich_agent_request();
+    let mut expected = request.clone();
+    expected
+        .messages
+        .insert(0, Message::text(MessageRole::System, "be concise"));
+
+    let terminal = Agent::from_shared_model(shared)
+        .with_instructions("be concise")
+        .run(LocalAgentInput(request))
+        .await
+        .expect("local wrapper should use the shared language input path");
+
+    assert!(terminal.is_completed());
+    assert_eq!(model.requests(), vec![expected]);
+}
+
+#[tokio::test]
+async fn agent_accepts_every_shared_language_input_form() {
+    let model = ScriptedModel::new(
+        "agent",
+        "agent.messages",
+        "model",
+        [
+            final_response("plain"),
+            final_response("message"),
+            final_response("messages"),
+            final_response("request"),
+        ],
+    );
+    let shared: Arc<dyn LanguageModel> = model.clone();
+    let agent = Agent::from_shared_model(shared);
+    let message = Message::text(MessageRole::User, "one message");
+    let messages = vec![
+        Message::text(MessageRole::Developer, "policy"),
+        Message::text(MessageRole::User, "message list"),
+    ];
+    let request = LanguageRequest::new(vec![Message::text(MessageRole::User, "full request")]);
+
+    agent.run("plain string").await.expect("plain input runs");
+    agent
+        .run(message.clone())
+        .await
+        .expect("message input runs");
+    agent
+        .run(messages.clone())
+        .await
+        .expect("message-list input runs");
+    agent
+        .run(request.clone())
+        .await
+        .expect("complete request input runs");
+
+    assert_eq!(
+        model.requests(),
+        vec![
+            LanguageRequest::new(vec![Message::text(MessageRole::User, "plain string")]),
+            LanguageRequest::new(vec![message]),
+            LanguageRequest::new(messages),
+            request,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn agent_rejects_invalid_language_input_before_model_invocation() {
+    let model = ScriptedModel::new(
+        "agent",
+        "agent.messages",
+        "model",
+        [final_response("unused")],
+    );
+    let shared: Arc<dyn LanguageModel> = model.clone();
+    let mut request = request();
+    request.structured_output = Some(StructuredOutputSpec {
+        name: String::new(),
+        description: None,
+        schema: json!({"type": "object"}),
+        strict: true,
+    });
+
+    let error = Agent::from_shared_model(shared)
+        .run(request)
+        .await
+        .expect_err("invalid portable request must fail before model invocation");
+
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(matches!(
+        error
+            .sensitive_source()
+            .and_then(|source| source.expose().downcast_ref::<LanguageRequestError>()),
+        Some(LanguageRequestError::EmptyStructuredOutputName)
+    ));
+    assert_eq!(model.stream_calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]

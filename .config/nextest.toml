@@ -16,14 +16,13 @@ success-output = "never"
 fail-fast = true
 slow-timeout = { period = "60s", on-timeout = "fail" }
 leak-timeout = "200ms"
-global-timeout = "30y"
+global-timeout = "2h"
 
-# CI profile: less noisy output, allow small retries, never fail-fast.
+# CI profile: less noisy output, deterministic failures are not retried.
 [profile.ci]
 inherits = "default"
 fail-fast = false
-retries = { backoff = "fixed", count = 1, delay = "1s" }
+retries = 0
 failure-output = "immediate-final"
 status-level = "retry"
 final-status-level = "fail"
-

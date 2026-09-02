@@ -1,9 +1,10 @@
 # Registry Contract
 
 - Status: Current repository contract
-- Updated: 2026-08-10
+- Updated: 2026-08-19
 - Owner: `siumai-registry`
-- Related decision: `docs/adr/0013-provider-identity-and-family-registration.md`
+- Related decisions: `docs/adr/0013-provider-identity-and-family-registration.md`,
+  `docs/adr/0020-typed-siumai-provider-hub.md`
 
 ## Purpose
 
@@ -30,6 +31,38 @@ not prove shared credentials, endpoint, account, or runtime origin.
 Registry resolves the requested family directly from the selected registration. It has no model
 policy callback, support-state evaluation, lifecycle warning injection, or advisory query.
 
+Resolution attaches the canonical route through private family wrappers so route-bound provider
+options and route-aware errors survive delegation to the configured provider model. The public
+`RegistryModelContext` remains the typed requested-versus-canonical route context carried by
+resolution failures; the wrappers themselves are not an extension surface.
+
+## Relationship with the typed facade
+
+`Siumai::builder()` is the primary direct-provider journey and never invokes Registry. It builds a
+typed `Siumai<P>` hub, binds a concrete family client, and retains `provider()`/`model()` access for
+native APIs. Registry is the separate route-selection path for hosts that need runtime switching;
+it does not become a hidden provider store behind the facade.
+
+## Facade handoff
+
+Callers resolve a route once and pass the returned family trait object to the same root facade module
+used by a concrete model:
+
+```rust,ignore
+let model = registry.language_model("primary:gpt-5.6")?;
+let response = siumai::language::generate(model.as_ref(), "Summarize the request").await?;
+```
+
+The facade call borrows that exact live handle. Typed provider options therefore validate against
+the canonical route and configured-instance identity before dispatch, and route-aware facade errors
+retain the Registry route context. The facade never accepts a Registry plus a route string and does
+not resolve the target again after options are bound.
+
+Resolution erases concrete provider methods intentionally. Registry does not expose `Any`, a
+provider enum, a capability downcast, or a native-resource recovery API. Applications that need
+portable routing and provider-native files, batches, sessions, or jobs keep the configured concrete
+provider beside the Registry snapshot and call those native APIs directly.
+
 ## Route semantics
 
 `RouteId` is an opaque local key such as `primary`, `fast`, or `tenant-a-eu`. Registry does not infer
@@ -53,6 +86,13 @@ This separation keeps support evidence useful without allowing stale catalogs to
 future model or mutate explicit provider options. Rebuilding an immutable Registry snapshot remains
 the host's mechanism for changing routes after its own policy changes.
 
+Applications that need model-call decoration can implement the relevant family trait on an
+ordinary host-owned wrapper. Such a wrapper must delegate the complete `ModelDescriptor` unchanged
+and forward `route_id()` so exact-target provider options, runtime route defaults, and error
+attribution continue to select the configured route. Registry does not install or order those
+wrappers. The removed execution-decoration surface was not replaced with a middleware framework,
+fallback/cache engine, transport hook, raw client/custom-fetch seam, or OpenTelemetry integration.
+
 ## Non-goals
 
 Registry does not:
@@ -65,6 +105,8 @@ Registry does not:
 - infer support from provider profiles or support manifests;
 - evaluate model lifecycle, allowlist, or product-capability policy;
 - choose between API modes within one family binding;
+- provide execution decorators, hooks, or wrapper stacks;
+- own retry, fallback, cache, telemetry-installation, or raw network customization policy;
 - expose a universal provider factory or generic client.
 
 Those concerns belong to configured providers or the host control plane. Applications that need

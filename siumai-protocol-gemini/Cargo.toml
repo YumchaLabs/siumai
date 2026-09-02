@@ -20,6 +20,7 @@ doctest = false
 siumai-core = { workspace = true, default-features = false }
 
 base64.workspace = true
+bytes.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

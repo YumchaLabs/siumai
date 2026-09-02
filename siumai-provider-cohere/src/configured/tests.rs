@@ -1,11 +1,14 @@
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use siumai_core::{
     ApiStability, CallOptions, Cancellation, EmbeddingModel, EmbeddingRequest, ErrorDetail,
     ErrorKind, Model, ModelFamily, ModelId, RerankCandidate, RerankModel, RerankRequest,
     ResourceKind, UsageValue, VerifiedFidelity,
 };
-use siumai_transport::{EndpointConfig, RetryPolicy};
+use siumai_transport::{
+    EndpointConfig, ProviderHttpTransportSettings, RetryPolicy, TransportEvent, TransportObserver,
+};
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -13,7 +16,18 @@ use crate::provider_options::{
     CohereEmbeddingInputType, CohereEmbeddingOptions, CohereEmbeddingTruncate, CohereRerankOptions,
 };
 
-use super::CohereProvider;
+use super::{CohereProvider, CohereTranscriptionRequest};
+
+#[derive(Default)]
+struct RecordingObserver {
+    events: Mutex<Vec<TransportEvent>>,
+}
+
+impl TransportObserver for RecordingObserver {
+    fn observe(&self, event: &TransportEvent) {
+        self.events.lock().unwrap().push(event.clone());
+    }
+}
 
 fn test_provider(server: &MockServer) -> CohereProvider {
     test_provider_with_retry(server, RetryPolicy::default())
@@ -24,7 +38,9 @@ fn test_provider_with_retry(server: &MockServer, retry_policy: RetryPolicy) -> C
         .expect("loopback Cohere endpoint");
     CohereProvider::builder("test-api-key")
         .with_endpoint(endpoint)
-        .with_retry_policy(retry_policy)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_retry_policy(retry_policy),
+        )
         .build()
         .expect("configured Cohere provider")
 }
@@ -66,6 +82,72 @@ fn official_profile_covers_current_embedding_and_rerank_models() {
         profile.catalog().expect("model catalog").iter().count(),
         crate::models::CURRENT_EMBEDDING_MODELS.len() + crate::models::CURRENT_RERANK_MODELS.len()
     );
+    let native_claims = provider.support_manifest().native_claims();
+    assert_eq!(native_claims.len(), 1);
+    assert_eq!(
+        native_claims[0]
+            .scope()
+            .binding()
+            .surface_id()
+            .expect("transcription surface")
+            .as_str(),
+        "audio-transcriptions"
+    );
+}
+
+#[tokio::test]
+async fn audio_transcription_uses_model_less_multipart_contract() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/audio/transcriptions"))
+        .and(header("authorization", "Bearer test-api-key"))
+        .and(header("accept", "application/json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-request-id", "transcription-request")
+                .set_body_json(serde_json::json!({ "text": "hello world" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = test_provider(&server);
+    let response = provider
+        .transcriptions()
+        .create(
+            CohereTranscriptionRequest::new(vec![1_u8, 2, 3], "audio/wav", "en")
+                .unwrap()
+                .with_temperature(0.25)
+                .unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.text, "hello world");
+    assert_eq!(response.language, None);
+    assert_eq!(
+        response.metadata.request_id.as_deref(),
+        Some("transcription-request")
+    );
+    assert_eq!(response.usage.input_tokens, UsageValue::Unknown);
+
+    let requests = server.received_requests().await.unwrap();
+    let body = String::from_utf8_lossy(&requests[0].body);
+    for expected in [
+        "name=\"file\"",
+        "filename=\"audio.wav\"",
+        "name=\"language\"",
+        "\r\n\r\nen\r\n",
+        "name=\"temperature\"",
+        "\r\n\r\n0.25\r\n",
+    ] {
+        assert!(
+            body.contains(expected),
+            "missing multipart value {expected}"
+        );
+    }
+    assert!(!body.contains("name=\"model\""));
 }
 
 #[test]
@@ -74,6 +156,89 @@ fn canonical_requests_reject_empty_embedding_and_rerank_inputs() {
     assert!(EmbeddingRequest::single("   ").is_err());
     assert!(RerankRequest::new("query", Vec::new()).is_err());
     assert!(RerankRequest::new("   ", candidates()).is_err());
+}
+
+#[tokio::test]
+async fn embedding_and_rerank_resolve_relative_deadlines_before_planning() {
+    let provider = CohereProvider::builder("test-api-key")
+        .with_endpoint(
+            EndpointConfig::local_explicit("http://127.0.0.1:9/v2").expect("local endpoint"),
+        )
+        .build()
+        .expect("provider");
+    let options = CallOptions::default()
+        .with_timeout(Duration::MAX)
+        .expect("relative timeout is validated at invocation");
+
+    let embedding_error = provider
+        .embedding("future-embedding")
+        .unwrap()
+        .embed(EmbeddingRequest::single("hello").unwrap(), options.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(embedding_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(embedding_error.message(), "invalid call options");
+
+    let rerank_error = provider
+        .reranker("future-reranker")
+        .unwrap()
+        .rerank(
+            RerankRequest::new("weather", candidates()).unwrap(),
+            options,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(rerank_error.kind(), ErrorKind::InvalidInput);
+    assert_eq!(rerank_error.message(), "invalid call options");
+}
+
+#[tokio::test]
+async fn native_provider_http_settings_install_the_attempt_observer() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": {"float": [[0.1]]},
+            "meta": {"billed_units": {"input_tokens": 1}}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let observer = Arc::new(RecordingObserver::default());
+    let endpoint = EndpointConfig::local_explicit(format!("{}/v2", server.uri())).unwrap();
+    let provider = CohereProvider::builder("test-api-key")
+        .with_endpoint(endpoint)
+        .with_http_transport_settings(
+            ProviderHttpTransportSettings::default().with_observer(observer.clone()),
+        )
+        .build()
+        .unwrap();
+
+    provider
+        .embedding("future-embedding")
+        .unwrap()
+        .embed(
+            EmbeddingRequest::single("hello").unwrap(),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    let events = observer.events.lock().unwrap();
+    assert!(matches!(
+        events.as_slice(),
+        [
+            TransportEvent::AttemptBudgetResolved { .. },
+            TransportEvent::AttemptStarted { .. },
+            TransportEvent::ResponseHeadReceived { .. },
+            TransportEvent::AttemptLoopFinished { .. }
+        ]
+    ));
+    assert!(
+        events
+            .iter()
+            .all(|event| event.call_id() == events[0].call_id())
+    );
 }
 
 #[test]
@@ -125,6 +290,19 @@ fn models_share_one_runtime_and_registration_exposes_only_native_families() {
             .embedding_model(ModelId::new("future-embed-model").expect("future model ID"))
             .is_ok()
     );
+
+    let custom = CohereProvider::builder("test-api-key")
+        .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9/v2").unwrap())
+        .build()
+        .unwrap();
+    assert!(
+        custom
+            .profile()
+            .provider_profile()
+            .generic_claim()
+            .is_some()
+    );
+    assert!(custom.support_manifest().native_claims().is_empty());
 }
 
 #[tokio::test]
@@ -300,6 +478,71 @@ async fn embedding_usage_preserves_known_zero_and_absence() {
 }
 
 #[tokio::test]
+async fn future_embedding_dimension_reaches_wire_and_response_length_is_checked() {
+    const FUTURE_MODEL: &str = "private-embed-next";
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .and(body_json(serde_json::json!({
+            "model": FUTURE_MODEL,
+            "embedding_types": ["float"],
+            "texts": ["dimension match"],
+            "input_type": "search_query",
+            "output_dimension": 512
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": { "float": [vec![0.0_f32; 512]] },
+            "meta": {}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v2/embed"))
+        .and(body_json(serde_json::json!({
+            "model": FUTURE_MODEL,
+            "embedding_types": ["float"],
+            "texts": ["dimension mismatch"],
+            "input_type": "search_query",
+            "output_dimension": 512
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "embeddings": { "float": [[0.0, 0.0]] },
+            "meta": {}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let model = test_provider(&server)
+        .embedding(FUTURE_MODEL)
+        .expect("future embedding model");
+    let options = CohereEmbeddingOptions::new().with_output_dimension(512);
+    let call = CallOptions::default()
+        .with_provider_options_for(&model, &options)
+        .expect("Cohere embedding call options");
+
+    let response = model
+        .embed(
+            EmbeddingRequest::single("dimension match").expect("embedding request"),
+            call.clone(),
+        )
+        .await
+        .expect("future model response");
+    assert_eq!(response.embeddings[0].len(), 512);
+
+    let mismatch = model
+        .embed(
+            EmbeddingRequest::single("dimension mismatch").expect("embedding request"),
+            call,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(mismatch.kind(), ErrorKind::ProtocolViolation);
+}
+
+#[tokio::test]
 async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
     let provider = CohereProvider::builder("test-api-key")
         .build()
@@ -322,6 +565,20 @@ async fn provider_limits_and_dimension_conflicts_fail_before_network_io() {
             maximum: 96
         })
     ));
+
+    let invalid_dimension = provider
+        .embedding("private-embed-next")
+        .expect("future embedding model")
+        .embed(
+            EmbeddingRequest::single("hello")
+                .expect("embedding request")
+                .with_dimensions(2048)
+                .expect("non-zero dimensions"),
+            CallOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(invalid_dimension.kind(), ErrorKind::InvalidInput);
 
     let conflict = embedding
         .embed(

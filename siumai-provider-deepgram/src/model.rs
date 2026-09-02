@@ -126,6 +126,7 @@ impl TranscriptionModel for DeepgramTranscriptionModel {
         request: TranscriptionRequest,
         call: CallOptions,
     ) -> Result<TranscriptionResponse, Error> {
+        let call = call.resolve_deadline().map_err(Error::from)?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -620,7 +621,11 @@ mod tests {
         };
         let provider = DeepgramProvider::builder(DeepgramCredential::unauthenticated())
             .with_endpoint(EndpointConfig::local_explicit("http://127.0.0.1:9").unwrap())
-            .with_limits(limits)
+            .with_http_transport_settings(
+                siumai_transport::ProviderHttpTransportSettings::default()
+                    .with_limits(limits)
+                    .unwrap(),
+            )
             .build()
             .unwrap();
         let model = provider.transcription("nova-3").unwrap();

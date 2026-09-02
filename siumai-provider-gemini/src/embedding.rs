@@ -205,6 +205,10 @@ impl EmbeddingModel for GeminiEmbeddingModel {
         request: EmbeddingRequest,
         options: CallOptions,
     ) -> Result<EmbeddingResponse, Error> {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;

@@ -17,7 +17,6 @@ use siumai_protocol_gemini::interactions::{
 use siumai_transport::{ReplaySafety, RequestBody, RequestHeaders, RequestPlan, RequestTarget};
 
 use crate::http::{response_error, response_request_id};
-use crate::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_PRO_IMAGE};
 use crate::options::{GeminiImageAspectRatio, GeminiImageOptions, GeminiImageSize};
 use crate::provider::ProviderRuntime;
 
@@ -60,7 +59,6 @@ impl GeminiImageModel {
                 "Gemini Interactions image models use typed image-size tiers instead of portable pixel dimensions",
             ));
         }
-        validate_model_options(self.model_id(), &options)?;
         let mut response_format = ImageResponseFormat::new();
         if let Some(mime_type) = requested_media_type(request.format())? {
             response_format = response_format.with_mime_type(mime_type);
@@ -124,6 +122,10 @@ impl ImageModel for GeminiImageModel {
         request: ImageRequest,
         options: CallOptions,
     ) -> Result<ImageResponse, Error> {
+        let options = options
+            .resolve_deadline()
+            .map_err(Error::from)
+            .map_err(|error| self.contextualize(error))?;
         self.limits()
             .validate(&request)
             .map_err(|error| self.contextualize(error))?;
@@ -155,51 +157,6 @@ impl ImageModel for GeminiImageModel {
             .map_err(|error| self.contextualize(error))?;
         Ok(decoded)
     }
-}
-
-fn validate_model_options(model: &ModelId, options: &GeminiImageOptions) -> Result<(), Error> {
-    let model = model.as_str();
-    if model == GEMINI_3_1_FLASH_LITE_IMAGE {
-        if options
-            .image_size
-            .is_some_and(|size| size != GeminiImageSize::OneK)
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Gemini 3.1 Flash Lite Image supports only the 1K image-size tier",
-            ));
-        }
-        if options
-            .aspect_ratio
-            .is_some_and(GeminiImageAspectRatio::is_extended)
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Gemini 3.1 Flash Lite Image does not support extended aspect ratios",
-            ));
-        }
-    }
-    if model == GEMINI_3_PRO_IMAGE {
-        if options.image_size == Some(GeminiImageSize::Pixels512) {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Gemini 3 Pro Image does not support the 512 image-size tier",
-            ));
-        }
-        if options
-            .aspect_ratio
-            .is_some_and(GeminiImageAspectRatio::is_extended)
-        {
-            return Err(Error::new(
-                ErrorKind::Unsupported,
-                "Gemini 3 Pro Image does not support extended aspect ratios",
-            ));
-        }
-    }
-    if model == GEMINI_3_1_FLASH_IMAGE {
-        return Ok(());
-    }
-    Ok(())
 }
 
 fn requested_media_type(format: Option<&str>) -> Result<Option<ProtocolImageMimeType>, Error> {
@@ -306,12 +263,12 @@ mod tests {
         ReplayDomain, ReplayDomainId, ResourceKind, ResponseDiagnostics, UsageValue,
         VerifiedFidelity,
     };
-    use siumai_transport::EndpointConfig;
+    use siumai_transport::{EndpointConfig, RequestBody};
 
     use super::*;
     use crate::{GeminiCredential, GeminiProvider};
 
-    const MODEL: &str = GEMINI_3_1_FLASH_IMAGE;
+    const MODEL: &str = crate::models::GEMINI_3_1_FLASH_IMAGE;
 
     fn provider(base_url: String) -> GeminiProvider {
         GeminiProvider::builder(GeminiCredential::api_key("test-key"))
@@ -474,6 +431,61 @@ mod tests {
     }
 
     #[test]
+    fn known_and_future_model_options_reach_the_exact_image_wire() {
+        let provider = provider("http://127.0.0.1:9".to_string());
+        let cases = [
+            (
+                crate::models::GEMINI_3_1_FLASH_LITE_IMAGE,
+                GeminiImageAspectRatio::PortraitOneEight,
+                GeminiImageSize::FourK,
+                "1:8",
+                "4K",
+            ),
+            (
+                "private-image-next",
+                GeminiImageAspectRatio::LandscapeFourOne,
+                GeminiImageSize::Pixels512,
+                "4:1",
+                "512",
+            ),
+        ];
+
+        for (model_id, aspect_ratio, image_size, wire_ratio, wire_size) in cases {
+            let model = provider.image(model_id).expect("image model");
+            let options = GeminiImageOptions::new()
+                .with_aspect_ratio(aspect_ratio)
+                .with_image_size(image_size);
+            let plan = model
+                .plan(
+                    &ImageRequest::new("mountains")
+                        .expect("image request")
+                        .with_format("jpeg")
+                        .expect("image output format"),
+                    options,
+                )
+                .expect("image request plan");
+            let RequestBody::Bytes { data, .. } = plan.body() else {
+                panic!("expected JSON request body");
+            };
+            let body: Value = serde_json::from_slice(data).expect("image request JSON");
+
+            assert_eq!(
+                body,
+                serde_json::json!({
+                    "model": model_id,
+                    "input": "mountains",
+                    "response_format": {
+                        "type": "image",
+                        "mime_type": "image/jpeg",
+                        "aspect_ratio": wire_ratio,
+                        "image_size": wire_size
+                    }
+                })
+            );
+        }
+    }
+
+    #[test]
     fn profiles_distinguish_official_evidence_from_custom_compatibility() {
         let current = crate::GeminiProfile::current(ReplayDomain::official(
             ReplayDomainId::new("google-gemini-api").unwrap(),
@@ -552,21 +564,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn model_specific_options_and_cancellation_are_checked_locally() {
+    async fn cancellation_is_checked_before_transport() {
         let provider = provider("http://127.0.0.1:9".to_string());
-        let lite = provider.image(GEMINI_3_1_FLASH_LITE_IMAGE).unwrap();
-        let options = GeminiImageOptions::new().with_image_size(GeminiImageSize::FourK);
-        let call = CallOptions::default()
-            .with_provider_options_for(&lite, &options)
-            .unwrap();
-        assert_eq!(
-            lite.generate_image(ImageRequest::new("mountains").unwrap(), call,)
-                .await
-                .unwrap_err()
-                .kind(),
-            ErrorKind::Unsupported
-        );
-
         let cancellation = Cancellation::new();
         cancellation.cancel();
         assert_eq!(
@@ -617,8 +616,11 @@ mod tests {
 
     #[test]
     fn default_timeout_builder_remains_network_free() {
-        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+        let settings = siumai_transport::ProviderHttpTransportSettings::default()
             .with_call_timeout(Duration::from_secs(3))
+            .unwrap();
+        let provider = GeminiProvider::builder(GeminiCredential::unauthenticated())
+            .with_http_transport_settings(settings)
             .build()
             .unwrap();
         let claim = &provider
