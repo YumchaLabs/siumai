@@ -5,6 +5,9 @@ use siumai_core::{
     CallOptions, InvalidId, LanguageModel, LanguageModelProvider, Model, ModelId, ModelLookupError,
     Provider, ProviderInstanceId, ProviderOptionError, ProviderRegistration, ProviderScope,
 };
+use siumai_transport::experimental::provider_author::{
+    ProviderTransportSource, ProviderTransportSourceError,
+};
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderHttpTransportSettings, ProviderTransport, ReplaySafety,
     TransportConfigError,
@@ -194,25 +197,37 @@ impl AnthropicCompatibleProviderBuilder {
         let transport = match self.transport_source {
             ConfiguredTransportSource::Credential(credential) => {
                 credential.validate()?;
-                build_transport(
-                    &self.profile,
-                    credential.into_auth(),
-                    self.http_transport_settings
-                        .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
+                let settings = self
+                    .http_transport_settings
+                    .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?;
+                resolve_transport_source(
+                    ProviderTransportSource::configured(
+                        ProviderTransport::builder(self.profile.endpoint().clone())
+                            .with_auth(credential.into_auth()),
+                    )
+                    .with_http_transport_settings(settings),
+                    self.profile.endpoint(),
                 )?
             }
-            ConfiguredTransportSource::Applied(auth) => build_transport(
-                &self.profile,
-                auth,
-                self.http_transport_settings
-                    .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?,
-            )?,
+            ConfiguredTransportSource::Applied(auth) => {
+                let settings = self
+                    .http_transport_settings
+                    .ok_or(AnthropicCompatibleConfigError::MissingTransportSettings)?;
+                resolve_transport_source(
+                    ProviderTransportSource::configured(
+                        ProviderTransport::builder(self.profile.endpoint().clone()).with_auth(auth),
+                    )
+                    .with_http_transport_settings(settings),
+                    self.profile.endpoint(),
+                )?
+            }
             ConfiguredTransportSource::Prebuilt(transport) => {
-                if self.http_transport_settings.is_some() {
-                    return Err(AnthropicCompatibleConfigError::PrebuiltTransportSettingsConflict);
-                }
-                validate_transport_endpoint(self.profile.endpoint(), &transport)?;
-                transport
+                let source = ProviderTransportSource::prebuilt(transport);
+                let source = match self.http_transport_settings {
+                    Some(settings) => source.with_http_transport_settings(settings),
+                    None => source,
+                };
+                resolve_transport_source(source, self.profile.endpoint())?
             }
         };
         let scope = self.profile.scope_arc();
@@ -236,28 +251,21 @@ enum ConfiguredTransportSource {
     Prebuilt(ProviderTransport),
 }
 
-fn build_transport(
-    profile: &AnthropicCompatibleProfile,
-    auth: Arc<dyn AuthApplier>,
-    settings: ProviderHttpTransportSettings,
-) -> Result<ProviderTransport, TransportConfigError> {
-    ProviderTransport::builder(profile.endpoint().clone())
-        .with_auth(auth)
-        .with_http_transport_settings(settings)
-        .build()
-}
-
-fn validate_transport_endpoint(
+fn resolve_transport_source(
+    source: ProviderTransportSource,
     expected: &siumai_transport::EndpointConfig,
-    transport: &ProviderTransport,
-) -> Result<(), AnthropicCompatibleConfigError> {
-    let actual = transport.endpoint();
-    if expected.expose_base_url() != actual.expose_base_url()
-        || expected.policy() != actual.policy()
-    {
-        return Err(AnthropicCompatibleConfigError::PrebuiltTransportEndpointMismatch);
-    }
-    Ok(())
+) -> Result<ProviderTransport, AnthropicCompatibleConfigError> {
+    source.resolve(expected).map_err(|error| match error {
+        ProviderTransportSourceError::SettingsConflict => {
+            AnthropicCompatibleConfigError::PrebuiltTransportSettingsConflict
+        }
+        ProviderTransportSourceError::EndpointMismatch => {
+            AnthropicCompatibleConfigError::PrebuiltTransportEndpointMismatch
+        }
+        ProviderTransportSourceError::Transport(error) => {
+            AnthropicCompatibleConfigError::Transport(error)
+        }
+    })
 }
 
 pub(crate) struct ProviderRuntime {

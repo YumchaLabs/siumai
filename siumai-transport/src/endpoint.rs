@@ -253,6 +253,14 @@ impl EndpointConfig {
         &self.base_url
     }
 
+    /// Compare the typed base URL and endpoint policy used by one transport
+    /// runtime. This is crate-visible so provider-author assembly can enforce
+    /// the same compatibility rule without exposing another public identity
+    /// abstraction.
+    pub(crate) fn is_compatible_with(&self, other: &Self) -> bool {
+        self.base_url == other.base_url && self.policy == other.policy
+    }
+
     pub fn request_url(&self, target: &RequestTarget) -> Result<Url, EndpointError> {
         let inherited_query = self.base_url.query().map(str::to_owned);
         let mut base = self.base_url.clone();

@@ -72,6 +72,26 @@ pub enum TransportConfigError {
     TimeoutTooLarge { name: &'static str },
 }
 
+/// Bounded, provider-neutral failures produced by the experimental provider
+/// transport source.
+///
+/// Compatibility engines map the source classifications into their existing
+/// provider-specific configuration errors. The underlying transport error is
+/// retained as the direct source so diagnostics remain lossless.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ProviderTransportSourceError {
+    /// A prebuilt transport cannot be combined with a settings override.
+    #[error("a prebuilt transport cannot be combined with another settings snapshot")]
+    SettingsConflict,
+    /// The prebuilt or newly built transport does not have the expected typed
+    /// base URL and endpoint policy.
+    #[error("provider transport endpoint does not match the expected endpoint")]
+    EndpointMismatch,
+    /// The underlying transport builder rejected its configuration.
+    #[error("invalid provider transport settings: {0}")]
+    Transport(#[from] TransportConfigError),
+}
+
 /// Invalid immutable request plan.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
