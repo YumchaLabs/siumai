@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.10...siumai-mcp-v0.11.0-beta.11) - 2026-09-02
+
+### Added
+
+- *(mcp)* support trusted HTTP routing
+
+### Fixed
+
+- *(transport)* close route authority review gaps
+- *(mcp)* bound transport and diagnostics
+- *(mcp)* [**breaking**] bound transport and prevent hidden replay
+
+### Other
+
+- close trusted CONNECT milestone
+- simplify validated lifecycle helpers
+
 ### Changed
 
 - **Breaking:** replace the lifetime notification cap with a pre-decode raw MCP message limit;

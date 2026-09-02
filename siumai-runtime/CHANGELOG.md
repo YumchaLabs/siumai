@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-runtime-v0.11.0-beta.10...siumai-runtime-v0.11.0-beta.11) - 2026-09-02
+
+### Added
+
+- *(facade)* expose direct transport configuration
+- add one-shot call deadlines and retry caps
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+
+### Fixed
+
+- *(review)* harden facade convergence contracts
+- *(runtime)* bind deferred state to replay scope
+- *(runtime)* [**breaking**] harden durable snapshot state
+
+### Other
+
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* [**breaking**] remove redundant call and runtime helpers (U7)
+- *(facade)* document unified family calls (U6)
+- *(runtime)* [**breaking**] use shared language input
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+- *(runtime)* [**breaking**] deepen durable state ownership
+- simplify validated lifecycle helpers
+- *(options)* [**breaking**] centralize exact provider patches
+- *(runtime)* harden durable tool execution
+
 ### Changed
 
 - *(runtime)* [**breaking**] move completed-step mutation behind one atomic planner and make the

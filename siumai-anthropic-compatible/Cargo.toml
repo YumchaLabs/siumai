@@ -18,7 +18,7 @@ doctest = false
 
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
-siumai-protocol-anthropic = { version = "0.11.0-beta.10", path = "../siumai-protocol-anthropic", default-features = false }
+siumai-protocol-anthropic = { version = "0.11.0-beta.11", path = "../siumai-protocol-anthropic", default-features = false }
 siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true

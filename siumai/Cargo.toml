@@ -38,21 +38,21 @@ siumai-transport = { workspace = true, default-features = false, optional = true
 siumai-runtime = { workspace = true, default-features = false, optional = true }
 siumai-registry = { workspace = true, default-features = false, optional = true }
 
-siumai-provider-openai = { version = "0.11.0-beta.10", path = "../siumai-provider-openai", default-features = false, optional = true }
+siumai-provider-openai = { version = "0.11.0-beta.11", path = "../siumai-provider-openai", default-features = false, optional = true }
 siumai-provider-alibaba = { workspace = true, optional = true }
 siumai-provider-moonshotai = { workspace = true, optional = true }
 siumai-provider-volcengine = { workspace = true, optional = true }
-siumai-openai-compatible = { version = "0.11.0-beta.10", path = "../siumai-openai-compatible", default-features = false, optional = true }
-siumai-provider-anthropic = { version = "0.11.0-beta.10", path = "../siumai-provider-anthropic", default-features = false, optional = true }
-siumai-provider-gemini = { version = "0.11.0-beta.10", path = "../siumai-provider-gemini", default-features = false, optional = true }
-siumai-provider-google-vertex = { version = "0.11.0-beta.10", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
-siumai-provider-groq = { version = "0.11.0-beta.10", path = "../siumai-provider-groq", default-features = false, optional = true }
-siumai-provider-xai = { version = "0.11.0-beta.10", path = "../siumai-provider-xai", default-features = false, optional = true }
-siumai-provider-minimax = { version = "0.11.0-beta.10", path = "../siumai-provider-minimax", default-features = false, optional = true }
-siumai-provider-deepseek = { version = "0.11.0-beta.10", path = "../siumai-provider-deepseek", default-features = false, optional = true }
-siumai-provider-cohere = { version = "0.11.0-beta.10", path = "../siumai-provider-cohere", default-features = false, optional = true }
-siumai-provider-deepgram = { version = "0.11.0-beta.10", path = "../siumai-provider-deepgram", default-features = false, optional = true }
-siumai-provider-elevenlabs = { version = "0.11.0-beta.10", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
+siumai-openai-compatible = { version = "0.11.0-beta.11", path = "../siumai-openai-compatible", default-features = false, optional = true }
+siumai-provider-anthropic = { version = "0.11.0-beta.11", path = "../siumai-provider-anthropic", default-features = false, optional = true }
+siumai-provider-gemini = { version = "0.11.0-beta.11", path = "../siumai-provider-gemini", default-features = false, optional = true }
+siumai-provider-google-vertex = { version = "0.11.0-beta.11", path = "../siumai-provider-google-vertex", default-features = false, optional = true }
+siumai-provider-groq = { version = "0.11.0-beta.11", path = "../siumai-provider-groq", default-features = false, optional = true }
+siumai-provider-xai = { version = "0.11.0-beta.11", path = "../siumai-provider-xai", default-features = false, optional = true }
+siumai-provider-minimax = { version = "0.11.0-beta.11", path = "../siumai-provider-minimax", default-features = false, optional = true }
+siumai-provider-deepseek = { version = "0.11.0-beta.11", path = "../siumai-provider-deepseek", default-features = false, optional = true }
+siumai-provider-cohere = { version = "0.11.0-beta.11", path = "../siumai-provider-cohere", default-features = false, optional = true }
+siumai-provider-deepgram = { version = "0.11.0-beta.11", path = "../siumai-provider-deepgram", default-features = false, optional = true }
+siumai-provider-elevenlabs = { version = "0.11.0-beta.11", path = "../siumai-provider-elevenlabs", default-features = false, optional = true }
 
 [features]
 default = ["registry", "runtime"]

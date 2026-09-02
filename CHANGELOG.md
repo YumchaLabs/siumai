@@ -4,6 +4,43 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.10...v0.11.0-beta.11) - 2026-09-02
+
+### Added
+
+- *(facade)* add typed stages for curated providers (U6)
+- *(facade)* restore the typed Siumai provider hub
+- *(facade)* demonstrate provider switching (U5)
+- *(facade)* add canonical language calls
+- *(transport)* add trusted CONNECT routing
+- *(facade)* expose direct transport configuration
+- add one-shot call deadlines and retry caps
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+- *(openai)* [**breaking**] harden Responses WebSocket lifecycle
+
+### Fixed
+
+- *(review)* harden typed facade contracts
+- *(review)* harden facade convergence contracts
+- *(providers)* refresh audited model contracts
+- *(facade)* [**breaking**] expose complete message and OpenAI option types
+
+### Other
+
+- *(facade)* keep one builder entry point
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* [**breaking**] remove redundant call and runtime helpers (U7)
+- *(facade)* complete provider family boundaries (U6)
+- *(facade)* prove native and registry interoperability (U5)
+- *(example)* reuse canonical language call
+- *(facade)* document unified family calls (U6)
+- *(facade)* [**breaking**] converge model family APIs
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+- *(providers)* adopt shared HTTP transport settings
+- *(registry)* remove execution middleware surface
+- *(openai)* [**breaking**] privatize Responses WebSocket lifecycle
+
 ### Added
 
 - *(facade/core)* Added a typed `Siumai::builder()` provider hub with zero-argument provider selectors, required-input stages, reusable family clients, method-style portable calls, and concrete `provider()`/`model()` access. The six root family modules remain the canonical generic and Registry seam, and separate compile-checked provider-switching and Registry examples demonstrate both paths without reviving a universal client or capability matrix.
