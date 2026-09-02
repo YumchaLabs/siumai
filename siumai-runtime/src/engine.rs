@@ -1,20 +1,18 @@
 pub(crate) mod checkpoint;
 mod completed_step;
+mod model_step;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt, stream};
-use siumai_core::stream::established_stream;
 use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart, MessageRole,
-    PartialLanguageOutput, StreamTerminal, ToolOutcome, ToolResult, Usage,
+    LanguageResponse, Message, MessagePart, MessageRole, ToolOutcome, ToolResult, Usage,
 };
 
 use crate::approval::VerifiedApproval;
@@ -22,7 +20,6 @@ use crate::provider_deferred::ProviderDeferredStep;
 use crate::selection::{
     PreparedStepModel, SelectedStepModel, prepare_selected_step_model, select_step_model,
 };
-use crate::single_step::SingleStep;
 use crate::snapshot::{
     CompletedToolSnapshot, IndeterminateReason, PendingProviderStepSnapshot, PendingStepSnapshot,
     PreparedToolSnapshot, ResumePoint, ResumePointState, SnapshotReason, SnapshotTerminal,
@@ -35,7 +32,6 @@ use crate::tool::{
     prepare_visible_tool_catalog,
 };
 use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
-use crate::usage::CallUsageReconciler;
 use crate::{
     IndeterminateEffect, ModelTarget, ProjectionPolicy, RunBudget, RunEvent, RunReport,
     RunStopReason, RunTerminal, RunTimeoutKind, Runtime, StepModelSelector, StepOptions,
@@ -50,6 +46,7 @@ use self::checkpoint::{
 use self::completed_step::{
     CompletedStepContext, CompletedStepPlan, CompletedStepPlanningError, plan_completed_step,
 };
+use self::model_step::{ModelStepContext, ModelStepPoll, ModelStepState};
 
 type BoxToolFuture = Pin<Box<dyn Future<Output = ToolAttempt> + Send + 'static>>;
 
@@ -99,7 +96,7 @@ struct PendingApprovalCall {
 
 enum EnginePhase {
     Transitioning,
-    Streaming(Box<StepStream>),
+    Streaming(Box<ModelStepState>),
     Tools(Box<PendingToolPhase>),
     ReadyForModel,
     ReadyForSelectedModel(Box<SelectedStepModel>),
@@ -591,58 +588,28 @@ impl StepEngine {
         continuation
     }
 
-    async fn establish_model_stream(&mut self, first: bool) -> Result<StepStream, Error> {
-        let now = Instant::now();
-        let step_deadline = self
-            .total_deadline
-            .min(checked_deadline(now, self.budget.timeouts().model_step()));
-        let (deadline, timeout_kind) = classify_deadline(
-            self.total_deadline,
-            step_deadline,
-            RunTimeoutKind::ModelStep,
-        );
+    async fn establish_model_stream(&mut self, first: bool) -> Result<ModelStepState, Error> {
         let mut request = self.request.clone();
         request.messages = self.report.messages().to_vec();
         request.tools = self.visible_tools.specs().to_vec();
-        let single_step = SingleStep::new(&self.runtime, self.model.as_ref(), &self.step_options);
-        let future = single_step.stream(request, self.call_options.clone());
-
-        match wait_for(future, &self.cancellation, deadline, timeout_kind).await {
-            WaitResult::Ready(result) => result.map(|stream| {
-                let timeout = Arc::new(StreamTimeoutState::default());
-                let stream = stream_with_runtime_deadlines(
-                    stream,
-                    self.cancellation.clone(),
-                    self.total_deadline,
-                    step_deadline,
-                    self.budget.timeouts().first_chunk(),
-                    self.budget.timeouts().inter_chunk(),
-                    Arc::clone(&timeout),
-                );
-                StepStream {
-                    stream,
-                    provider_deferred: self
-                        .report
-                        .provider_deferred_ledger()
-                        .begin_step(self.step, &self.target),
-                    usage: CallUsageReconciler::default(),
-                    timeout,
-                }
-            }),
-            WaitResult::Cancelled => Err(Error::cancelled(if first {
-                "tool loop cancelled during first model handshake"
-            } else {
-                "tool loop cancelled during model handshake"
-            })),
-            WaitResult::TimedOut(_) => Err(Error::new(
-                ErrorKind::Timeout,
-                if first {
-                    "tool loop first model handshake timed out"
-                } else {
-                    "tool loop model handshake timed out"
-                },
-            )),
-        }
+        ModelStepState::establish(ModelStepContext {
+            runtime: &self.runtime,
+            model: self.model.as_ref(),
+            step_options: &self.step_options,
+            request,
+            call_options: self.call_options.clone(),
+            cancellation: self.cancellation.clone(),
+            total_deadline: self.total_deadline,
+            model_step_timeout: self.budget.timeouts().model_step(),
+            first_chunk_timeout: self.budget.timeouts().first_chunk(),
+            inter_chunk_timeout: self.budget.timeouts().inter_chunk(),
+            provider_deferred: self
+                .report
+                .provider_deferred_ledger()
+                .begin_step(self.step, &self.target),
+            first,
+        })
+        .await
     }
 
     async fn establish_later_step<P>(&mut self, checkpoint: &mut P) -> Result<(), P::Error>
@@ -944,87 +911,60 @@ impl StepEngine {
 
     async fn poll_model_stream<P>(
         &mut self,
-        mut state: StepStream,
+        state: ModelStepState,
         checkpoint: &mut P,
     ) -> Result<(), P::Error>
     where
         P: EngineCheckpointPort,
     {
-        match state.stream.next().await {
-            None => {
-                if let Err(error) = self.settle_model_usage(state.usage, None) {
-                    self.queue_terminal(RunTerminal::BudgetExceeded {
-                        error,
-                        report: Box::new(self.report.clone()),
-                    });
-                } else {
-                    self.queue_terminal(RunTerminal::Failed {
-                        error: Error::unexpected_eof(),
-                        partial: None,
-                        report: Box::new(self.report.clone()),
-                    });
-                }
-            }
-            Some(LanguageStreamEvent::Terminal(terminal)) => {
-                self.consume_model_terminal(terminal, state, checkpoint)
-                    .await?;
-            }
-            Some(event) => {
-                match &event {
-                    LanguageStreamEvent::ProviderDeferred { id, state: item } => {
-                        state.provider_deferred.observe(id, item);
-                    }
-                    LanguageStreamEvent::ToolResult(result) => {
-                        state
-                            .provider_deferred
-                            .resolve_provider_result(&result.call_id);
-                    }
-                    LanguageStreamEvent::Usage(update) => state.usage.observe(update),
-                    _ => {}
-                }
+        match state.poll().await {
+            ModelStepPoll::Event { event, state } => {
                 self.phase = EnginePhase::Streaming(Box::new(state));
                 self.pending.push_back(RunEvent::Model {
                     step: self.step,
                     event,
                 });
             }
-        }
-        Ok(())
-    }
-
-    async fn consume_model_terminal<P>(
-        &mut self,
-        terminal: StreamTerminal,
-        state: StepStream,
-        checkpoint: &mut P,
-    ) -> Result<(), P::Error>
-    where
-        P: EngineCheckpointPort,
-    {
-        match terminal {
-            StreamTerminal::Completed { response } => {
-                self.prepare_completed_response(*response, state, checkpoint)
-                    .await?;
-            }
-            StreamTerminal::Failed { error, partial } => {
-                if let Err(error) = self.settle_model_usage(
-                    state.usage,
-                    partial.as_ref().map(PartialLanguageOutput::usage),
-                ) {
+            ModelStepPoll::Completed {
+                response,
+                usage,
+                provider_deferred,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
                     });
-                    return Ok(());
+                } else {
+                    self.prepare_completed_response(response, provider_deferred, checkpoint)
+                        .await?;
                 }
-                if error.kind() == ErrorKind::Timeout
-                    && let Some(kind) = state.timeout.take()
-                {
-                    self.queue_terminal(RunTerminal::TimedOut {
-                        kind,
-                        partial,
+            }
+            ModelStepPoll::Failed {
+                error,
+                partial,
+                usage,
+                timeout,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
                         report: Box::new(self.report.clone()),
                     });
+                } else if error.kind() == ErrorKind::Timeout {
+                    if let Some(kind) = timeout {
+                        self.queue_terminal(RunTerminal::TimedOut {
+                            kind,
+                            partial,
+                            report: Box::new(self.report.clone()),
+                        });
+                    } else {
+                        self.queue_terminal(RunTerminal::Failed {
+                            error,
+                            partial,
+                            report: Box::new(self.report.clone()),
+                        });
+                    }
                 } else {
                     self.queue_terminal(RunTerminal::Failed {
                         error,
@@ -1033,33 +973,20 @@ impl StepEngine {
                     });
                 }
             }
-            StreamTerminal::Cancelled { reason, partial } => {
-                if let Err(error) = self.settle_model_usage(
-                    state.usage,
-                    partial.as_ref().map(PartialLanguageOutput::usage),
-                ) {
-                    self.queue_terminal(RunTerminal::BudgetExceeded {
-                        error,
-                        report: Box::new(self.report.clone()),
-                    });
-                    return Ok(());
-                }
-                self.queue_terminal(RunTerminal::Cancelled {
-                    reason,
-                    partial,
-                    report: Box::new(self.report.clone()),
-                });
-            }
-            _ => {
-                if let Err(error) = self.settle_model_usage(state.usage, None) {
+            ModelStepPoll::Cancelled {
+                reason,
+                partial,
+                usage,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
                     });
                 } else {
-                    self.queue_terminal(RunTerminal::Failed {
-                        error: Error::protocol_violation("unsupported model stream terminal"),
-                        partial: None,
+                    self.queue_terminal(RunTerminal::Cancelled {
+                        reason,
+                        partial,
                         report: Box::new(self.report.clone()),
                     });
                 }
@@ -1071,46 +998,28 @@ impl StepEngine {
     async fn prepare_completed_response<P>(
         &mut self,
         response: LanguageResponse,
-        mut state: StepStream,
+        provider_deferred: ProviderDeferredStep,
         checkpoint: &mut P,
     ) -> Result<(), P::Error>
     where
         P: EngineCheckpointPort,
     {
-        let reconciler = std::mem::take(&mut state.usage);
-        if let Err(error) = self.settle_model_usage(reconciler, Some(response.usage())) {
-            self.queue_terminal(RunTerminal::BudgetExceeded {
-                error,
-                report: Box::new(self.report.clone()),
-            });
-            return Ok(());
-        }
-        for result in response.content().iter().filter_map(|part| match part {
-            ContentPart::ToolResult(result) => Some(result),
-            _ => None,
-        }) {
-            state
-                .provider_deferred
-                .resolve_provider_result(&result.call_id);
-        }
-        let provider_commit = match state
-            .provider_deferred
-            .finish_completed(self.report.provider_deferred_ledger())
-        {
-            Ok(commit) => commit,
-            Err(error) => {
-                self.queue_terminal(RunTerminal::Failed {
-                    error: Error::new(
-                        ErrorKind::Protocol,
-                        "provider-deferred state could not be committed",
-                    )
-                    .with_source(error),
-                    partial: None,
-                    report: Box::new(self.report.clone()),
-                });
-                return Ok(());
-            }
-        };
+        let provider_commit =
+            match provider_deferred.finish_completed(self.report.provider_deferred_ledger()) {
+                Ok(commit) => commit,
+                Err(error) => {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error: Error::new(
+                            ErrorKind::Protocol,
+                            "provider-deferred state could not be committed",
+                        )
+                        .with_source(error),
+                        partial: None,
+                        report: Box::new(self.report.clone()),
+                    });
+                    return Ok(());
+                }
+            };
         let plan = match plan_completed_step(
             CompletedStepContext {
                 step: self.step,
@@ -1826,12 +1735,7 @@ impl StepEngine {
         }
     }
 
-    fn settle_model_usage(
-        &mut self,
-        reconciler: CallUsageReconciler,
-        terminal: Option<&Usage>,
-    ) -> Result<(), crate::BudgetError> {
-        let usage = reconciler.settle(terminal);
+    fn settle_model_usage(&mut self, usage: Usage) -> Result<(), crate::BudgetError> {
         self.report.accumulate_usage(&usage);
         self.report.budget_mut().charge_usage(&usage, &self.budget)
     }
@@ -1963,26 +1867,6 @@ impl StepEngine {
         }
         self.phase = EnginePhase::Terminal;
         self.pending.push_back(RunEvent::Terminal(terminal));
-    }
-}
-
-struct StepStream {
-    stream: LanguageStream,
-    provider_deferred: ProviderDeferredStep,
-    usage: CallUsageReconciler,
-    timeout: Arc<StreamTimeoutState>,
-}
-
-#[derive(Default)]
-struct StreamTimeoutState(AtomicU8);
-
-impl StreamTimeoutState {
-    fn record(&self, kind: RunTimeoutKind) {
-        self.0.store(timeout_kind_code(kind), Ordering::Release);
-    }
-
-    fn take(&self) -> Option<RunTimeoutKind> {
-        decode_timeout_kind(self.0.swap(0, Ordering::AcqRel))
     }
 }
 
@@ -2198,98 +2082,6 @@ fn budget_start_error(error: crate::BudgetError) -> Error {
     .with_source(error)
 }
 
-fn stream_with_runtime_deadlines(
-    mut stream: LanguageStream,
-    cancellation: Cancellation,
-    total_deadline: Instant,
-    step_deadline: Instant,
-    first_chunk_timeout: std::time::Duration,
-    inter_chunk_timeout: std::time::Duration,
-    timeout: Arc<StreamTimeoutState>,
-) -> LanguageStream {
-    established_stream(cancellation, move |_| {
-        async_stream::stream! {
-            let mut first_event = true;
-            loop {
-                let chunk_kind = if first_event {
-                    RunTimeoutKind::FirstChunk
-                } else {
-                    RunTimeoutKind::InterChunk
-                };
-                let chunk_timeout = if first_event {
-                    first_chunk_timeout
-                } else {
-                    inter_chunk_timeout
-                };
-                let (deadline, kind) = earliest_timeout([
-                    (total_deadline, RunTimeoutKind::Total),
-                    (step_deadline, RunTimeoutKind::ModelStep),
-                    (checked_deadline(Instant::now(), chunk_timeout), chunk_kind),
-                ]);
-                let item = tokio::select! {
-                    biased;
-                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => None,
-                    item = stream.next() => Some(item),
-                };
-                match item {
-                    None => {
-                        timeout.record(kind);
-                        yield Err(runtime_stream_timeout(kind));
-                        break;
-                    }
-                    Some(Some(event)) => {
-                        let terminal = event.terminal().is_some();
-                        if !terminal {
-                            first_event = false;
-                        }
-                        yield Ok(event);
-                        if terminal {
-                            break;
-                        }
-                    }
-                    Some(None) => break,
-                }
-            }
-        }
-    })
-}
-
-fn runtime_stream_timeout(kind: RunTimeoutKind) -> Error {
-    Error::new(
-        ErrorKind::Timeout,
-        match kind {
-            RunTimeoutKind::Total => "tool loop total deadline expired while reading model stream",
-            RunTimeoutKind::ModelStep => {
-                "tool loop model-step deadline expired while reading model stream"
-            }
-            RunTimeoutKind::FirstChunk => "tool loop timed out waiting for the first model event",
-            RunTimeoutKind::InterChunk => "tool loop timed out waiting for the next model event",
-            RunTimeoutKind::Tool => "tool loop tool deadline expired",
-        },
-    )
-}
-
-const fn timeout_kind_code(kind: RunTimeoutKind) -> u8 {
-    match kind {
-        RunTimeoutKind::Total => 1,
-        RunTimeoutKind::ModelStep => 2,
-        RunTimeoutKind::FirstChunk => 3,
-        RunTimeoutKind::InterChunk => 4,
-        RunTimeoutKind::Tool => 5,
-    }
-}
-
-const fn decode_timeout_kind(code: u8) -> Option<RunTimeoutKind> {
-    match code {
-        1 => Some(RunTimeoutKind::Total),
-        2 => Some(RunTimeoutKind::ModelStep),
-        3 => Some(RunTimeoutKind::FirstChunk),
-        4 => Some(RunTimeoutKind::InterChunk),
-        5 => Some(RunTimeoutKind::Tool),
-        _ => None,
-    }
-}
-
 fn checked_deadline(now: Instant, duration: std::time::Duration) -> Instant {
     now.checked_add(duration).unwrap_or(now)
 }
@@ -2304,13 +2096,4 @@ fn classify_deadline(
     } else {
         (local_deadline, local_kind)
     }
-}
-
-fn earliest_timeout<const N: usize>(
-    deadlines: [(Instant, RunTimeoutKind); N],
-) -> (Instant, RunTimeoutKind) {
-    deadlines
-        .into_iter()
-        .min_by_key(|(deadline, _)| *deadline)
-        .unwrap_or((Instant::now(), RunTimeoutKind::Total))
 }
