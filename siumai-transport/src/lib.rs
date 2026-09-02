@@ -23,7 +23,9 @@ mod websocket;
 /// These APIs are intentionally kept outside the stable transport root and
 /// facade re-exports. They are for provider crates that need to compose an
 /// already configured transport without taking ownership of provider
-/// credentials or profile policy.
+/// credentials, profile policy, or complete runtime identity. The current
+/// seam is limited to configured-versus-prebuilt source resolution for the
+/// compatibility engines.
 pub mod experimental;
 
 pub use auth::{

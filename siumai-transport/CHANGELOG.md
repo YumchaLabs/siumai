@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(transport)* Add the experimental provider-author `ProviderTransportSource` seam for
+  configured-versus-prebuilt transport resolution. The seam keeps settings conflict ordering and
+  typed endpoint/policy compatibility in transport while leaving credentials, profiles, retry
+  declarations, and provider error mapping with compatibility engines.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.9...siumai-transport-v0.11.0-beta.10) - 2026-08-13
 
 ### Added
