@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-gemini-v0.11.0-beta.10...siumai-protocol-gemini-v0.11.0-beta.11) - 2026-09-02
+
+### Added
+
+- *(facade)* expose direct transport configuration
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+
+### Fixed
+
+- *(review)* harden facade convergence contracts
+
+### Other
+
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* document unified family calls (U6)
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-gemini-v0.11.0-beta.9...siumai-protocol-gemini-v0.11.0-beta.10) - 2026-08-13
 
 ### Added

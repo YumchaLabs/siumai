@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.10...siumai-core-v0.11.0-beta.11) - 2026-09-02
+
+### Added
+
+- *(core)* add shared language facade contracts
+- *(facade)* expose direct transport configuration
+- add one-shot call deadlines and retry caps
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+
+### Fixed
+
+- *(review)* harden facade convergence contracts
+
+### Other
+
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* document unified family calls (U6)
+- simplify transport settings ownership
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+- simplify validated lifecycle helpers
+- *(options)* [**breaking**] centralize exact provider patches
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-core-v0.11.0-beta.9...siumai-core-v0.11.0-beta.10) - 2026-08-13
 
 ### Added
