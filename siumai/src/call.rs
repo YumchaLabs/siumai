@@ -86,3 +86,72 @@ where
         (self.model, self.request)
     }
 }
+
+/// Define the mechanical portion shared by the six public family call
+/// wrappers. Family modules retain their own preflight and terminal methods.
+macro_rules! define_call_wrapper {
+    ($(#[$meta:meta])* $name:ident, $model_trait:ident, $request:ty) => {
+        $(#[$meta])*
+        pub struct $name<'a, M: $model_trait + ?Sized> {
+            state: $crate::call::CallState<'a, M, $request>,
+        }
+
+        impl<'a, M> $name<'a, M>
+        where
+            M: $model_trait + ?Sized,
+        {
+            fn new(model: &'a M, request: $request) -> Self {
+                Self {
+                    state: $crate::call::CallState::new(model, request),
+                }
+            }
+
+            /// Return the complete portable request owned by this call.
+            pub fn request(&self) -> &$request {
+                self.state.request()
+            }
+
+            /// Return the replaceable caller-provided option baseline.
+            ///
+            /// Builder-owned provider patches are intentionally not exposed
+            /// through this borrowed view; effective assembly is fallible and
+            /// remains private.
+            pub fn base_options(&self) -> &siumai_core::CallOptions {
+                self.state.base_options()
+            }
+
+            /// Replace the call-option baseline while retaining builder-owned
+            /// patches.
+            ///
+            /// The complete baseline-plus-patch candidate is validated
+            /// synchronously before the replacement is accepted.
+            pub fn with_options(
+                self,
+                options: siumai_core::CallOptions,
+            ) -> Result<Self, siumai_core::ProviderOptionError> {
+                Ok(Self {
+                    state: self.state.with_options(options)?,
+                })
+            }
+
+            /// Append one typed provider-option patch for this exact live
+            /// model.
+            ///
+            /// The patch is validated together with the current baseline and
+            /// all earlier builder patches before it is accepted.
+            pub fn with_provider_options<T>(
+                self,
+                value: &T,
+            ) -> Result<Self, siumai_core::ProviderOptionError>
+            where
+                T: siumai_core::TypedProviderOptions,
+            {
+                Ok(Self {
+                    state: self.state.with_provider_options(value)?,
+                })
+            }
+        }
+    };
+}
+
+pub(crate) use define_call_wrapper;
