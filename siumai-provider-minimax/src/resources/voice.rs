@@ -954,7 +954,7 @@ fn decode_hex_audio(value: &str) -> Result<Vec<u8>, Error> {
         ));
     }
     let mut decoded = Vec::with_capacity(value.len() / 2);
-    for pair in value.as_bytes().chunks_exact(2) {
+    for pair in value.as_bytes().as_chunks::<2>().0 {
         let high = decode_hex_digit(pair[0]).ok_or_else(|| {
             Error::new(
                 ErrorKind::Protocol,

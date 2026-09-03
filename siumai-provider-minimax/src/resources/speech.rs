@@ -2031,7 +2031,7 @@ fn decode_hex_audio(value: &str) -> Result<Vec<u8>, Error> {
     }
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         let high = decode_hex_digit(pair[0]).ok_or_else(|| {
             protocol_error("MiniMax speech response contained invalid hexadecimal audio")
         })?;
