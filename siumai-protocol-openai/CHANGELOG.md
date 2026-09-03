@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an explicit Chat Completions stream-end policy for evidence-backed provider dialects that
+  terminate with clean SSE EOF after `finish_reason`; the generic dialect still requires `[DONE]`.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.9...siumai-protocol-openai-v0.11.0-beta.10) - 2026-08-13
 
 ### Added

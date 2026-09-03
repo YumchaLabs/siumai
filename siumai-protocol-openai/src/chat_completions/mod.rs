@@ -8,7 +8,10 @@ mod sse;
 mod stream;
 mod wire;
 
-pub use dialect::{ChatCompletionsDialect, DialectError, MaxOutputTokensField, WireFieldName};
+pub use dialect::{
+    ChatCompletionsDialect, ChatCompletionsStreamEndPolicy, DialectError, MaxOutputTokensField,
+    WireFieldName,
+};
 pub use reasoning::REASONING_DETAILS_OPAQUE_KIND;
 pub use request::{
     CHAT_COMPLETIONS_TARGET, ChatRequestEncodingOptions, encode_request,

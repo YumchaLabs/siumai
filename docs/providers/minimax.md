@@ -2,7 +2,7 @@
 
 - Provider identity: `minimax`
 - Technical platform: `minimax-api`
-- Evidence verified: 2026-08-15
+- Evidence verified: 2026-09-03
 - Facade feature: `minimax`
 - Owning crate: `siumai-provider-minimax`
 
@@ -42,6 +42,12 @@ model-specific controls for unknown IDs.
 | `language(model)` / `messages(model)` | Anthropic-compatible Messages | Verified-compatible | Stable | Recommended default; generation and streaming; typed thinking and service tier; fixed ephemeral prompt-cache annotations; MiniMax-M3 image/video input |
 | `chat_completions(model)` | OpenAI-compatible Chat Completions | Verified-compatible | Experimental | Explicit opt-in; generation and streaming; typed thinking and service tier; `reasoning_split`; MiniMax-M3 image/video input |
 | `responses(model)` | OpenAI-compatible Responses | Verified-compatible | Experimental | Explicit bounded subset; generation and streaming; text output; typed reasoning, service tier, prompt-cache key, and metadata; MiniMax-M3 image/video input |
+
+MiniMax Chat Completions may close a successful SSE response after a chunk with a valid
+`finish_reason` without sending the OpenAI `[DONE]` sentinel. Its verified dialect therefore
+accepts clean EOF only after that explicit finish reason has been observed. EOF before a finish
+reason remains an error, and providers using the generic OpenAI-compatible dialect still require
+`[DONE]`.
 
 The default Registry registration also selects Messages. Chat Completions and Responses have
 separate provider-owned registrations so a host must opt into those language modes deliberately;
@@ -133,11 +139,14 @@ control plane.
 ## Evidence
 
 The language and established resource claims in this document were checked against official
-MiniMax documentation on 2026-08-08. Image sizing and Speech 2.8 emotion behavior were rechecked on
-2026-08-15; open future model IDs preserve explicit caller intent while known operation-specific
-invariants remain local. The Responses input-token, voice lifecycle, and portable image
-representation boundaries were rechecked against official documentation on 2026-08-09. The local
-Vercel AI SDK checkout is secondary design and fixture evidence only.
+MiniMax documentation on 2026-08-08. OpenAI-compatible Chat Completions streaming, including clean
+EOF after `finish_reason`, was rechecked against the official API documentation and a live
+MiniMax-M3 response on 2026-09-03; deterministic offline fixtures preserve that wire behavior and
+tool-call replay. Image sizing and Speech 2.8 emotion behavior were rechecked on 2026-08-15; open
+future model IDs preserve explicit caller intent while known operation-specific invariants remain
+local. The Responses input-token, voice lifecycle, and portable image representation boundaries
+were rechecked against official documentation on 2026-08-09. The local Vercel AI SDK checkout is
+secondary design and fixture evidence only.
 
 | Scope | Official source |
 |---|---|
@@ -154,6 +163,6 @@ Vercel AI SDK checkout is secondary design and fixture evidence only.
 | Voice lifecycle | [Clone Voice](https://platform.minimax.io/docs/api-reference/voice-cloning-clone), [Voice Design](https://platform.minimax.io/docs/api-reference/voice-design-design), [Get Voice](https://platform.minimax.io/docs/api-reference/voice-management-get), [Delete Voice](https://platform.minimax.io/docs/api-reference/voice-management-delete) |
 
 Offline provider tests cover identity and authentication, API-mode routing, open future model IDs,
-typed option validation, prompt-cache projection, request wire shapes, response decoding, task
-states, bounds, and sanitized diagnostics. They do not perform live, credentialed, or billable
-provider calls.
+typed option validation, prompt-cache projection, request wire shapes, response decoding, stream
+termination, tool-call replay, task states, bounds, and sanitized diagnostics. They do not perform
+live, credentialed, or billable provider calls.

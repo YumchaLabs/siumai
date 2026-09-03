@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Completed Chat Completions streams at clean EOF after a validated `finish_reason`, preserving
+  streamed tool identity and replay when MiniMax omits `[DONE]`.
+
 ## [0.11.0-beta.10](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimax-v0.11.0-beta.9...siumai-provider-minimax-v0.11.0-beta.10) - 2026-08-13
 
 ### Added

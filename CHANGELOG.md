@@ -27,6 +27,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   video downloads retain independent lifecycle-specific controls.
 - *(transport)* Retry observation now reports one correlated structural attempt loop and finishes at buffered response return or stream establishment. Server `Retry-After` advice has a ceiling independent of local backoff. Direct networking still disables environment proxy discovery; trusted CONNECT validates the proxy endpoint/peer and explicitly delegates destination DNS/peer selection without weakening inner TLS, credential audience, replay, deadline, or bounds enforcement.
 
+### Fixed
+
+- *(minimax)* Complete Chat Completions streams at clean EOF only after a validated
+  `finish_reason`, preserving streamed tool identity when MiniMax omits the OpenAI `[DONE]`
+  sentinel.
+
 ### Removed
 
 - *(facade/runtime)* [**breaking**] Removed the `siumai::families` umbrella, seven `*_with_options` helpers, flat root/prelude `*Call` re-exports, bare facade/runtime `generate` and `stream` helpers, and the duplicate `siumai_runtime::AgentInput` type. Use typed family clients for direct calls, root family call builders for generic/Registry code, `Runtime::{generate, stream}` for orchestration, and `LanguageInput`; see the one-step beta.10/intermediate migration map in `docs/migration/siumai-next.md`.

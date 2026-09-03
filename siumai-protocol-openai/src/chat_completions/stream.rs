@@ -9,13 +9,13 @@ use siumai_core::{
 
 use crate::openai_error::classify_stream_error;
 
-use super::ChatCompletionsDialect;
 use super::reasoning::ReasoningDetailsSnapshot;
 use super::response::{
     build_response, decode_finish_reason, decode_usage, merge_response_metadata, merge_usage,
     parse_model, protocol_error, selected_response_metadata,
 };
 use super::wire::{ChatStreamChunkWire, ToolCallDeltaWire};
+use super::{ChatCompletionsDialect, ChatCompletionsStreamEndPolicy};
 
 /// Stateful Chat Completions stream decoder.
 ///
@@ -490,10 +490,17 @@ impl LanguageStreamDecoder for ChatCompletionsStreamDecoder {
 
     fn finish(&mut self) -> Result<Vec<LanguageStreamEvent>, Error> {
         if self.lifecycle.begin_finish().map_err(Error::from)? {
-            Ok(Vec::new())
-        } else {
-            Err(Error::unexpected_eof())
+            return Ok(Vec::new());
         }
+        if self.dialect.stream_end_policy()
+            == ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason
+            && self.termination.is_some()
+        {
+            let events = self.complete()?;
+            self.lifecycle.record(&events).map_err(Error::from)?;
+            return Ok(events);
+        }
+        Err(Error::unexpected_eof())
     }
 
     fn terminal_seen(&self) -> bool {
@@ -578,7 +585,10 @@ mod tests {
             .with_replayable_reasoning_details_field(
                 WireFieldName::new("reasoning_details").unwrap(),
             )
-            .unwrap();
+            .unwrap()
+            .with_stream_end_policy(
+                ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason,
+            );
         ChatCompletionsStreamDecoder::new(scope, ModelId::new("MiniMax-M3").unwrap(), dialect)
     }
 
@@ -745,6 +755,63 @@ mod tests {
 
         let error = decoder.finish().unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(!decoder.terminal_seen());
+        assert!(decoder.decode("[DONE]").is_err());
+        assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn clean_eof_policy_requires_finish_reason_and_closes_the_decoder() {
+        let mut decoder = minimax_decoder();
+        decoder
+            .decode(r#"{"choices":[{"index":0,"delta":{"content":"hi"}}]}"#)
+            .unwrap();
+
+        let error = decoder.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(!decoder.terminal_seen());
+        assert!(decoder.decode("[DONE]").is_err());
+        assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn clean_eof_policy_completes_once_after_finish_reason() {
+        let mut decoder = minimax_decoder();
+        decoder
+            .decode(
+                r#"{"id":"chat-minimax-eof","model":"MiniMax-M3","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}"#,
+            )
+            .unwrap();
+        decoder
+            .decode(
+                r#"{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#,
+            )
+            .unwrap();
+
+        let terminal = decoder.finish().unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [.., LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })]
+                if response.output_text().as_deref() == Some("hi")
+                    && response.usage().input_tokens == UsageValue::Known(3)
+                    && response.usage().output_tokens == UsageValue::Known(1)
+        ));
+        assert!(decoder.terminal_seen());
+        assert!(decoder.decode("[DONE]").is_err());
+        assert!(decoder.finish().is_err());
+    }
+
+    #[test]
+    fn clean_eof_policy_rejects_incomplete_tool_json() {
+        let mut decoder = minimax_decoder();
+        decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{"}}]},"finish_reason":"tool_calls"}]}"#,
+            )
+            .unwrap();
+
+        let error = decoder.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Protocol);
         assert!(!decoder.terminal_seen());
         assert!(decoder.decode("[DONE]").is_err());
         assert!(decoder.finish().is_err());
