@@ -824,7 +824,7 @@ fn request_build_error(source: RequestBuildError) -> Error {
 #[cfg(test)]
 mod tests {
     use mockito::Matcher;
-    use siumai_core::{ImageModel as _, SpeechModel as _, TranscriptionModel as _, UsageValue};
+    use siumai_core::UsageValue;
     use siumai_transport::EndpointConfig;
 
     use super::*;

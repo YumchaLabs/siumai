@@ -514,9 +514,7 @@ mod tests {
 
     use bytes::Bytes;
     use mockito::Matcher;
-    use siumai_core::{
-        Cancellation, ErrorDetail, ResourceKind, TranscriptionModel as _, UsageValue,
-    };
+    use siumai_core::{Cancellation, ErrorDetail, ResourceKind, UsageValue};
     use siumai_transport::{EndpointConfig, TransportLimits};
 
     use crate::{DeepgramCredential, DeepgramProvider};

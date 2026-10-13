@@ -475,7 +475,7 @@ fn request_build_error(source: RequestBuildError) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use siumai_core::{TranscriptionModel as _, UsageValue};
+    use siumai_core::UsageValue;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

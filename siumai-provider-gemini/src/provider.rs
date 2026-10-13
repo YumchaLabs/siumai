@@ -921,7 +921,7 @@ mod tests {
 
         let events = observer.events.lock().unwrap();
         assert_eq!(events.len(), 8);
-        for sequence in events.chunks_exact(4) {
+        for sequence in events.as_chunks::<4>().0 {
             assert!(matches!(
                 sequence[0],
                 TransportEvent::AttemptBudgetResolved { .. }
