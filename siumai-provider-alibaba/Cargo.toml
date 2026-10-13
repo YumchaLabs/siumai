@@ -19,9 +19,9 @@ doctest = false
 [dependencies]
 siumai-core = { workspace = true, default-features = false }
 siumai-anthropic-compatible = { workspace = true, default-features = false }
-siumai-openai-compatible = { version = "0.11.0-beta.10", path = "../siumai-openai-compatible", default-features = false }
+siumai-openai-compatible = { version = "0.11.0-beta.11", path = "../siumai-openai-compatible", default-features = false }
 siumai-protocol-anthropic = { workspace = true, default-features = false }
-siumai-protocol-openai = { version = "0.11.0-beta.10", path = "../siumai-protocol-openai", default-features = false, features = ["openai-responses"] }
+siumai-protocol-openai = { version = "0.11.0-beta.11", path = "../siumai-protocol-openai", default-features = false, features = ["openai-responses"] }
 siumai-transport = { workspace = true, default-features = false }
 
 async-trait.workspace = true
