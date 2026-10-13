@@ -1,15 +1,17 @@
+use futures_util::StreamExt;
 use serde::Serialize;
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, ImageModel, ImageRequest,
-    LanguageModel, LanguageRequest, MediaData, MediaPart, Message, MessagePart, MessageRole, Model,
-    ModelFamily, Provider, ReplayDomain, ReplayDomainId, ToolSpec, TypedProviderOptions,
+    LanguageModel, LanguageRequest, LanguageStreamEvent, MediaData, MediaPart, Message,
+    MessagePart, MessageRole, Model, ModelFamily, Provider, ReplayDomain, ReplayDomainId,
+    StreamTerminal, ToolOutcome, ToolResult, ToolSpec, TypedProviderOptions,
 };
 use siumai_transport::{
     EndpointConfig, OfficialOrigin, ProviderHttpTransportSettings, TransportLimits,
 };
 use std::time::Duration;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::{
@@ -691,6 +693,110 @@ async fn chat_completions_preserves_and_replays_reasoning_details() {
     assert_eq!(
         body["messages"][1]["reasoning_details"][0]["text"],
         "inspect the next step"
+    );
+}
+
+#[tokio::test]
+async fn chat_stream_clean_eof_after_finish_reason_preserves_tool_identity() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("accept", "text/event-stream"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(
+                    concat!(
+                        "data: {\"id\":\"chat-minimax-tool\",\"model\":\"MiniMax-M3\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-current-time\",\"type\":\"function\",\"function\":{\"name\":\"current_time\",\"arguments\":\"{\\\"timezone\\\":\"}}]},\"finish_reason\":null}]}\n\n",
+                        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"\",\"function\":{\"name\":\"\",\"arguments\":\"\\\"Asia/Shanghai\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":4,\"total_tokens\":12}}\n\n"
+                    ),
+                    "text/event-stream",
+                ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains(r#""stream":false"#))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_response(MINIMAX_M3)))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut request = text_request("What time is it in Shanghai?");
+    let tool = ToolSpec::new(
+        "current_time",
+        Some("Return the current time for a timezone.".to_string()),
+        json!({
+            "type": "object",
+            "properties": {"timezone": {"type": "string"}},
+            "required": ["timezone"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool");
+    request.tools.push(tool.clone());
+    let model = provider(&server, MinimaxCredential::unauthenticated())
+        .chat_completions(MINIMAX_M3)
+        .expect("model");
+    let events = model
+        .stream(request, CallOptions::default())
+        .await
+        .expect("stream")
+        .collect::<Vec<_>>()
+        .await;
+
+    let Some(StreamTerminal::Completed { response }) =
+        events.iter().find_map(LanguageStreamEvent::terminal)
+    else {
+        panic!("expected completed terminal")
+    };
+    let call = response
+        .content()
+        .iter()
+        .find_map(|part| match part {
+            ContentPart::ToolCall(call) => Some(call.clone()),
+            _ => None,
+        })
+        .expect("terminal tool call");
+    assert_eq!(call.id(), "call-current-time");
+    assert_eq!(call.name(), "current_time");
+    assert_eq!(call.arguments(), &json!({"timezone": "Asia/Shanghai"}));
+
+    let mut replay = LanguageRequest::new(vec![
+        Message::user("What time is it in Shanghai?"),
+        response
+            .project_assistant_history()
+            .into_message()
+            .expect("assistant history"),
+        Message::tool_result(ToolResult {
+            call_id: call.id().to_string(),
+            name: call.name().to_string(),
+            outcome: ToolOutcome::Success {
+                value: json!({"time": "2026-09-03T12:00:00+08:00"}),
+            },
+        }),
+    ]);
+    replay.tools.push(tool);
+    model
+        .generate(replay, CallOptions::default())
+        .await
+        .expect("replayed response");
+
+    let requests = server.received_requests().await.expect("requests");
+    let replay_body = requests
+        .iter()
+        .map(|request| serde_json::from_slice::<Value>(&request.body).expect("request body"))
+        .find(|body| body["stream"] == false)
+        .expect("replay request");
+    assert_eq!(
+        replay_body["messages"][1]["tool_calls"][0]["function"]["name"],
+        "current_time"
+    );
+    assert_eq!(
+        replay_body["messages"][2]["tool_call_id"],
+        "call-current-time"
     );
 }
 

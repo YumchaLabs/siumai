@@ -1,7 +1,7 @@
 # Transport Contract
 
 - Status: Current repository contract
-- Date: 2026-08-17
+- Date: 2026-09-02
 - Owner: `siumai-transport`
 
 ## Purpose
@@ -46,6 +46,27 @@ reverse-gateway destination with its own endpoint and replay audience; it is not
 `HttpTransportRoute::trusted_connect(ProxyEndpoint)` instead selects one separately validated
 forward proxy for a public HTTPS provider origin. A public proxy must use HTTPS. An explicitly
 granted local proxy may use HTTP or HTTPS, but a cleartext proxy cannot carry Basic credentials.
+
+## Provider-Author Transport Assembly
+
+Compatibility engines share the configured-versus-prebuilt transport lifecycle through the
+experimental `siumai_transport::experimental::provider_author::ProviderTransportSource`. A
+configured source consumes one complete `ProviderTransportBuilder`, applies the final complete
+`ProviderHttpTransportSettings` snapshot, and builds the transport synchronously. A prebuilt source
+reuses its existing `ProviderTransport`; any settings override is rejected at consuming resolution
+before endpoint comparison. The source is single-use and performs no DNS or network I/O.
+
+Resolution compares the typed `EndpointConfig` base URL and `EndpointPolicy` using transport-owned
+normalization, path, query, trailing-slash, and default-port semantics. It proves only that the
+transport can serve the expected address and policy. Provider crates still decide whether a
+transport is a complete compatible runtime identity, including credential audience, authentication
+or signing owner, settings, retry and replay declarations, provider identity, and network
+mechanism. The source accepts none of those provider authorities and maps only its closed settings,
+endpoint, or underlying transport configuration errors.
+
+This seam is for the OpenAI-compatible and Anthropic-compatible provider authors today. It is not
+re-exported from the transport root, facade, or preludes; promotion requires a third independent
+consumer with the same invariant.
 
 ## Authenticated API Calls
 

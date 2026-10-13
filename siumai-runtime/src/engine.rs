@@ -1,20 +1,17 @@
 pub(crate) mod checkpoint;
 mod completed_step;
+mod model_step;
+mod tool_dispatch;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
-use futures::stream::FuturesUnordered;
-use futures::{Stream, StreamExt, stream};
-use siumai_core::stream::established_stream;
+use futures::{Stream, stream};
 use siumai_core::{
     CallOptions, Cancellation, ContentPart, Error, ErrorKind, LanguageModel, LanguageRequest,
-    LanguageResponse, LanguageStream, LanguageStreamEvent, Message, MessagePart, MessageRole,
-    PartialLanguageOutput, StreamTerminal, ToolOutcome, ToolResult, Usage,
+    LanguageResponse, Message, MessagePart, MessageRole, ToolResult, Usage,
 };
 
 use crate::approval::VerifiedApproval;
@@ -22,36 +19,34 @@ use crate::provider_deferred::ProviderDeferredStep;
 use crate::selection::{
     PreparedStepModel, SelectedStepModel, prepare_selected_step_model, select_step_model,
 };
-use crate::single_step::SingleStep;
 use crate::snapshot::{
-    CompletedToolSnapshot, IndeterminateReason, PendingProviderStepSnapshot, PendingStepSnapshot,
-    PreparedToolSnapshot, ResumePoint, ResumePointState, SnapshotReason, SnapshotTerminal,
-    ToolExecutionStatus,
+    PendingProviderStepSnapshot, PendingStepSnapshot, PreparedToolSnapshot, ResumePoint,
+    ResumePointState, SnapshotReason, SnapshotTerminal, ToolExecutionStatus,
 };
 use crate::tool::{
-    ApprovalDecider, ApprovalPolicy, AuthorizedToolCall, EffectCertainty,
-    PreparedVisibleToolCatalog, ToolConcurrency, ToolEffect, ToolExecutionError,
-    ToolExecutionRequest, ToolSet, VisibleToolCatalogError, VisibleToolCatalogSource,
-    prepare_visible_tool_catalog,
+    ApprovalDecider, ApprovalPolicy, PreparedVisibleToolCatalog, ToolSet, VisibleToolCatalogError,
+    VisibleToolCatalogSource, prepare_visible_tool_catalog,
 };
-use crate::tool_loop::{ToolOutcomeAction, ToolOutcomePolicy};
-use crate::usage::CallUsageReconciler;
+use crate::tool_loop::ToolOutcomePolicy;
 use crate::{
-    IndeterminateEffect, ModelTarget, ProjectionPolicy, RunBudget, RunEvent, RunReport,
-    RunStopReason, RunTerminal, RunTimeoutKind, Runtime, StepModelSelector, StepOptions,
-    StepRecord, SuspensionReason,
+    ModelTarget, ProjectionPolicy, RunBudget, RunEvent, RunReport, RunStopReason, RunTerminal,
+    RunTimeoutKind, Runtime, StepModelSelector, StepOptions, StepRecord, SuspensionReason,
 };
 
 use self::checkpoint::{
     CheckpointBoundary, CheckpointControl, EngineCheckpoint, EngineCheckpointPort,
-    EngineCheckpointState, EphemeralCheckpointPort, PendingApprovalCheckpoint,
-    PendingToolsCheckpoint,
+    EngineCheckpointState, EphemeralCheckpointPort,
 };
 use self::completed_step::{
     CompletedStepContext, CompletedStepPlan, CompletedStepPlanningError, plan_completed_step,
 };
-
-type BoxToolFuture = Pin<Box<dyn Future<Output = ToolAttempt> + Send + 'static>>;
+use self::model_step::{ModelStepContext, ModelStepPoll, ModelStepState};
+use self::tool_dispatch::{
+    IndexedAuthorizedCall, IndexedResult, PendingApprovalCall, ToolDispatchContext,
+    ToolDispatchOutcome, ToolDispatchStop as ExecutionStop,
+    checkpoint_pending_tools as dispatch_checkpoint_pending_tools, dispatch_tools,
+    execution_error_outcome, tool_journal_error,
+};
 
 pub(crate) struct StepEngine {
     runtime: Runtime,
@@ -82,24 +77,9 @@ pub(crate) enum ToolHandling {
     ObserveOnly,
 }
 
-struct IndexedAuthorizedCall {
-    ordinal: usize,
-    call: AuthorizedToolCall,
-}
-
-#[derive(Clone)]
-struct IndexedResult {
-    ordinal: usize,
-    result: ToolResult,
-}
-
-struct PendingApprovalCall {
-    request: ToolExecutionRequest,
-}
-
 enum EnginePhase {
     Transitioning,
-    Streaming(Box<StepStream>),
+    Streaming(Box<ModelStepState>),
     Tools(Box<PendingToolPhase>),
     ReadyForModel,
     ReadyForSelectedModel(Box<SelectedStepModel>),
@@ -490,62 +470,6 @@ impl StepEngine {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn checkpoint_pending_tools<P>(
-        &mut self,
-        checkpoint: &mut P,
-        boundary: CheckpointBoundary,
-        response: &LanguageResponse,
-        prepared: &[PreparedToolSnapshot],
-        results: &[IndexedResult],
-        pending_approvals: &[PendingApprovalCall],
-        can_progress: bool,
-    ) -> Result<CheckpointControl, P::Error>
-    where
-        P: EngineCheckpointPort,
-    {
-        if !P::ENABLED {
-            return Ok(CheckpointControl::Continue);
-        }
-        let mut completed = results
-            .iter()
-            .map(|result| {
-                CompletedToolSnapshot::new(
-                    u32::try_from(result.ordinal)
-                        .expect("response tool call ordinal is representable in a snapshot"),
-                    result.result.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        completed.sort_unstable_by_key(CompletedToolSnapshot::ordinal);
-        let pending = PendingToolsCheckpoint::new(
-            self.step,
-            self.target.clone(),
-            response.clone(),
-            prepared.to_vec(),
-            completed,
-            pending_approvals
-                .iter()
-                .map(|pending| {
-                    PendingApprovalCheckpoint::new(
-                        pending.request.call().clone(),
-                        pending.request.binding_identity().clone(),
-                        pending.request.canonical_arguments_digest(),
-                    )
-                })
-                .collect(),
-            can_progress,
-        );
-        checkpoint
-            .commit(EngineCheckpoint::new(
-                boundary,
-                self.continuation(),
-                self.report.clone(),
-                EngineCheckpointState::PendingTools(pending),
-            ))
-            .await
-    }
-
     async fn checkpoint_state<P>(
         &mut self,
         checkpoint: &mut P,
@@ -591,58 +515,28 @@ impl StepEngine {
         continuation
     }
 
-    async fn establish_model_stream(&mut self, first: bool) -> Result<StepStream, Error> {
-        let now = Instant::now();
-        let step_deadline = self
-            .total_deadline
-            .min(checked_deadline(now, self.budget.timeouts().model_step()));
-        let (deadline, timeout_kind) = classify_deadline(
-            self.total_deadline,
-            step_deadline,
-            RunTimeoutKind::ModelStep,
-        );
+    async fn establish_model_stream(&mut self, first: bool) -> Result<ModelStepState, Error> {
         let mut request = self.request.clone();
         request.messages = self.report.messages().to_vec();
         request.tools = self.visible_tools.specs().to_vec();
-        let single_step = SingleStep::new(&self.runtime, self.model.as_ref(), &self.step_options);
-        let future = single_step.stream(request, self.call_options.clone());
-
-        match wait_for(future, &self.cancellation, deadline, timeout_kind).await {
-            WaitResult::Ready(result) => result.map(|stream| {
-                let timeout = Arc::new(StreamTimeoutState::default());
-                let stream = stream_with_runtime_deadlines(
-                    stream,
-                    self.cancellation.clone(),
-                    self.total_deadline,
-                    step_deadline,
-                    self.budget.timeouts().first_chunk(),
-                    self.budget.timeouts().inter_chunk(),
-                    Arc::clone(&timeout),
-                );
-                StepStream {
-                    stream,
-                    provider_deferred: self
-                        .report
-                        .provider_deferred_ledger()
-                        .begin_step(self.step, &self.target),
-                    usage: CallUsageReconciler::default(),
-                    timeout,
-                }
-            }),
-            WaitResult::Cancelled => Err(Error::cancelled(if first {
-                "tool loop cancelled during first model handshake"
-            } else {
-                "tool loop cancelled during model handshake"
-            })),
-            WaitResult::TimedOut(_) => Err(Error::new(
-                ErrorKind::Timeout,
-                if first {
-                    "tool loop first model handshake timed out"
-                } else {
-                    "tool loop model handshake timed out"
-                },
-            )),
-        }
+        ModelStepState::establish(ModelStepContext {
+            runtime: &self.runtime,
+            model: self.model.as_ref(),
+            step_options: &self.step_options,
+            request,
+            call_options: self.call_options.clone(),
+            cancellation: self.cancellation.clone(),
+            total_deadline: self.total_deadline,
+            model_step_timeout: self.budget.timeouts().model_step(),
+            first_chunk_timeout: self.budget.timeouts().first_chunk(),
+            inter_chunk_timeout: self.budget.timeouts().inter_chunk(),
+            provider_deferred: self
+                .report
+                .provider_deferred_ledger()
+                .begin_step(self.step, &self.target),
+            first,
+        })
+        .await
     }
 
     async fn establish_later_step<P>(&mut self, checkpoint: &mut P) -> Result<(), P::Error>
@@ -944,87 +838,60 @@ impl StepEngine {
 
     async fn poll_model_stream<P>(
         &mut self,
-        mut state: StepStream,
+        state: ModelStepState,
         checkpoint: &mut P,
     ) -> Result<(), P::Error>
     where
         P: EngineCheckpointPort,
     {
-        match state.stream.next().await {
-            None => {
-                if let Err(error) = self.settle_model_usage(state.usage, None) {
-                    self.queue_terminal(RunTerminal::BudgetExceeded {
-                        error,
-                        report: Box::new(self.report.clone()),
-                    });
-                } else {
-                    self.queue_terminal(RunTerminal::Failed {
-                        error: Error::unexpected_eof(),
-                        partial: None,
-                        report: Box::new(self.report.clone()),
-                    });
-                }
-            }
-            Some(LanguageStreamEvent::Terminal(terminal)) => {
-                self.consume_model_terminal(terminal, state, checkpoint)
-                    .await?;
-            }
-            Some(event) => {
-                match &event {
-                    LanguageStreamEvent::ProviderDeferred { id, state: item } => {
-                        state.provider_deferred.observe(id, item);
-                    }
-                    LanguageStreamEvent::ToolResult(result) => {
-                        state
-                            .provider_deferred
-                            .resolve_provider_result(&result.call_id);
-                    }
-                    LanguageStreamEvent::Usage(update) => state.usage.observe(update),
-                    _ => {}
-                }
+        match state.poll().await {
+            ModelStepPoll::Event { event, state } => {
                 self.phase = EnginePhase::Streaming(Box::new(state));
                 self.pending.push_back(RunEvent::Model {
                     step: self.step,
                     event,
                 });
             }
-        }
-        Ok(())
-    }
-
-    async fn consume_model_terminal<P>(
-        &mut self,
-        terminal: StreamTerminal,
-        state: StepStream,
-        checkpoint: &mut P,
-    ) -> Result<(), P::Error>
-    where
-        P: EngineCheckpointPort,
-    {
-        match terminal {
-            StreamTerminal::Completed { response } => {
-                self.prepare_completed_response(*response, state, checkpoint)
-                    .await?;
-            }
-            StreamTerminal::Failed { error, partial } => {
-                if let Err(error) = self.settle_model_usage(
-                    state.usage,
-                    partial.as_ref().map(PartialLanguageOutput::usage),
-                ) {
+            ModelStepPoll::Completed {
+                response,
+                usage,
+                provider_deferred,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
                     });
-                    return Ok(());
+                } else {
+                    self.prepare_completed_response(response, provider_deferred, checkpoint)
+                        .await?;
                 }
-                if error.kind() == ErrorKind::Timeout
-                    && let Some(kind) = state.timeout.take()
-                {
-                    self.queue_terminal(RunTerminal::TimedOut {
-                        kind,
-                        partial,
+            }
+            ModelStepPoll::Failed {
+                error,
+                partial,
+                usage,
+                timeout,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
+                    self.queue_terminal(RunTerminal::BudgetExceeded {
+                        error,
                         report: Box::new(self.report.clone()),
                     });
+                } else if error.kind() == ErrorKind::Timeout {
+                    if let Some(kind) = timeout {
+                        self.queue_terminal(RunTerminal::TimedOut {
+                            kind,
+                            partial,
+                            report: Box::new(self.report.clone()),
+                        });
+                    } else {
+                        self.queue_terminal(RunTerminal::Failed {
+                            error,
+                            partial,
+                            report: Box::new(self.report.clone()),
+                        });
+                    }
                 } else {
                     self.queue_terminal(RunTerminal::Failed {
                         error,
@@ -1033,33 +900,20 @@ impl StepEngine {
                     });
                 }
             }
-            StreamTerminal::Cancelled { reason, partial } => {
-                if let Err(error) = self.settle_model_usage(
-                    state.usage,
-                    partial.as_ref().map(PartialLanguageOutput::usage),
-                ) {
-                    self.queue_terminal(RunTerminal::BudgetExceeded {
-                        error,
-                        report: Box::new(self.report.clone()),
-                    });
-                    return Ok(());
-                }
-                self.queue_terminal(RunTerminal::Cancelled {
-                    reason,
-                    partial,
-                    report: Box::new(self.report.clone()),
-                });
-            }
-            _ => {
-                if let Err(error) = self.settle_model_usage(state.usage, None) {
+            ModelStepPoll::Cancelled {
+                reason,
+                partial,
+                usage,
+            } => {
+                if let Err(error) = self.settle_model_usage(usage) {
                     self.queue_terminal(RunTerminal::BudgetExceeded {
                         error,
                         report: Box::new(self.report.clone()),
                     });
                 } else {
-                    self.queue_terminal(RunTerminal::Failed {
-                        error: Error::protocol_violation("unsupported model stream terminal"),
-                        partial: None,
+                    self.queue_terminal(RunTerminal::Cancelled {
+                        reason,
+                        partial,
                         report: Box::new(self.report.clone()),
                     });
                 }
@@ -1071,46 +925,28 @@ impl StepEngine {
     async fn prepare_completed_response<P>(
         &mut self,
         response: LanguageResponse,
-        mut state: StepStream,
+        provider_deferred: ProviderDeferredStep,
         checkpoint: &mut P,
     ) -> Result<(), P::Error>
     where
         P: EngineCheckpointPort,
     {
-        let reconciler = std::mem::take(&mut state.usage);
-        if let Err(error) = self.settle_model_usage(reconciler, Some(response.usage())) {
-            self.queue_terminal(RunTerminal::BudgetExceeded {
-                error,
-                report: Box::new(self.report.clone()),
-            });
-            return Ok(());
-        }
-        for result in response.content().iter().filter_map(|part| match part {
-            ContentPart::ToolResult(result) => Some(result),
-            _ => None,
-        }) {
-            state
-                .provider_deferred
-                .resolve_provider_result(&result.call_id);
-        }
-        let provider_commit = match state
-            .provider_deferred
-            .finish_completed(self.report.provider_deferred_ledger())
-        {
-            Ok(commit) => commit,
-            Err(error) => {
-                self.queue_terminal(RunTerminal::Failed {
-                    error: Error::new(
-                        ErrorKind::Protocol,
-                        "provider-deferred state could not be committed",
-                    )
-                    .with_source(error),
-                    partial: None,
-                    report: Box::new(self.report.clone()),
-                });
-                return Ok(());
-            }
-        };
+        let provider_commit =
+            match provider_deferred.finish_completed(self.report.provider_deferred_ledger()) {
+                Ok(commit) => commit,
+                Err(error) => {
+                    self.queue_terminal(RunTerminal::Failed {
+                        error: Error::new(
+                            ErrorKind::Protocol,
+                            "provider-deferred state could not be committed",
+                        )
+                        .with_source(error),
+                        partial: None,
+                        report: Box::new(self.report.clone()),
+                    });
+                    return Ok(());
+                }
+            };
         let plan = match plan_completed_step(
             CompletedStepContext {
                 step: self.step,
@@ -1225,17 +1061,23 @@ impl StepEngine {
                 });
             }
         } else {
-            let control = self
-                .checkpoint_pending_tools(
-                    checkpoint,
-                    CheckpointBoundary::Quiescent,
-                    &response,
-                    &prepared_tools,
-                    &immediate_results,
-                    &pending_approvals,
-                    !requests.is_empty(),
-                )
-                .await?;
+            let continuation = self.continuation();
+            let control = dispatch_checkpoint_pending_tools(
+                checkpoint,
+                CheckpointBoundary::Quiescent,
+                self::tool_dispatch::PendingToolsCheckpointContext {
+                    step: self.step,
+                    target: &self.target,
+                    continuation: &continuation,
+                    report: &self.report,
+                    response: &response,
+                    prepared: &prepared_tools,
+                    results: &immediate_results,
+                    pending_approvals: &pending_approvals,
+                    can_progress: !requests.is_empty(),
+                },
+            )
+            .await?;
             if control == CheckpointControl::Pause {
                 self.phase = EnginePhase::Paused;
                 return Ok(());
@@ -1282,29 +1124,36 @@ impl StepEngine {
             response,
             prepared,
             requests,
-            mut results,
-            mut pending_approvals,
+            results,
+            pending_approvals,
             provider_pending,
         } = prepared;
-        let previously_completed = results
-            .iter()
-            .map(|result| result.ordinal)
-            .collect::<BTreeSet<_>>();
-        let stop = self
-            .execute_requests(
-                &response,
-                &prepared,
-                requests,
-                &mut results,
-                &mut pending_approvals,
+        let continuation = self.continuation();
+        let ToolDispatchOutcome {
+            results,
+            completed,
+            pending_approvals,
+            stop,
+        } = dispatch_tools(
+            ToolDispatchContext {
+                step: self.step,
+                target: &self.target,
+                continuation: &continuation,
+                response: &response,
+                prepared: &prepared,
+                report: &mut self.report,
+                budget_limits: &self.budget,
+                cancellation: &self.cancellation,
+                total_deadline: self.total_deadline,
+                outcome_policy: self.outcome_policy,
                 checkpoint,
-            )
-            .await?;
-        results.sort_unstable_by_key(|result| result.ordinal);
-        for result in results
-            .iter()
-            .filter(|result| !previously_completed.contains(&result.ordinal))
-        {
+            },
+            requests,
+            results,
+            pending_approvals,
+        )
+        .await?;
+        for result in completed {
             self.pending.push_back(RunEvent::ToolCompleted {
                 step: self.step,
                 ordinal: result.ordinal,
@@ -1312,17 +1161,22 @@ impl StepEngine {
             });
         }
         if stop.is_none() && !pending_approvals.is_empty() {
-            let control = self
-                .checkpoint_pending_tools(
-                    checkpoint,
-                    CheckpointBoundary::Quiescent,
-                    &response,
-                    &prepared,
-                    &results,
-                    &pending_approvals,
-                    false,
-                )
-                .await?;
+            let control = dispatch_checkpoint_pending_tools(
+                checkpoint,
+                CheckpointBoundary::Quiescent,
+                self::tool_dispatch::PendingToolsCheckpointContext {
+                    step: self.step,
+                    target: &self.target,
+                    continuation: &continuation,
+                    report: &self.report,
+                    response: &response,
+                    prepared: &prepared,
+                    results: &results,
+                    pending_approvals: &pending_approvals,
+                    can_progress: false,
+                },
+            )
+            .await?;
             if control == CheckpointControl::Pause {
                 self.phase = EnginePhase::Paused;
                 return Ok(());
@@ -1342,9 +1196,6 @@ impl StepEngine {
             return Ok(());
         }
 
-        if stop.is_some() {
-            self.release_pending_approvals(&mut pending_approvals);
-        }
         let tool_results = results
             .iter()
             .map(|result| result.result.clone())
@@ -1402,436 +1253,7 @@ impl StepEngine {
         Ok(())
     }
 
-    async fn execute_requests<P>(
-        &mut self,
-        response: &LanguageResponse,
-        prepared: &[PreparedToolSnapshot],
-        requests: Vec<IndexedAuthorizedCall>,
-        results: &mut Vec<IndexedResult>,
-        pending_approvals: &mut Vec<PendingApprovalCall>,
-        checkpoint: &mut P,
-    ) -> Result<Option<ExecutionStop>, P::Error>
-    where
-        P: EngineCheckpointPort,
-    {
-        let mut queue = VecDeque::from(requests);
-
-        while let Some(front) = queue.front() {
-            if is_parallel_safe(front.call.request()) {
-                let mut batch = Vec::new();
-                while queue
-                    .front()
-                    .is_some_and(|request| is_parallel_safe(request.call.request()))
-                {
-                    if let Some(request) = queue.pop_front() {
-                        batch.push(request);
-                    }
-                }
-                if let Some(stop) = self
-                    .execute_parallel_batch(
-                        response,
-                        prepared,
-                        batch,
-                        results,
-                        pending_approvals,
-                        checkpoint,
-                    )
-                    .await?
-                {
-                    return Ok(Some(stop));
-                }
-            } else if let Some(request) = queue.pop_front() {
-                if let Some(stop) = self.pre_dispatch_stop() {
-                    return Ok(Some(stop));
-                }
-                self.release_dispatch_approval(request.call.request(), pending_approvals);
-                if let Err(error) = self
-                    .report
-                    .tool_journal_mut()
-                    .dispatch(request.call.request())
-                    .map_err(tool_journal_error)
-                {
-                    return Ok(Some(ExecutionStop::Failed(error)));
-                }
-                self.checkpoint_pending_tools(
-                    checkpoint,
-                    CheckpointBoundary::BeforeDispatch,
-                    response,
-                    prepared,
-                    results,
-                    pending_approvals,
-                    true,
-                )
-                .await?;
-                let attempt = self.await_tool(request).await;
-                let progress = self.process_attempt(attempt);
-                let completed = !progress.results.is_empty();
-                results.extend(progress.results);
-                results.sort_unstable_by_key(|result| result.ordinal);
-                if completed {
-                    self.checkpoint_pending_tools(
-                        checkpoint,
-                        CheckpointBoundary::AfterDispatch,
-                        response,
-                        prepared,
-                        results,
-                        pending_approvals,
-                        true,
-                    )
-                    .await?;
-                }
-                if let Some(stop) = progress.stop {
-                    return Ok(Some(stop));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn execute_parallel_batch<P>(
-        &mut self,
-        response: &LanguageResponse,
-        prepared: &[PreparedToolSnapshot],
-        requests: Vec<IndexedAuthorizedCall>,
-        results: &mut Vec<IndexedResult>,
-        pending_approvals: &mut Vec<PendingApprovalCall>,
-        checkpoint: &mut P,
-    ) -> Result<Option<ExecutionStop>, P::Error>
-    where
-        P: EngineCheckpointPort,
-    {
-        let mut pending = VecDeque::from(requests);
-        let mut active = FuturesUnordered::<BoxToolFuture>::new();
-        let mut active_by_binding = BTreeMap::<String, usize>::new();
-        let mut active_calls = BTreeMap::new();
-        let mut policy_stop: Option<(usize, String, ToolOutcome)> = None;
-        let max_concurrent = checkpoint.max_concurrent_tools(self.budget.max_concurrent_tools());
-
-        loop {
-            while policy_stop.is_none() && active.len() < max_concurrent {
-                if let Some(stop) = self.pre_dispatch_stop() {
-                    if let Err(error) = self.mark_active_indeterminate(&active_calls) {
-                        return Ok(Some(ExecutionStop::Failed(error)));
-                    }
-                    return Ok(Some(stop));
-                }
-                let eligible = pending.iter().position(|candidate| {
-                    let key = binding_key(candidate.call.request());
-                    let active_count = active_by_binding.get(&key).copied().unwrap_or(0);
-                    active_count < binding_parallel_limit(candidate.call.request())
-                });
-                let Some(position) = eligible else {
-                    break;
-                };
-                let Some(request) = pending.remove(position) else {
-                    break;
-                };
-                self.release_dispatch_approval(request.call.request(), pending_approvals);
-                if let Err(error) = self
-                    .report
-                    .tool_journal_mut()
-                    .dispatch(request.call.request())
-                    .map_err(tool_journal_error)
-                {
-                    if let Err(logging_error) = self.mark_active_indeterminate(&active_calls) {
-                        return Ok(Some(ExecutionStop::Failed(logging_error)));
-                    }
-                    return Ok(Some(ExecutionStop::Failed(error)));
-                }
-                self.checkpoint_pending_tools(
-                    checkpoint,
-                    CheckpointBoundary::BeforeDispatch,
-                    response,
-                    prepared,
-                    results,
-                    pending_approvals,
-                    true,
-                )
-                .await?;
-                let key = binding_key(request.call.request());
-                *active_by_binding.entry(key).or_default() += 1;
-                active_calls.insert(
-                    request.ordinal,
-                    (
-                        request.call.request().call_id().to_string(),
-                        request.call.request().attempt(),
-                    ),
-                );
-                let cancellation = self.cancellation.clone();
-                let total_deadline = self.total_deadline;
-                let tool_timeout = self.budget.timeouts().tool();
-                active.push(Box::pin(async move {
-                    await_tool_attempt(request, cancellation, total_deadline, tool_timeout).await
-                }));
-            }
-
-            if active.is_empty() {
-                break;
-            }
-            let Some(attempt) = active.next().await else {
-                break;
-            };
-            let key = binding_key(&attempt.request);
-            if let Some(count) = active_by_binding.get_mut(&key) {
-                *count = count.saturating_sub(1);
-            }
-            active_calls.remove(&attempt.ordinal);
-            let progress = self.process_attempt(attempt);
-            let completed = !progress.results.is_empty();
-            results.extend(progress.results.iter().cloned());
-            results.sort_unstable_by_key(|result| result.ordinal);
-            if completed {
-                self.checkpoint_pending_tools(
-                    checkpoint,
-                    CheckpointBoundary::AfterDispatch,
-                    response,
-                    prepared,
-                    results,
-                    pending_approvals,
-                    true,
-                )
-                .await?;
-            }
-            if let Some(stop) = progress.stop {
-                match stop {
-                    ExecutionStop::Policy { call_id, outcome } => {
-                        let ordinal = progress
-                            .results
-                            .first()
-                            .map_or(usize::MAX, |result| result.ordinal);
-                        let replace = policy_stop
-                            .as_ref()
-                            .is_none_or(|(current, _, _)| ordinal < *current);
-                        if replace {
-                            policy_stop = Some((ordinal, call_id, outcome));
-                        }
-                    }
-                    terminal => {
-                        if let Err(error) = self.mark_active_indeterminate(&active_calls) {
-                            return Ok(Some(ExecutionStop::Failed(error)));
-                        }
-                        return Ok(Some(terminal));
-                    }
-                }
-            }
-        }
-
-        let stop =
-            policy_stop.map(|(_, call_id, outcome)| ExecutionStop::Policy { call_id, outcome });
-        Ok(stop)
-    }
-
-    async fn await_tool(&mut self, request: IndexedAuthorizedCall) -> ToolAttempt {
-        await_tool_attempt(
-            request,
-            self.cancellation.clone(),
-            self.total_deadline,
-            self.budget.timeouts().tool(),
-        )
-        .await
-    }
-
-    fn process_attempt(&mut self, attempt: ToolAttempt) -> ExecutionProgress {
-        let effect = attempt.request.effect();
-        let call_id = attempt.request.call_id().to_string();
-        let execution_attempt = attempt.request.attempt();
-        let binding_fingerprint = attempt.request.binding_identity().fingerprint.clone();
-        let ordinal = attempt.ordinal;
-
-        let result = match attempt.outcome {
-            ToolAttemptOutcome::Completed(Ok(result)) => result,
-            ToolAttemptOutcome::Completed(Err(error)) => {
-                if error.effect_certainty() == EffectCertainty::Indeterminate
-                    && effect == ToolEffect::SideEffecting
-                {
-                    if let Err(error) = self
-                        .report
-                        .tool_journal_mut()
-                        .mark_indeterminate(
-                            &call_id,
-                            execution_attempt,
-                            IndeterminateReason::DispatchOutcomeUnknown,
-                        )
-                        .map_err(tool_journal_error)
-                    {
-                        return ExecutionProgress::stopped(ExecutionStop::Failed(error));
-                    }
-                    return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                        IndeterminateEffect {
-                            call_id,
-                            binding_fingerprint,
-                            reason: "tool effect is indeterminate after executor failure"
-                                .to_string(),
-                        },
-                    ));
-                }
-                ToolResult {
-                    call_id: call_id.clone(),
-                    name: attempt.request.name().to_string(),
-                    outcome: execution_error_outcome(error),
-                }
-            }
-            ToolAttemptOutcome::TimedOut(kind) => {
-                if let Err(error) = self
-                    .report
-                    .tool_journal_mut()
-                    .mark_indeterminate(
-                        &call_id,
-                        execution_attempt,
-                        IndeterminateReason::DispatchOutcomeUnknown,
-                    )
-                    .map_err(tool_journal_error)
-                {
-                    return ExecutionProgress::stopped(ExecutionStop::Failed(error));
-                }
-                if effect == ToolEffect::SideEffecting {
-                    return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                        IndeterminateEffect {
-                            call_id,
-                            binding_fingerprint,
-                            reason: "tool execution timed out after dispatch".to_string(),
-                        },
-                    ));
-                }
-                return ExecutionProgress::stopped(ExecutionStop::TimedOut(kind));
-            }
-            ToolAttemptOutcome::Cancelled => {
-                if let Err(error) = self
-                    .report
-                    .tool_journal_mut()
-                    .mark_indeterminate(
-                        &call_id,
-                        execution_attempt,
-                        IndeterminateReason::CancellationAfterDispatch,
-                    )
-                    .map_err(tool_journal_error)
-                {
-                    return ExecutionProgress::stopped(ExecutionStop::Failed(error));
-                }
-                if effect == ToolEffect::SideEffecting {
-                    return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                        IndeterminateEffect {
-                            call_id,
-                            binding_fingerprint,
-                            reason: "tool execution was cancelled after dispatch".to_string(),
-                        },
-                    ));
-                }
-                return ExecutionProgress::stopped(ExecutionStop::Cancelled);
-            }
-        };
-
-        let result_bytes = match serde_json::to_vec(&result) {
-            Ok(value) => value.len(),
-            Err(error) => {
-                if let Err(logging_error) = self
-                    .report
-                    .tool_journal_mut()
-                    .mark_indeterminate(
-                        &call_id,
-                        execution_attempt,
-                        IndeterminateReason::CheckpointFailure,
-                    )
-                    .map_err(tool_journal_error)
-                {
-                    return ExecutionProgress::stopped(ExecutionStop::Failed(logging_error));
-                }
-                if effect == ToolEffect::SideEffecting {
-                    return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                        IndeterminateEffect {
-                            call_id,
-                            binding_fingerprint,
-                            reason: "tool result could not be checkpointed".to_string(),
-                        },
-                    ));
-                }
-                return ExecutionProgress::stopped(ExecutionStop::Failed(
-                    Error::new(
-                        ErrorKind::Internal,
-                        "tool result could not be serialized for budget accounting",
-                    )
-                    .with_source(error),
-                ));
-            }
-        };
-        if let Err(error) = self
-            .report
-            .budget_mut()
-            .charge_tool_result(result_bytes, &self.budget)
-        {
-            if let Err(logging_error) = self
-                .report
-                .tool_journal_mut()
-                .mark_indeterminate(
-                    &call_id,
-                    execution_attempt,
-                    IndeterminateReason::CheckpointFailure,
-                )
-                .map_err(tool_journal_error)
-            {
-                return ExecutionProgress::stopped(ExecutionStop::Failed(logging_error));
-            }
-            if effect == ToolEffect::SideEffecting {
-                return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                    IndeterminateEffect {
-                        call_id,
-                        binding_fingerprint,
-                        reason: "tool result exceeded checkpoint budget".to_string(),
-                    },
-                ));
-            }
-            return ExecutionProgress::stopped(ExecutionStop::Budget(error));
-        }
-        if let Err(error) = self
-            .report
-            .tool_journal_mut()
-            .complete(&attempt.request, &result)
-            .map_err(tool_journal_error)
-        {
-            if let Err(logging_error) = self
-                .report
-                .tool_journal_mut()
-                .mark_indeterminate(
-                    &call_id,
-                    execution_attempt,
-                    IndeterminateReason::CheckpointFailure,
-                )
-                .map_err(tool_journal_error)
-            {
-                return ExecutionProgress::stopped(ExecutionStop::Failed(logging_error));
-            }
-            if effect == ToolEffect::SideEffecting {
-                return ExecutionProgress::stopped(ExecutionStop::Indeterminate(
-                    IndeterminateEffect {
-                        call_id,
-                        binding_fingerprint,
-                        reason: "tool completion could not be checkpointed".to_string(),
-                    },
-                ));
-            }
-            return ExecutionProgress::stopped(ExecutionStop::Failed(error));
-        }
-
-        let stop =
-            (self.outcome_policy.action(&result.outcome) == ToolOutcomeAction::Stop).then(|| {
-                ExecutionStop::Policy {
-                    call_id: result.call_id.clone(),
-                    outcome: result.outcome.clone(),
-                }
-            });
-        ExecutionProgress {
-            results: vec![IndexedResult { ordinal, result }],
-            stop,
-        }
-    }
-
-    fn settle_model_usage(
-        &mut self,
-        reconciler: CallUsageReconciler,
-        terminal: Option<&Usage>,
-    ) -> Result<(), crate::BudgetError> {
-        let usage = reconciler.settle(terminal);
+    fn settle_model_usage(&mut self, usage: Usage) -> Result<(), crate::BudgetError> {
         self.report.accumulate_usage(&usage);
         self.report.budget_mut().charge_usage(&usage, &self.budget)
     }
@@ -1894,53 +1316,6 @@ impl StepEngine {
         Ok(())
     }
 
-    fn mark_active_indeterminate(
-        &mut self,
-        active: &BTreeMap<usize, (String, crate::tool::ToolExecutionAttempt)>,
-    ) -> Result<(), Error> {
-        for (call_id, attempt) in active.values() {
-            self.report
-                .tool_journal_mut()
-                .mark_indeterminate(
-                    call_id,
-                    *attempt,
-                    IndeterminateReason::DispatchOutcomeUnknown,
-                )
-                .map_err(tool_journal_error)?;
-        }
-        Ok(())
-    }
-
-    fn pre_dispatch_stop(&self) -> Option<ExecutionStop> {
-        if self.cancellation.is_cancelled() {
-            Some(ExecutionStop::Cancelled)
-        } else if Instant::now() >= self.total_deadline {
-            Some(ExecutionStop::TimedOut(RunTimeoutKind::Total))
-        } else {
-            None
-        }
-    }
-
-    fn release_dispatch_approval(
-        &mut self,
-        request: &ToolExecutionRequest,
-        pending: &mut Vec<PendingApprovalCall>,
-    ) {
-        if let Some(position) = pending
-            .iter()
-            .position(|approval| approval.request.call_id() == request.call_id())
-        {
-            pending.remove(position);
-            self.report.budget_mut().release_pending_approval();
-        }
-    }
-
-    fn release_pending_approvals(&mut self, pending: &mut Vec<PendingApprovalCall>) {
-        for _ in pending.drain(..) {
-            self.report.budget_mut().release_pending_approval();
-        }
-    }
-
     fn queue_terminal(&mut self, mut terminal: RunTerminal) {
         if matches!(self.phase, EnginePhase::Terminal) {
             return;
@@ -1966,26 +1341,6 @@ impl StepEngine {
     }
 }
 
-struct StepStream {
-    stream: LanguageStream,
-    provider_deferred: ProviderDeferredStep,
-    usage: CallUsageReconciler,
-    timeout: Arc<StreamTimeoutState>,
-}
-
-#[derive(Default)]
-struct StreamTimeoutState(AtomicU8);
-
-impl StreamTimeoutState {
-    fn record(&self, kind: RunTimeoutKind) {
-        self.0.store(timeout_kind_code(kind), Ordering::Release);
-    }
-
-    fn take(&self) -> Option<RunTimeoutKind> {
-        decode_timeout_kind(self.0.swap(0, Ordering::AcqRel))
-    }
-}
-
 struct PendingToolPhase {
     response: LanguageResponse,
     prepared: Vec<PreparedToolSnapshot>,
@@ -1993,44 +1348,6 @@ struct PendingToolPhase {
     results: Vec<IndexedResult>,
     pending_approvals: Vec<PendingApprovalCall>,
     provider_pending: Vec<crate::snapshot::ProviderStateSnapshot>,
-}
-
-struct ToolAttempt {
-    ordinal: usize,
-    request: ToolExecutionRequest,
-    outcome: ToolAttemptOutcome,
-}
-
-enum ToolAttemptOutcome {
-    Completed(Result<ToolResult, ToolExecutionError>),
-    TimedOut(RunTimeoutKind),
-    Cancelled,
-}
-
-struct ExecutionProgress {
-    results: Vec<IndexedResult>,
-    stop: Option<ExecutionStop>,
-}
-
-impl ExecutionProgress {
-    fn stopped(stop: ExecutionStop) -> Self {
-        Self {
-            results: Vec::new(),
-            stop: Some(stop),
-        }
-    }
-}
-
-enum ExecutionStop {
-    Policy {
-        call_id: String,
-        outcome: ToolOutcome,
-    },
-    Budget(crate::BudgetError),
-    TimedOut(RunTimeoutKind),
-    Cancelled,
-    Indeterminate(IndeterminateEffect),
-    Failed(Error),
 }
 
 enum WaitResult<T> {
@@ -2055,74 +1372,6 @@ where
             WaitResult::TimedOut(timeout_kind)
         }
         output = future => WaitResult::Ready(output),
-    }
-}
-
-async fn await_tool_attempt(
-    request: IndexedAuthorizedCall,
-    cancellation: Cancellation,
-    total_deadline: Instant,
-    tool_timeout: std::time::Duration,
-) -> ToolAttempt {
-    let tool_deadline = checked_deadline(Instant::now(), tool_timeout);
-    let (deadline, kind) = classify_deadline(total_deadline, tool_deadline, RunTimeoutKind::Tool);
-    let IndexedAuthorizedCall { ordinal, call } = request;
-    let frozen_request = call.request().clone();
-    let outcome = match wait_for(call.dispatch(), &cancellation, deadline, kind).await {
-        WaitResult::Ready(result) => ToolAttemptOutcome::Completed(result),
-        WaitResult::TimedOut(kind) => ToolAttemptOutcome::TimedOut(kind),
-        WaitResult::Cancelled => ToolAttemptOutcome::Cancelled,
-    };
-    ToolAttempt {
-        ordinal,
-        request: frozen_request,
-        outcome,
-    }
-}
-
-fn visible_catalog_error(error: VisibleToolCatalogError) -> Error {
-    Error::new(
-        ErrorKind::InvalidInput,
-        "model-visible tool catalog is incompatible with trusted local bindings",
-    )
-    .with_source(error)
-}
-
-fn is_parallel_safe(request: &ToolExecutionRequest) -> bool {
-    request.effect() == ToolEffect::ReadOnly
-        && matches!(request.concurrency(), ToolConcurrency::SafeParallel { .. })
-}
-
-fn binding_key(request: &ToolExecutionRequest) -> String {
-    request.binding_identity().fingerprint.clone()
-}
-
-fn binding_parallel_limit(request: &ToolExecutionRequest) -> usize {
-    match request.concurrency() {
-        ToolConcurrency::Sequential => 1,
-        ToolConcurrency::SafeParallel { max_in_flight } => max_in_flight.get(),
-    }
-}
-
-fn execution_error_outcome(error: ToolExecutionError) -> ToolOutcome {
-    match error {
-        ToolExecutionError::ExecutorFailed {
-            message, retryable, ..
-        } => ToolOutcome::ExecutionFailed {
-            message,
-            retryable,
-            details: None,
-        },
-        ToolExecutionError::InvalidArguments { message, .. } => ToolOutcome::ExecutionFailed {
-            message,
-            retryable: false,
-            details: None,
-        },
-        other => ToolOutcome::ExecutionFailed {
-            message: other.to_string(),
-            retryable: false,
-            details: None,
-        },
     }
 }
 
@@ -2158,8 +1407,12 @@ fn terminal_checkpoint(terminal: &RunTerminal) -> SnapshotTerminal {
     }
 }
 
-fn tool_journal_error(error: crate::tool::ToolJournalError) -> Error {
-    Error::new(ErrorKind::Internal, "tool journal transition failed").with_source(error)
+fn visible_catalog_error(error: VisibleToolCatalogError) -> Error {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "model-visible tool catalog is incompatible with trusted local bindings",
+    )
+    .with_source(error)
 }
 
 fn map_journal_resume_error(
@@ -2198,98 +1451,6 @@ fn budget_start_error(error: crate::BudgetError) -> Error {
     .with_source(error)
 }
 
-fn stream_with_runtime_deadlines(
-    mut stream: LanguageStream,
-    cancellation: Cancellation,
-    total_deadline: Instant,
-    step_deadline: Instant,
-    first_chunk_timeout: std::time::Duration,
-    inter_chunk_timeout: std::time::Duration,
-    timeout: Arc<StreamTimeoutState>,
-) -> LanguageStream {
-    established_stream(cancellation, move |_| {
-        async_stream::stream! {
-            let mut first_event = true;
-            loop {
-                let chunk_kind = if first_event {
-                    RunTimeoutKind::FirstChunk
-                } else {
-                    RunTimeoutKind::InterChunk
-                };
-                let chunk_timeout = if first_event {
-                    first_chunk_timeout
-                } else {
-                    inter_chunk_timeout
-                };
-                let (deadline, kind) = earliest_timeout([
-                    (total_deadline, RunTimeoutKind::Total),
-                    (step_deadline, RunTimeoutKind::ModelStep),
-                    (checked_deadline(Instant::now(), chunk_timeout), chunk_kind),
-                ]);
-                let item = tokio::select! {
-                    biased;
-                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => None,
-                    item = stream.next() => Some(item),
-                };
-                match item {
-                    None => {
-                        timeout.record(kind);
-                        yield Err(runtime_stream_timeout(kind));
-                        break;
-                    }
-                    Some(Some(event)) => {
-                        let terminal = event.terminal().is_some();
-                        if !terminal {
-                            first_event = false;
-                        }
-                        yield Ok(event);
-                        if terminal {
-                            break;
-                        }
-                    }
-                    Some(None) => break,
-                }
-            }
-        }
-    })
-}
-
-fn runtime_stream_timeout(kind: RunTimeoutKind) -> Error {
-    Error::new(
-        ErrorKind::Timeout,
-        match kind {
-            RunTimeoutKind::Total => "tool loop total deadline expired while reading model stream",
-            RunTimeoutKind::ModelStep => {
-                "tool loop model-step deadline expired while reading model stream"
-            }
-            RunTimeoutKind::FirstChunk => "tool loop timed out waiting for the first model event",
-            RunTimeoutKind::InterChunk => "tool loop timed out waiting for the next model event",
-            RunTimeoutKind::Tool => "tool loop tool deadline expired",
-        },
-    )
-}
-
-const fn timeout_kind_code(kind: RunTimeoutKind) -> u8 {
-    match kind {
-        RunTimeoutKind::Total => 1,
-        RunTimeoutKind::ModelStep => 2,
-        RunTimeoutKind::FirstChunk => 3,
-        RunTimeoutKind::InterChunk => 4,
-        RunTimeoutKind::Tool => 5,
-    }
-}
-
-const fn decode_timeout_kind(code: u8) -> Option<RunTimeoutKind> {
-    match code {
-        1 => Some(RunTimeoutKind::Total),
-        2 => Some(RunTimeoutKind::ModelStep),
-        3 => Some(RunTimeoutKind::FirstChunk),
-        4 => Some(RunTimeoutKind::InterChunk),
-        5 => Some(RunTimeoutKind::Tool),
-        _ => None,
-    }
-}
-
 fn checked_deadline(now: Instant, duration: std::time::Duration) -> Instant {
     now.checked_add(duration).unwrap_or(now)
 }
@@ -2304,13 +1465,4 @@ fn classify_deadline(
     } else {
         (local_deadline, local_kind)
     }
-}
-
-fn earliest_timeout<const N: usize>(
-    deadlines: [(Instant, RunTimeoutKind); N],
-) -> (Instant, RunTimeoutKind) {
-    deadlines
-        .into_iter()
-        .min_by_key(|(deadline, _)| *deadline)
-        .unwrap_or((Instant::now(), RunTimeoutKind::Total))
 }

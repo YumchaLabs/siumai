@@ -1038,7 +1038,9 @@ fn decode_hex(value: &[u8]) -> Result<Vec<u8>, Error> {
         return Err(invalid_music_hex());
     }
     value
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let high = decode_hex_digit(pair[0]).ok_or_else(invalid_music_hex)?;
             let low = decode_hex_digit(pair[1]).ok_or_else(invalid_music_hex)?;

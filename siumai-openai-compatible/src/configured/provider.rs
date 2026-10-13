@@ -10,6 +10,9 @@ use siumai_core::{
 };
 use siumai_protocol_openai::chat_completions::is_protected_option_field as is_chat_protected_field;
 use siumai_protocol_openai::responses::is_protected_option_field as is_responses_protected_field;
+use siumai_transport::experimental::provider_author::{
+    ProviderTransportSource, ProviderTransportSourceError,
+};
 use siumai_transport::{
     AuthApplier, EndpointError, ProviderHttpTransportSettings, ProviderTransport, ReplaySafety,
     TransportConfigError,
@@ -277,25 +280,37 @@ impl OpenAiCompatibleProviderBuilder {
         let transport = match self.transport_source {
             CompatibleTransportSource::Credential(credential) => {
                 credential.validate_static()?;
-                build_transport(
-                    &self.profile,
-                    credential.into_auth(),
-                    self.http_transport_settings
-                        .ok_or(OpenAiCompatibleConfigError::MissingTransportSettings)?,
+                let settings = self
+                    .http_transport_settings
+                    .ok_or(OpenAiCompatibleConfigError::MissingTransportSettings)?;
+                resolve_transport_source(
+                    ProviderTransportSource::configured(
+                        ProviderTransport::builder(self.profile.endpoint().clone())
+                            .with_auth(credential.into_auth()),
+                    )
+                    .with_http_transport_settings(settings),
+                    self.profile.endpoint(),
                 )?
             }
-            CompatibleTransportSource::Applied(auth) => build_transport(
-                &self.profile,
-                auth,
-                self.http_transport_settings
-                    .ok_or(OpenAiCompatibleConfigError::MissingTransportSettings)?,
-            )?,
+            CompatibleTransportSource::Applied(auth) => {
+                let settings = self
+                    .http_transport_settings
+                    .ok_or(OpenAiCompatibleConfigError::MissingTransportSettings)?;
+                resolve_transport_source(
+                    ProviderTransportSource::configured(
+                        ProviderTransport::builder(self.profile.endpoint().clone()).with_auth(auth),
+                    )
+                    .with_http_transport_settings(settings),
+                    self.profile.endpoint(),
+                )?
+            }
             CompatibleTransportSource::Prebuilt(transport) => {
-                if self.http_transport_settings.is_some() {
-                    return Err(OpenAiCompatibleConfigError::PrebuiltTransportSettingsConflict);
-                }
-                validate_transport_endpoint(self.profile.endpoint(), &transport)?;
-                transport
+                let source = ProviderTransportSource::prebuilt(transport);
+                let source = match self.http_transport_settings {
+                    Some(settings) => source.with_http_transport_settings(settings),
+                    None => source,
+                };
+                resolve_transport_source(source, self.profile.endpoint())?
             }
         };
         let instance_id = self.instance_id.unwrap_or_default();
@@ -324,28 +339,21 @@ enum CompatibleTransportSource {
     Prebuilt(ProviderTransport),
 }
 
-fn build_transport(
-    profile: &OpenAiCompatibleProfile,
-    auth: Arc<dyn AuthApplier>,
-    settings: ProviderHttpTransportSettings,
-) -> Result<ProviderTransport, TransportConfigError> {
-    ProviderTransport::builder(profile.endpoint().clone())
-        .with_auth(auth)
-        .with_http_transport_settings(settings)
-        .build()
-}
-
-fn validate_transport_endpoint(
+fn resolve_transport_source(
+    source: ProviderTransportSource,
     expected: &siumai_transport::EndpointConfig,
-    transport: &ProviderTransport,
-) -> Result<(), OpenAiCompatibleConfigError> {
-    let actual = transport.endpoint();
-    if expected.expose_base_url() != actual.expose_base_url()
-        || expected.policy() != actual.policy()
-    {
-        return Err(OpenAiCompatibleConfigError::PrebuiltTransportEndpointMismatch);
-    }
-    Ok(())
+) -> Result<ProviderTransport, OpenAiCompatibleConfigError> {
+    source.resolve(expected).map_err(|error| match error {
+        ProviderTransportSourceError::SettingsConflict => {
+            OpenAiCompatibleConfigError::PrebuiltTransportSettingsConflict
+        }
+        ProviderTransportSourceError::EndpointMismatch => {
+            OpenAiCompatibleConfigError::PrebuiltTransportEndpointMismatch
+        }
+        ProviderTransportSourceError::Transport(error) => {
+            OpenAiCompatibleConfigError::Transport(error)
+        }
+    })
 }
 
 pub(crate) struct ProviderRuntime {
@@ -448,15 +456,15 @@ impl CompatibleOptionMerger {
     }
 
     fn validate_options(&self, options: &ProviderOptions) -> Result<(), ProviderOptionError> {
-        validate_option_fields(self.mode, options.value()).map_err(|path| {
-            ProviderOptionError::Rejected {
+        validate_option_fields(self.mode, options.value().keys().map(String::as_str)).map_err(
+            |path| ProviderOptionError::Rejected {
                 path,
                 reason: format!(
                     "field is owned by the canonical {} request",
                     self.mode.as_str()
                 ),
-            }
-        })
+            },
+        )
     }
 }
 
@@ -479,7 +487,8 @@ fn validate_default_options(
             mode,
         ));
     }
-    validate_option_fields(mode, options).map_err(OpenAiCompatibleConfigError::InvalidDefaultOption)
+    validate_option_fields(mode, options.keys().map(String::as_str))
+        .map_err(OpenAiCompatibleConfigError::InvalidDefaultOption)
 }
 
 fn parse_model_id(model: impl Into<String>) -> Result<ModelId, ModelLookupError> {
@@ -509,33 +518,17 @@ fn unavailable_mode(
     }
 }
 
-fn validate_option_fields(
+fn validate_option_fields<'a>(
     mode: OpenAiCompatibleApiMode,
-    options: &impl OptionFields,
+    field_names: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), String> {
-    options
-        .field_names()
+    field_names
+        .into_iter()
         .find(|name| match mode {
             OpenAiCompatibleApiMode::Responses => is_responses_protected_field(name),
             OpenAiCompatibleApiMode::ChatCompletions => is_chat_protected_field(name),
         })
         .map_or(Ok(()), |name| Err(name.to_string()))
-}
-
-trait OptionFields {
-    fn field_names(&self) -> Box<dyn Iterator<Item = &str> + '_>;
-}
-
-impl OptionFields for BTreeMap<String, Value> {
-    fn field_names(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        Box::new(self.keys().map(String::as_str))
-    }
-}
-
-impl OptionFields for serde_json::Map<String, Value> {
-    fn field_names(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        Box::new(self.keys().map(String::as_str))
-    }
 }
 
 #[derive(Debug, Error)]
@@ -596,9 +589,9 @@ mod tests {
         ApiModeId, ApiStability, CallOptions, ContentPart, Error, ErrorKind, LanguageModel,
         LanguageRequest, Message, MessageRole, Model, ModelCatalog, ModelFamily, ModelId,
         ModelLifecycle, ModelOperation, ModelProfile, OfficialSource, PlatformId, ProfileId,
-        ProtocolContractId, ProtocolId, ProviderId, ProviderProfile, ReplayDomain, ReplayDomainId,
-        SupportScope, VerificationDate, VerificationEvidence, VerifiedFidelity,
-        VerifiedSupportClaim,
+        ProtocolContractId, ProtocolId, ProviderId, ProviderOptions, ProviderProfile, ReplayDomain,
+        ReplayDomainId, SupportScope, TypedProviderOptions, VerificationDate, VerificationEvidence,
+        VerifiedFidelity, VerifiedSupportClaim,
     };
     use siumai_protocol_openai::chat_completions::{
         API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, PROTOCOL_ID as CHAT_PROTOCOL_ID,
@@ -828,7 +821,7 @@ mod tests {
             .build()
             .is_err()
         );
-        assert!(
+        assert!(matches!(
             OpenAiCompatibleProvider::builder(
                 profile,
                 OpenAiCompatibleCredential::unauthenticated()
@@ -838,9 +831,33 @@ mod tests {
                 "model",
                 Value::String("rewritten".to_string()),
             )
-            .build()
-            .is_err()
-        );
+            .build(),
+            Err(OpenAiCompatibleConfigError::InvalidDefaultOption(field)) if field == "model"
+        ));
+    }
+
+    #[derive(serde::Serialize)]
+    struct CanonicalChatOption {
+        model: &'static str,
+    }
+
+    impl TypedProviderOptions for CanonicalChatOption {
+        const NAMESPACE: &'static str = "local-test";
+        const MODEL_FAMILY: ModelFamily = ModelFamily::Language;
+        const API_MODE: Option<&'static str> = Some(CHAT_API_MODE_ID);
+    }
+
+    #[test]
+    fn typed_options_cannot_override_canonical_request_fields() {
+        let options = ProviderOptions::typed(&CanonicalChatOption { model: "rewritten" })
+            .expect("test typed options serialize");
+        let merger =
+            CompatibleOptionMerger::new(OpenAiCompatibleApiMode::ChatCompletions, BTreeMap::new());
+
+        assert!(matches!(
+            merger.validate_options(&options),
+            Err(ProviderOptionError::Rejected { path, .. }) if path == "model"
+        ));
     }
 
     #[test]

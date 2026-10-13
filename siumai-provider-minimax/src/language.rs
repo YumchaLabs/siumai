@@ -24,8 +24,8 @@ use siumai_protocol_anthropic::messages::{
     PROTOCOL_ID as MESSAGES_PROTOCOL_ID, TemperatureEncodingRule, ThinkingConfig,
 };
 use siumai_protocol_openai::chat_completions::{
-    API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, DialectError, MaxOutputTokensField,
-    PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
+    API_MODE_ID as CHAT_API_MODE_ID, ChatCompletionsDialect, ChatCompletionsStreamEndPolicy,
+    DialectError, MaxOutputTokensField, PROTOCOL_ID as CHAT_PROTOCOL_ID, WireFieldName,
 };
 use siumai_protocol_openai::responses::{
     API_MODE_ID as RESPONSES_API_MODE_ID, OPENAI_RESPONSES_PROTOCOL, RequestEncodingOptions,
@@ -51,6 +51,7 @@ const MESSAGES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/te
 const CHAT_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/text-chat-openai";
 const RESPONSES_SOURCE: &str = "https://platform.minimax.io/docs/api-reference/responses-create";
 const VERIFIED_ON: &str = "2026-08-06";
+const CHAT_VERIFIED_ON: &str = "2026-09-03";
 const COMPATIBLE_API_VERSION: &str = "2023-06-01";
 
 pub(crate) fn messages_profile(
@@ -97,7 +98,8 @@ pub(crate) fn openai_profile(
         .with_reasoning_input_field(reasoning_content.clone())
         .with_reasoning_output_field(reasoning_content)
         .with_max_output_tokens_field(MaxOutputTokensField::MaxCompletionTokens)
-        .with_stream_usage(true);
+        .with_stream_usage(true)
+        .with_stream_end_policy(ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason);
     let profile = if verified_endpoint {
         verified_openai_profile(provider, endpoint, dialect)?.with_replay_domain(replay_domain)?
     } else {
@@ -167,7 +169,7 @@ fn verified_openai_profile(
         OPENAI_RESPONSES_PROTOCOL,
         RESPONSES_API_MODE_ID,
     )?;
-    let chat_evidence = evidence(CHAT_SOURCE, "minimax-openai-chat-2026-08")?;
+    let chat_evidence = evidence_on(CHAT_SOURCE, CHAT_VERIFIED_ON, "minimax-openai-chat-2026-09")?;
     let responses_evidence = evidence(RESPONSES_SOURCE, "minimax-responses-2026-08")?;
     let mut profiles = Vec::with_capacity(ALL_LANGUAGE.len() * 2);
     for model in ALL_LANGUAGE {
@@ -218,8 +220,16 @@ fn evidence(
     source: &str,
     contract: &str,
 ) -> Result<VerificationEvidence, MinimaxLanguageProfileError> {
+    evidence_on(source, VERIFIED_ON, contract)
+}
+
+fn evidence_on(
+    source: &str,
+    verified_on: &str,
+    contract: &str,
+) -> Result<VerificationEvidence, MinimaxLanguageProfileError> {
     let verified_at = VerificationDate::new(
-        NaiveDate::parse_from_str(VERIFIED_ON, "%Y-%m-%d")
+        NaiveDate::parse_from_str(verified_on, "%Y-%m-%d")
             .map_err(MinimaxLanguageProfileError::VerificationDate)?,
     );
     Ok(VerificationEvidence::new(

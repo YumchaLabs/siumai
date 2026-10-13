@@ -22,6 +22,43 @@ impl MaxOutputTokensField {
     }
 }
 
+/// Explicit wire evidence accepted as the end of a Chat Completions stream.
+///
+/// [`ChatCompletionsDialect::generic`] keeps the OpenAI `[DONE]` requirement.
+/// Provider profiles should enable clean-EOF completion only when current wire
+/// evidence proves that the provider deliberately omits that sentinel.
+///
+/// # Examples
+///
+/// ```
+/// use siumai_protocol_openai::chat_completions::{
+///     ChatCompletionsDialect, ChatCompletionsStreamEndPolicy,
+/// };
+///
+/// let generic = ChatCompletionsDialect::generic();
+/// assert_eq!(
+///     generic.stream_end_policy(),
+///     ChatCompletionsStreamEndPolicy::DoneSentinel,
+/// );
+///
+/// let verified = generic.with_stream_end_policy(
+///     ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason,
+/// );
+/// assert_eq!(
+///     verified.stream_end_policy(),
+///     ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason,
+/// );
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ChatCompletionsStreamEndPolicy {
+    /// Require the OpenAI `[DONE]` SSE data sentinel.
+    #[default]
+    DoneSentinel,
+    /// Also accept clean SSE EOF after a validated `finish_reason` was observed.
+    DoneOrCleanEofAfterFinishReason,
+}
+
 /// Validated non-standard JSON field used by one bounded dialect rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WireFieldName(String);
@@ -48,7 +85,8 @@ impl WireFieldName {
 /// Closed compatibility knobs for one verified or generic profile.
 ///
 /// This value cannot change endpoints, authentication, protected request
-/// fields, response terminal semantics, or retry behavior.
+/// fields, or retry behavior. Stream completion remains limited to the
+/// explicit wire evidence represented by [`ChatCompletionsStreamEndPolicy`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatCompletionsDialect {
     developer_role: bool,
@@ -62,6 +100,7 @@ pub struct ChatCompletionsDialect {
     function_tool_strict: Option<bool>,
     stream_usage: bool,
     stream_choice_usage: bool,
+    stream_end_policy: ChatCompletionsStreamEndPolicy,
 }
 
 impl Default for ChatCompletionsDialect {
@@ -78,6 +117,7 @@ impl Default for ChatCompletionsDialect {
             function_tool_strict: None,
             stream_usage: true,
             stream_choice_usage: false,
+            stream_end_policy: ChatCompletionsStreamEndPolicy::default(),
         }
     }
 }
@@ -160,6 +200,16 @@ impl ChatCompletionsDialect {
         self
     }
 
+    /// Select the explicit wire evidence that completes an established stream.
+    ///
+    /// Keep the default for generic OpenAI-compatible profiles. The clean-EOF
+    /// policy is for evidence-backed provider dialects and still requires a
+    /// complete SSE frame plus a decoded `finish_reason`.
+    pub fn with_stream_end_policy(mut self, policy: ChatCompletionsStreamEndPolicy) -> Self {
+        self.stream_end_policy = policy;
+        self
+    }
+
     pub fn supports_developer_role(&self) -> bool {
         self.developer_role
     }
@@ -213,6 +263,11 @@ impl ChatCompletionsDialect {
 
     pub fn supports_stream_choice_usage(&self) -> bool {
         self.stream_choice_usage
+    }
+
+    /// Return the configured Chat Completions stream-end evidence policy.
+    pub fn stream_end_policy(&self) -> ChatCompletionsStreamEndPolicy {
+        self.stream_end_policy
     }
 
     pub(crate) fn validate_reasoning_configuration(&self) -> Result<(), DialectError> {

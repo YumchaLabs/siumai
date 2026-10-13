@@ -80,6 +80,10 @@ impl StoredRun {
 ///
 /// Leases deliberately do not implement `Clone`. Dropping a live in-memory
 /// lease releases it; expiration remains the fallback for crashed owners.
+/// Custom stores should place an unforgeable, store-private value in the
+/// erased token and validate both its store identity and run identity on every
+/// operation. The public expiration is an observation of the store's fenced
+/// expiry, not an authorization signal that callers may extend themselves.
 pub struct RunLease {
     run_id: RunId,
     expires_at: Instant,
@@ -140,6 +144,10 @@ impl fmt::Debug for RunLease {
 }
 
 /// Boxed future returned by an object-safe [`RunStore`].
+///
+/// The alias keeps `RunStore` object safe while allowing an adapter to perform
+/// asynchronous I/O. A store should complete its lease or CAS validation
+/// inside the returned future before changing durable state.
 pub type RunStoreFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, RunStoreError>> + Send + 'a>>;
 
@@ -152,8 +160,13 @@ pub type RunStoreFuture<'a, T> =
 /// schema and successor validation; stores must not implement a second runtime
 /// state machine.
 pub trait RunStore: Send + Sync {
+    /// Acquire exclusive ownership for `run_id` until the returned expiry.
+    ///
+    /// An implementation must atomically fence an existing owner and reject a
+    /// live conflict; the token returned in [`RunLease`] remains store-private.
     fn acquire<'a>(&'a self, run_id: &'a RunId, ttl: Duration) -> RunStoreFuture<'a, RunLease>;
 
+    /// Load the latest snapshot after validating the lease fence.
     fn load<'a>(&'a self, lease: &'a RunLease) -> RunStoreFuture<'a, Option<StoredRun>>;
 
     /// Atomically replace the expected revision while the lease owns the run.
@@ -168,6 +181,7 @@ pub trait RunStore: Send + Sync {
         snapshot: RunSnapshot,
     ) -> RunStoreFuture<'a, SnapshotRevision>;
 
+    /// Atomically extend the lease and then mirror the new expiry publicly.
     fn renew<'a>(&'a self, lease: &'a mut RunLease, ttl: Duration) -> RunStoreFuture<'a, ()>;
 
     /// Release exclusive ownership after the durable operation reaches a

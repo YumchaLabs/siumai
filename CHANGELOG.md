@@ -15,12 +15,23 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- *(core/runtime/facade/transport)* Deepen private language, model-step, tool-dispatch, and family-call
+  implementation boundaries while preserving the existing public paths, terminal behavior, and
+  checkpoint ownership. The compatibility engines now share transport-owned configured/prebuilt
+  source resolution without introducing a universal builder or middleware layer.
+
 - *(facade/runtime)* [**breaking**] Restored the familiar `Siumai::builder().<provider>().<required inputs>.build()?.<family>(model)?` direct-call journey as a typed provider hub. OpenAI `language` is Responses with explicit `chat_completions`; Gemini `language` is Interactions with explicit `generate_content`. Language inputs accept strings, messages, message lists, and complete requests through `LanguageInput`; complete family responses, typed provider intent, and provider-native APIs remain intact.
 - *(providers)* [**breaking**] All configured providers and compatibility engines now accept
   stateless HTTP limits, retry policy, connect/call/read timeouts, and payload-free observation
   through `with_http_transport_settings(...)`. Provider WebSocket/Realtime sessions and Alibaba
   video downloads retain independent lifecycle-specific controls.
 - *(transport)* Retry observation now reports one correlated structural attempt loop and finishes at buffered response return or stream establishment. Server `Retry-After` advice has a ceiling independent of local backoff. Direct networking still disables environment proxy discovery; trusted CONNECT validates the proxy endpoint/peer and explicitly delegates destination DNS/peer selection without weakening inner TLS, credential audience, replay, deadline, or bounds enforcement.
+
+### Fixed
+
+- *(minimax)* Complete Chat Completions streams at clean EOF only after a validated
+  `finish_reason`, preserving streamed tool identity when MiniMax omits the OpenAI `[DONE]`
+  sentinel.
 
 ### Removed
 

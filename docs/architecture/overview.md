@@ -1,14 +1,15 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-08-19
+- Updated: 2026-09-02
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
   `docs/adr/0015-validation-ownership-and-forward-compatibility.md`,
   `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
   `docs/adr/0018-openai-configured-execution-kernel.md`,
-  `docs/adr/0020-typed-siumai-provider-hub.md` (supersedes ADR-0019)
+  `docs/adr/0020-typed-siumai-provider-hub.md` (supersedes ADR-0019),
+  `docs/adr/0021-provider-transport-source-ownership.md`
 
 ## Product shape
 
@@ -88,7 +89,7 @@ tools, citations, media, and provider-native state stay available, and assistant
 | Layer | Ownership |
 |---|---|
 | `siumai-core` | provider-neutral identities, family traits, requests, responses, usage, errors, options, and canonical stream lifecycle |
-| `siumai-transport` | HTTP/WebSocket execution, endpoint policy, authentication application, redirects, replay safety, retries, deadlines, cancellation, and resource bounds |
+| `siumai-transport` | HTTP/WebSocket execution, endpoint policy, authentication application, redirects, replay safety, retries, deadlines, cancellation, resource bounds, and the experimental provider-author transport source |
 | `siumai-protocol-*` | wire schemas, request/response codecs, SSE or WebSocket state machines, and protocol-owned metadata projection |
 | `siumai-openai-compatible` | one configured generic OpenAI-compatible engine plus a bounded, versioned, stateless OpenAI-family HTTP/SSE execution kernel for provider authors |
 | `siumai-provider-*` | provider construction, credentials, technical endpoints, API modes, typed options, model advisories, provider codecs, and native resources |
@@ -115,6 +116,14 @@ transport, one stateless HTTP settings snapshot, protocol profiles, and provider
 Provider construction is synchronous and model-independent. Branches share a `ProviderTransport`
 only when endpoint, credential audience, auth/signing owner, settings, and network mechanism are
 identical; a difference in any dimension requires a separate transport.
+
+The compatibility engines may receive a `ProviderTransportSource` through the experimental
+`siumai_transport::experimental::provider_author` namespace. During provider construction it
+resolves either a configured builder or a prebuilt transport against the expected typed endpoint
+and policy. That check proves only address-and-policy compatibility; it does not establish the
+complete runtime identity required for sharing. Credentials, credential audience, auth/signing
+ownership, settings, retry declarations, replay scope, and network mechanism remain provider-owned
+decisions, and the source is intentionally absent from the transport root and facade re-exports.
 
 The base `Provider` trait exposes only the canonical `ProviderId`. Platform, protocol, API mode, and
 provider-native replay domain belong to an exact executable `ProviderScope` carried by model
@@ -225,6 +234,10 @@ Generated responses do not become request history through a raw content copy. Us
 structured omissions for response-only content. Runtime records those omissions in each durable
 step and uses the same projection for ordinary tool loops and structured-output repair.
 
+The canonical language boundary is physically decomposed behind the unchanged public paths:
+private `opaque`, `message`, `request`, `output`, and `response` modules own their respective
+semantic regions, while `language::mod` keeps the explicit public re-export list and test seam.
+
 ## Protocol compatibility
 
 Reuse follows this order:
@@ -286,6 +299,12 @@ indeterminate execution transitions; it owns sequence numbers, timestamps, attem
 retry eligibility. A separate provider-deferred ledger owns exact `ProviderScope + correlation_id`
 identity, stable first-observation order, in-place updates, and monotonic resolution. Stream
 observations remain call-local until an authoritative completed terminal commits them.
+
+`StepEngine` retains the phase machine, event queue, report and budget commits, and transition loop.
+Incremental model polling and settlement live behind the private `engine::model_step` boundary;
+tool scheduling and attempt settlement live behind the private `engine::tool_dispatch` boundary.
+Both modules depend on the existing checkpoint port and planner contracts rather than becoming new
+runtime state-machine owners.
 
 Durable snapshot schema version and durable execution ABI are independent contracts. Snapshot v8
 serializes the validated journal and provider-deferred ledger, removes the unused tool

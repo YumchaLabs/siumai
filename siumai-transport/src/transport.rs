@@ -268,6 +268,11 @@ impl ProviderTransport {
         &self.inner.endpoint
     }
 
+    #[cfg(test)]
+    pub(crate) fn shares_runtime(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     pub fn limits(&self) -> &TransportLimits {
         self.inner.http_transport_settings.limits()
     }

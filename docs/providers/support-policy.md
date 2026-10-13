@@ -138,7 +138,7 @@ names the exact execution surface; it is not provider-wide identity.
 | `xai` / xAI | `xai` / `xai-public-api` | Speech | `xai-tts` / `tts` | `native` | `stable` | https://docs.x.ai/developers/model-capabilities/audio/tts | 2026-08-09 |
 | `xai` / xAI | `xai` / `xai-public-api` | Transcription | `xai-stt` / `stt` | `native` | `stable` | https://docs.x.ai/developers/model-capabilities/audio/stt | 2026-08-09 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `anthropic-messages` / `messages` | `verified-compatible` | `stable` | https://platform.minimax.io/docs/api-reference/text-chat-anthropic | 2026-08-06 |
-| `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-08-06 |
+| `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai` / `chat-completions` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-09-03 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Language | `openai.responses` / `responses` | `verified-compatible` | `experimental` | https://platform.minimax.io/docs/api-reference/responses-create | 2026-08-06 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Image | `minimax-image` / `image-generation` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/image-generation-t2i | 2026-08-15 |
 | `minimax` / MiniMax | `minimax` / `minimax-api` | Speech | `minimax-speech` / `speech-http` | `native` | `stable` | https://platform.minimax.io/docs/api-reference/speech-t2a-http | 2026-08-15 |

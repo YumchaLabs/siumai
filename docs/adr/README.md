@@ -37,6 +37,10 @@ superseded by a later accepted decision or current architecture contract.
 - `0020-typed-siumai-provider-hub.md` — The facade restores `Siumai::builder()` as a typed
   configured-provider hub, retains root family modules for generic/Registry code, and preserves
   native capability through concrete provider/model access without a universal client.
+- `0021-provider-transport-source-ownership.md` — Compatibility engines share an experimental,
+  single-use provider-author transport source while credentials, profiles, complete runtime
+  identity, and provider error mapping remain provider-owned; the seam is not a root or facade
+  re-export.
 
 ## Superseded decisions
 

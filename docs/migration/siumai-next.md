@@ -880,6 +880,13 @@ Anthropic-compatible Messages mode.
 Options are mode-specific. Passing typed options for another mode fails closed instead of being
 silently ignored.
 
+MiniMax Chat Completions now accepts a clean SSE EOF after an explicit `finish_reason`, because the
+verified MiniMax wire can omit the OpenAI `[DONE]` sentinel. This is a provider bug fix and requires
+no application migration. Generic OpenAI-compatible profiles still require `[DONE]`; direct users
+of `siumai-protocol-openai` must opt into
+`ChatCompletionsStreamEndPolicy::DoneOrCleanEofAfterFinishReason` only for an evidence-backed
+provider dialect.
+
 ## MiniMax native resources
 
 Provider-specific resources no longer hang from a universal capability client. Acquire them from
