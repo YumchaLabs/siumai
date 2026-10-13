@@ -333,7 +333,7 @@ fn request_build_error(source: RequestBuildError) -> Error {
 #[cfg(test)]
 mod tests {
     use mockito::Matcher;
-    use siumai_core::{SpeechModel as _, SpeechRequest, UsageValue};
+    use siumai_core::{SpeechRequest, UsageValue};
     use siumai_transport::EndpointConfig;
 
     use super::*;
