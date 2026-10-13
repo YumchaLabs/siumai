@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.10...siumai-transport-v0.11.0-beta.11) - 2026-10-13
+
+### Added
+
+- *(mcp)* support trusted HTTP routing
+- *(transport)* add trusted CONNECT routing
+- *(facade)* expose direct transport configuration
+- add one-shot call deadlines and retry caps
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+
+### Fixed
+
+- *(review)* harden facade convergence contracts
+- *(transport)* close route authority review gaps
+- *(mcp)* [**breaking**] bound transport and prevent hidden replay
+
+### Other
+
+- align architecture records after deepening
+- *(transport)* centralize compatible source resolution
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* document unified family calls (U6)
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+- *(transport)* centralize provider HTTP settings
+- *(options)* [**breaking**] narrow raw provider authority
+
 ### Added
 
 - *(transport)* Add the experimental provider-author `ProviderTransportSource` seam for

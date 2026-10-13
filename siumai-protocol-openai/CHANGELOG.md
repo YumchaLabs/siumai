@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.10...siumai-protocol-openai-v0.11.0-beta.11) - 2026-10-13
+
+### Added
+
+- *(facade)* expose direct transport configuration
+- *(providers)* add Gemini multimodal embedding and Cohere transcription
+
+### Fixed
+
+- *(minimax)* complete chat streams without done sentinel
+- *(review)* harden facade convergence contracts
+- *(options)* redact provider body diagnostics
+
+### Other
+
+- *(facade)* teach the typed Siumai hierarchy
+- *(facade)* document unified family calls (U6)
+- close trusted CONNECT milestone
+- close direct transport infrastructure milestone
+
 ### Added
 
 - Added an explicit Chat Completions stream-end policy for evidence-backed provider dialects that
