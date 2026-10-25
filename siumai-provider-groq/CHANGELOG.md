@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-provider-groq-v0.11.0-beta.11...siumai-provider-groq-v0.11.0-beta.12) - 2026-10-25
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
 
-### Fixed
+### Changed
 
-- *(providers)* refresh model advice and preserve stream contracts
+- Add `qwen/qwen3.8-27b` in the preview namespace and update Compound retirement advice. Keep the preview model outside the stable language catalog.
 
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-provider-groq-v0.11.0-beta.10...siumai-provider-groq-v0.11.0-beta.11) - 2026-10-13
 

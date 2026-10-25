@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.11...siumai-mcp-v0.11.0-beta.12) - 2026-10-25
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
 
 ### Fixed
 
-- *(mcp)* order catalog admission and update patched dependencies
+- Atomically order catalog invalidation, discovery publication, and tool admission without holding locks across remote calls. Admitted calls may finish; later stale-catalog admissions are rejected.
+- Update the rmcp integration to 3.7 and retain compatible bounded SSE types.
 
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.10...siumai-mcp-v0.11.0-beta.11) - 2026-10-13
 

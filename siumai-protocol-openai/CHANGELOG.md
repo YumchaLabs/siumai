@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.11...siumai-protocol-openai-v0.11.0-beta.12) - 2026-10-25
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
 
 ### Fixed
 
-- *(providers)* refresh model advice and preserve stream contracts
+- Emit Responses tool-call events exactly once from the final successful response, including valid incomplete outcomes; preserve failed/cancelled terminals and partial text/usage with truncated arguments.
+- Retain incremental Chat Completions refusal events while merging final refusal content, and decode nested cache creation usage.
 
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-protocol-openai-v0.11.0-beta.10...siumai-protocol-openai-v0.11.0-beta.11) - 2026-10-13
 
