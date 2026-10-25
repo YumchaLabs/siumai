@@ -91,6 +91,12 @@ impl ResourceUrl {
     }
 
     fn new(value: &str, policy: EndpointPolicy) -> Result<Self, ResourceUrlError> {
+        if !matches!(
+            &policy,
+            EndpointPolicy::PublicCustom | EndpointPolicy::LocalExplicit(_)
+        ) {
+            return Err(ResourceUrlError::Endpoint);
+        }
         let is_data = value
             .get(.."data:".len())
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"));
@@ -887,6 +893,18 @@ fn raw_headers(headers: &HeaderMap) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trusted_provider_configuration_cannot_become_a_resource_download_policy() {
+        for url in ["http://127.0.0.1/file", "data:text/plain,hello"] {
+            assert_eq!(
+                ResourceUrl::new(url, EndpointPolicy::TrustedCustom).unwrap_err(),
+                ResourceUrlError::Endpoint
+            );
+        }
+        assert!(ResourceUrl::public("http://8.8.8.8/file").is_err());
+        assert!(ResourceUrl::public("https://127.0.0.1/file").is_err());
+    }
 
     #[test]
     fn resource_url_debug_redacts_signed_query_and_data() {

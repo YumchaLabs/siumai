@@ -12,6 +12,41 @@ use siumai::{ErrorKind, LanguageCallError, LanguageCompletionReason, LanguageRes
 
 use siumai::{ImageArtifact, MediaData};
 
+#[cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "deepseek",
+    feature = "minimax",
+    feature = "groq",
+))]
+#[test]
+fn refreshed_model_hints_are_public_without_becoming_an_allowlist() {
+    use siumai::providers::{anthropic, deepseek, google, groq, minimax, openai};
+    let ids = [
+        openai::models::GPT_6_ASTRA,
+        openai::models::GPT_6_1_SOL,
+        openai::models::GPT_6_LUNA,
+        openai::images::GPT_IMAGE_2_5_SUNBURST,
+        anthropic::models::CLAUDE_OPUS_5_5,
+        anthropic::models::CLAUDE_SONNET_5_5,
+        anthropic::models::CLAUDE_FABLE_5_1,
+        anthropic::models::CLAUDE_HAIKU_5_5,
+        google::models::GEMINI_3_8_FLASH,
+        google::models::GEMINI_4_ARGON,
+        google::models::GEMINI_NANO_BANANA_2_1,
+        deepseek::models::DEEPSEEK_FLASH,
+        minimax::models::MINIMAX_M3_1_FLASH,
+        groq::models::preview::QWEN3_8_27B,
+    ];
+    assert!(ids.into_iter().all(|id| ModelId::new(id).is_ok()));
+    assert_eq!(
+        openai::models::classify_model("gpt-6-future"),
+        openai::models::OpenAiModelClass::Unknown
+    );
+    assert!(!groq::models::language::KNOWN.contains(&groq::models::preview::QWEN3_8_27B));
+}
+
 #[cfg(feature = "registry")]
 use siumai::core::ProviderRegistration;
 

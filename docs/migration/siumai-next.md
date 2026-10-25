@@ -221,14 +221,13 @@ model-name capability gate merely to preserve an old call site.
 
 ## Dependency features
 
-The typed facade documented here is unreleased on the repository's `main` branch. The published
-`0.11.0-beta.10` package still exposes the starting surface in the table above. Until a later beta
-is published, select providers explicitly from the Git source and pin a revision for reproducible
-builds:
+The typed facade documented here is available in `0.11.0-beta.11`. The published
+`0.11.0-beta.10` package exposes the starting surface in the table above. Select providers
+explicitly and pin the package version for reproducible builds:
 
 ```toml
 [dependencies]
-siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["minimax"] }
+siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -239,8 +238,32 @@ provider but does not enable Realtime:
 
 ```toml
 [dependencies]
-siumai = { git = "https://github.com/YumchaLabs/siumai.git", default-features = false, features = ["openai-responses-websocket"] }
+siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["openai-responses-websocket"] }
 ```
+
+## Trusted custom provider origins (unreleased)
+
+Trusted self-hosted HTTP services no longer require choosing an IP-range category. Use
+`EndpointConfig::custom(url)` when supplying an endpoint to a provider builder, or
+`OpenAiCompatibleProfile::custom(provider, url, replay_domain, mode)` for a generic OpenAI-compatible
+service. Both explicitly trust the configured origin on any network; HTTP/HTTPS selection comes
+from the URL. Custom profiles remain generic and require the caller's explicit replay identity and
+API mode. The facade also offers `.unauthenticated()` when the service needs no credentials.
+
+This is additive and not available in the published `0.11.0-beta.11` artifact. Existing
+`public_custom`, `local_explicit`, and exact private/link-local/shared-address grants keep their
+behavior and remain appropriate when the host requires destination restrictions. They are not
+silently migrated or weakened. CONNECT routing still requires a public-HTTPS enforcing endpoint
+policy, not `TrustedCustom`.
+
+Do not pass unvalidated tenant/request URLs, tool output, or model output into the new constructor.
+Its hostname may resolve to any address, including metadata services; HTTP sends credentials and
+content in cleartext. This authorization never transfers to provider-returned resource URLs or
+proxy configuration. HTTPS certificate verification, exact audience/target confinement, redirect
+rejection, and transport bounds remain unchanged.
+
+See the [self-hosted endpoint guide](../providers/openai-compatible.md) for complete examples and
+[ADR-0022](../adr/0022-trusted-custom-provider-origins.md) for the decision.
 
 ## Provider HTTP settings, trusted CONNECT routes, call deadlines, and retry caps
 

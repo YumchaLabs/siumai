@@ -66,6 +66,12 @@ impl fmt::Debug for OfficialOrigin {
 pub enum EndpointPolicy {
     /// A provider-owned endpoint bound to the supplied exact production origin.
     Official(OfficialOrigin),
+    /// One HTTP(S) origin explicitly trusted by the host application.
+    ///
+    /// DNS answers may belong to any network, including metadata and link-local ranges.
+    /// This policy is for trusted developer configuration, never unvalidated request,
+    /// tenant, tool, or model output. It does not authorize resource downloads or proxies.
+    TrustedCustom,
     /// A caller-supplied production endpoint. HTTPS and public targets are required.
     PublicCustom,
     /// An explicitly selected local-network scope.
@@ -106,7 +112,7 @@ impl EndpointPolicy {
     pub fn official_origin(&self) -> Option<&OfficialOrigin> {
         match self {
             Self::Official(origin) => Some(origin),
-            Self::PublicCustom | Self::LocalExplicit(_) => None,
+            Self::TrustedCustom | Self::PublicCustom | Self::LocalExplicit(_) => None,
         }
     }
 }
@@ -175,6 +181,22 @@ impl EndpointConfig {
         origin: OfficialOrigin,
     ) -> Result<Self, EndpointError> {
         Self::new(base_url, EndpointPolicy::Official(origin))
+    }
+
+    /// Authorize one custom HTTP(S) origin from trusted application configuration.
+    ///
+    /// Unlike [`Self::public_custom`] and the exact local grants, this path does not
+    /// constrain the endpoint's resolved IP classes. A hostname may resolve to any
+    /// address, including metadata services. The host must validate or restrict any
+    /// tenant-, request-, tool-, or model-controlled endpoint before using this API.
+    ///
+    /// HTTP exposes prompts, responses, and credentials in cleartext; prefer HTTPS.
+    /// HTTPS certificate verification, exact credential audiences, relative targets,
+    /// redirect rejection, and transport limits remain unchanged. This authorization
+    /// is not inherited by provider-returned resource URLs or proxy configuration.
+    /// Construction performs no DNS resolution or network I/O.
+    pub fn custom(base_url: impl AsRef<str>) -> Result<Self, EndpointError> {
+        Self::new(base_url, EndpointPolicy::TrustedCustom)
     }
 
     /// Construct a caller-supplied HTTPS endpoint that resolves publicly.
@@ -270,11 +292,15 @@ impl EndpointConfig {
             path.push('/');
             base.set_path(&path);
         }
+        let base_path = base.path().to_owned();
 
         let mut url = base
             .join(target.as_str().trim_start_matches('/'))
             .map_err(|_| EndpointError::InvalidUrl)?;
         if !self.audience.matches(&url) {
+            return Err(EndpointError::AudienceMismatch);
+        }
+        if !url.path().starts_with(&base_path) {
             return Err(EndpointError::AudienceMismatch);
         }
         if let Some(inherited_query) = inherited_query {
@@ -404,14 +430,9 @@ fn literal_address(url: &Url) -> Result<Option<IpAddr>, EndpointError> {
 }
 
 fn validate_url_shape(url: &Url, policy: &EndpointPolicy) -> Result<(), EndpointError> {
-    match policy {
-        EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if url.scheme() != "https" => {
-            return Err(EndpointError::SchemeNotAllowed);
-        }
-        EndpointPolicy::LocalExplicit(_) if !matches!(url.scheme(), "http" | "https") => {
-            return Err(EndpointError::SchemeNotAllowed);
-        }
-        _ => {}
+    if !matches!(url.scheme(), "http" | "https") || policy.requires_tls() && url.scheme() != "https"
+    {
+        return Err(EndpointError::SchemeNotAllowed);
     }
     if url.host_str().is_none() {
         return Err(EndpointError::MissingHost);
@@ -430,20 +451,17 @@ fn validate_url_shape(url: &Url, policy: &EndpointPolicy) -> Result<(), Endpoint
     let host = original_host.to_ascii_lowercase();
     let local_name =
         host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local");
-    match policy {
-        EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if local_name => {
-            Err(EndpointError::HostNotAllowed)
-        }
-        EndpointPolicy::LocalExplicit(_) if !local_name && host.parse::<IpAddr>().is_err() => {
-            Ok(())
-        }
-        _ => Ok(()),
+    if policy.requires_public_network() && local_name {
+        Err(EndpointError::HostNotAllowed)
+    } else {
+        Ok(())
     }
 }
 
 fn validate_address(address: IpAddr, policy: &EndpointPolicy) -> Result<(), EndpointError> {
     let allowed = match policy {
         EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom => is_public_ip(address),
+        EndpointPolicy::TrustedCustom => true,
         EndpointPolicy::LocalExplicit(grant) => local_grant_allows(address, *grant),
     };
     if allowed {
@@ -568,6 +586,111 @@ mod tests {
         async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>, EndpointError> {
             Ok(self.0.clone())
         }
+    }
+
+    #[test]
+    fn trusted_custom_origin_accepts_http_without_network_classification() {
+        for url in [
+            "http://models.example:8080/v1",
+            "http://8.8.8.8:8080/v1",
+            "http://127.0.0.1:11434/v1",
+            "http://192.168.1.20:8000/v1",
+            "http://100.64.0.42:8000/v1",
+            "http://169.254.169.254/v1",
+            "http://[::1]:11434/v1",
+            "https://models.example/v1",
+        ] {
+            let endpoint = EndpointConfig::custom(url).unwrap();
+            assert_eq!(endpoint.policy(), EndpointPolicy::TrustedCustom);
+            assert!(!endpoint.policy().requires_tls());
+            assert!(!endpoint.policy().requires_public_network());
+            assert!(endpoint.policy().official_origin().is_none());
+        }
+        assert_eq!(
+            EndpointConfig::public_custom("http://models.example/v1").unwrap_err(),
+            EndpointError::SchemeNotAllowed
+        );
+    }
+
+    #[test]
+    fn trusted_custom_origin_preserves_url_and_runtime_identity_checks() {
+        for url in [
+            "ftp://models.example/v1",
+            "ws://models.example/v1",
+            "file:///tmp/model",
+        ] {
+            assert_eq!(
+                EndpointConfig::custom(url).unwrap_err(),
+                EndpointError::SchemeNotAllowed
+            );
+        }
+        assert_eq!(
+            EndpointConfig::custom("http://user:secret@models.example/v1").unwrap_err(),
+            EndpointError::UserInfoNotAllowed
+        );
+        assert_eq!(
+            EndpointConfig::custom("http://models.example/v1#fragment").unwrap_err(),
+            EndpointError::FragmentNotAllowed
+        );
+        assert_eq!(
+            EndpointConfig::custom("http://models.example./v1").unwrap_err(),
+            EndpointError::HostNotAllowed
+        );
+        let custom = EndpointConfig::custom("http://127.0.0.1:11434/v1").unwrap();
+        let restricted = EndpointConfig::local_explicit("http://127.0.0.1:11434/v1").unwrap();
+        assert!(!custom.is_compatible_with(&restricted));
+        let target = custom
+            .request_url(&RequestTarget::new("chat/completions").unwrap())
+            .unwrap();
+        assert_eq!(
+            target.as_str(),
+            "http://127.0.0.1:11434/v1/chat/completions"
+        );
+        assert!(custom.audience().matches(&target));
+        assert_eq!(
+            custom.validate_remote("127.0.0.2:11434".parse().unwrap()),
+            Err(EndpointError::AddressNotAllowed)
+        );
+    }
+
+    #[tokio::test]
+    async fn trusted_custom_dns_authority_is_exact_but_address_classes_are_host_owned() {
+        let endpoint = EndpointConfig::custom("http://models.example:8080/v1").unwrap();
+        let resolver = FixedResolver(vec![
+            "8.8.8.8:8080".parse().unwrap(),
+            "10.0.0.7:8080".parse().unwrap(),
+            "127.0.0.1:8080".parse().unwrap(),
+        ]);
+        assert_eq!(
+            endpoint.validated_addresses(&resolver).await.unwrap().len(),
+            3
+        );
+        assert_eq!(
+            endpoint
+                .resolve_for_connector("models.example", &resolver)
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            endpoint
+                .resolve_for_connector("foreign.example", &resolver)
+                .await
+                .unwrap_err(),
+            EndpointError::HostNotAllowed
+        );
+        assert_eq!(
+            endpoint
+                .validated_addresses(&FixedResolver(Vec::new()))
+                .await
+                .unwrap_err(),
+            EndpointError::NoAddresses
+        );
+        assert_eq!(
+            endpoint.validate_remote("127.0.0.1:8081".parse().unwrap()),
+            Err(EndpointError::AddressNotAllowed)
+        );
     }
 
     #[test]

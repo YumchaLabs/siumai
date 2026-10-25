@@ -1,7 +1,7 @@
 # Transport Contract
 
 - Status: Current repository contract
-- Date: 2026-09-02
+- Date: 2026-10-25
 - Owner: `siumai-transport`
 
 ## Purpose
@@ -141,18 +141,27 @@ Credentials are bound to an exact scheme, normalized host, and effective port.
 Trailing-dot hosts, user information, fragments, absolute request targets,
 backslashes, and path traversal segments are rejected.
 
-`Official` requires an `OfficialOrigin` created from provider-owned static metadata,
-and the configured endpoint must match its exact scheme, normalized host, and
-effective port. Both `Official` and `PublicCustom` require HTTPS and globally
-routable DNS answers. `LocalExplicit` permits HTTP/HTTPS only for one exact
-caller-selected grant: loopback, RFC 1918 or IPv6 unique-local private space,
-link-local space, or RFC 6598 shared address space (`100.64.0.0/10`). The RFC 6598
-grant does not widen any adjacent scope and treats IPv4-mapped IPv6 as the same
-address. Cleartext local transport is an explicit caller trust decision; HTTPS/WSS
-should be preferred whenever the deployment supports it. Every DNS answer is
-filtered in reqwest's actual connector resolver, so a preflight/connection
-rebinding gap cannot bypass policy. Literal IPs are checked at construction, and a
-reported connected peer is checked again after the handshake.
+`EndpointConfig::custom(url)` selects `TrustedCustom` for one developer-authorized HTTP(S)
+origin. It permits any resolved address without requiring the application to classify public,
+loopback, private, link-local, or shared networks. This is a host trust decision, not an SSRF
+defense: it includes metadata addresses. Unvalidated tenant/request configuration and tool/model
+output must not enter this constructor. HTTP exposes content and credentials in cleartext;
+prefer HTTPS. TLS certificate verification is not disabled.
+
+Restrictive policies remain available and retain their existing behavior. `Official` requires an
+`OfficialOrigin` created from provider-owned static metadata and an exact scheme/host/port match.
+Both `Official` and `PublicCustom` require HTTPS and globally routable DNS answers. `LocalExplicit`
+permits HTTP/HTTPS only for one exact caller-selected grant: loopback, RFC 1918 or IPv6 ULA,
+link-local, or RFC 6598 shared address space (`100.64.0.0/10`). Grants do not imply adjacent scopes.
+
+Every policy is applied in reqwest's actual connector resolver, not through a disconnected
+preflight. `TrustedCustom` intentionally imposes no IP-class restriction; the other policies retain
+their connect-time filtering and DNS-rebinding protection. Exact connector hostname, nonempty DNS
+answers, URL-selected ports, literal-IP peer identity, and connected-peer validation remain
+enforced for all policies. The authorization does not transfer to a provider-returned URL.
+
+See [ADR-0022](../adr/0022-trusted-custom-provider-origins.md) for the trust distinction and
+[the self-hosted guide](../providers/openai-compatible.md) for the ordinary application path.
 
 Direct mode resolves and validates the provider endpoint and connected peer locally. Trusted
 CONNECT mode transfers destination DNS resolution and destination peer selection to the trusted
@@ -160,6 +169,11 @@ proxy: Siumai instead resolves and validates the proxy endpoint and its connecte
 logical provider URL, exact credential audience, CONNECT authority, inner TLS hostname and
 certificate verification, redirect policy, replay proof, deadlines, and resource bounds remain
 authoritative inside Siumai.
+
+`TrustedCustom` is not a proxy policy and cannot be used as a CONNECT destination policy, even for
+an HTTPS URL that looks public. Proxy construction accepts only `PublicCustom` or `LocalExplicit`;
+CONNECT destinations require HTTPS and a policy that enforces public addresses. Applications using
+CONNECT must explicitly retain the appropriate restrictive provider endpoint policy.
 
 Proxy and provider authentication are separate phases. Siumai applies an optional bounded
 `ProxyBasicCredential` only while negotiating CONNECT with the proxy audience. Provider
@@ -174,6 +188,11 @@ connection to a validated address, peer verification, TLS/SNI, authentication,
 handshake, message limits, admission permits, I/O deadlines, and drop cancellation.
 It does not expose separate resolve/connect validation steps that callers could
 forget or reorder.
+
+An explicit `WebSocketEndpoint::new(..., EndpointPolicy::TrustedCustom)` applies the same origin
+trust decision only to `ws`/`wss` URLs. HTTP, HTTPS, FTP, and other schemes are rejected before any
+connection. Existing WebSocket constructors and MCP endpoint policies are unchanged, and selecting
+a custom HTTP origin never infers a WebSocket/session endpoint.
 
 ## Attempt Observation
 
@@ -201,6 +220,8 @@ semantic stream termination are outside the HTTP attempt observer.
 `ResourceDownloader` cannot receive an `AuthApplier` or an external `reqwest::Client`.
 It follows redirects manually within a fixed budget, validates each new URL and DNS
 answer, disables proxy/referer/retry behavior, and never copies provider credentials.
+Its URL constructors reject `TrustedCustom`, including for inline data; provider endpoint trust
+cannot become download authority. Public resource URLs still require HTTPS and public addresses.
 Resources authorized through any `LocalExplicit` grant keep redirects on the exact
 original scheme, normalized host, and effective port. Same-origin redirects remain
 available, while a loopback, private, link-local, or RFC 6598 response cannot pivot
@@ -221,6 +242,20 @@ WebSocket/Realtime sessions, media sessions, jobs, or MCP. OpenAI Realtime and R
 retain their dedicated limits and connect/session/I/O/turn timeouts. Alibaba video materialization
 retains dedicated Direct-only download limits and connect/download/read timeouts. These controls
 remain independent because their lifecycle and trust boundary differ from stateless provider HTTP.
+
+## WebSocket Dependency Logging
+
+The experimental WebSocket features use tungstenite 0.30, whose debug/trace records can contain
+handshake headers, credential query parameters, message payloads, and close reasons. Siumai's
+own redacted types cannot sanitize records emitted internally by that dependency. Applications
+using these features must configure their logger to keep the `tungstenite` and
+`tokio_tungstenite` targets at `info` or lower verbosity, including when installing a bridge
+between `log` and `tracing`.
+
+Siumai does not enable `log/max_level_*` or change the global logger: those features affect
+the entire host application and can conflict with the host's selected static logging level.
+This is a known dependency limitation for experimental WebSocket sessions, independent of
+ordinary HTTP/SSE execution and Siumai's payload-free attempt observer.
 
 ## Limits And Cancellation
 

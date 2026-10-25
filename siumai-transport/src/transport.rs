@@ -415,6 +415,7 @@ impl ProviderTransport {
         plan: RequestPlan,
         options: CallOptions,
     ) -> Result<PendingResponse, Error> {
+        let options = options.resolve_deadline().map_err(Error::from)?;
         let controls = CallControls {
             deadline: effective_deadline(
                 options.deadline(),

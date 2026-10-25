@@ -25,7 +25,10 @@ pub struct ProxyEndpoint {
 impl ProxyEndpoint {
     /// Construct a proxy endpoint from an explicit endpoint policy.
     pub fn new(origin: impl AsRef<str>, policy: EndpointPolicy) -> Result<Self, EndpointError> {
-        if matches!(&policy, EndpointPolicy::Official(_)) {
+        if !matches!(
+            &policy,
+            EndpointPolicy::PublicCustom | EndpointPolicy::LocalExplicit(_)
+        ) {
             return Err(EndpointError::ProxyPolicyNotAllowed);
         }
         let endpoint = EndpointConfig::new(origin, policy)?;
@@ -255,7 +258,7 @@ impl HttpTransportRoute {
     ) -> Result<(), TransportConfigError> {
         if matches!(self, Self::TrustedConnect(_))
             && (endpoint.expose_base_url().scheme() != "https"
-                || matches!(endpoint.policy(), EndpointPolicy::LocalExplicit(_)))
+                || !endpoint.policy().requires_public_network())
         {
             return Err(TransportConfigError::ProxyDestinationMustBePublicHttps);
         }
@@ -295,6 +298,27 @@ fn validate_credential_field(field: &'static str, value: &str) -> Result<(), Tra
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trusted_custom_provider_policy_does_not_authorize_proxy_or_connect_routes() {
+        assert_eq!(
+            ProxyEndpoint::new("http://proxy.example", EndpointPolicy::TrustedCustom).unwrap_err(),
+            EndpointError::ProxyPolicyNotAllowed
+        );
+        let route = HttpTransportRoute::trusted_connect(
+            ProxyEndpoint::https("https://proxy.example").unwrap(),
+        );
+        for url in [
+            "http://models.example/v1",
+            "https://models.example/v1",
+            "https://127.0.0.1/v1",
+        ] {
+            assert_eq!(
+                route.validate_for_endpoint(&EndpointConfig::custom(url).unwrap()),
+                Err(TransportConfigError::ProxyDestinationMustBePublicHttps)
+            );
+        }
+    }
 
     #[test]
     fn proxy_origin_is_root_only() {
