@@ -2,7 +2,8 @@
 
 - Provider identity: `minimax`
 - Technical platform: `minimax-api`
-- Evidence verified: 2026-09-03
+- Protocol evidence verified: 2026-09-03
+- Latest model-ID evidence: 2026-10-25
 - Facade feature: `minimax`
 - Owning crate: `siumai-provider-minimax`
 
@@ -34,6 +35,20 @@ Model identifiers are open. The constants under `siumai::providers::minimax::mod
 discovery hints and exact-match policy evidence, not an allowlist. Unknown future IDs remain
 constructible when the selected protocol can encode the request safely; Siumai does not infer
 model-specific controls for unknown IDs.
+
+## Model-ID advisories
+
+`MINIMAX_M3_1_FLASH` names the exact identifier `MiniMax-M3.1-Flash`, released on 2026-10-19 and
+checked against the official Messages, Chat Completions, and Responses documentation on 2026-10-25.
+It is exported from the provider root, the provider's public `models` module, and the facade's
+`siumai::providers::minimax::models` module. All three existing language advisory catalogs include
+it for basic generation and streaming through the existing codecs.
+
+Only the new identifier carries the independent 2026-10-25 model-ID evidence. Existing model rows,
+protocol compatibility claims, and native-resource evidence retain their prior dates. This is a
+discovery refresh, not a claim of complete M3.1 Flash parameter support: it adds no thinking-depth
+values, service-tier support, media capabilities, or request-schema changes. Existing model IDs and
+unknown future IDs remain open caller input.
 
 ## Language API modes
 
@@ -137,6 +152,15 @@ region policy. A custom endpoint accepted by the provider does not turn Siumai i
 control plane.
 
 ## Evidence
+
+The M3.1 Flash model-ID evidence is independent of the protocol evidence below. Its release is
+recorded in the [official model release notes](https://platform.minimax.io/docs/release-notes/models).
+
+| Model-ID slice | Official source | Verified |
+|---|---|---|
+| M3.1 Flash in Messages | https://platform.minimax.io/docs/api-reference/text-chat-anthropic | 2026-10-25 |
+| M3.1 Flash in Chat Completions | https://platform.minimax.io/docs/api-reference/text-chat-openai | 2026-10-25 |
+| M3.1 Flash in Responses | https://platform.minimax.io/docs/api-reference/responses-create | 2026-10-25 |
 
 The language and established resource claims in this document were checked against official
 MiniMax documentation on 2026-08-08. OpenAI-compatible Chat Completions streaming, including clean

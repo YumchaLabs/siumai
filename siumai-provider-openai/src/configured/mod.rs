@@ -53,8 +53,8 @@ async fn wait_for_deadline(deadline: Option<std::time::Instant>) {
 
 pub use annotations::OpenAiContentOptions;
 pub use catalog::{
-    GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
-    classify_model,
+    GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, GPT_6_1_SOL,
+    GPT_6_ASTRA, GPT_6_LUNA, OpenAiModelClass, classify_model,
 };
 pub use credential::{OpenAiCredential, OpenAiCredentialError};
 pub use embedding::{
@@ -63,8 +63,8 @@ pub use embedding::{
 };
 pub use image::{
     CHATGPT_IMAGE_LATEST, DALL_E_2, DALL_E_3, GPT_IMAGE_1, GPT_IMAGE_1_5, GPT_IMAGE_1_MINI,
-    GPT_IMAGE_2, OpenAiImageGenerationQuality, OpenAiImageModel, OpenAiImageOptions,
-    OpenAiImageResponseFormat, OpenAiImageStyle,
+    GPT_IMAGE_2, GPT_IMAGE_2_5_SUNBURST, OpenAiImageGenerationQuality, OpenAiImageModel,
+    OpenAiImageOptions, OpenAiImageResponseFormat, OpenAiImageStyle,
 };
 pub use mode::OpenAiApiMode;
 pub use model::{OpenAiChatCompletionsModel, OpenAiResponsesModel};

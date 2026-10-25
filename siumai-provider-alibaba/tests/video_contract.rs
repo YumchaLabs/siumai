@@ -16,9 +16,7 @@ const CREATE_PATH: &str = "/api/v1/services/aigc/video-generation/video-synthesi
 
 fn provider(server: &MockServer, download_policy: AlibabaVideoDownloadPolicy) -> AlibabaProvider {
     AlibabaProvider::builder(AlibabaCredential::api_key("test-key"))
-        .with_video_endpoint(
-            EndpointConfig::local_explicit(format!("{}/api/v1", server.uri())).unwrap(),
-        )
+        .with_video_endpoint(EndpointConfig::custom(format!("{}/api/v1", server.uri())).unwrap())
         .with_video_download_policy(download_policy)
         .build()
         .unwrap()
@@ -109,7 +107,7 @@ async fn typed_video_job_create_poll_and_materialize_preserve_native_wire_semant
             .with_watermark(false)
             .with_audio(true),
     );
-    let model = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
+    let model = provider(&server, AlibabaVideoDownloadPolicy::default())
         .video(WAN_2_7_I2V)
         .unwrap();
     let created = model.create(request, CallOptions::default()).await.unwrap();
@@ -124,6 +122,23 @@ async fn typed_video_job_create_poll_and_materialize_preserve_native_wire_semant
     let debug = format!("{completed:?}");
     assert!(!debug.contains("token=canary"));
 
+    let error = model
+        .materialize(&completed, CallOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|request| request.url.path() != "/assets/video-task-42.mp4")
+    );
+
+    let model = provider(&server, AlibabaVideoDownloadPolicy::LoopbackExplicit)
+        .video(WAN_2_7_I2V)
+        .unwrap();
     let bytes = model
         .materialize(&completed, CallOptions::default())
         .await

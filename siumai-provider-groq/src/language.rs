@@ -114,11 +114,20 @@ fn verified_profile(
         verified_at,
         ProtocolContractId::new("groq-model-deprecations-2026-08")?,
     );
+    let compound_retirement_evidence = VerificationEvidence::new(
+        OfficialSource::new(DEPRECATIONS_SOURCE)?,
+        VerificationDate::new(
+            NaiveDate::from_ymd_opt(2026, 10, 25)
+                .ok_or(GroqProfileError::InvalidVerificationDate)?,
+        ),
+        ProtocolContractId::new("groq-compound-retirements-2026-10-25")?,
+    );
     let catalog = model_catalog(
         &chat_scope,
         &responses_scope,
         &model_evidence,
         &deprecation_evidence,
+        &compound_retirement_evidence,
     )?;
     let provider_profile = ProviderProfile::verified(
         ProfileId::new(PROVIDER_ID)?,
@@ -164,6 +173,7 @@ fn model_catalog(
     responses_scope: &SupportScope,
     model_evidence: &VerificationEvidence,
     deprecation_evidence: &VerificationEvidence,
+    compound_retirement_evidence: &VerificationEvidence,
 ) -> Result<ModelCatalog, GroqProfileError> {
     let replacement = |model: &str| ModelId::new(model).map(Some);
     let mut entries = Vec::new();
@@ -200,14 +210,14 @@ fn model_catalog(
             model_profile(
                 models::language::COMPOUND,
                 scope,
-                model_evidence,
-                ModelLifecycle::Active,
+                compound_retirement_evidence,
+                ModelLifecycle::Retired { replacement: None },
             )?,
             model_profile(
                 models::language::COMPOUND_MINI,
                 scope,
-                model_evidence,
-                ModelLifecycle::Active,
+                compound_retirement_evidence,
+                ModelLifecycle::Retired { replacement: None },
             )?,
             model_profile(
                 models::language::QWEN3_32B,
@@ -1006,6 +1016,17 @@ mod tests {
             .clone();
         let catalog = profile.provider_profile().catalog().unwrap();
 
+        for scope in [&support_scope, &responses_scope] {
+            for model in [models::language::COMPOUND, models::language::COMPOUND_MINI] {
+                assert_eq!(
+                    catalog
+                        .get(scope, &ModelId::new(model).unwrap())
+                        .unwrap()
+                        .lifecycle(),
+                    &ModelLifecycle::Retired { replacement: None }
+                );
+            }
+        }
         assert!(
             catalog
                 .get(

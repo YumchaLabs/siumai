@@ -7,8 +7,8 @@ pub use siumai_provider_openai::{
 
 pub mod models {
     pub use siumai_provider_openai::{
-        GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, OpenAiModelClass,
-        classify_model,
+        GPT_5_5, GPT_5_5_PRO, GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, GPT_6_1_SOL,
+        GPT_6_ASTRA, GPT_6_LUNA, OpenAiModelClass, classify_model,
     };
 }
 
@@ -40,8 +40,8 @@ pub mod embeddings {
 pub mod images {
     pub use siumai_provider_openai::{
         CHATGPT_IMAGE_LATEST, DALL_E_2, DALL_E_3, GPT_IMAGE_1, GPT_IMAGE_1_5, GPT_IMAGE_1_MINI,
-        GPT_IMAGE_2, OpenAiImageBackground, OpenAiImageGenerationQuality, OpenAiImageModel,
-        OpenAiImageModeration, OpenAiImageOptions, OpenAiImageOutputFormat,
+        GPT_IMAGE_2, GPT_IMAGE_2_5_SUNBURST, OpenAiImageBackground, OpenAiImageGenerationQuality,
+        OpenAiImageModel, OpenAiImageModeration, OpenAiImageOptions, OpenAiImageOutputFormat,
         OpenAiImageResponseFormat, OpenAiImageStyle,
     };
 }

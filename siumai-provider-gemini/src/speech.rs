@@ -21,7 +21,7 @@ use siumai_transport::{
 use crate::http::{response_error, response_request_id};
 use crate::provider::ProviderRuntime;
 
-/// Current Gemini Interactions TTS model hint.
+/// Gemini Interactions TTS preview hint, deprecated as verified on 2026-10-25.
 pub const GEMINI_3_1_FLASH_TTS_PREVIEW: &str = "gemini-3.1-flash-tts-preview";
 /// Older Gemini Flash TTS compatibility hint.
 pub const GEMINI_2_5_FLASH_PREVIEW_TTS: &str = "gemini-2.5-flash-preview-tts";

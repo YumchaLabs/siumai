@@ -125,6 +125,89 @@ fn custom_and_verified_profiles_pass_through_the_typed_stages()
     Ok(())
 }
 
+#[tokio::test]
+async fn custom_http_supports_unauthenticated_generation_and_streaming()
+-> Result<(), Box<dyn std::error::Error>> {
+    use futures::StreamExt;
+    use serde_json::json;
+    use siumai::{LanguageStreamEvent, StreamTerminal};
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_partial_json(
+            json!({"model": "caller-owned-model", "stream": false}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "local-chat",
+            "model": "caller-owned-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "local answer"},
+                "finish_reason": "stop"
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_partial_json(json!({"model": "caller-owned-model", "stream": true})))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            concat!(
+                "data: {\"id\":\"local-stream\",\"model\":\"caller-owned-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"local answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+                "data: [DONE]\n\n"
+            ),
+            "text/event-stream",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let profile = OpenAiCompatibleProfile::custom(
+        ProviderId::new("self-hosted")?,
+        format!("{}/v1", server.uri()),
+        ReplayDomainId::new("self-hosted")?,
+        OpenAiCompatibleApiMode::ChatCompletions,
+    )?;
+    let ai = Siumai::builder()
+        .openai_compatible()
+        .profile(profile)
+        .unauthenticated()
+        .build()?;
+    let client = ai.language("caller-owned-model")?;
+    assert_eq!(client.descriptor().platform(), Some("custom-endpoint"));
+    assert_eq!(
+        client.generate("Hello").await?.output_text().as_deref(),
+        Some("local answer")
+    );
+
+    let events = client.stream("Hello").await?.collect::<Vec<_>>().await;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, LanguageStreamEvent::Terminal(_)))
+            .count(),
+        1
+    );
+    assert!(matches!(
+        events.last(),
+        Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+            if response.output_text().as_deref() == Some("local answer")
+    ));
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.headers.contains_key("authorization"))
+    );
+    server.verify().await;
+    Ok(())
+}
+
 #[test]
 fn compatible_stage_hub_client_and_error_diagnostics_redact_credentials()
 -> Result<(), Box<dyn std::error::Error>> {

@@ -1,7 +1,9 @@
 //! Dated Groq model advisories.
 //!
-//! These constants are completion hints verified against Groq's public model catalog on
-//! 2026-08-05. They are not an allowlist; [`crate::GroqProvider`] accepts future model IDs.
+//! The original catalog baseline was verified on 2026-08-05. Compound retirement and the
+//! Qwen 3.8 preview hint were separately checked on 2026-10-25 against Groq's official
+//! deprecations and model pages. These are not an allowlist; [`crate::GroqProvider`]
+//! accepts future model IDs. See `docs/providers/model-advisories.md` in the repository.
 
 /// Known language model IDs.
 pub mod language {
@@ -10,14 +12,16 @@ pub mod language {
     pub const GPT_OSS_20B: &str = "openai/gpt-oss-20b";
     pub const GPT_OSS_120B: &str = "openai/gpt-oss-120b";
     pub const GPT_OSS_SAFEGUARD_20B: &str = "openai/gpt-oss-safeguard-20b";
+    /// Retired on 2026-09-21; retained for historical discovery.
     pub const COMPOUND: &str = "groq/compound";
+    /// Retired on 2026-09-21; retained for historical discovery.
     pub const COMPOUND_MINI: &str = "groq/compound-mini";
     /// Retired on 2026-07-17; use [`GPT_OSS_120B`] instead.
     pub const QWEN3_32B: &str = "qwen/qwen3-32b";
 
-    pub const ACTIVE: &[&str] = &[GPT_OSS_20B, GPT_OSS_120B, COMPOUND, COMPOUND_MINI];
+    pub const ACTIVE: &[&str] = &[GPT_OSS_20B, GPT_OSS_120B];
     pub const DEPRECATED: &[&str] = &[LLAMA_3_1_8B_INSTANT, LLAMA_3_3_70B_VERSATILE];
-    pub const RETIRED: &[&str] = &[QWEN3_32B];
+    pub const RETIRED: &[&str] = &[QWEN3_32B, COMPOUND, COMPOUND_MINI];
     pub const KNOWN: &[&str] = &[
         LLAMA_3_1_8B_INSTANT,
         LLAMA_3_3_70B_VERSATILE,
@@ -39,6 +43,8 @@ pub mod language {
 
 /// Preview model IDs are completion hints and are intentionally absent from the stable catalog.
 pub mod preview {
+    /// Preview hint verified against Groq's official catalog on 2026-10-25.
+    pub const QWEN3_8_27B: &str = "qwen/qwen3.8-27b";
     pub const QWEN3_6_27B: &str = "qwen/qwen3.6-27b";
     pub const MINIMAX_M2_7: &str = "minimaxai/minimax-m2.7";
 }
@@ -78,6 +84,9 @@ mod tests {
         assert!(transcription::KNOWN.contains(&transcription::WHISPER_LARGE_V3_TURBO));
         assert!(speech::KNOWN.contains(&speech::ORPHEUS_V1_ENGLISH));
         assert!(!language::KNOWN.contains(&preview::QWEN3_6_27B));
+        assert!(!language::KNOWN.contains(&preview::QWEN3_8_27B));
+        assert!(language::RETIRED.contains(&language::COMPOUND));
+        assert!(!language::ACTIVE.contains(&language::COMPOUND));
         assert!(!language::KNOWN.contains(&"future-groq-model"));
     }
 }

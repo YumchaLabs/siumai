@@ -32,7 +32,8 @@ pub use image::GeminiImageModel;
 pub use language::GeminiLanguageModel;
 pub use models::{
     GEMINI_3_1_FLASH_IMAGE, GEMINI_3_1_FLASH_LITE_IMAGE, GEMINI_3_5_FLASH, GEMINI_3_5_FLASH_LITE,
-    GEMINI_3_6_FLASH, GEMINI_3_PRO_IMAGE, current_image_models, current_interactions_models,
+    GEMINI_3_6_FLASH, GEMINI_3_8_FLASH, GEMINI_3_PRO_IMAGE, GEMINI_4_ARGON, GEMINI_NANO_BANANA_2_1,
+    current_image_models, current_interactions_models,
 };
 pub use multimodal_embedding::{
     GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID, GeminiMultimodalEmbeddingModel,

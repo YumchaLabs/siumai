@@ -133,8 +133,10 @@ async fn chat_options_use_alibaba_namespace_and_decode_reasoning_content() {
                 "prompt_tokens": 1,
                 "completion_tokens": 2,
                 "total_tokens": 3,
-                "cache_read_input_tokens": 1,
-                "cache_creation_input_tokens": 2
+                "prompt_tokens_details": {
+                    "cached_tokens": 1,
+                    "cache_creation_input_tokens": 2
+                }
             }
         })))
         .expect(1)

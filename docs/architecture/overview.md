@@ -1,7 +1,7 @@
 # Architecture Overview
 
 - Status: Current repository contract
-- Updated: 2026-09-02
+- Updated: 2026-10-25
 - Related decisions: `docs/adr/0010-provider-plane-and-host-control-plane.md`,
   `docs/adr/0013-provider-identity-and-family-registration.md`,
   `docs/adr/0014-canonical-language-history-and-replay.md`,
@@ -9,7 +9,8 @@
   `docs/adr/0017-runtime-journal-ledger-and-snapshot-ownership.md`,
   `docs/adr/0018-openai-configured-execution-kernel.md`,
   `docs/adr/0020-typed-siumai-provider-hub.md` (supersedes ADR-0019),
-  `docs/adr/0021-provider-transport-source-ownership.md`
+  `docs/adr/0021-provider-transport-source-ownership.md`,
+  `docs/adr/0022-trusted-custom-provider-origins.md`
 
 ## Product shape
 

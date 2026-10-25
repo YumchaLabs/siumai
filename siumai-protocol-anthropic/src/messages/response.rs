@@ -136,7 +136,7 @@ pub(crate) fn decode_content_block(
     match kind {
         "text" => decode_text_block(object),
         "thinking" => {
-            let thinking = required_non_empty_string(object, "thinking")?;
+            let thinking = required_string(object, "thinking")?;
             required_non_empty_string(object, "signature")?;
             Ok(vec![
                 ContentPart::Reasoning {

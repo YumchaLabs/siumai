@@ -375,6 +375,9 @@ fn trusted_connect_route_rejects_unsafe_proxy_shapes_and_credentials() {
     for provider in [
         EndpointConfig::local_explicit("http://127.0.0.1:8080/v1").unwrap(),
         EndpointConfig::local_explicit("https://127.0.0.1:8443/v1").unwrap(),
+        EndpointConfig::custom("http://provider.example.test/v1").unwrap(),
+        EndpointConfig::custom("https://provider.example.test/v1").unwrap(),
+        EndpointConfig::custom("https://127.0.0.1:8443/v1").unwrap(),
     ] {
         assert_eq!(
             ProviderTransport::builder(provider)
@@ -1851,32 +1854,46 @@ async fn local_backoff_deadline_reports_retry_declined_before_timeout() {
 
 #[tokio::test]
 async fn api_redirect_is_returned_without_following_it() {
-    let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let destination_address = destination.local_addr().unwrap();
-    let server = TestServer::spawn(vec![ServerAction::Respond {
-        status: 302,
-        headers: vec![(
-            "Location".to_owned(),
-            format!("http://{destination_address}/stolen"),
-        )],
-        body: Vec::new(),
-    }])
-    .await;
-    let response = transport(server.endpoint(), Arc::new(RecordingObserver::default()))
-        .execute(
-            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
-                .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
-                .unwrap(),
-            CallOptions::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), destination.accept())
+    for trusted_custom in [false, true] {
+        let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination_address = destination.local_addr().unwrap();
+        let server = TestServer::spawn(vec![ServerAction::Respond {
+            status: 302,
+            headers: vec![(
+                "Location".to_owned(),
+                format!("http://{destination_address}/stolen"),
+            )],
+            body: Vec::new(),
+        }])
+        .await;
+        let endpoint = if trusted_custom {
+            EndpointConfig::custom(format!("http://{}/v1", server.address)).unwrap()
+        } else {
+            server.endpoint()
+        };
+        let response = ProviderTransport::builder(endpoint)
+            .with_auth(Arc::new(SecretAuth))
+            .build()
+            .unwrap()
+            .execute(
+                RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap())
+                    .with_replay_safety(ReplaySafety::SemanticallyIdempotent)
+                    .unwrap(),
+                CallOptions::default(),
+            )
             .await
-            .is_err()
-    );
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(
+            server.requests()[0].header("authorization"),
+            Some("Bearer canary-header-secret")
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), destination.accept())
+                .await
+                .is_err()
+        );
+    }
 }
 
 #[derive(Clone)]
@@ -1895,35 +1912,124 @@ impl Resolver for FixedResolver {
 
 #[tokio::test]
 async fn connector_dns_guard_resolves_the_actual_host_and_rechecks_the_peer() {
-    let server = TestServer::spawn(vec![ServerAction::Respond {
-        status: 200,
-        headers: Vec::new(),
-        body: b"ok".to_vec(),
-    }])
-    .await;
+    for trusted_custom in [false, true] {
+        let server = TestServer::spawn(vec![ServerAction::Respond {
+            status: 200,
+            headers: Vec::new(),
+            body: b"ok".to_vec(),
+        }])
+        .await;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let resolver = FixedResolver {
+            address: SocketAddr::new(server.address.ip(), 1),
+            calls: calls.clone(),
+        };
+        let url = format!(
+            "http://models.example.test:{}/v1?base=1",
+            server.address.port()
+        );
+        let endpoint = if trusted_custom {
+            EndpointConfig::custom(&url).unwrap()
+        } else {
+            EndpointConfig::local_explicit(&url).unwrap()
+        };
+        assert_eq!(endpoint.audience().host(), "models.example.test");
+        assert_eq!(endpoint.audience().scheme(), "http");
+        assert_eq!(endpoint.audience().port(), server.address.port());
+        let transport = ProviderTransport::builder(endpoint)
+            .with_resolver(Arc::new(resolver))
+            .with_auth(Arc::new(SecretAuth))
+            .build()
+            .unwrap();
+        assert!(calls.lock().unwrap().is_empty());
+        let response = transport
+            .execute(
+                RequestPlan::new(Method::GET, RequestTarget::new("models?call=2").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.body(), &bytes::Bytes::from_static(b"ok"));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![("models.example.test".to_owned(), 0)]
+        );
+        let requests = server.requests();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .head
+                .starts_with("GET /v1/models?base=1&call=2&key=canary-query-secret HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            requests[0].header("authorization"),
+            Some("Bearer canary-header-secret")
+        );
+        let expected_host = format!("models.example.test:{}", server.address.port());
+        assert_eq!(requests[0].header("host"), Some(expected_host.as_str()));
+    }
+}
+
+#[tokio::test]
+async fn public_provider_and_download_policies_reject_private_dns_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let origin = format!("https://models.example.test:{}", address.port());
+    for endpoint in [
+        EndpointConfig::public_custom(format!("{origin}/v1")).unwrap(),
+        EndpointConfig::official(
+            format!("{origin}/v1"),
+            siumai_transport::OfficialOrigin::new(&origin).unwrap(),
+        )
+        .unwrap(),
+    ] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let provider = ProviderTransport::builder(endpoint)
+            .with_resolver(Arc::new(FixedResolver {
+                address,
+                calls: calls.clone(),
+            }))
+            .build()
+            .unwrap();
+        assert!(calls.lock().unwrap().is_empty());
+        let error = provider
+            .execute(
+                RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![("models.example.test".to_owned(), 0)]
+        );
+    }
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let resolver = FixedResolver {
-        address: server.address,
-        calls: calls.clone(),
-    };
-    let endpoint = EndpointConfig::new(
-        format!("http://model.local:{}/v1", server.address.port()),
-        EndpointPolicy::LocalExplicit(siumai_transport::LocalNetworkGrant::Loopback),
-    )
-    .unwrap();
-    let transport = ProviderTransport::builder(endpoint)
-        .with_resolver(Arc::new(resolver))
+    let downloader = ResourceDownloader::builder()
+        .with_resolver(Arc::new(FixedResolver {
+            address,
+            calls: calls.clone(),
+        }))
         .build()
         .unwrap();
-    let response = transport
-        .execute(
-            RequestPlan::new(Method::GET, RequestTarget::new("models").unwrap()),
-            CallOptions::default(),
+    let error = downloader
+        .download(
+            ResourceUrl::public(format!("{origin}/image.png")).unwrap(),
+            ResourceDownloadOptions::default(),
         )
         .await
-        .unwrap();
-    assert_eq!(response.body(), &bytes::Bytes::from_static(b"ok"));
-    assert_eq!(*calls.lock().unwrap(), vec![("model.local".to_owned(), 0)]);
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Transport);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![("models.example.test".to_owned(), 0)]
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), listener.accept())
+            .await
+            .is_err()
+    );
 }
 
 #[test]

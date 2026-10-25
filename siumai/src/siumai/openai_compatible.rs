@@ -59,6 +59,11 @@ impl OpenAiCompatibleCredentialStage {
         self.credential(OpenAiCompatibleCredential::api_key(api_key))
     }
 
+    /// Explicitly omit authentication for a service that does not require credentials.
+    pub fn unauthenticated(self) -> OpenAiCompatibleProviderStage {
+        self.credential(OpenAiCompatibleCredential::unauthenticated())
+    }
+
     /// Use a complete provider-owned credential and enter the buildable stage.
     pub fn credential(
         self,

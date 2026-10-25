@@ -4,6 +4,26 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+### Added
+
+- *(transport/facade)* add trusted custom HTTP origins for explicitly configured self-hosted and compatible model services, including public HTTP and private-network endpoints ([#33](https://github.com/YumchaLabs/siumai/issues/33), reported by @longzou).
+- *(providers)* refresh dated model advisories for OpenAI, Anthropic, Gemini, DeepSeek, MiniMax, and Groq without turning model hints into runtime allowlists.
+
+### Fixed
+
+- *(protocols)* preserve OpenAI tool-call settlement, refusal streaming, Anthropic signed thinking, Gemini thought signatures and cache usage, Alibaba cache usage, and future Gemini Interactions events across protocol boundaries.
+- *(mcp)* atomically order catalog invalidation, discovery publication, and tool admission without holding locks across network calls, and update the rmcp integration to 3.7.
+- *(transport)* reject ambiguous request targets, enforce configured base paths, and resolve relative deadlines at the transport boundary.
+- *(dependencies)* update the locked HTTP, TLS, async-runtime, certificate-root, and MCP dependency graph to patched releases.
+
+### Changed
+
+- *(transcription)* keep ElevenLabs language identification probability in provider metadata instead of exposing it as generic transcription confidence.
+
+### Known limitations
+
+- *(websocket)* tungstenite 0.30 can log handshake credentials and message contents at debug/trace levels. Applications using the experimental WebSocket features must keep the `tungstenite` and `tokio_tungstenite` logging targets at `info` or lower verbosity. Siumai does not change the application's global logging configuration; see the [transport contract](docs/architecture/transport-contract.md#websocket-dependency-logging).
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.10...v0.11.0-beta.11) - 2026-10-13
 
 ### Added

@@ -144,6 +144,35 @@ impl OpenAiCompatibleProfile {
         .with_replay_domain(ReplayDomain::official(ReplayDomainId::new("official")?))
     }
 
+    /// Configure one generic OpenAI-compatible mode on an explicitly trusted origin.
+    ///
+    /// Accepts HTTP or HTTPS with public, private, or loopback addresses without
+    /// requiring the caller to classify the network. The endpoint always remains
+    /// generic with the `custom-endpoint` platform and a custom replay audience,
+    /// even when its URL names an official provider.
+    ///
+    /// Only use developer-controlled or independently validated configuration;
+    /// never pass an unchecked tenant or user URL. HTTP exposes prompts, responses,
+    /// and credentials in cleartext. This trust does not extend to resource
+    /// downloads or CONNECT proxy routing. Prefer HTTPS whenever possible.
+    pub fn custom(
+        provider: ProviderId,
+        base_url: impl AsRef<str>,
+        replay_domain: ReplayDomainId,
+        mode: OpenAiCompatibleApiMode,
+    ) -> Result<Self, OpenAiCompatibleConfigError> {
+        Self::custom_endpoint(
+            provider,
+            EndpointConfig::custom(base_url)?,
+            ReplayDomain::custom(replay_domain),
+            mode,
+        )
+    }
+
+    /// Configure a generic endpoint that requires HTTPS and public connection targets.
+    ///
+    /// This is a restrictive alternative to [`Self::custom`]. Its public-only
+    /// destination policy remains enforced when a connection resolves DNS.
     pub fn public_custom(
         provider: ProviderId,
         base_url: impl AsRef<str>,
@@ -158,6 +187,11 @@ impl OpenAiCompatibleProfile {
         )
     }
 
+    /// Configure a generic HTTP(S) endpoint with explicit loopback-only authorization.
+    ///
+    /// This does not grant access to LAN, link-local, or public addresses, even when
+    /// a hostname resolves to them. For a LAN service use [`Self::custom_endpoint`]
+    /// with [`EndpointConfig::private_network_explicit`]. Prefer HTTPS when available.
     pub fn local_explicit(
         provider: ProviderId,
         base_url: impl AsRef<str>,
@@ -175,9 +209,11 @@ impl OpenAiCompatibleProfile {
     /// Configure one generic OpenAI-compatible mode on a caller-validated endpoint.
     ///
     /// This is the advanced escape hatch for explicit transport policies such as
-    /// RFC 1918, link-local, or RFC 6598 grants. The endpoint remains generic and
-    /// never inherits a named provider claim. Responses uses the strict OpenAI wire
-    /// baseline until the caller explicitly selects a verified [`ResponsesWireDialect`].
+    /// RFC 1918, link-local, or RFC 6598 grants. For ordinary trusted provider
+    /// configuration, use [`Self::custom`] without selecting a network grant.
+    /// The endpoint remains generic and never inherits a named provider claim.
+    /// Responses uses the strict OpenAI wire baseline until the caller explicitly
+    /// selects a verified [`ResponsesWireDialect`].
     pub fn custom_endpoint(
         provider: ProviderId,
         endpoint: EndpointConfig,

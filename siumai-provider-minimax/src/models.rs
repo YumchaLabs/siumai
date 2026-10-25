@@ -6,9 +6,11 @@
 /// Official source used for the current language-model advisory catalog.
 pub const MODEL_CATALOG_SOURCE: &str =
     "https://platform.minimax.io/docs/api-reference/text-chat-anthropic";
-/// Date on which the advisory catalog was verified.
-pub const MODEL_CATALOG_VERIFIED_ON: &str = "2026-08-06";
+/// Date of the latest model-ID advisory verification, independent of protocol evidence.
+pub const MODEL_CATALOG_VERIFIED_ON: &str = "2026-10-25";
 
+/// MiniMax M3.1 Flash identifier for the existing language API modes.
+pub const MINIMAX_M3_1_FLASH: &str = "MiniMax-M3.1-Flash";
 pub const MINIMAX_M3: &str = "MiniMax-M3";
 pub const MINIMAX_M2_7: &str = "MiniMax-M2.7";
 pub const MINIMAX_M2_7_HIGHSPEED: &str = "MiniMax-M2.7-highspeed";
@@ -19,6 +21,7 @@ pub const MINIMAX_M2_1_HIGHSPEED: &str = "MiniMax-M2.1-highspeed";
 pub const MINIMAX_M2: &str = "MiniMax-M2";
 
 pub const ALL_LANGUAGE: &[&str] = &[
+    MINIMAX_M3_1_FLASH,
     MINIMAX_M3,
     MINIMAX_M2_7,
     MINIMAX_M2_7_HIGHSPEED,

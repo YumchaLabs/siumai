@@ -27,7 +27,13 @@ impl RequestTarget {
         }
         let path = value.split('?').next().unwrap_or_default();
         if value.starts_with("//")
-            || value.contains(['\r', '\n', '#', '\\'])
+            || value.contains('#')
+            || value.contains('\\')
+            || value
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_whitespace())
+            || value.chars().any(|character| character.is_ascii_control())
             || path.split('/').any(is_unsafe_path_segment)
             || reqwest::Url::parse(&value).is_ok()
         {

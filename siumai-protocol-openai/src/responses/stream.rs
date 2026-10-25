@@ -5,9 +5,9 @@ use std::ops::Bound::{Excluded, Unbounded};
 
 use serde_json::{Map, Value};
 use siumai_core::{
-    DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
+    ContentPart, DEFAULT_TOOL_INPUT_BYTE_LIMIT, DecoderLifecycle, Error, ErrorKind, ExecutionOwner,
     LanguageStreamDecoder, LanguageStreamEvent, ModelId, ProviderScope, ResponseDiagnostics,
-    StreamTerminal, ToolCall, UsageUpdate,
+    StreamTerminal, UsageUpdate,
 };
 
 use crate::openai_error::classify_stream_error;
@@ -1074,7 +1074,7 @@ impl ResponsesStreamDecoder {
                 self.finish_reasoning_item(item_id, reasoning, &mut events)?;
             }
             OutputItem::FunctionCall(call) => {
-                self.emit_function_call(item_id, call, &mut events)?;
+                self.sync_function_call(item_id, call, &mut events)?;
             }
             OutputItem::CustomToolCall(call) => {
                 self.validate_custom_tool_call(item_id, call)?;
@@ -1526,7 +1526,7 @@ impl ResponsesStreamDecoder {
         Ok(())
     }
 
-    fn emit_function_call(
+    fn sync_function_call(
         &mut self,
         item_id: &str,
         call: &super::wire::FunctionCallItemWire,
@@ -1569,23 +1569,6 @@ impl ResponsesStreamDecoder {
         }
         assembly.input.clone_from(&call.arguments);
         assembly.done = true;
-        let arguments = serde_json::from_str(&call.arguments).map_err(|source| {
-            Error::new(
-                ErrorKind::Protocol,
-                "OpenAI function call ended with incomplete JSON arguments",
-            )
-            .with_source(source)
-        })?;
-        let call = ToolCall::local(call.call_id.clone(), call.name.clone(), arguments).map_err(
-            |source| {
-                Error::new(
-                    ErrorKind::Protocol,
-                    "OpenAI function call violated the canonical tool contract",
-                )
-                .with_source(source)
-            },
-        )?;
-        events.push(LanguageStreamEvent::ToolCall(call));
         Ok(())
     }
 
@@ -1887,6 +1870,12 @@ impl ResponsesStreamDecoder {
         let terminal = match &projected.status {
             ResponseStatus::Completed | ResponseStatus::Incomplete => {
                 let response = portable.map_err(|error| error.into_error())?;
+                events.extend(response.content().iter().filter_map(|part| match part {
+                    ContentPart::ToolCall(call) => {
+                        Some(LanguageStreamEvent::ToolCall(call.clone()))
+                    }
+                    _ => None,
+                }));
                 StreamTerminal::Completed {
                     response: Box::new(response),
                 }
@@ -2361,7 +2350,7 @@ impl ResponsesStreamDecoder {
             OutputItem::Reasoning(reasoning) => {
                 self.finish_reasoning_item(&item_id, reasoning, events)?;
             }
-            OutputItem::FunctionCall(call) => self.emit_function_call(&item_id, call, events)?,
+            OutputItem::FunctionCall(call) => self.sync_function_call(&item_id, call, events)?,
             _ => unreachable!("complete_portable_item only accepts portable items"),
         }
         Ok(())
@@ -2897,6 +2886,9 @@ fn tool_callers_semantically_equal(
 fn function_arguments_equal(streamed: &str, terminal: &str) -> Result<bool, Error> {
     ensure_tool_input_limit(streamed)?;
     ensure_tool_input_limit(terminal)?;
+    if streamed == terminal {
+        return Ok(true);
+    }
     let streamed = serde_json::from_str::<Value>(streamed).map_err(|source| {
         Error::new(
             ErrorKind::Protocol,

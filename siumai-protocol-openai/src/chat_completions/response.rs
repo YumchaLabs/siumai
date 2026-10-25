@@ -285,7 +285,11 @@ pub(crate) fn decode_usage(
         .and_then(|field| wire.extra.get(field))
         .and_then(Value::as_u64);
     usage.cache_read_tokens = usage_value(standard_cache_read.or(dialect_cache_read));
-    let standard_cache_write = prompt_details.and_then(|details| details.cache_write_tokens);
+    let standard_cache_write = prompt_details.and_then(|details| {
+        details
+            .cache_write_tokens
+            .or(details.cache_creation_input_tokens)
+    });
     let dialect_cache_write = dialect
         .cache_write_tokens_field()
         .and_then(|field| wire.extra.get(field))

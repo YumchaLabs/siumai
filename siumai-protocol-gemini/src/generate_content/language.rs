@@ -1030,10 +1030,7 @@ fn compatible_text_part(part: &Value) -> bool {
 }
 
 fn compatible_text_signatures(left: &Value, right: &Value) -> bool {
-    match (left.get("thoughtSignature"), right.get("thoughtSignature")) {
-        (Some(left), Some(right)) => left == right,
-        _ => true,
-    }
+    left.get("thoughtSignature").is_none() && right.get("thoughtSignature").is_none()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1295,7 +1292,9 @@ pub(crate) fn decode_usage(wire: Option<UsageMetadataWire>) -> Result<Usage, Err
 
     let audio_input = sum_modality(wire.prompt_tokens_details.as_deref(), "AUDIO")?;
     let audio_output = sum_modality(wire.candidates_tokens_details.as_deref(), "AUDIO")?;
-    let cached = sum_all_modalities(wire.cache_tokens_details.as_deref())?;
+    let cached = wire
+        .cached_content_token_count
+        .or(sum_all_modalities(wire.cache_tokens_details.as_deref())?);
     let mut usage = Usage::default()
         .with_input_tokens(wire.prompt_token_count)
         .with_output_tokens(wire.candidates_token_count)
@@ -1599,6 +1598,8 @@ pub(crate) struct UsageMetadataWire {
     #[serde(default)]
     pub(crate) tool_use_prompt_token_count: Option<u64>,
     #[serde(default)]
+    pub(crate) cached_content_token_count: Option<u64>,
+    #[serde(default)]
     pub(crate) prompt_tokens_details: Option<Vec<ModalityTokenCountWire>>,
     #[serde(default)]
     pub(crate) candidates_tokens_details: Option<Vec<ModalityTokenCountWire>>,
@@ -1715,13 +1716,18 @@ mod tests {
             "usageMetadata": {
                 "promptTokenCount": 4,
                 "candidatesTokenCount": 2,
-                "totalTokenCount": 6
+                "totalTokenCount": 6,
+                "cachedContentTokenCount": 3
             }
         }))
         .unwrap();
 
         let decoded = decode_language_response(&body, &scope(), &model).unwrap();
         let response = decoded.portable().unwrap();
+        assert_eq!(
+            response.usage().cache_read_tokens,
+            siumai_core::UsageValue::Known(3)
+        );
         let call = response
             .content()
             .iter()
@@ -1760,6 +1766,20 @@ mod tests {
                 .get("id")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn signed_gemini_parts_are_never_merged_with_adjacent_parts() {
+        let parts = normalize_response_parts(vec![
+            json!({"text": "signed", "thoughtSignature": "sig-1"}),
+            json!({"text": "unsigned"}),
+            json!({"text": "signed-2", "thoughtSignature": "sig-2"}),
+        ])
+        .unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0]["thoughtSignature"], "sig-1");
+        assert_eq!(parts[1]["text"], "unsigned");
+        assert_eq!(parts[2]["thoughtSignature"], "sig-2");
     }
 
     #[test]

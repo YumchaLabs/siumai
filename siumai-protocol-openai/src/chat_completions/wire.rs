@@ -60,6 +60,7 @@ pub(crate) struct UsageWire {
 pub(crate) struct PromptTokenDetailsWire {
     pub cached_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
     pub audio_tokens: Option<u64>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,

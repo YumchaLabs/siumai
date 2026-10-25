@@ -1673,10 +1673,12 @@ pub enum OpenAiConfigError {
 mod tests {
     use serde_json::json;
     use siumai_core::{
-        ApiStability, EmbeddingModel, EmbeddingRequest, ImageModel, ImageRequest, LanguageModel,
-        Model, ModelLifecycle, SpeechModel, SpeechRequest, TranscriptionModel,
-        TranscriptionRequest,
+        ApiStability, ContentPart, EmbeddingModel, EmbeddingRequest, ImageModel, ImageRequest,
+        LanguageModel, LanguageRequest, Message, Model, ModelLifecycle, SpeechModel, SpeechRequest,
+        TranscriptionModel, TranscriptionRequest,
     };
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
     use crate::configured::{
@@ -1931,9 +1933,31 @@ mod tests {
         assert!(provider.registration().image_model(retired).is_ok());
     }
 
-    #[test]
-    fn custom_endpoint_uses_generic_profile_and_open_model_construction() {
-        let provider = provider();
+    #[tokio::test]
+    async fn custom_endpoint_uses_generic_profile_and_open_model_construction() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(header("authorization", "Bearer test-api-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chat-custom",
+                "model": "future-openai-model",
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "custom endpoint"},
+                    "finish_reason": "stop"
+                }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let provider = OpenAiProvider::builder(OpenAiCredential::api_key("test-api-key"))
+            .with_endpoint(EndpointConfig::custom(format!("{}/v1", server.uri())).unwrap())
+            .with_replay_domain(ReplayDomain::custom(
+                ReplayDomainId::new("test-relay").unwrap(),
+            ))
+            .build()
+            .unwrap();
         let profile = provider.profile().provider_profile();
 
         assert!(profile.verified_claims().is_none());
@@ -1945,6 +1969,21 @@ mod tests {
                 .is_ok()
         );
         assert!(provider.support_manifest().native_claims().is_empty());
+
+        let response = provider
+            .chat_completions("future-openai-model")
+            .unwrap()
+            .generate(
+                LanguageRequest::new(vec![Message::user("hello")]),
+                CallOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            response.content().iter().any(
+                |part| matches!(part, ContentPart::Text { text } if text == "custom endpoint")
+            )
+        );
     }
 
     #[test]

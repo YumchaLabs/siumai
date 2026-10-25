@@ -32,7 +32,7 @@ pub enum EndpointError {
     OfficialOriginMismatch,
     #[error("proxy endpoint must contain only its origin")]
     ProxyOriginMustBeRoot,
-    #[error("official provider endpoint policy cannot be used for a proxy")]
+    #[error("endpoint policy cannot be used for a proxy")]
     ProxyPolicyNotAllowed,
 }
 

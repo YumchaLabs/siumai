@@ -28,6 +28,9 @@ pub const GPT_IMAGE_1: &str = "gpt-image-1";
 pub const GPT_IMAGE_1_MINI: &str = "gpt-image-1-mini";
 pub const GPT_IMAGE_1_5: &str = "gpt-image-1.5";
 pub const GPT_IMAGE_2: &str = "gpt-image-2";
+/// Official replacement hint for GPT Image 1, verified on 2026-10-25.
+/// This ID does not imply support for every GPT Image 2.5 option.
+pub const GPT_IMAGE_2_5_SUNBURST: &str = "gpt-image-2.5-sunburst";
 pub const CHATGPT_IMAGE_LATEST: &str = "chatgpt-image-latest";
 pub const DALL_E_2: &str = "dall-e-2";
 pub const DALL_E_3: &str = "dall-e-3";

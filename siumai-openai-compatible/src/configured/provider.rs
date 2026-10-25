@@ -781,6 +781,93 @@ mod tests {
     }
 
     #[test]
+    fn custom_profiles_build_network_free_with_generic_identity() {
+        let cases = [
+            (
+                "http://relay.example/v1",
+                OpenAiCompatibleApiMode::ChatCompletions,
+            ),
+            (
+                "http://8.8.8.8/v1",
+                OpenAiCompatibleApiMode::ChatCompletions,
+            ),
+            (
+                "http://192.168.1.20:8000/v1",
+                OpenAiCompatibleApiMode::ChatCompletions,
+            ),
+            (
+                "http://127.0.0.1:11434/v1",
+                OpenAiCompatibleApiMode::ChatCompletions,
+            ),
+            (
+                "http://[::1]:11434/v1",
+                OpenAiCompatibleApiMode::ChatCompletions,
+            ),
+            (
+                "https://api.openai.com/v1",
+                OpenAiCompatibleApiMode::Responses,
+            ),
+        ];
+
+        for (base_url, mode) in cases {
+            let provider_id = ProviderId::new("caller-relay").unwrap();
+            let replay_domain = ReplayDomainId::new("caller-relay-history").unwrap();
+            let profile = OpenAiCompatibleProfile::custom(
+                provider_id.clone(),
+                base_url,
+                replay_domain.clone(),
+                mode,
+            )
+            .unwrap();
+            assert!(matches!(
+                profile.endpoint().policy(),
+                siumai_transport::EndpointPolicy::TrustedCustom
+            ));
+            let support = profile.provider_profile();
+            assert!(support.verified_claims().is_none());
+            assert_eq!(
+                support.generic_claim().unwrap().stability(),
+                ApiStability::Experimental
+            );
+            let scope = profile.scope(mode).unwrap();
+            assert_eq!(scope.provider_id(), &provider_id);
+            assert_eq!(scope.platform().unwrap().as_str(), "custom-endpoint");
+            assert_eq!(
+                scope.replay_domain(),
+                Some(&ReplayDomain::custom(replay_domain))
+            );
+
+            let provider = OpenAiCompatibleProvider::builder(
+                profile,
+                OpenAiCompatibleCredential::unauthenticated(),
+            )
+            .build()
+            .unwrap();
+            let model = provider.language("future-served-model").unwrap();
+            assert_eq!(model.descriptor().api_mode(), Some(mode.as_str()));
+            assert_eq!(model.descriptor().platform(), Some("custom-endpoint"));
+        }
+    }
+
+    #[test]
+    fn custom_profiles_reject_invalid_scheme_and_userinfo() {
+        for base_url in [
+            "ftp://relay.example/v1",
+            "https://user:password@relay.example/v1",
+        ] {
+            assert!(matches!(
+                OpenAiCompatibleProfile::custom(
+                    ProviderId::new("caller-relay").unwrap(),
+                    base_url,
+                    ReplayDomainId::new("caller-relay-history").unwrap(),
+                    OpenAiCompatibleApiMode::ChatCompletions,
+                ),
+                Err(OpenAiCompatibleConfigError::Endpoint(_))
+            ));
+        }
+    }
+
+    #[test]
     fn custom_endpoint_preserves_explicit_shared_address_policy() {
         let endpoint =
             EndpointConfig::shared_address_space_explicit("http://100.64.0.42:8080").unwrap();

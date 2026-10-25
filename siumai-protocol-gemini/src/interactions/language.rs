@@ -1350,6 +1350,24 @@ mod tests {
             response.usage().input_tokens,
             siumai_core::UsageValue::Known(5)
         );
+
+        let history = response.project_assistant_history().into_message().unwrap();
+        let replay = encode_language_request(
+            &LanguageRequest::new(vec![history, Message::user("continue")]),
+            &model,
+            &scope(),
+            &InteractionLanguageConfig::default(),
+            false,
+        )
+        .unwrap();
+        let thought_steps: Vec<_> = replay["input"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|step| step["type"] == "thought")
+            .collect();
+        assert_eq!(thought_steps.len(), 1);
+        assert_eq!(thought_steps[0]["signature"], "signed");
     }
 
     #[test]

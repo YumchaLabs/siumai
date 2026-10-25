@@ -18,6 +18,8 @@ rules below before relying on it.
 | Provider identity and registration | `adr/0013-provider-identity-and-family-registration.md` | Accepted |
 | Typed Siumai provider hub | `adr/0020-typed-siumai-provider-hub.md` | Accepted; supersedes ADR-0019's rejection of a `Siumai` entry |
 | Provider support claims | `providers/support-policy.md` | Current claim policy |
+| Model advisories | `providers/model-advisories.md` | Dated model-hint and lifecycle refresh, with explicit API-mode limits |
+| Self-hosted HTTP endpoints | `providers/openai-compatible.md` | Trusted custom HTTP(S) origins, restrictive alternatives, and troubleshooting |
 | Gemini provider support | `providers/google.md` | Current dated Gemini Interactions and product-surface evidence |
 | MiniMax support | `providers/minimax.md` | Current dated provider/API-mode and resource evidence |
 | Breaking API migration | `migration/siumai-next.md` | User-facing guide for the next breaking release |

@@ -125,6 +125,21 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  security:
+    name: Dependency Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit locked dependencies
+        run: cargo audit --deny warnings
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest

@@ -1021,11 +1021,12 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
         matches!(done.native().item(), Some(OutputItem::FunctionCall(call))
         if call.call_id == "call_stream")
     );
-    assert!(done.portable_events().iter().any(|event| matches!(
-        event,
-        LanguageStreamEvent::ToolCall(call)
-            if call.id() == "call_stream" && call.arguments() == &json!({"q": "tea"})
-    )));
+    assert!(
+        !done
+            .portable_events()
+            .iter()
+            .any(|event| matches!(event, LanguageStreamEvent::ToolCall(_)))
+    );
     assert!(
         !done
             .portable_events()
@@ -1078,6 +1079,11 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
         LanguageStreamEvent::Usage(update)
             if update.usage().input_tokens == UsageValue::Known(0)
     )));
+    assert!(terminal.iter().any(|event| matches!(
+        event,
+        LanguageStreamEvent::ToolCall(call)
+            if call.id() == "call_stream" && call.arguments() == &json!({"q": "tea"})
+    )));
     assert!(matches!(
         terminal.last(),
         Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
@@ -1087,6 +1093,266 @@ fn stream_waits_for_complete_tool_json_and_emits_one_terminal() {
     assert!(decoder.decode("{}").is_err());
     assert!(decoder.finish().unwrap().is_empty());
     assert!(decoder.finish().is_err());
+}
+
+#[test]
+fn terminal_tool_call_events_match_completed_and_incomplete_responses() {
+    for status in ["completed", "incomplete"] {
+        for stage in ["done", "omitted", "in_progress", "terminal_only"] {
+            let call = json!({
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{\"q\":\"tea\"}"
+            });
+            let mut decoder = match stage {
+                "done" | "omitted" => completed_function_decoder("{\"q\":\"tea\"}"),
+                _ => ResponsesStreamDecoder::new(scope(), model()),
+            };
+            if stage == "in_progress" {
+                let mut added = call.clone();
+                added["status"] = json!("in_progress");
+                added["arguments"] = json!("");
+                let events = decoder
+                    .decode(
+                        &json!({
+                            "type": "response.output_item.added",
+                            "sequence_number": 1,
+                            "output_index": 0,
+                            "item": added
+                        })
+                        .to_string(),
+                    )
+                    .unwrap();
+                assert!(
+                    events
+                        .iter()
+                        .all(|event| !matches!(event, LanguageStreamEvent::ToolCall(_)))
+                );
+            }
+            let output = if stage == "omitted" {
+                json!([])
+            } else {
+                json!([call])
+            };
+            let mut terminal: Value =
+                serde_json::from_str(&completed_function_response(3, output)).unwrap();
+            terminal["type"] = json!(format!("response.{status}"));
+            terminal["response"]["status"] = json!(status);
+            if status == "incomplete" {
+                terminal["response"]["incomplete_details"] = json!({"reason": "max_output_tokens"});
+            }
+
+            let events = decoder.decode(&terminal.to_string()).unwrap();
+            let Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })) =
+                events.last()
+            else {
+                panic!("expected a successful terminal for {status}/{stage}");
+            };
+            let emitted = events
+                .iter()
+                .filter_map(|event| match event {
+                    LanguageStreamEvent::ToolCall(call) => Some(call),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let projected = response
+                .content()
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolCall(call) => Some(call),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(emitted, projected, "{status}/{stage}");
+            assert_eq!(emitted.len(), 1, "{status}/{stage}");
+            assert_eq!(emitted[0].arguments(), &json!({"q": "tea"}));
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.terminal().is_some())
+                    .count(),
+                1
+            );
+            let expected_termination = if status == "completed" {
+                LanguageTermination::Completed(LanguageCompletionReason::ToolCalls)
+            } else {
+                LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
+            };
+            assert_eq!(response.termination(), &expected_termination);
+            assert!(decoder.terminal_seen());
+            assert!(decoder.finish().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn failed_and_cancelled_terminals_keep_late_partial_after_function_item_done() {
+    for status in ["failed", "cancelled"] {
+        for arguments in ["{", "{\"q\":\"tea\"}"] {
+            let added = json!({
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "in_progress",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": ""
+            });
+            let mut done = added.clone();
+            done["status"] = json!(if arguments == "{" {
+                "incomplete"
+            } else {
+                "completed"
+            });
+            done["arguments"] = json!(arguments);
+            let mut decoder = completed_native_item_decoder(added, done.clone());
+            let mut terminal: Value = serde_json::from_str(&completed_function_response(
+                3,
+                json!([
+                    done,
+                    {
+                        "id": "msg_late",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "incomplete",
+                        "content": [{
+                            "type": "output_text",
+                            "text": "saved",
+                            "annotations": []
+                        }]
+                    }
+                ]),
+            ))
+            .unwrap();
+            terminal["type"] = json!(format!("response.{status}"));
+            terminal["response"]["status"] = json!(status);
+            terminal["response"]["usage"] = json!({
+                "input_tokens": 7,
+                "output_tokens": 3,
+                "total_tokens": 10
+            });
+            if status == "failed" {
+                terminal["response"]["error"] =
+                    json!({"code": "server_error", "message": "private detail"});
+            }
+
+            let events = decoder.decode(&terminal.to_string()).unwrap();
+            assert!(
+                events
+                    .iter()
+                    .all(|event| !matches!(event, LanguageStreamEvent::ToolCall(_)))
+            );
+            assert!(events.iter().any(|event| matches!(
+                event,
+                LanguageStreamEvent::Usage(update)
+                    if update.usage().input_tokens == UsageValue::Known(7)
+                        && update.usage().output_tokens == UsageValue::Known(3)
+            )));
+            let partial = match (status, events.last()) {
+                (
+                    "failed",
+                    Some(LanguageStreamEvent::Terminal(StreamTerminal::Failed {
+                        error,
+                        partial: Some(partial),
+                    })),
+                ) => {
+                    assert_eq!(error.kind(), ErrorKind::Unavailable);
+                    partial
+                }
+                (
+                    "cancelled",
+                    Some(LanguageStreamEvent::Terminal(StreamTerminal::Cancelled {
+                        partial: Some(partial),
+                        ..
+                    })),
+                ) => partial,
+                _ => panic!("expected the provider terminal and late partial for {status}"),
+            };
+            assert!(matches!(
+                partial.content(),
+                [PartialLanguageOutputPart::Text { text }] if text == "saved"
+            ));
+            assert_eq!(partial.usage().input_tokens, UsageValue::Known(7));
+            assert_eq!(partial.usage().output_tokens, UsageValue::Known(3));
+            assert_eq!(partial.usage().total_tokens, UsageValue::Known(10));
+            assert!(matches!(
+                decoder.terminal_response().unwrap().output.first(),
+                Some(OutputItem::FunctionCall(call)) if call.arguments == arguments
+            ));
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.terminal().is_some())
+                    .count(),
+                1
+            );
+            assert!(decoder.terminal_seen());
+            assert!(decoder.finish().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn truncated_function_arguments_are_not_promoted_to_terminal_tool_calls() {
+    for status in ["completed", "incomplete"] {
+        let mut decoder = completed_function_decoder("{");
+        let mut terminal: Value = serde_json::from_str(&completed_function_response(
+            3,
+            json!([{
+                "id": "fc_reconcile",
+                "type": "function_call",
+                "status": "incomplete",
+                "call_id": "call_reconcile",
+                "name": "lookup",
+                "arguments": "{"
+            }]),
+        ))
+        .unwrap();
+        terminal["type"] = json!(format!("response.{status}"));
+        terminal["response"]["status"] = json!(status);
+        if status == "completed" {
+            let error = decoder.decode(&terminal.to_string()).unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::Protocol);
+            assert!(!decoder.terminal_seen());
+            assert!(decoder.terminal_response().is_none());
+        } else {
+            terminal["response"]["incomplete_details"] = json!({"reason": "max_output_tokens"});
+            let events = decoder.decode(&terminal.to_string()).unwrap();
+            assert!(
+                events
+                    .iter()
+                    .all(|event| !matches!(event, LanguageStreamEvent::ToolCall(_)))
+            );
+            assert!(matches!(
+                events.last(),
+                Some(LanguageStreamEvent::Terminal(StreamTerminal::Completed { response }))
+                    if response.termination()
+                        == &LanguageTermination::Incomplete(LanguageIncompleteReason::MaxOutputTokens)
+                        && response.content().iter().all(
+                            |part| !matches!(part, ContentPart::ToolCall(_))
+                        )
+            ));
+            assert!(decoder.terminal_seen());
+            assert!(decoder.finish().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn incomplete_terminal_rejects_an_omitted_in_progress_message() {
+    let mut decoder = partial_message_decoder("hel");
+    let mut terminal: Value =
+        serde_json::from_str(&completed_function_response(3, json!([]))).unwrap();
+    terminal["type"] = json!("response.incomplete");
+    terminal["response"]["status"] = json!("incomplete");
+    terminal["response"]["incomplete_details"] = json!({"reason": "max_output_tokens"});
+
+    let error = decoder.decode(&terminal.to_string()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Protocol);
+    assert!(!decoder.terminal_seen());
+    assert!(decoder.terminal_response().is_none());
 }
 
 #[test]
@@ -2981,7 +3247,7 @@ fn completed_function_decoder_with_caller(
             .to_string(),
         )
         .unwrap();
-    decoder
+    let events = decoder
         .decode(
             &json!({
                 "type": "response.output_item.done",
@@ -2992,6 +3258,11 @@ fn completed_function_decoder_with_caller(
             .to_string(),
         )
         .unwrap();
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event, LanguageStreamEvent::ToolCall(_)))
+    );
     decoder
 }
 
@@ -3018,7 +3289,7 @@ fn completed_native_item_decoder(added: Value, done: Value) -> ResponsesStreamDe
             .to_string(),
         )
         .unwrap();
-    decoder
+    let events = decoder
         .decode(
             &json!({
                 "type": "response.output_item.done",
@@ -3029,6 +3300,11 @@ fn completed_native_item_decoder(added: Value, done: Value) -> ResponsesStreamDe
             .to_string(),
         )
         .unwrap();
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event, LanguageStreamEvent::ToolCall(_)))
+    );
     decoder
 }
 

@@ -133,6 +133,11 @@ name = "trusted_connect_route"
 path = "examples/trusted_connect_route.rs"
 required-features = ["openai"]
 
+[[example]]
+name = "self_hosted_http"
+path = "examples/self_hosted_http.rs"
+required-features = ["openai-compatible"]
+
 [dev-dependencies]
 futures.workspace = true
 serde.workspace = true

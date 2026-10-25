@@ -11,7 +11,10 @@ use siumai_core::{
 use thiserror::Error;
 
 use crate::embedding::{GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2, GEMINI_EMBEDDING_API_MODE_ID};
-use crate::models::{current_image_models, current_interactions_models};
+use crate::models::{
+    GEMINI_3_1_FLASH_IMAGE, GEMINI_3_5_FLASH, GEMINI_3_6_FLASH, current_image_models,
+    current_interactions_models,
+};
 use crate::multimodal_embedding::GEMINI_MULTIMODAL_EMBEDDING_API_MODE_ID;
 use crate::speech::{
     GEMINI_2_5_FLASH_PREVIEW_TTS, GEMINI_2_5_PRO_PREVIEW_TTS, GEMINI_3_1_FLASH_TTS_PREVIEW,
@@ -186,23 +189,58 @@ impl GeminiProfile {
             ),
         ];
         let mut models = Vec::new();
+        let model_verified_at = VerificationDate::new(
+            NaiveDate::from_ymd_opt(2026, 10, 25)
+                .ok_or(GeminiProfileError::InvalidVerificationDate)?,
+        );
+        let deprecation_evidence = VerificationEvidence::new(
+            OfficialSource::new("https://ai.google.dev/gemini-api/docs/changelog")?,
+            model_verified_at,
+            ProtocolContractId::new("gemini-model-deprecations-2026-10-25")?,
+        );
+        let speech_deprecation_evidence = VerificationEvidence::new(
+            OfficialSource::new("https://ai.google.dev/gemini-api/docs/deprecations")?,
+            model_verified_at,
+            ProtocolContractId::new("gemini-speech-deprecations-2026-10-25")?,
+        );
+        let language_advisory = |model: &str, baseline: &VerificationEvidence| {
+            if model == GEMINI_3_5_FLASH {
+                (
+                    ModelLifecycle::Deprecated {
+                        replacement: Some(ModelId::new(GEMINI_3_6_FLASH).expect("static model ID")),
+                    },
+                    deprecation_evidence.clone(),
+                )
+            } else {
+                (ModelLifecycle::Active, baseline.clone())
+            }
+        };
         models.extend(current_interactions_models().into_iter().map(|model| {
+            let (lifecycle, evidence) = language_advisory(model, &language_evidence);
             ModelProfile::new(
                 ModelId::new(model).expect("Google model IDs are static"),
                 language_scope.clone(),
                 [ModelOperation::Generate, ModelOperation::Stream],
-                ModelLifecycle::Active,
-                language_evidence.clone(),
+                lifecycle,
+                evidence,
             )
             .expect("Gemini language model profiles declare two operations")
         }));
         models.extend(current_image_models().into_iter().map(|model| {
+            let (lifecycle, evidence) = if model == GEMINI_3_1_FLASH_IMAGE {
+                (
+                    ModelLifecycle::Deprecated { replacement: None },
+                    deprecation_evidence.clone(),
+                )
+            } else {
+                (ModelLifecycle::Active, image_evidence.clone())
+            };
             ModelProfile::new(
                 ModelId::new(model).expect("Google model IDs are static"),
                 image_support_scope.clone(),
                 [ModelOperation::GenerateImage],
-                ModelLifecycle::Active,
-                image_evidence.clone(),
+                lifecycle,
+                evidence,
             )
             .expect("Gemini image model profiles declare one operation")
         }));
@@ -227,19 +265,20 @@ impl GeminiProfile {
                     ModelId::new(model).expect("Google model IDs are static"),
                     speech_support_scope.clone(),
                     [ModelOperation::SynthesizeSpeech],
-                    ModelLifecycle::Active,
-                    speech_evidence.clone(),
+                    ModelLifecycle::Deprecated { replacement: None },
+                    speech_deprecation_evidence.clone(),
                 )
                 .expect("Gemini speech model profiles declare one operation")
             }),
         );
         models.extend(current_interactions_models().into_iter().map(|model| {
+            let (lifecycle, evidence) = language_advisory(model, &generate_content_evidence);
             ModelProfile::new(
                 ModelId::new(model).expect("Google model IDs are static"),
                 generate_content_support_scope.clone(),
                 [ModelOperation::Generate, ModelOperation::Stream],
-                ModelLifecycle::Active,
-                generate_content_evidence.clone(),
+                lifecycle,
+                evidence,
             )
             .expect("Gemini Generate Content model profiles declare two operations")
         }));
@@ -468,4 +507,48 @@ pub enum GeminiProfileError {
     Catalog(#[from] siumai_core::CatalogError),
     #[error("Gemini verification date is invalid")]
     InvalidVerificationDate,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{GEMINI_3_1_FLASH_IMAGE, GEMINI_3_5_FLASH};
+    use siumai_core::ReplayDomainId;
+
+    #[test]
+    fn catalog_preserves_deprecated_models_without_claiming_they_are_active() {
+        let profile = GeminiProfile::current(ReplayDomain::official(
+            ReplayDomainId::new("official").unwrap(),
+        ))
+        .unwrap();
+        let catalog = profile.provider_profile().catalog().unwrap();
+        for model in [
+            crate::GEMINI_3_8_FLASH,
+            crate::GEMINI_4_ARGON,
+            crate::GEMINI_NANO_BANANA_2_1,
+        ] {
+            assert!(!catalog.iter().any(|row| row.model().as_str() == model));
+        }
+        for (model, replacement, expected_rows) in [
+            (GEMINI_3_5_FLASH, Some("gemini-3.6-flash"), 2),
+            (GEMINI_3_1_FLASH_IMAGE, None, 1),
+            (GEMINI_3_1_FLASH_TTS_PREVIEW, None, 1),
+            (GEMINI_2_5_FLASH_PREVIEW_TTS, None, 1),
+            (GEMINI_2_5_PRO_PREVIEW_TTS, None, 1),
+        ] {
+            let rows: Vec<_> = catalog
+                .iter()
+                .filter(|row| row.model().as_str() == model)
+                .collect();
+            assert_eq!(rows.len(), expected_rows);
+            for row in rows {
+                assert_eq!(
+                    row.lifecycle(),
+                    &ModelLifecycle::Deprecated {
+                        replacement: replacement.map(|id| ModelId::new(id).unwrap()),
+                    }
+                );
+            }
+        }
+    }
 }

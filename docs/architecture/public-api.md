@@ -165,7 +165,11 @@ protocol completion. Provider/route/account attribution is supplied by a host-au
 wrapper and never enters transport events.
 
 `HttpTransportRoute::Direct` is the default and remains independent of environment/system proxy
-configuration. A custom endpoint is a reverse-gateway destination, not a forward proxy. Callers
+configuration. `EndpointConfig::custom(url)` authorizes one trusted developer-configured HTTP(S)
+origin without network-category selection. It must not receive unvalidated tenant/request/tool/model
+URLs; its DNS answers may include any address, including metadata ranges. Official and explicitly
+restrictive endpoint constructors keep their existing guarantees. Resource downloads never inherit
+this authorization. A custom endpoint is a reverse-gateway destination, not a forward proxy. Callers
 select one explicit forward proxy with
 `HttpTransportRoute::trusted_connect(ProxyEndpoint)` and apply it through
 `ProviderHttpTransportSettings::with_route(...)`. The destination must be a public HTTPS origin.

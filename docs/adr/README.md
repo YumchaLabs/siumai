@@ -42,6 +42,10 @@ superseded by a later accepted decision or current architecture contract.
   identity, and provider error mapping remain provider-owned; the seam is not a root or facade
   re-export.
 
+- `0022-trusted-custom-provider-origins.md` — Trusted developer-configured provider origins accept
+  HTTP(S) without mandatory network classification; restrictive policies retain their guarantees,
+  and resource downloads, proxies, and MCP do not inherit provider endpoint authorization.
+
 ## Superseded decisions
 
 - `0019-facade-family-call-ownership.md` — Superseded by ADR-0020 only in its rejection of a

@@ -86,14 +86,8 @@ impl WebSocketEndpoint {
 
     pub fn new(url: impl AsRef<str>, policy: EndpointPolicy) -> Result<Self, EndpointError> {
         let url = Url::parse(url.as_ref()).map_err(|_| EndpointError::InvalidUrl)?;
-        match policy {
-            EndpointPolicy::Official(_) | EndpointPolicy::PublicCustom if url.scheme() != "wss" => {
-                return Err(EndpointError::SchemeNotAllowed);
-            }
-            EndpointPolicy::LocalExplicit(_) if !matches!(url.scheme(), "ws" | "wss") => {
-                return Err(EndpointError::SchemeNotAllowed);
-            }
-            _ => {}
+        if !matches!(url.scheme(), "ws" | "wss") || policy.requires_tls() && url.scheme() != "wss" {
+            return Err(EndpointError::SchemeNotAllowed);
         }
         if !url.username().is_empty() || url.password().is_some() {
             return Err(EndpointError::UserInfoNotAllowed);
@@ -804,6 +798,22 @@ mod tests {
     use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
     use super::*;
+
+    #[test]
+    fn trusted_custom_websocket_policy_does_not_accept_non_websocket_schemes() {
+        for url in [
+            "http://models.example/live",
+            "https://models.example/live",
+            "ftp://models.example/live",
+        ] {
+            assert_eq!(
+                WebSocketEndpoint::new(url, EndpointPolicy::TrustedCustom).unwrap_err(),
+                EndpointError::SchemeNotAllowed
+            );
+        }
+        WebSocketEndpoint::new("ws://models.example/live", EndpointPolicy::TrustedCustom).unwrap();
+        WebSocketEndpoint::new("wss://127.0.0.1/live", EndpointPolicy::TrustedCustom).unwrap();
+    }
 
     #[derive(Debug)]
     struct SecretAuth;
