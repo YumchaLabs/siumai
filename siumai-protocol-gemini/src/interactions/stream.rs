@@ -89,9 +89,10 @@ impl InteractionsStreamDecoder {
             "error" => Ok(vec![LanguageStreamEvent::Terminal(
                 self.failure_terminal(self.in_band_error(value)),
             )]),
-            _ => Err(Error::protocol_violation(
-                "Gemini Interactions stream emitted an unknown event type",
-            )),
+            // Interactions is an extensible event stream. Unknown events may
+            // carry provider additions; the terminal event still settles the
+            // portable response.
+            _ => Ok(Vec::new()),
         }
     }
 
@@ -1315,6 +1316,34 @@ mod tests {
             )
         }));
         assert!(matches!(decoder.finish(), Ok(events) if events.is_empty()));
+    }
+
+    #[test]
+    fn unknown_interaction_events_are_skipped_until_terminal() {
+        let mut decoder = decoder();
+        for frame in [
+            json!({
+                "event_type": "interaction.created",
+                "interaction": {
+                    "id": "interaction-unknown",
+                    "status": "in_progress",
+                    "model": "gemini-3.6-flash"
+                }
+            }),
+            json!({"event_type": "future.provider.event", "value": {"x": 1}}),
+            json!({
+                "event_type": "interaction.completed",
+                "interaction": {
+                    "id": "interaction-unknown",
+                    "status": "completed",
+                    "model": "gemini-3.6-flash",
+                    "steps": []
+                }
+            }),
+        ] {
+            decoder.decode(&frame.to_string()).unwrap();
+        }
+        assert!(decoder.terminal_seen());
     }
 
     #[test]

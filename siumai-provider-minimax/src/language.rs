@@ -36,7 +36,7 @@ use siumai_transport::{EndpointConfig, RequestHeaders};
 use thiserror::Error as ThisError;
 
 use crate::MinimaxAnnotationResolver;
-use crate::models::ALL_LANGUAGE;
+use crate::models::{ALL_LANGUAGE, MINIMAX_M3_1_FLASH, MODEL_CATALOG_VERIFIED_ON};
 use crate::options::{MINIMAX_MESSAGES_SERVICE_TIER_OPTION, MinimaxResponsesReasoning};
 
 pub(crate) const PROVIDER_ID: &str = "minimax";
@@ -244,12 +244,21 @@ fn model_profile(
     scope: &SupportScope,
     evidence: &VerificationEvidence,
 ) -> Result<ModelProfile, MinimaxLanguageProfileError> {
+    let evidence = if model == MINIMAX_M3_1_FLASH {
+        evidence_on(
+            evidence.source().as_str(),
+            MODEL_CATALOG_VERIFIED_ON,
+            "minimax-m3.1-flash-model-advisory-2026-10",
+        )?
+    } else {
+        evidence.clone()
+    };
     Ok(ModelProfile::new(
         ModelId::new(model)?,
         scope.clone(),
         [ModelOperation::Generate, ModelOperation::Stream],
         ModelLifecycle::Active,
-        evidence.clone(),
+        evidence,
     )?)
 }
 

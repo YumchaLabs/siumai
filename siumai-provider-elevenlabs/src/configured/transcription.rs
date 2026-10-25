@@ -380,7 +380,9 @@ fn decode_response(
     let response = TranscriptionResponse {
         text: wire.text,
         language: wire.language_code,
-        confidence: wire.language_probability,
+        // ElevenLabs reports the probability of the detected language, not the
+        // confidence of the transcription itself.
+        confidence: None,
         duration_seconds: duration,
         segments,
         metadata: ResponseMetadata {
@@ -537,6 +539,8 @@ mod tests {
 
         assert_eq!(response.text, "hello world");
         assert_eq!(response.language.as_deref(), Some("en"));
+        assert!(response.confidence.is_none());
+        assert_eq!(response.provider["language_probability"], 0.98);
         assert_eq!(response.duration_seconds, Some(1.0));
         assert_eq!(response.segments.len(), 2);
         assert_eq!(response.metadata.request_id.as_deref(), Some("request-1"));

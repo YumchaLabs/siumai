@@ -15,9 +15,10 @@ use siumai_transport::EndpointConfig;
 use thiserror::Error;
 
 use crate::models::{
-    CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_HAIKU_4_5_20251001, CLAUDE_MYTHOS_5,
-    CLAUDE_MYTHOS_PREVIEW, CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7,
-    CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5,
+    CLAUDE_FABLE_5, CLAUDE_FABLE_5_1, CLAUDE_HAIKU_4_5, CLAUDE_HAIKU_4_5_20251001,
+    CLAUDE_HAIKU_5_5, CLAUDE_MYTHOS_5, CLAUDE_MYTHOS_PREVIEW, CLAUDE_OPUS_4_1_20250805,
+    CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_OPUS_5_5,
+    CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, CLAUDE_SONNET_5_5,
 };
 use crate::request_policy::AnthropicRequestPolicy;
 
@@ -29,6 +30,8 @@ pub(crate) const OFFICIAL_ORIGIN: &str = "https://api.anthropic.com";
 pub(crate) const API_VERSION: &str = "2023-06-01";
 
 const MESSAGES_SOURCE: &str = "https://platform.claude.com/docs/en/api/messages";
+const CURRENT_MODELS_SOURCE: &str = "https://platform.claude.com/docs/en/models/overview";
+const CURRENT_MODELS_VERIFIED_ON: &str = "2026-10-25";
 const MODELS_SOURCE: &str = "https://platform.claude.com/docs/en/about-claude/models/overview";
 const DEPRECATIONS_SOURCE: &str =
     "https://platform.claude.com/docs/en/about-claude/model-deprecations";
@@ -91,12 +94,44 @@ fn verified_profile(
         verified_at,
         ProtocolContractId::new("anthropic-model-catalog-2026-08")?,
     );
+    let current_model_evidence = VerificationEvidence::new(
+        OfficialSource::new(CURRENT_MODELS_SOURCE)?,
+        VerificationDate::new(
+            NaiveDate::parse_from_str(CURRENT_MODELS_VERIFIED_ON, "%Y-%m-%d")
+                .map_err(AnthropicProfileError::VerificationDate)?,
+        ),
+        ProtocolContractId::new("anthropic-model-catalog-2026-10")?,
+    );
     let retirement_evidence = VerificationEvidence::new(
         OfficialSource::new(DEPRECATIONS_SOURCE)?,
         verified_at,
         ProtocolContractId::new("anthropic-model-retirements-2026-08")?,
     );
     let catalog = ModelCatalog::new([
+        model_profile(
+            CLAUDE_OPUS_5_5,
+            &scope,
+            ModelLifecycle::Active,
+            &current_model_evidence,
+        )?,
+        model_profile(
+            CLAUDE_SONNET_5_5,
+            &scope,
+            ModelLifecycle::Active,
+            &current_model_evidence,
+        )?,
+        model_profile(
+            CLAUDE_FABLE_5_1,
+            &scope,
+            ModelLifecycle::Active,
+            &current_model_evidence,
+        )?,
+        model_profile(
+            CLAUDE_HAIKU_5_5,
+            &scope,
+            ModelLifecycle::Active,
+            &current_model_evidence,
+        )?,
         model_profile(
             CLAUDE_OPUS_5,
             &scope,

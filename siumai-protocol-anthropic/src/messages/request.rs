@@ -936,14 +936,11 @@ fn validate_native_reasoning_projection(
             ContentPart::ProviderOpaque(item) if is_native_reasoning_block(item, scope) => {
                 has_native_reasoning = true;
                 if item.data().get("type").and_then(Value::as_str) == Some("thinking") {
-                    let text = item
-                        .data()
-                        .get("thinking")
-                        .and_then(Value::as_str)
-                        .filter(|text| !text.is_empty())
-                        .ok_or(MessagesCodecError::ProtocolViolation {
+                    let text = item.data().get("thinking").and_then(Value::as_str).ok_or(
+                        MessagesCodecError::ProtocolViolation {
                             reason: "native reasoning block omitted required replay state",
-                        })?;
+                        },
+                    )?;
                     native_reasoning.push(text);
                 }
             }
@@ -1144,17 +1141,21 @@ fn encode_opaque_item(
     }
     match kind {
         "thinking" | "redacted_thinking" => {
-            let required_fields: &[&str] = match kind {
-                "thinking" => &["thinking", "signature"],
-                "redacted_thinking" => &["data"],
+            let valid = match kind {
+                "thinking" => {
+                    block.get("thinking").and_then(Value::as_str).is_some()
+                        && block
+                            .get("signature")
+                            .and_then(Value::as_str)
+                            .is_some_and(|signature| !signature.is_empty())
+                }
+                "redacted_thinking" => block
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .is_some_and(|data| !data.is_empty()),
                 _ => unreachable!("matched native reasoning block"),
             };
-            if required_fields.iter().any(|field| {
-                block
-                    .get(*field)
-                    .and_then(Value::as_str)
-                    .is_none_or(str::is_empty)
-            }) {
+            if !valid {
                 return Err(MessagesCodecError::ProtocolViolation {
                     reason: "native content block omitted required replay state",
                 });

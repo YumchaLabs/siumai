@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, ApiStability, CallOptions, ContentPart, ErrorKind, ImageModel, ImageRequest,
     LanguageModel, LanguageRequest, LanguageStreamEvent, MediaData, MediaPart, Message,
-    MessagePart, MessageRole, Model, ModelFamily, Provider, ReplayDomain, ReplayDomainId,
+    MessagePart, MessageRole, Model, ModelFamily, ModelId, Provider, ReplayDomain, ReplayDomainId,
     StreamTerminal, ToolOutcome, ToolResult, ToolSpec, TypedProviderOptions,
 };
 use siumai_transport::{
@@ -15,10 +15,10 @@ use wiremock::matchers::{body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::{
-    MINIMAX_M2_7, MINIMAX_M3, MINIMAX_REPLAY_AUDIENCE, MinimaxChatCompletionsOptions,
-    MinimaxContentCache, MinimaxCredential, MinimaxLanguageApi, MinimaxMessageCache,
-    MinimaxMessagesOptions, MinimaxProvider, MinimaxReasoningEffort, MinimaxResponsesOptions,
-    MinimaxServiceTier, MinimaxThinking, MinimaxToolCache,
+    MINIMAX_M2_7, MINIMAX_M3, MINIMAX_M3_1_FLASH, MINIMAX_REPLAY_AUDIENCE,
+    MinimaxChatCompletionsOptions, MinimaxContentCache, MinimaxCredential, MinimaxLanguageApi,
+    MinimaxMessageCache, MinimaxMessagesOptions, MinimaxProvider, MinimaxReasoningEffort,
+    MinimaxResponsesOptions, MinimaxServiceTier, MinimaxThinking, MinimaxToolCache,
 };
 
 fn request(parts: impl IntoIterator<Item = ContentPart>) -> LanguageRequest {
@@ -258,6 +258,107 @@ fn provider_identity_modes_and_credentials_are_rust_first() {
             .scope()
             .shares_replay_domain(chat.descriptor().scope())
     );
+}
+
+#[test]
+fn m3_1_flash_advisory_has_independent_evidence_and_preserves_open_ids() {
+    assert_eq!(MINIMAX_M3_1_FLASH, "MiniMax-M3.1-Flash");
+    assert!(crate::models::ALL_LANGUAGE.contains(&MINIMAX_M3_1_FLASH));
+    let provider = MinimaxProvider::builder(MinimaxCredential::api_key("test-key"))
+        .build()
+        .expect("provider");
+    for id in [MINIMAX_M3_1_FLASH, MINIMAX_M3, "future-minimax-model"] {
+        for api in [
+            MinimaxLanguageApi::Messages,
+            MinimaxLanguageApi::ChatCompletions,
+            MinimaxLanguageApi::Responses,
+        ] {
+            let model = provider.language_for(api, id).expect("open model ID");
+            assert_eq!(model.descriptor().model().as_str(), id);
+            assert_eq!(model.api(), api);
+        }
+    }
+
+    let flash = ModelId::new(MINIMAX_M3_1_FLASH).unwrap();
+    let previous = ModelId::new(MINIMAX_M3).unwrap();
+    let mut language_scopes = 0;
+    for profile in provider.support_manifest().profiles() {
+        for claim in profile.verified_claims().expect("verified claims") {
+            if claim.scope().family() != ModelFamily::Language {
+                continue;
+            }
+            language_scopes += 1;
+            let catalog = profile.catalog().expect("verified catalog");
+            let advisory = catalog
+                .get(claim.scope(), &flash)
+                .expect("M3.1 Flash advisory");
+            assert_eq!(
+                advisory.evidence().verified_at().value().to_string(),
+                "2026-10-25"
+            );
+            assert_eq!(advisory.evidence().source(), claim.evidence().source());
+            let protocol_date = if claim.scope().api_mode().as_str() == "chat-completions" {
+                "2026-09-03"
+            } else {
+                "2026-08-06"
+            };
+            assert_eq!(
+                claim.evidence().verified_at().value().to_string(),
+                protocol_date
+            );
+            assert_eq!(
+                catalog
+                    .get(claim.scope(), &previous)
+                    .expect("retained M3 advisory")
+                    .evidence(),
+                claim.evidence()
+            );
+        }
+    }
+    assert_eq!(language_scopes, 3);
+}
+
+#[tokio::test]
+async fn m3_1_flash_id_reaches_all_three_existing_wire_formats_unchanged() {
+    let server = MockServer::start().await;
+    let provider = provider(&server, MinimaxCredential::api_key("test-key"));
+    for (api, target, response) in [
+        (
+            MinimaxLanguageApi::Messages,
+            "/anthropic/v1/messages",
+            messages_response("MiniMax-M3.1-Flash"),
+        ),
+        (
+            MinimaxLanguageApi::ChatCompletions,
+            "/v1/chat/completions",
+            chat_response("MiniMax-M3.1-Flash"),
+        ),
+        (
+            MinimaxLanguageApi::Responses,
+            "/v1/responses",
+            responses_response("MiniMax-M3.1-Flash"),
+        ),
+    ] {
+        Mock::given(method("POST"))
+            .and(path(target))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let response = provider
+            .language_for(api, MINIMAX_M3_1_FLASH)
+            .expect("M3.1 Flash model")
+            .generate(text_request("hello"), CallOptions::default())
+            .await
+            .expect("basic response");
+        assert_eq!(response.output_text().as_deref(), Some("ok"));
+    }
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 3);
+    for request in requests {
+        let body: Value = serde_json::from_slice(&request.body).expect("request body");
+        assert_eq!(body["model"], "MiniMax-M3.1-Flash");
+    }
 }
 
 #[test]

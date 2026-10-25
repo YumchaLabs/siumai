@@ -9,6 +9,7 @@
 - Evidence verified: 2026-08-08
 - Image and Veo option evidence reverified: 2026-08-14
 - Multimodal embedding evidence verified: 2026-08-15
+- Model hints and selected lifecycle advice reverified: 2026-10-25
 - Facade feature: `google`
 - Provider crate: `siumai-provider-gemini`
 - Protocol crate: `siumai-protocol-gemini`
@@ -43,6 +44,12 @@ let veo = provider.veo();
 Known model constants are dated hints, not an allowlist. Unknown future model IDs remain
 constructible with protocol-baseline behavior; Siumai does not infer capabilities or defaults from
 model-name patterns.
+
+The [2026-10-25 advisory refresh](model-advisories.md) adds `gemini-3.8-flash`, `gemini-4-argon`,
+and `gemini-nano-banana-2.1` as ID hints only, not new stable-v1 catalog claims. It marks
+`gemini-3.5-flash`, `gemini-3.1-flash-image`, and the three retained TTS Preview IDs as deprecated
+while preserving construction and the dated `current_*` lists. New TTS output formats require
+separate validation before replacing the current raw-PCM slice.
 
 ## Language API modes
 

@@ -68,10 +68,9 @@ deferred`, not implied defects in the implemented slice.
 
 ## Current facade surface
 
-The unreleased facade on the repository's `main` branch exposes the narrow provider slices below
-through typed `Siumai` construction and curated provider namespaces. The published
-`0.11.0-beta.10` crate has an earlier construction API; this table describes the current repository
-implementation, not that published artifact. Every row is `claimed slice complete`; the last column
+The `0.11.0-beta.11` facade exposes the narrow provider slices below through typed `Siumai`
+construction and curated provider namespaces. The published `0.11.0-beta.10` crate has an earlier
+construction API. Every row is `claimed slice complete`; the last column
 is `intentionally deferred`. This inventory is not a promise that every account can use every model
 or endpoint.
 
@@ -153,11 +152,17 @@ names the exact execution surface; it is not provider-wide identity.
 | `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Speech | `elevenlabs-native` / `text-to-speech` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/text-to-speech/convert | 2026-08-09 |
 | `elevenlabs` / ElevenLabs | `elevenlabs` / `public-api` | Transcription | `elevenlabs-speech-to-text` / `batch-transcription` | `native` | `stable` | https://elevenlabs.io/docs/api-reference/speech-to-text/convert | 2026-08-09 |
 
-OpenAI model catalog entries are advisory rather than execution gates. As verified on 2026-08-15,
+Model catalog entries are advisory rather than execution gates. The
+[2026-10-25 model advisory refresh](model-advisories.md) records newly checked IDs, lifecycle
+corrections, and the limits of this model-only update separately from protocol verification.
+
+As verified on 2026-08-15,
 `dall-e-2` and `dall-e-3` are retired, `gpt-image-1.5`, `gpt-image-1-mini`, and
 `chatgpt-image-latest` are deprecated in favor of `gpt-image-2`, and `gpt-transcribe` is exposed as
 the current transcription discovery constant. Callers may still construct retired, private, or
 future model identifiers; the configured endpoint remains the authority on callability.
+On 2026-10-25, `gpt-image-1` was rechecked as retired with `gpt-image-2.5-sunburst` as the official
+replacement hint; its earlier Active advisory no longer applies.
 
 The caller-supplied `openai-compatible` builder exposes either Chat Completions or Responses with a
 caller-selected provider ID and `custom-endpoint` or `local` platform. Those claims are
@@ -243,10 +248,12 @@ it does not scrape websites or generate Rust from another SDK's model union.
 
 ## Generic compatibility
 
-The generic OpenAI-compatible builder remains an escape hatch for private gateways
-and unlisted services. It requires an explicit endpoint policy and credential
-audience, exposes only protocol-baseline behavior, and does not inherit a named
-provider's fidelity claim. `OpenAiCompatibleProfile::custom_endpoint` may preserve an already
+The generic OpenAI-compatible builder serves private gateways and unlisted services without
+inheriting a named provider's fidelity claim. `OpenAiCompatibleProfile::custom` is the ordinary
+path for an explicitly trusted developer-configured HTTP(S) origin; it selects `custom-endpoint`
+without inferring a platform or fidelity from the URL. Transport trust is not a support claim or
+authority to download URLs returned by that service. It exposes only protocol-baseline behavior.
+`OpenAiCompatibleProfile::custom_endpoint` may preserve an already
 validated private or shared-address `EndpointConfig`, but the profile remains generic and requires
 a custom replay audience. Responses defaults to the strict OpenAI baseline; a compatible dialect is
 an explicit caller decision backed by relay fixtures, not a general permissive mode.

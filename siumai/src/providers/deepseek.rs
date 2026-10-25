@@ -8,8 +8,8 @@ pub use siumai_provider_deepseek::{
 
 pub mod models {
     pub use siumai_provider_deepseek::models::{
-        ALL, ALL_CHAT, ALL_RESPONSES, DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, MODEL_CATALOG_SOURCE,
-        MODEL_CATALOG_VERIFIED_ON,
+        ALL, ALL_CHAT, ALL_RESPONSES, DEEPSEEK_FLASH, DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO,
+        MODEL_CATALOG_SOURCE, MODEL_CATALOG_VERIFIED_ON,
     };
 }
 

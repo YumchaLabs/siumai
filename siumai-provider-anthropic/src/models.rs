@@ -3,6 +3,15 @@
 //! These constants are conveniences, not an allowlist. Anthropic model IDs remain
 //! open input and unknown future IDs are passed through with protocol-baseline behavior.
 
+/// Claude Opus 5.5 model ID, verified on 2026-10-25.
+pub const CLAUDE_OPUS_5_5: &str = "claude-opus-5-5";
+/// Claude Sonnet 5.5 model ID, verified on 2026-10-25.
+pub const CLAUDE_SONNET_5_5: &str = "claude-sonnet-5-5";
+/// Claude Fable 5.1 model ID, verified on 2026-10-25.
+pub const CLAUDE_FABLE_5_1: &str = "claude-fable-5-1";
+/// Claude Haiku 5.5 model ID, verified on 2026-10-25.
+pub const CLAUDE_HAIKU_5_5: &str = "claude-haiku-5-5";
+
 /// Claude Opus 5 pinned model ID, verified on 2026-08-06.
 pub const CLAUDE_OPUS_5: &str = "claude-opus-5";
 /// Claude Sonnet 5 pinned model ID, verified on 2026-08-06.
@@ -28,12 +37,14 @@ pub const CLAUDE_SONNET_4_6: &str = "claude-sonnet-4-6";
 /// Claude Opus 4.1 snapshot retired on 2026-08-05.
 pub const CLAUDE_OPUS_4_1_20250805: &str = "claude-opus-4-1-20250805";
 
-/// Current recommended model IDs in stable catalog order.
+/// Current recommended model IDs in stable catalog order, verified on 2026-10-25.
+///
+/// Source: <https://platform.claude.com/docs/en/models/overview>.
 pub const fn current_models() -> [&'static str; 4] {
     [
-        CLAUDE_OPUS_5,
-        CLAUDE_SONNET_5,
-        CLAUDE_FABLE_5,
-        CLAUDE_HAIKU_4_5,
+        CLAUDE_OPUS_5_5,
+        CLAUDE_SONNET_5_5,
+        CLAUDE_FABLE_5_1,
+        CLAUDE_HAIKU_5_5,
     ]
 }

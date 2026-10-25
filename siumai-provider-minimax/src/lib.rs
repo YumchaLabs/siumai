@@ -22,7 +22,7 @@ pub use credential::{MinimaxCredential, MinimaxCredentialError};
 pub use language::MinimaxLanguageProfileError;
 pub use models::{
     MINIMAX_M2, MINIMAX_M2_1, MINIMAX_M2_1_HIGHSPEED, MINIMAX_M2_5, MINIMAX_M2_5_HIGHSPEED,
-    MINIMAX_M2_7, MINIMAX_M2_7_HIGHSPEED, MINIMAX_M3,
+    MINIMAX_M2_7, MINIMAX_M2_7_HIGHSPEED, MINIMAX_M3, MINIMAX_M3_1_FLASH,
 };
 pub use options::{
     MinimaxChatCompletionsOptions, MinimaxMessagesOptions, MinimaxReasoningEffort,

@@ -20,7 +20,9 @@ use siumai_protocol_openai::transcription::{
     API_MODE_ID as TRANSCRIPTION_MODE, PROTOCOL_ID as TRANSCRIPTION_PROTOCOL,
 };
 
-use super::catalog::{GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA};
+use super::catalog::{
+    GPT_5_6, GPT_5_6_LUNA, GPT_5_6_SOL, GPT_5_6_TERRA, GPT_6_1_SOL, GPT_6_ASTRA, GPT_6_LUNA,
+};
 use super::embedding::{TEXT_EMBEDDING_3_LARGE, TEXT_EMBEDDING_3_SMALL, TEXT_EMBEDDING_ADA_002};
 use super::image::{
     CHATGPT_IMAGE_LATEST, DALL_E_2, DALL_E_3, GPT_IMAGE_1, GPT_IMAGE_1_5, GPT_IMAGE_1_MINI,
@@ -163,7 +165,37 @@ impl OpenAiProfile {
             verified_claim(speech_scope.clone(), speech_evidence.clone()),
             verified_claim(transcription_scope.clone(), transcription_evidence.clone()),
         ];
-        let mut models = Vec::with_capacity(32);
+        let current_model_evidence = evidence(
+            "https://developers.openai.com/api/docs/models",
+            "openai-model-hints-2026-10-25",
+            2026,
+            10,
+            25,
+        )?;
+        let retirement_evidence = evidence(
+            "https://developers.openai.com/api/docs/deprecations",
+            "openai-image-retirements-2026-10-25",
+            2026,
+            10,
+            25,
+        )?;
+        let mut models = Vec::with_capacity(38);
+        for scope in [&responses_scope, &chat_completions_scope] {
+            extend_models(
+                &mut models,
+                scope,
+                &current_model_evidence,
+                [ModelOperation::Generate, ModelOperation::Stream],
+                [GPT_6_ASTRA, GPT_6_1_SOL, GPT_6_LUNA].map(|id| (id, ModelLifecycle::Active)),
+            )?;
+        }
+        extend_models(
+            &mut models,
+            &image_scope,
+            &retirement_evidence,
+            [ModelOperation::GenerateImage],
+            [(GPT_IMAGE_1, ModelLifecycle::Retired { replacement: None })],
+        )?;
         extend_models(
             &mut models,
             &responses_scope,
@@ -456,7 +488,6 @@ fn embedding_models() -> impl IntoIterator<Item = (&'static str, ModelLifecycle)
 fn image_models() -> Result<Vec<(&'static str, ModelLifecycle)>, OpenAiConfigError> {
     let gpt_image_2 = ModelId::new(GPT_IMAGE_2)?;
     Ok(vec![
-        (GPT_IMAGE_1, ModelLifecycle::Active),
         (
             GPT_IMAGE_1_MINI,
             ModelLifecycle::Deprecated {
@@ -531,7 +562,7 @@ mod tests {
         }));
         assert_eq!(
             profile.provider_profile().catalog().unwrap().iter().count(),
-            32
+            38
         );
     }
 
@@ -563,6 +594,13 @@ mod tests {
             .scope();
         let catalog = profile.provider_profile().catalog().unwrap();
 
+        assert!(matches!(
+            catalog
+                .get(scope, &ModelId::new(GPT_IMAGE_1).unwrap())
+                .unwrap()
+                .lifecycle(),
+            ModelLifecycle::Retired { .. }
+        ));
         for model in [DALL_E_2, DALL_E_3] {
             assert_eq!(
                 catalog

@@ -246,9 +246,12 @@ impl ChatCompletionsStreamDecoder {
             self.reasoning_details = Some(snapshot);
         }
         if let Some(reason) = choice.delta.refusal {
-            let index = self.refusals.len();
-            self.refusals.push(Some(reason.clone()));
-            self.order.push(ContentOrder::Refusal(index));
+            if let Some(Some(existing)) = self.refusals.first_mut() {
+                existing.push_str(&reason);
+            } else {
+                self.refusals.push(Some(reason.clone()));
+                self.order.push(ContentOrder::Refusal(0));
+            }
             events.push(LanguageStreamEvent::Refusal {
                 reason: Some(reason),
             });
@@ -987,6 +990,84 @@ mod tests {
                     && response.provider_metadata()["openai"]["service_tier"] == "priority"
                     && response.provider_metadata()["openai"]["future_scalar"] == true
         ));
+    }
+
+    #[test]
+    fn refusal_deltas_are_emitted_and_merge_into_one_terminal_part() {
+        let mut decoder = decoder();
+        let first = decoder
+            .decode(r#"{"choices":[{"index":0,"delta":{"refusal":"Cannot "}}]}"#)
+            .unwrap();
+        assert!(matches!(
+            first.as_slice(),
+            [LanguageStreamEvent::Started { .. }, LanguageStreamEvent::Refusal { reason: Some(reason) }]
+                if reason == "Cannot "
+        ));
+        let second = decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"refusal":"assist"},"finish_reason":"stop"}]}"#,
+            )
+            .unwrap();
+        assert!(matches!(
+            second.as_slice(),
+            [LanguageStreamEvent::Refusal { reason: Some(reason) }] if reason == "assist"
+        ));
+
+        let terminal = decoder.decode("[DONE]").unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [LanguageStreamEvent::Terminal(StreamTerminal::Completed { response })]
+                if matches!(
+                    response.content(),
+                    [ContentPart::Refusal { reason: Some(reason) }] if reason == "Cannot assist"
+                )
+        ));
+        assert!(decoder.terminal_seen());
+        assert!(decoder.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn refusal_is_emitted_before_in_band_error() {
+        let mut decoder = decoder();
+        let refusal = decoder
+            .decode(r#"{"choices":[{"index":0,"delta":{"refusal":"Cannot assist"}}]}"#)
+            .unwrap();
+        assert!(matches!(
+            refusal.as_slice(),
+            [LanguageStreamEvent::Started { .. }, LanguageStreamEvent::Refusal { reason: Some(reason) }]
+                if reason == "Cannot assist"
+        ));
+
+        let terminal = decoder
+            .decode(r#"{"error":{"type":"server_error","code":"server_error","message":"x"}}"#)
+            .unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [LanguageStreamEvent::Terminal(StreamTerminal::Failed { error, partial: None })]
+                if error.kind() == ErrorKind::Unavailable
+        ));
+        assert!(decoder.terminal_seen());
+        assert!(decoder.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn refusal_is_emitted_before_unexpected_eof() {
+        let mut decoder = decoder();
+        let refusal = decoder
+            .decode(
+                r#"{"choices":[{"index":0,"delta":{"refusal":"Cannot assist"},"finish_reason":"stop"}]}"#,
+            )
+            .unwrap();
+        assert!(matches!(
+            refusal.as_slice(),
+            [LanguageStreamEvent::Started { .. }, LanguageStreamEvent::Refusal { reason: Some(reason) }]
+                if reason == "Cannot assist"
+        ));
+
+        let error = decoder.finish().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(!decoder.terminal_seen());
+        assert!(decoder.decode("[DONE]").is_err());
     }
 
     #[test]

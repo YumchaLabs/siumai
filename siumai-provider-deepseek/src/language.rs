@@ -39,7 +39,10 @@ use siumai_transport::{EndpointConfig, RequestHeaders, ResponseHeaders};
 use thiserror::Error as ThisError;
 
 use crate::annotations::DeepSeekAssistantPrefix;
-use crate::models::{DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO};
+use crate::models::{
+    DEEPSEEK_FLASH, DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, MODEL_CATALOG_SOURCE,
+    MODEL_CATALOG_VERIFIED_ON,
+};
 use crate::options::{DeepSeekChatOptions, DeepSeekResponsesOptions};
 
 pub(crate) const PROVIDER_ID: &str = "deepseek";
@@ -82,6 +85,7 @@ pub(crate) fn messages_profile(
             ProtocolContractId::new("deepseek-anthropic-messages-2026-08")?,
         );
         let catalog = ModelCatalog::new([
+            model_profile(DEEPSEEK_FLASH, &scope, &evidence)?,
             model_profile(DEEPSEEK_V4_FLASH, &scope, &evidence)?,
             model_profile(DEEPSEEK_V4_PRO, &scope, &evidence)?,
         ])?;
@@ -262,8 +266,10 @@ fn verified_profile(
         ProtocolContractId::new("deepseek-v4-openai-responses-2026-08")?,
     );
     let catalog = ModelCatalog::new([
+        model_profile(DEEPSEEK_FLASH, &chat_scope, &chat_evidence)?,
         model_profile(DEEPSEEK_V4_FLASH, &chat_scope, &chat_evidence)?,
         model_profile(DEEPSEEK_V4_PRO, &chat_scope, &chat_evidence)?,
+        model_profile(DEEPSEEK_FLASH, &responses_scope, &responses_evidence)?,
         model_profile(DEEPSEEK_V4_FLASH, &responses_scope, &responses_evidence)?,
         model_profile(DEEPSEEK_V4_PRO, &responses_scope, &responses_evidence)?,
     ])?;
@@ -337,12 +343,24 @@ fn model_profile(
     scope: &SupportScope,
     evidence: &VerificationEvidence,
 ) -> Result<ModelProfile, DeepSeekProfileError> {
+    let evidence = if model == DEEPSEEK_FLASH {
+        VerificationEvidence::new(
+            OfficialSource::new(MODEL_CATALOG_SOURCE)?,
+            VerificationDate::new(
+                NaiveDate::parse_from_str(MODEL_CATALOG_VERIFIED_ON, "%Y-%m-%d")
+                    .map_err(|_| DeepSeekProfileError::InvalidVerificationDate)?,
+            ),
+            ProtocolContractId::new("deepseek-flash-model-advisory-2026-10")?,
+        )
+    } else {
+        evidence.clone()
+    };
     Ok(ModelProfile::new(
         ModelId::new(model)?,
         scope.clone(),
         [ModelOperation::Generate, ModelOperation::Stream],
         ModelLifecycle::Active,
-        evidence.clone(),
+        evidence,
     )?)
 }
 

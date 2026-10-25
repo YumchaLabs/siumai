@@ -522,6 +522,36 @@ fn response_preserves_signed_thinking_as_replayable_opaque_state() {
 }
 
 #[test]
+fn response_preserves_empty_signed_thinking_for_replay() {
+    let body = serde_json::to_vec(&json!({
+        "id": "msg_empty_thinking",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "thinking", "thinking": "", "signature": "signed-empty"}],
+        "model": "claude-fable-5",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {"input_tokens": 1, "output_tokens": 1}
+    }))
+    .unwrap();
+
+    let response = decode_response(&body, &scope(), &model()).unwrap();
+    let history = response.project_assistant_history().into_message().unwrap();
+    let encoded = encode_request_for_scope(
+        &scope(),
+        &model(),
+        &request(vec![history]),
+        &MessagesRequestOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(encoded["messages"][0]["content"][0]["thinking"], "");
+    assert_eq!(
+        encoded["messages"][0]["content"][0]["signature"],
+        "signed-empty"
+    );
+}
+
+#[test]
 fn automatic_cache_without_an_eligible_target_keeps_the_request_valid() {
     let body = serde_json::to_vec(&json!({
         "id": "msg_thinking_only",

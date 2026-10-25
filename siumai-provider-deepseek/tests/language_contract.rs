@@ -4,13 +4,14 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use siumai_core::{
     ApiModeId, CallOptions, ContentPart, ErrorKind, LanguageModel, LanguageRequest,
-    LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole, Model, ModelFamily,
-    ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec, ToolCall, ToolOutcome,
-    ToolResult, ToolSpec, UsageValue, WarningKind,
+    LanguageStreamEvent, MediaData, MediaPart, Message, MessageRole, Model, ModelFamily, ModelId,
+    ModelLifecycle, ReplayDomain, ReplayDomainId, StreamTerminal, StructuredOutputSpec, ToolCall,
+    ToolOutcome, ToolResult, ToolSpec, UsageValue, WarningKind,
 };
 use siumai_provider_deepseek::{
     DeepSeekAssistantPrefix, DeepSeekChatOptions, DeepSeekConfigError, DeepSeekCredential,
     DeepSeekLanguageApi, DeepSeekProvider, DeepSeekReasoningEffort, DeepSeekResponsesOptions,
+    models::{DEEPSEEK_FLASH, DEEPSEEK_V4_FLASH, DEEPSEEK_V4_PRO, MODEL_CATALOG_SOURCE},
 };
 use siumai_transport::{
     EndpointConfig, OfficialOrigin, ProviderHttpTransportSettings, TransportEvent,
@@ -139,6 +140,142 @@ fn provider_exposes_open_chat_beta_responses_and_messages_model_handles() {
             .map(ApiModeId::as_str),
         Some("messages")
     );
+}
+
+#[test]
+fn flash_advisory_has_independent_evidence_and_preserves_open_ids() {
+    let provider = DeepSeekProvider::builder(DeepSeekCredential::api_key("test-key"))
+        .build()
+        .expect("provider");
+    for id in [
+        DEEPSEEK_FLASH,
+        DEEPSEEK_V4_FLASH,
+        DEEPSEEK_V4_PRO,
+        "future-deepseek-model",
+    ] {
+        for api in [
+            DeepSeekLanguageApi::ChatCompletions,
+            DeepSeekLanguageApi::Responses,
+            DeepSeekLanguageApi::Messages,
+            DeepSeekLanguageApi::BetaChatCompletions,
+        ] {
+            let model = provider.language_for(api, id).expect("open model ID");
+            assert_eq!(model.descriptor().model().as_str(), id);
+            assert_eq!(model.api(), api);
+        }
+    }
+
+    let flash = ModelId::new(DEEPSEEK_FLASH).unwrap();
+    let pro = ModelId::new(DEEPSEEK_V4_PRO).unwrap();
+    assert!(
+        provider
+            .beta_profile()
+            .catalog()
+            .expect("beta catalog")
+            .iter()
+            .all(|advisory| advisory.model() != &flash)
+    );
+    for profile in [
+        provider.profile(),
+        provider.messages_profile().expect("Messages profile"),
+    ] {
+        let catalog = profile.catalog().expect("verified catalog");
+        for claim in profile.verified_claims().expect("verified claims") {
+            let advisory = catalog.get(claim.scope(), &flash).expect("Flash advisory");
+            assert_eq!(advisory.evidence().source().as_str(), MODEL_CATALOG_SOURCE);
+            assert_eq!(
+                advisory.evidence().verified_at().value().to_string(),
+                "2026-10-25"
+            );
+            let protocol_date = match claim.scope().api_mode().as_str() {
+                "chat-completions" => "2026-08-05",
+                "responses" => "2026-08-14",
+                "messages" => "2026-08-08",
+                _ => panic!("unexpected language scope"),
+            };
+            assert_eq!(
+                claim.evidence().verified_at().value().to_string(),
+                protocol_date
+            );
+            let pro_advisory = catalog
+                .get(claim.scope(), &pro)
+                .expect("retained Pro advisory");
+            assert_eq!(pro_advisory.lifecycle(), &ModelLifecycle::Active);
+            assert_eq!(pro_advisory.evidence(), claim.evidence());
+        }
+    }
+}
+
+#[tokio::test]
+async fn flash_id_reaches_all_three_existing_wire_formats_unchanged() {
+    let server = MockServer::start().await;
+    let provider = DeepSeekProvider::builder(DeepSeekCredential::api_key("test-key"))
+        .with_endpoint(EndpointConfig::local_explicit(format!("{}/v1", server.uri())).unwrap())
+        .with_replay_domain(test_replay_domain())
+        .with_messages_endpoint(
+            EndpointConfig::local_explicit(format!("{}/anthropic", server.uri())).unwrap(),
+        )
+        .with_messages_replay_domain(test_replay_domain())
+        .build()
+        .expect("local provider");
+    for (api, target, response) in [
+        (
+            DeepSeekLanguageApi::ChatCompletions,
+            "/v1/chat/completions",
+            json!({
+                "id": "chatcmpl-flash", "object": "chat.completion", "created": 1,
+                "model": "deepseek-flash",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+            }),
+        ),
+        (
+            DeepSeekLanguageApi::Responses,
+            "/v1/responses",
+            json!({
+                "id": "resp-flash", "object": "response", "created_at": 1,
+                "model": "deepseek-flash", "status": "completed",
+                "output": [{"id": "msg-flash", "type": "message", "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "ok", "annotations": []}]}],
+                "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                "error": null, "incomplete_details": null, "reasoning": null
+            }),
+        ),
+        (
+            DeepSeekLanguageApi::Messages,
+            "/anthropic/v1/messages",
+            json!({
+                "id": "msg-flash", "type": "message", "role": "assistant",
+                "model": "deepseek-flash", "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn", "stop_sequence": null,
+                "usage": {"input_tokens": 1, "output_tokens": 1}
+            }),
+        ),
+    ] {
+        Mock::given(method("POST"))
+            .and(path(target))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut request = request("hello");
+        request.generation.max_output_tokens = Some(64);
+        let response = provider
+            .language_for(api, DEEPSEEK_FLASH)
+            .expect("Flash model")
+            .generate(request, CallOptions::default())
+            .await
+            .expect("basic response");
+        assert_eq!(response.output_text().as_deref(), Some("ok"));
+    }
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 3);
+    for request in requests {
+        let body: Value = serde_json::from_slice(&request.body).expect("request body");
+        assert_eq!(body["model"], "deepseek-flash");
+    }
 }
 
 #[test]

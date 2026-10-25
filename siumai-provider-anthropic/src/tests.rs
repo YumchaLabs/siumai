@@ -4,8 +4,8 @@ use futures_util::StreamExt;
 use serde_json::json;
 use siumai_core::{
     ApiStability, CallOptions, ErrorKind, LanguageModel, LanguageRequest, LanguageStreamEvent,
-    Message, MessagePart, MessageRole, Model, ModelId, ModelLifecycle, Provider, ReplayDomain,
-    ReplayDomainId, StreamTerminal, ToolSpec,
+    Message, MessagePart, MessageRole, Model, ModelId, ModelLifecycle, ModelOperation, Provider,
+    ReplayDomain, ReplayDomainId, StreamTerminal, ToolSpec,
 };
 use siumai_protocol_anthropic::messages::{
     MessagesCodecError, MessagesRequestOptions, encode_request_with_resolver,
@@ -24,10 +24,10 @@ use crate::{
     AdvisorToolOptions, AnthropicAnnotationResolver, AnthropicCacheTtl, AnthropicContentOptions,
     AnthropicCredential, AnthropicMessageCache, AnthropicMessageFile, AnthropicMessagesOptions,
     AnthropicProvider, AnthropicThinking, AnthropicTokenCountOptions, AnthropicTool,
-    AnthropicToolOptions, CLAUDE_FABLE_5, CLAUDE_HAIKU_4_5, CLAUDE_OPUS_4_1_20250805,
-    CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5, CLAUDE_SONNET_4_6,
-    CLAUDE_SONNET_5, MessagesMetadata, OutputEffort, ServerFallbacks, ThinkingDisplay,
-    TokenTaskBudget, current_models,
+    AnthropicToolOptions, CLAUDE_FABLE_5, CLAUDE_FABLE_5_1, CLAUDE_HAIKU_4_5, CLAUDE_HAIKU_5_5,
+    CLAUDE_OPUS_4_1_20250805, CLAUDE_OPUS_4_6, CLAUDE_OPUS_4_7, CLAUDE_OPUS_4_8, CLAUDE_OPUS_5,
+    CLAUDE_OPUS_5_5, CLAUDE_SONNET_4_6, CLAUDE_SONNET_5, CLAUDE_SONNET_5_5, MessagesMetadata,
+    OutputEffort, ServerFallbacks, ThinkingDisplay, TokenTaskBudget, current_models,
 };
 
 const API_VERSION: &str = "2023-06-01";
@@ -517,12 +517,20 @@ fn official_provider_is_network_free_and_catalog_is_introspection_only() {
         .expect("official Anthropic profile");
     assert_eq!(profile_claims[0].scope().api_mode().as_str(), "messages");
     assert_eq!(
+        profile_claims[0]
+            .evidence()
+            .verified_at()
+            .value()
+            .to_string(),
+        "2026-08-06"
+    );
+    assert_eq!(
         current_models(),
         [
-            CLAUDE_OPUS_5,
-            CLAUDE_SONNET_5,
-            CLAUDE_FABLE_5,
-            CLAUDE_HAIKU_4_5,
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-fable-5-1",
+            "claude-haiku-5-5",
         ]
     );
     let catalog = provider
@@ -530,9 +538,28 @@ fn official_provider_is_network_free_and_catalog_is_introspection_only() {
         .provider_profile()
         .catalog()
         .expect("verified catalog");
-    for model in current_models() {
+    for model in [
+        CLAUDE_OPUS_5_5,
+        CLAUDE_SONNET_5_5,
+        CLAUDE_FABLE_5_1,
+        CLAUDE_HAIKU_5_5,
+    ] {
         let id = ModelId::new(model).expect("model id");
-        assert!(catalog.iter().any(|entry| entry.model() == &id));
+        let profile = catalog
+            .get(profile_claims[0].scope(), &id)
+            .expect("current model profile");
+        assert_eq!(profile.lifecycle(), &ModelLifecycle::Active);
+        assert_eq!(profile.operations().len(), 2);
+        assert!(profile.operations().contains(&ModelOperation::Generate));
+        assert!(profile.operations().contains(&ModelOperation::Stream));
+        assert_eq!(
+            profile.evidence().source().as_str(),
+            "https://platform.claude.com/docs/en/models/overview"
+        );
+        assert_eq!(
+            profile.evidence().verified_at().value().to_string(),
+            "2026-10-25"
+        );
         assert_eq!(
             provider.language(model).expect("known model").model_id(),
             &id
@@ -553,7 +580,17 @@ fn official_provider_is_network_free_and_catalog_is_introspection_only() {
             .find(|entry| entry.model() == &id)
             .expect("pinned model profile");
         assert_eq!(profile.lifecycle(), &ModelLifecycle::Active);
+        assert_eq!(
+            profile.evidence().verified_at().value().to_string(),
+            "2026-08-06"
+        );
     }
+
+    let haiku = ModelId::new(CLAUDE_HAIKU_4_5).expect("model id");
+    let haiku_profile = catalog
+        .get(profile_claims[0].scope(), &haiku)
+        .expect("Haiku rolling alias profile");
+    assert_eq!(haiku_profile.lifecycle(), &ModelLifecycle::RollingAlias);
 
     let mythos_preview = ModelId::new(crate::CLAUDE_MYTHOS_PREVIEW).expect("model id");
     let mythos_preview = catalog
