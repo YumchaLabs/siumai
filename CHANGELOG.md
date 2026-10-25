@@ -8,31 +8,28 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
-- *(transport)* support explicitly trusted custom HTTP origins
+- *(transport/facade)* support explicitly trusted self-hosted HTTP(S) origins on public, private, and loopback networks through `EndpointConfig::custom`, `OpenAiCompatibleProfile::custom`, and `.unauthenticated()`. Credential audiences, redirect rejection, request confinement, and independent download/proxy guards remain enforced ([#33](https://github.com/YumchaLabs/siumai/issues/33), [#34](https://github.com/YumchaLabs/siumai/pull/34); reported by @longzou).
+- *(providers)* refresh dated model advisories for OpenAI, Anthropic, Gemini, DeepSeek, MiniMax, and Groq. Model IDs remain open, and the additions do not expand verified protocol capabilities; see the [model advisory evidence](https://github.com/YumchaLabs/siumai/blob/v0.11.0-beta.12/docs/providers/model-advisories.md).
 
 ### Fixed
 
-- *(providers)* refresh model advice and preserve stream contracts
-
-### Added
-
-- *(transport/facade)* add trusted custom HTTP origins for explicitly configured self-hosted and compatible model services, including public HTTP and private-network endpoints ([#33](https://github.com/YumchaLabs/siumai/issues/33), reported by @longzou).
-- *(providers)* refresh dated model advisories for OpenAI, Anthropic, Gemini, DeepSeek, MiniMax, and Groq without turning model hints into runtime allowlists.
-
-### Fixed
-
-- *(protocols)* preserve OpenAI tool-call settlement, refusal streaming, Anthropic signed thinking, Gemini thought signatures and cache usage, Alibaba cache usage, and future Gemini Interactions events across protocol boundaries.
-- *(mcp)* atomically order catalog invalidation, discovery publication, and tool admission without holding locks across network calls, and update the rmcp integration to 3.7.
+- *(openai)* emit executable Responses tool-call events exactly once from the final successful response projection, including valid incomplete responses. Preserve failed/cancelled outcomes and their partial text/usage when function arguments are truncated; retain incremental refusal events while merging final refusal content.
+- *(protocols)* preserve empty signed Anthropic thinking and Gemini thought signatures, decode Gemini and Alibaba cache usage, and tolerate unknown future Gemini Interactions events until a terminal outcome.
+- *(mcp)* atomically order catalog invalidation, discovery publication, and tool admission without holding locks across network calls. Calls admitted before invalidation may finish; later admissions reject the stale catalog. Update the rmcp integration to 3.7.
 - *(transport)* reject ambiguous request targets, enforce configured base paths, and resolve relative deadlines at the transport boundary.
-- *(dependencies)* update the locked HTTP, TLS, async-runtime, certificate-root, and MCP dependency graph to patched releases.
 
 ### Changed
 
-- *(transcription)* keep ElevenLabs language identification probability in provider metadata instead of exposing it as generic transcription confidence.
+- *(transcription)* keep ElevenLabs language identification probability in `response.provider["language_probability"]` instead of exposing it as generic transcription confidence; `confidence` is now `None`.
+
+### Security
+
+- *(dependencies)* update the locked HTTP, TLS, async-runtime, certificate-root, and MCP dependency graph to patched releases. The final 320-dependency RustSec audit reports no vulnerability records or warnings; the declared Rust 1.95 MSRV is unchanged.
 
 ### Known limitations
 
-- *(websocket)* tungstenite 0.30 can log handshake credentials and message contents at debug/trace levels. Applications using the experimental WebSocket features must keep the `tungstenite` and `tokio_tungstenite` logging targets at `info` or lower verbosity. Siumai does not change the application's global logging configuration; see the [transport contract](docs/architecture/transport-contract.md#websocket-dependency-logging).
+- *(websocket)* tungstenite 0.30 can log handshake credentials and message contents at debug/trace levels. Applications using the experimental WebSocket features must keep the `tungstenite` and `tokio_tungstenite` logging targets at `info` or lower verbosity. Siumai does not change the application's global logging configuration; see the [transport contract](https://github.com/YumchaLabs/siumai/blob/v0.11.0-beta.12/docs/architecture/transport-contract.md#websocket-dependency-logging).
+- *(websocket)* transport-level split receivers cannot independently flush a queued peer-close acknowledgement. Retaining a split half can retain its socket after session admission is released; close acknowledgement and split socket ownership remain follow-up work for these experimental features.
 
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.10...v0.11.0-beta.11) - 2026-10-13
 

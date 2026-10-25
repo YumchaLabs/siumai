@@ -4,13 +4,13 @@
 construction, six provider-neutral model families, optional Registry/runtime integrations, and
 provider-owned native APIs without rebuilding a universal client or capability matrix.
 
-Unless marked unreleased, this README and the crate rustdoc document the typed facade shipped
+This README and the crate rustdoc target `0.11.0-beta.12`. The typed facade was introduced
 in `0.11.0-beta.11`.
 The published `0.11.0-beta.10` package does not contain this typed `Siumai` hub:
 
 ```toml
 [dependencies]
-siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["openai"] }
+siumai = { version = "=0.11.0-beta.12", default-features = false, features = ["openai"] }
 ```
 
 No provider feature is enabled by default. The facade's default features are `registry` and
@@ -217,10 +217,10 @@ let _generate_content = gemini.generate_content(GEMINI_3_5_FLASH)?;
 Unknown future model identifiers use the provider's protocol baseline. Model names do not enable
 reasoning, caching, media, tools, or a different API mode heuristically.
 
-## Custom HTTP endpoints (unreleased)
+## Custom HTTP endpoints
 
 Enable `openai-compatible` explicitly; `all-providers` does not include the generic-compatible
-escape hatch. The unreleased
+escape hatch. The
 `OpenAiCompatibleProfile::custom(provider, base_url, replay_domain, mode)` accepts a trusted HTTP
 or HTTPS origin on public, LAN, or loopback addresses without caller-side network classification.
 Pass the profile to `Siumai::builder().openai_compatible().profile(profile)` and choose the new
@@ -228,8 +228,8 @@ Pass the profile to `Siumai::builder().openai_compatible().profile(profile)` and
 requires. Provider identity, non-secret replay domain, API mode, and model ID stay explicit.
 The profile remains generic with platform `custom-endpoint`, never an inferred official identity.
 
-These convenience APIs are not in `0.11.0-beta.11`; use this checkout or a pinned Git revision
-containing them. Only trust developer-controlled or independently validated configuration, never
+These convenience APIs are available starting with `0.11.0-beta.12`. Only trust
+developer-controlled or independently validated configuration, never
 unchecked tenant or user URLs. Prefer HTTPS: HTTP exposes prompts, responses, and credentials in
 cleartext. Untrusted resource downloads and CONNECT proxy routes do not inherit this trust;
 their existing restrictions remain unchanged.
@@ -239,7 +239,7 @@ For published beta.11, keep `local_explicit(...)` for loopback, or `custom_endpo
 `.credential(OpenAiCompatibleCredential::unauthenticated())` when no key is needed. These strict
 paths remain unchanged; `public_custom(...)` still requires HTTPS and public addresses.
 See the [complete self-hosted guide](https://github.com/YumchaLabs/siumai/blob/main/docs/providers/openai-compatible.md)
-and [unreleased offline example](https://github.com/YumchaLabs/siumai/blob/main/siumai/examples/self_hosted_http.rs).
+and [offline example](https://github.com/YumchaLabs/siumai/blob/main/siumai/examples/self_hosted_http.rs).
 
 ## Provider features and construction
 
@@ -302,7 +302,7 @@ interceptors, or environment proxy discovery.
   and provider-native Files, Message Batches, and model cache prewarming.
 - `examples/trusted_connect_route.rs` — explicit transport-route configuration without credentials
   or network I/O.
-- `examples/self_hosted_http.rs` — unreleased trusted-custom HTTP construction without credentials
+- `examples/self_hosted_http.rs` — trusted-custom HTTP construction without credentials
   or a running server.
 
 All flagship and switching examples use synthetic credentials and remain offline: they construct

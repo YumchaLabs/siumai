@@ -23,8 +23,7 @@ concrete owners. Registry and runtime are optional integrations, not hidden part
 
 ## Install
 
-Unless marked unreleased, the examples in this README use the typed facade shipped in
-`0.11.0-beta.11`.
+The examples in this README target `0.11.0-beta.12`.
 Users staying on `0.11.0-beta.10` should follow the old side of the
 [migration map](docs/migration/siumai-next.md#facade-convergence-after-0110-beta10).
 
@@ -32,12 +31,12 @@ Enable only the provider and integration features that the application uses:
 
 ```toml
 [dependencies]
-siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["openai"] }
+siumai = { version = "=0.11.0-beta.12", default-features = false, features = ["openai"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-For unreleased changes, use a Git dependency pinned to a revision. The published
-`0.11.0-beta.10` crate does not contain the typed hub documented below.
+The typed provider hub was introduced in `0.11.0-beta.11`; the published
+`0.11.0-beta.10` crate does not contain it.
 
 The facade's default features are `registry` and `runtime`; no provider is enabled by default. Add
 `registry` or `runtime` explicitly when using `default-features = false`.
@@ -105,16 +104,16 @@ Provider features describe the exact retained slice, not every product sold unde
 
 See the [provider support policy](docs/providers/support-policy.md) for fidelity, stability, and
 host-control-plane boundaries. Model identifiers remain open; constants are dated hints rather
-than allowlists. The [unreleased model advisory refresh](docs/providers/model-advisories.md)
-records newer hints and lifecycle corrections separately from the published beta's API.
+than allowlists. The [beta.12 model advisory refresh](docs/providers/model-advisories.md)
+records dated hints and lifecycle corrections without expanding protocol support claims.
 
 Each row is a `claimed slice complete` inventory for this release, not a `provider platform
 complete` claim. Surfaces outside a row's exact scope are `intentionally deferred` and remain
 available for future provider-owned additions without widening the portable core.
 
-## Custom HTTP endpoints (unreleased)
+## Custom HTTP endpoints
 
-Enable `openai-compatible` explicitly; it is not included in `all-providers`. The unreleased
+Enable `openai-compatible` explicitly; it is not included in `all-providers`. The
 `OpenAiCompatibleProfile::custom(provider, base_url, replay_domain, mode)` accepts HTTP or HTTPS
 for a developer-trusted origin, whether it is public, LAN, or loopback. No network classification
 or separate facade switch is needed. Pass the profile through `.openai_compatible().profile(...)`
@@ -122,8 +121,8 @@ and choose `.unauthenticated()` or `.api_key(...)` as the service requires. Prov
 non-secret replay domain, model ID, and API mode remain explicit; a custom URL never implies an
 official provider claim.
 
-These new convenience APIs are not in `0.11.0-beta.11`; use this checkout or a pinned Git revision
-containing them. Never use unchecked tenant or user URLs as trusted configuration. Prefer HTTPS:
+These convenience APIs are available starting with `0.11.0-beta.12`. Never use unchecked tenant
+or user URLs as trusted configuration. Prefer HTTPS:
 HTTP sends prompts, responses, and credentials in cleartext. Resource downloads and CONNECT
 proxy routing do not inherit this trust, and their restrictions remain unchanged.
 
@@ -132,7 +131,7 @@ with an explicit private-network grant for LAN, and
 `.credential(OpenAiCompatibleCredential::unauthenticated())` when no key is needed. Those strict
 paths are unchanged; `public_custom(...)` still requires HTTPS and public addresses. See the
 [endpoint guide](docs/providers/openai-compatible.md) for complete examples and the compatibility
-section, or run the [unreleased offline example](siumai/examples/self_hosted_http.rs).
+section, or run the [offline example](siumai/examples/self_hosted_http.rs).
 
 ## Provider HTTP transport settings and trusted CONNECT
 
@@ -182,8 +181,7 @@ Realtime, and provider-returned external downloads remain Direct-only.
 
 ## Verified facade journeys
 
-The checkout contains six compile-checked, offline examples, including the unreleased custom
-endpoint example:
+The checkout contains six compile-checked, offline examples, including the custom endpoint example:
 
 - [`openai_flagship.rs`](siumai/examples/openai_flagship.rs) combines typed Responses options and
   prompt-cache intent, complete portable response inspection, Files/Responses resources, and a
@@ -197,7 +195,7 @@ endpoint example:
   Registry-resolved switching separate and makes the one-way erasure boundary explicit;
 - [`trusted_connect_route.rs`](siumai/examples/trusted_connect_route.rs) constructs the trusted
   route and compiles a provider settings handoff without credentials or network I/O;
-- [`self_hosted_http.rs`](siumai/examples/self_hosted_http.rs) uses the unreleased `custom` API
+- [`self_hosted_http.rs`](siumai/examples/self_hosted_http.rs) uses the `custom` API
   to build a loopback HTTP compatible provider and model handle without credentials or a server.
 
 Compile or execute them independently with only their documented feature set:

@@ -227,7 +227,7 @@ explicitly and pin the package version for reproducible builds:
 
 ```toml
 [dependencies]
-siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["minimax"] }
+siumai = { version = "=0.11.0-beta.12", default-features = false, features = ["minimax"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
@@ -238,10 +238,10 @@ provider but does not enable Realtime:
 
 ```toml
 [dependencies]
-siumai = { version = "=0.11.0-beta.11", default-features = false, features = ["openai-responses-websocket"] }
+siumai = { version = "=0.11.0-beta.12", default-features = false, features = ["openai-responses-websocket"] }
 ```
 
-## Trusted custom provider origins (unreleased)
+## Trusted custom provider origins (beta.12)
 
 Trusted self-hosted HTTP services no longer require choosing an IP-range category. Use
 `EndpointConfig::custom(url)` when supplying an endpoint to a provider builder, or
@@ -250,7 +250,7 @@ service. Both explicitly trust the configured origin on any network; HTTP/HTTPS 
 from the URL. Custom profiles remain generic and require the caller's explicit replay identity and
 API mode. The facade also offers `.unauthenticated()` when the service needs no credentials.
 
-This is additive and not available in the published `0.11.0-beta.11` artifact. Existing
+This additive API is available starting with `0.11.0-beta.12`. Existing
 `public_custom`, `local_explicit`, and exact private/link-local/shared-address grants keep their
 behavior and remain appropriate when the host requires destination restrictions. They are not
 silently migrated or weakened. CONNECT routing still requires a public-HTTPS enforcing endpoint
