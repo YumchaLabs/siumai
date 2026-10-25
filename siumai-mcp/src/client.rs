@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use rmcp::ClientHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ClientInfo, JsonObject, NumberOrString,
+    CallToolRequestParams, CallToolResult, ClientConfig, JsonObject, NumberOrString,
     PaginatedRequestParams, ProgressNotificationParam, ProgressToken, RequestMetaObject, Tool,
 };
 use rmcp::service::{Peer, QuitReason, RoleClient, RunningService, ServiceExt};
@@ -47,10 +47,14 @@ impl std::fmt::Debug for McpProgress {
 #[derive(Default)]
 struct SessionState {
     closed: AtomicBool,
-    stale: AtomicBool,
-    epoch: AtomicU64,
-    active_catalog: RwLock<Option<McpCatalogFingerprint>>,
+    catalog: RwLock<CatalogState>,
     progress_tx: RwLock<Option<broadcast::Sender<McpProgress>>>,
+}
+
+#[derive(Default)]
+struct CatalogState {
+    epoch: u64,
+    active: Option<McpCatalogFingerprint>,
 }
 
 impl SessionState {
@@ -63,8 +67,15 @@ impl SessionState {
     }
 
     fn mark_catalog_changed(&self) {
-        self.epoch.fetch_add(1, Ordering::AcqRel);
-        self.stale.store(true, Ordering::Release);
+        let mut catalog = self.catalog.write().expect("state lock is not poisoned");
+        catalog.epoch = catalog.epoch.wrapping_add(1);
+        catalog.active = None;
+    }
+
+    fn begin_discovery(&self) -> u64 {
+        let mut catalog = self.catalog.write().expect("state lock is not poisoned");
+        catalog.active = None;
+        catalog.epoch
     }
 
     fn mark_progress(&self, params: ProgressNotificationParam) {
@@ -90,25 +101,31 @@ impl SessionState {
         epoch: u64,
         fingerprint: McpCatalogFingerprint,
     ) -> Result<(), McpError> {
-        if self.epoch.load(Ordering::Acquire) != epoch {
+        let mut catalog = self.catalog.write().expect("state lock is not poisoned");
+        if catalog.epoch != epoch {
             return Err(McpError::CatalogStale);
         }
-        *self
-            .active_catalog
-            .write()
-            .expect("state lock is not poisoned") = Some(fingerprint);
-        self.stale.store(false, Ordering::Release);
+        catalog.active = Some(fingerprint);
         Ok(())
     }
 
-    fn catalog_matches(&self, expected: &McpCatalogFingerprint) -> bool {
-        !self.stale.load(Ordering::Acquire)
-            && self
-                .active_catalog
-                .read()
-                .expect("state lock is not poisoned")
-                .as_ref()
-                .is_some_and(|actual| actual == expected)
+    fn admit_catalog(&self, expected: &McpCatalogFingerprint) -> bool {
+        // Admission and invalidation share one ordering. Admitted calls may
+        // finish, but never hold the catalog lock while awaiting the peer.
+        self.catalog
+            .read()
+            .expect("state lock is not poisoned")
+            .active
+            .as_ref()
+            .is_some_and(|actual| actual == expected)
+    }
+
+    fn catalog_is_stale(&self) -> bool {
+        self.catalog
+            .read()
+            .expect("state lock is not poisoned")
+            .active
+            .is_none()
     }
 }
 
@@ -130,8 +147,8 @@ impl ClientHandler for McpClientHandler {
         self.state.mark_progress(params);
     }
 
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
+    fn get_info(&self) -> ClientConfig {
+        ClientConfig::default()
     }
 }
 
@@ -304,11 +321,12 @@ impl McpClient {
 
     /// Discover a bounded, immutable tool catalog. A list-changed notification
     /// invalidates all previously returned bindings until this method succeeds.
+    /// Calls admitted before invalidation may finish; notifications do not wait
+    /// for those calls and no catalog lock is held across network I/O.
     pub async fn discover_tools(&self) -> Result<McpToolCatalog, McpError> {
         let _discovery = self.inner.discovery.lock().await;
         self.ensure_usable()?;
-        self.inner.state.stale.store(true, Ordering::Release);
-        let start_epoch = self.inner.state.epoch.load(Ordering::Acquire);
+        let start_epoch = self.inner.state.begin_discovery();
         let mut cursor = None;
         let mut seen_cursors = BTreeSet::new();
         let mut tools = Vec::new();
@@ -340,9 +358,6 @@ impl McpClient {
                 });
             }
         }
-        if self.inner.state.epoch.load(Ordering::Acquire) != start_epoch {
-            return Err(McpError::CatalogStale);
-        }
         let catalog = McpToolCatalog::from_remote(self, tools)?;
         self.inner
             .state
@@ -364,7 +379,7 @@ impl McpClient {
     }
 
     pub fn catalog_is_stale(&self) -> bool {
-        self.inner.state.stale.load(Ordering::Acquire)
+        self.inner.state.catalog_is_stale()
     }
 
     /// Close the owned MCP service and wait at most the configured deadline.
@@ -422,14 +437,6 @@ impl McpClient {
                 EffectCertainty::KnownNotApplied,
             )
         })?;
-        if !self.inner.state.catalog_matches(expected_catalog) {
-            return Err(ToolExecutionError::executor_failed(
-                remote_name,
-                McpError::CatalogFingerprintMismatch.to_string(),
-                false,
-                EffectCertainty::KnownNotApplied,
-            ));
-        }
         let arguments = arguments.as_object().cloned().ok_or_else(|| {
             ToolExecutionError::executor_failed(
                 remote_name,
@@ -438,6 +445,14 @@ impl McpClient {
                 EffectCertainty::KnownNotApplied,
             )
         })?;
+        if !self.inner.state.admit_catalog(expected_catalog) {
+            return Err(ToolExecutionError::executor_failed(
+                remote_name,
+                McpError::CatalogFingerprintMismatch.to_string(),
+                false,
+                EffectCertainty::KnownNotApplied,
+            ));
+        }
         let result = self
             .inner
             .backend
@@ -568,6 +583,8 @@ mod tests {
         results: StdMutex<VecDeque<Result<CallToolResult, Error>>>,
         calls: StdMutex<Vec<String>>,
         closed: AtomicBool,
+        call_started: tokio::sync::Notify,
+        call_gate: Option<Arc<tokio::sync::Notify>>,
     }
 
     impl MockBackend {
@@ -577,6 +594,8 @@ mod tests {
                 results: StdMutex::new(VecDeque::new()),
                 calls: StdMutex::new(Vec::new()),
                 closed: AtomicBool::new(false),
+                call_started: tokio::sync::Notify::new(),
+                call_gate: None,
             }
         }
 
@@ -620,6 +639,10 @@ mod tests {
                 .lock()
                 .expect("test lock is not poisoned")
                 .push(name.to_string());
+            self.call_started.notify_one();
+            if let Some(gate) = &self.call_gate {
+                gate.notified().await;
+            }
             self.results
                 .lock()
                 .expect("test lock is not poisoned")
@@ -716,6 +739,65 @@ mod tests {
 
         assert_eq!(error.effect_certainty(), EffectCertainty::KnownNotApplied);
         assert!(backend.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_changed_does_not_wait_for_an_admitted_remote_call() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let mut backend = MockBackend::new([page(vec![tool("lookup")], None)]);
+        backend.call_gate = Some(gate.clone());
+        let backend = Arc::new(backend);
+        let client = client(McpClientConfig::default(), backend.clone());
+        let catalog = client.discover_tools().await.unwrap();
+        let running = {
+            let client = client.clone();
+            let fingerprint = catalog.fingerprint().clone();
+            tokio::spawn(async move {
+                client
+                    .execute_bound_tool("lookup", &json!({}), &fingerprint, "call-1")
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), backend.call_started.notified())
+            .await
+            .unwrap();
+
+        let handler = McpClientHandler {
+            state: client.inner.state.clone(),
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            handler.state.mark_catalog_changed();
+        })
+        .await
+        .unwrap();
+        assert!(client.catalog_is_stale());
+        let error = client
+            .execute_bound_tool("lookup", &json!({}), catalog.fingerprint(), "call-2")
+            .await
+            .unwrap_err();
+        assert_eq!(error.effect_certainty(), EffectCertainty::KnownNotApplied);
+        assert_eq!(backend.calls.lock().unwrap().len(), 1);
+
+        gate.notify_one();
+        assert!(running.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn discovery_cannot_install_a_catalog_invalidated_before_publication() {
+        let backend = Arc::new(MockBackend::new([page(vec![tool("lookup")], None)]));
+        let client = client(McpClientConfig::default(), backend);
+        let catalog = client.discover_tools().await.unwrap();
+        let epoch = client.inner.state.begin_discovery();
+        client.inner.state.mark_catalog_changed();
+
+        assert!(matches!(
+            client
+                .inner
+                .state
+                .install_catalog(epoch, catalog.fingerprint().clone()),
+            Err(McpError::CatalogStale)
+        ));
+        assert!(client.catalog_is_stale());
     }
 
     #[tokio::test]

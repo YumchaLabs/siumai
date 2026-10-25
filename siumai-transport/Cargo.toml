@@ -37,4 +37,4 @@ uuid.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-tokio-rustls = { version = "0.26", default-features = false }
+tokio-rustls.workspace = true
