@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Fixed
+
+- Inherit empty signed-thinking support from the shared Anthropic codec and update transport dependencies for beta.12.
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-anthropic-compatible-v0.11.0-beta.10...siumai-anthropic-compatible-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

@@ -4,7 +4,7 @@ use siumai::providers::openai_compatible::{
 use siumai::{ReplayDomainId, Siumai};
 
 fn local_provider() -> Result<Siumai<OpenAiCompatibleProvider>, Box<dyn std::error::Error>> {
-    // Unreleased: trust this developer-controlled origin, not unchecked user URLs.
+    // Trust this developer-controlled origin, not unchecked user URLs.
     // Prefer HTTPS when available; HTTP sends all request and response data in cleartext.
     let profile = OpenAiCompatibleProfile::custom(
         siumai::ProviderId::new("self-hosted")?,

@@ -2,12 +2,11 @@
 
 - Model evidence checked: 2026-10-25
 - Scope: dated completion hints and lifecycle advice, not a provider capability refresh
-- Release status: unreleased repository changes after `0.11.0-beta.11`
+- Introduced in: `0.11.0-beta.12`
 
-The new constants below are not part of the published `0.11.0-beta.11` artifact. Until the next
-release, use this checkout or a pinned Git revision for these additions. The
-[self-hosted HTTP guide](openai-compatible.md) separately identifies the new trusted-origin API and
-its compatibility examples for the published `0.11.0-beta.11` artifact.
+The constants below are available in `0.11.0-beta.12`. The
+[self-hosted HTTP guide](openai-compatible.md) documents the trusted-origin API introduced in the
+same release and retains compatibility examples for `0.11.0-beta.11`.
 
 Model identifiers remain open. Catalog entries describe basic family operations, not every
 provider option or hosted tool. A new constant does not enable a feature, change the selected API

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Added
+
+- Add `EndpointConfig::custom` and `EndpointPolicy::TrustedCustom` for explicitly trusted HTTP(S) provider origins. Preserve separate resource/proxy authorization, exact credential audiences, request confinement, redirect rejection, retries, and bounds.
+
+### Fixed
+
+- Reject ambiguous request targets, enforce configured base paths, and resolve relative call deadlines at the transport boundary.
+- Update shared HTTP, TLS, and async-runtime dependency selections to patched releases. Experimental WebSocket dependency logging and split socket limitations remain documented in the repository release notes.
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.10...siumai-transport-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

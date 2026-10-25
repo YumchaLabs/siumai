@@ -1,11 +1,11 @@
 # OpenAI-compatible endpoints
 
-## Trusted provider configuration (unreleased)
+## Trusted provider configuration (beta.12)
 
 `OpenAiCompatibleProfile::custom(...)` and the facade's `.unauthenticated()` convenience method
-are unreleased repository APIs, not part of the published `0.11.0-beta.11` package. To use them,
-use this checkout or a Git dependency pinned to a revision containing these changes. Enable the
-`openai-compatible` facade feature explicitly; `all-providers` does not include it.
+are available starting with `0.11.0-beta.12`. Enable the `openai-compatible` facade feature
+explicitly; `all-providers` does not include it. For `0.11.0-beta.11`, use the compatibility
+example below.
 
 Use `custom` for a developer-controlled or independently validated provider origin. It accepts
 HTTP or HTTPS without requiring the caller to classify its network addresses: public HTTP
@@ -115,13 +115,13 @@ let _client = ai.language("your-served-model")?;
 `custom_endpoint` with `EndpointConfig::private_network_explicit` and an explicit
 `ReplayDomain::custom(...)`. Other local grants remain separate and exact. `public_custom`
 continues to require HTTPS and public addresses; it does not accept public HTTP. These strict
-paths remain available unchanged in the unreleased code as restrictive alternatives to `custom`.
+paths remain available unchanged in beta.12 as restrictive alternatives to `custom`.
 For strict paths, `SchemeNotAllowed` and `AddressNotAllowed` still report violations of the
 selected policy; neither is a reason to trust unchecked input through the new constructor.
 
 ## Offline verification
 
-The [unreleased offline example](../../siumai/examples/self_hosted_http.rs) uses `custom` to
+The [offline example](../../siumai/examples/self_hosted_http.rs) uses `custom` to
 construct the complete facade without connecting to a server:
 
 ```text

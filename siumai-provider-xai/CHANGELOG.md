@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Changed
+
+- Update shared workspace dependencies for beta.12, including patched transport dependency selections; no new provider API or model advisory is introduced in this crate.
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-provider-xai-v0.11.0-beta.10...siumai-provider-xai-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

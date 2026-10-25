@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Changed
+
+- Add `MiniMax-M3.1-Flash` hints and basic advisories for the existing language modes without claiming new effort controls or service-tier combinations.
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-provider-minimax-v0.11.0-beta.10...siumai-provider-minimax-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

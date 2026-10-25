@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Changed
+
+- Refresh dated OpenAI model hints and lifecycle advice without restricting future model IDs or expanding verified option capabilities.
+
+### Fixed
+
+- Inherit Responses tool-settlement and Chat Completions refusal fixes from the shared codec.
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-provider-openai-v0.11.0-beta.10...siumai-provider-openai-v0.11.0-beta.11) - 2026-10-13
 
 ### Added
