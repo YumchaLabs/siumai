@@ -2053,7 +2053,7 @@ checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siumai"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "futures",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-anthropic-compatible"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-core"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-mcp"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2147,7 +2147,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-openai-compatible"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-anthropic"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "base64 0.23.1",
  "secrecy",
@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-gemini"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-protocol-openai"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -2204,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-alibaba"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-anthropic"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2248,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-cohere"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-deepgram"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-deepseek"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2305,7 +2305,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-elevenlabs"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2322,7 +2322,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-gemini"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2345,7 +2345,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-google-vertex"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2365,7 +2365,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-groq"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2385,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-minimax"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-moonshotai"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2428,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-openai"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2452,7 +2452,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-volcengine"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-provider-xai"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-registry"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "siumai-core",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-runtime"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-server"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "siumai-transport"
-version = "0.11.0-beta.11"
+version = "0.11.0-beta.12"
 dependencies = [
  "async-trait",
  "base64 0.23.1",

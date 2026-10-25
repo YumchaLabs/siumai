@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.11...siumai-mcp-v0.11.0-beta.12) - 2026-10-25
+
+### Fixed
+
+- *(mcp)* order catalog admission and update patched dependencies
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-mcp-v0.11.0-beta.10...siumai-mcp-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

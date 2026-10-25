@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.11...siumai-transport-v0.11.0-beta.12) - 2026-10-25
+
+### Added
+
+- *(transport)* support explicitly trusted custom HTTP origins
+
+### Fixed
+
+- *(providers)* refresh model advice and preserve stream contracts
+- *(mcp)* order catalog admission and update patched dependencies
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-transport-v0.11.0-beta.10...siumai-transport-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/siumai-provider-moonshotai-v0.11.0-beta.11...siumai-provider-moonshotai-v0.11.0-beta.12) - 2026-10-25
+
+### Fixed
+
+- *(providers)* refresh model advice and preserve stream contracts
+
 ## [0.11.0-beta.11](https://github.com/YumchaLabs/siumai/compare/siumai-provider-moonshotai-v0.11.0-beta.10...siumai-provider-moonshotai-v0.11.0-beta.11) - 2026-10-13
 
 ### Added

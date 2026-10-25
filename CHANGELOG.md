@@ -4,6 +4,16 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+## [0.11.0-beta.12](https://github.com/YumchaLabs/siumai/compare/v0.11.0-beta.11...v0.11.0-beta.12) - 2026-10-25
+
+### Added
+
+- *(transport)* support explicitly trusted custom HTTP origins
+
+### Fixed
+
+- *(providers)* refresh model advice and preserve stream contracts
+
 ### Added
 
 - *(transport/facade)* add trusted custom HTTP origins for explicitly configured self-hosted and compatible model services, including public HTTP and private-network endpoints ([#33](https://github.com/YumchaLabs/siumai/issues/33), reported by @longzou).
